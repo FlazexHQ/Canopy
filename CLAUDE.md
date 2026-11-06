@@ -5,9 +5,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 Canopy (working name) is an open source, self hostable backend platform for MongoDB, "Supabase for MongoDB".
-The repository is in **Phase 1 (DLS core and Canopy Realtime, v0.1)**. Packages: `protocol`, `matcher`, `query`,
-`policy` (universal), `realtime` (engine plus the `canopy-realtime` sidecar), `client`, `react`, `cli` and the private
-`testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar),
+Phase 1 (DLS core and Canopy Realtime, v0.1) is done and the repository is in **Phase 2 (Data API and optimistic
+SDK, v0.2)**. Packages: `protocol`, `matcher`, `query`, `policy` (universal), `auth` (API keys and JWKS tokens),
+`rest` (the transactional write path, with the REST endpoints to follow), `realtime` (engine plus the
+`canopy-realtime` sidecar), `client`, `react`, `cli` and the private `testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar),
 and the sidecar quickstart is `packages/realtime/README.md`. The only branch is
 **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers and Changesets.
 `docs/` is the source of truth for the design:
@@ -85,14 +86,15 @@ bun run db:up                              # single node replica set from deploy
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
 bun --filter @canopy/matcher test          # one package
+bun --filter @canopy/rest bench            # write path cost benchmark against the dev replica set
 bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
 CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test:all   # include MongoDB suites
 ```
 
 `bun run dev` (replica set plus server watch plus Studio) arrives with the server. Integration and differential
 tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
-by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS` and
-`CANOPY_SIM_SEEDS` scale the differential and simulation runs. CI (`.github/workflows/ci.yml`) runs Biome,
+by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
+`CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
 `tsc -b` and Vitest on Bun and on Node 24 and 26, and the full suite against replica sets on MongoDB 7.0 and 8.0;
 `nightly.yml` runs the long differential and simulation runs. Actions are pinned to commit SHAs.
 

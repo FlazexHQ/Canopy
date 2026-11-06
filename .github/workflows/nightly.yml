@@ -40,5 +40,9 @@ jobs:
         run: bun --bun vitest run --project matcher --project policy
       - name: Realtime simulation (10k seeds)
         run: bun --bun vitest run --project realtime -t "seeded simulation" --testTimeout 14400000
+      - name: Echo correlation between writes and change events (100k mutations)
+        run: bun --bun vitest run --project rest -t "echo correlation" --testTimeout 14400000
+        env:
+          CANOPY_ECHO_MUTATIONS: "100000"
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
