@@ -11,5 +11,5 @@
     "tsBuildInfoFile": "../node_modules/.cache/test-types/.tsbuildinfo"
   },
   "include": ["."],
-  "references": [{ "path": ".." }, { "path": "../../testing" }]
+  "references": [{ "path": ".." }, { "path": "../../testing" }, { "path": "../../rest" }]
 }

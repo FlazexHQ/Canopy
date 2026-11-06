@@ -189,6 +189,7 @@
         "ws": "catalog:",
       },
       "devDependencies": {
+        "@canopy/rest": "workspace:*",
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
         "@types/ws": "catalog:",

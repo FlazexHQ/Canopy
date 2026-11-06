@@ -204,6 +204,15 @@ export class RealtimeMetrics {
   )
   readonly resyncs: Counter = new Counter("canopy_realtime_resyncs_total", "Resync messages sent")
   readonly denials: Counter = new Counter("canopy_policy_denials_total", "DLS denials")
+  readonly mutations: Counter = new Counter(
+    "canopy_realtime_mutations_total",
+    "Mutations over the socket, by how they were acknowledged",
+  )
+  readonly mutationSeconds: Histogram = new Histogram(
+    "canopy_realtime_mutation_seconds",
+    "Mutation received to ack enqueued",
+    LATENCY,
+  )
   readonly variableErrors: Counter = new Counter(
     "canopy_policy_variable_errors_total",
     "Policy variables that failed to resolve",
@@ -222,6 +231,8 @@ export class RealtimeMetrics {
       this.matchEvaluations,
       this.lazyLookups,
       this.fanoutLatency,
+      this.mutations,
+      this.mutationSeconds,
       this.messages,
       this.bytes,
       this.snapshotSeconds,

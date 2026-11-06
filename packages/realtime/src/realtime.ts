@@ -26,6 +26,7 @@ import {
   ErrorCode,
   encodeMessage,
   type HelloMessage,
+  type MutMessage,
   PROTOCOL_VERSION,
   type SubMessage,
   toCanopyError,
@@ -33,6 +34,7 @@ import {
 } from "@canopy/protocol"
 import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
 import type { MongoClient } from "mongodb"
+import { EchoWaiter } from "./echo.ts"
 import type { ControlEvent, Doc, NormalizedEvent } from "./event.ts"
 import {
   type CheckpointStore,
@@ -43,6 +45,7 @@ import {
 } from "./ingestor.ts"
 import { type Logger, redacting, silentLogger } from "./logger.ts"
 import { RealtimeMetrics } from "./metrics.ts"
+import { isBulk, type MutationExecutor, mutationRequest } from "./mutations.ts"
 import {
   FilterObserver,
   type ObservedQuery,
@@ -72,6 +75,8 @@ export interface RealtimeLimits {
   readonly softQueueBytes: number
   readonly hardQueueBytes: number
   readonly snapshotConcurrency: number
+  /** Mutations a connection may have queued or running before further ones are refused. */
+  readonly maxPendingMutations: number
 }
 
 /** The default limits. */
@@ -85,6 +90,7 @@ export const DEFAULT_REALTIME_LIMITS: RealtimeLimits = {
   softQueueBytes: 4 * 1024 * 1024,
   hardQueueBytes: 16 * 1024 * 1024,
   snapshotConcurrency: 32,
+  maxPendingMutations: 64,
 }
 
 /** Where policies come from. */
@@ -119,6 +125,13 @@ export interface RealtimeOptions {
   readonly timePolicyRefreshMs?: number
   /** Grace period after a token expires, for the client to send `auth`. Defaults to 30 s. */
   readonly expiryGraceMs?: number
+  /**
+   * Runs `mut` frames, usually the `WritePath` of `@canopy/rest`. Without it, mutations over the socket
+   * are refused with `CANOPY_UNAVAILABLE`.
+   */
+  readonly mutations?: MutationExecutor
+  /** How long an `ack` waits for its echo before it is sent with post images instead. Defaults to 2 s. */
+  readonly echoTimeoutMs?: number
 }
 
 /** A connection from any transport. */
@@ -143,6 +156,8 @@ interface SessionState {
   graceTimer: ReturnType<typeof setTimeout> | undefined
   dropTimer: ReturnType<typeof setTimeout> | undefined
   socket: RealtimeSocket | undefined
+  mutations: Promise<void>
+  pendingMutations: number
 }
 
 function randomId(): string {
@@ -189,6 +204,7 @@ export class Realtime {
   private readonly subjects = new Map<string, number>()
   private readonly lingering = new Map<Observer, ReturnType<typeof setTimeout>>()
   private readonly ingestor: Ingestor
+  private readonly echoes = new EchoWaiter()
   private readonly source: PolicySource
   private stopWatching: (() => void) | undefined
   private timeTimer: ReturnType<typeof setInterval> | undefined
@@ -240,6 +256,7 @@ export class Realtime {
         onRestart: (reason) => this.resyncAll(reason),
         onProgress: (ct) => {
           for (const observer of this.registry.all()) observer.advance(ct)
+          this.echoes.advance(ct)
         },
       },
     })
@@ -528,6 +545,8 @@ export class Realtime {
       graceTimer: undefined,
       dropTimer: undefined,
       socket,
+      mutations: Promise.resolve(),
+      pendingMutations: 0,
     }
     session.onSlowConsumer = () => {
       this.metrics.slowConsumers.inc()
@@ -592,15 +611,7 @@ export class Realtime {
         this.reauthenticate(state, message.token)
         return
       case "mut":
-        state.session.send({
-          t: "ack",
-          m: message.id,
-          ok: false,
-          err: {
-            code: ErrorCode.Unavailable,
-            msg: "Mutations over the socket are not available in this version",
-          },
-        })
+        this.enqueueMutation(state, message)
         return
       case "bye":
         this.destroySession(state)
@@ -610,6 +621,105 @@ export class Realtime {
         socket.close(CloseCode.ProtocolError, "duplicate hello")
         return
     }
+  }
+
+  /** Queues a mutation behind the connection's earlier ones, so they commit in arrival order. */
+  private enqueueMutation(state: SessionState, message: MutMessage): void {
+    const executor = this.options.mutations
+    const refuse = (code: ErrorCode, msg: string): void =>
+      state.session.send({ t: "ack", m: message.id, ok: false, err: { code, msg } })
+    if (executor === undefined) {
+      refuse(ErrorCode.Unavailable, "Mutations over the socket are not enabled on this server")
+      return
+    }
+    if (state.pendingMutations >= this.limits.maxPendingMutations) {
+      refuse(
+        ErrorCode.RateLimited,
+        `At most ${this.limits.maxPendingMutations} mutations may be pending per connection`,
+      )
+      return
+    }
+    state.pendingMutations += 1
+    state.mutations = state.mutations
+      .then(() => this.runMutation(state, executor, message))
+      .finally(() => {
+        state.pendingMutations -= 1
+      })
+  }
+
+  /**
+   * Commits one mutation and sends its `ack` after its echo: once the change events of the write were
+   * fanned out, the `ack` is enqueued behind them on this connection (`echo: true`). When that cannot be
+   * promised (a bulk write, a collection without realtime, a subscription that defers events to a later
+   * snapshot, a timeout, or a replay, whose events were sent with the original write) the `ack` carries
+   * the readable post images and `echo: false`.
+   */
+  private async runMutation(
+    state: SessionState,
+    executor: MutationExecutor,
+    message: MutMessage,
+  ): Promise<void> {
+    const started = performance.now()
+    try {
+      const principal = state.principal
+      const result = await executor.execute(
+        { context: principal.context, subject: principal.subject },
+        mutationRequest(message),
+        { mutationId: message.id },
+      )
+      let echo = false
+      if (!result.replayed && !isBulk(message.op) && this.watched.includes(message.c)) {
+        echo =
+          result.changedIds.length === 0 ||
+          (await this.echoes.wait(
+            message.c,
+            result.changedIds,
+            result.ct,
+            this.options.echoTimeoutMs ?? 2000,
+          ))
+        if (echo) echo = this.settledFor(state, message.c)
+      }
+      if (!this.sessions.has(state.session.sid)) return
+      const docs = echo
+        ? undefined
+        : result.documents?.filter((doc): doc is Record<string, unknown> => doc !== null)
+      state.session.send({
+        t: "ack",
+        m: message.id,
+        ok: true,
+        ct: result.ct,
+        echo,
+        res: {
+          matched: result.matched,
+          modified: result.modified,
+          ...(result.insertedIds.length === 0 ? {} : { insertedIds: result.insertedIds }),
+          ...(docs === undefined ? {} : { docs }),
+        },
+        replayed: result.replayed,
+      })
+      this.metrics.mutations.inc({
+        coll: message.c,
+        op: message.op,
+        result: echo ? "echo" : "docs",
+      })
+    } catch (error: unknown) {
+      const canopy = toCanopyError(error)
+      if (canopy.code === ErrorCode.Internal)
+        this.logger.error({ err: error, coll: message.c, op: message.op }, "mutation failed")
+      this.metrics.mutations.inc({ coll: message.c, op: message.op, result: "error" })
+      if (this.sessions.has(state.session.sid))
+        state.session.send({ t: "ack", m: message.id, ok: false, err: canopy.toWire() })
+    } finally {
+      this.metrics.mutationSeconds.observe((performance.now() - started) / 1000)
+    }
+  }
+
+  /** Whether every subscription of the connection on `coll` receives events as they are applied. */
+  private settledFor(state: SessionState, coll: string): boolean {
+    for (const sub of state.subs.values()) {
+      if (sub.coll === coll && !sub.observer.settled()) return false
+    }
+    return true
   }
 
   private reauthenticate(state: SessionState, token: string): void {
@@ -874,6 +984,7 @@ export class Realtime {
       last = event.ct
     }
     for (const observer of this.registry.all()) observer.advance(last)
+    this.echoes.processed(events)
   }
 
   private processControl(event: ControlEvent): void {
@@ -917,6 +1028,7 @@ export class Realtime {
     for (const observer of [...this.registry.all()]) this.destroyObserver(observer)
     this.stopWatching?.()
     if (this.timeTimer !== undefined) clearInterval(this.timeTimer)
+    this.echoes.close()
     await this.ingestor.stop()
   }
 

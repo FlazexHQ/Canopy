@@ -1,5 +1,6 @@
 export { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from "@canopy/auth"
 export { toCt } from "@canopy/protocol"
+export { EchoWaiter } from "./echo.ts"
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from "./event.ts"
 export {
   type CheckpointStore,
@@ -11,6 +12,13 @@ export {
 } from "./ingestor.ts"
 export { type Logger, redact, redacting, silentLogger } from "./logger.ts"
 export { Counter, Gauge, Histogram, RealtimeMetrics } from "./metrics.ts"
+export {
+  isBulk,
+  type MutationExecutor,
+  type MutationRequest,
+  type MutationResult,
+  mutationRequest,
+} from "./mutations.ts"
 export {
   FilterObserver,
   type ObservedQuery,

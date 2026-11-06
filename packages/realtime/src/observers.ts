@@ -107,6 +107,14 @@ export abstract class Observer {
     this.limits = limits
   }
 
+  /**
+   * Whether an event applied now reaches the listeners at once: the observer is live and not re-reading,
+   * so nothing is buffered or deferred to a later snapshot.
+   */
+  settled(): boolean {
+    return this.state === "live" && !this.refreshing && this.buffered.length === 0
+  }
+
   /** The number of attached subscriptions. */
   get size(): number {
     return this.listeners.size + this.waiting.size
@@ -481,6 +489,10 @@ export class WindowObserver extends Observer {
     this.emitDiff(before, event.ct)
   }
 
+  override settled(): boolean {
+    return super.settled() && this.requeryTimer === undefined
+  }
+
   private scheduleRequery(): void {
     if (this.requeryTimer !== undefined) return
     const wait = Math.max(0, this.lastRequery + this.limits.requeryIntervalMs - Date.now())
@@ -524,6 +536,10 @@ export class PollingObserver extends Observer {
   ) {
     super(key, query, reader, hooks, limits)
     this.interval = limits.pollMinMs
+  }
+
+  override settled(): boolean {
+    return false
   }
 
   has(key: string): boolean {
