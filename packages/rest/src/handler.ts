@@ -12,12 +12,13 @@ import type { MongoClient } from "mongodb"
 import {
   type CorsOptions,
   type Encoding,
+  type Exchange,
   jsonResponse,
   negotiate,
-  type Preferences,
   preferencesOf,
   preflight,
   problemResponse,
+  type Route,
   readBody,
   requestIdOf,
   withCors,
@@ -31,7 +32,8 @@ import {
 } from "./params.ts"
 import { DEFAULT_PROBLEM_TYPE_BASE, toProblem } from "./problem.ts"
 import { type FindRequest, type FindResult, type ReadLimits, ReadPath } from "./read-path.ts"
-import type { Caller } from "./write-path.ts"
+import { type WriteLimits, WritePath } from "./write-path.ts"
+import { writeRoutes } from "./write-routes.ts"
 
 /** Options for {@link createRestHandler}. */
 export interface RestHandlerOptions {
@@ -47,7 +49,12 @@ export interface RestHandlerOptions {
   /** How the `{id}` segment is read per collection. Collections without an entry use `auto`. */
   readonly idTypes?: Readonly<Record<string, IdType>>
   readonly readLimits?: Partial<ReadLimits>
+  readonly writeLimits?: Partial<WriteLimits>
   readonly queryLimits?: QueryLimits
+  /** The Canopy meta database, which holds idempotency records. Defaults to `canopy`. */
+  readonly metaDatabase?: string
+  /** How long idempotency records live. Defaults to 24 hours. */
+  readonly mutationTtlSeconds?: number
   /** The largest request body. Defaults to 1 MiB. */
   readonly maxBodyBytes?: number
   /** The prefix of Problem Details `type` URIs. Defaults to `urn:canopy:error:`. */
@@ -68,20 +75,11 @@ export interface RestHandler {
   fetch(request: Request): Promise<Response>
   /** The read path, for embedding without HTTP. */
   readonly reads: ReadPath
+  /** The write path, shared with realtime mutations when both are embedded. */
+  readonly writes: WritePath
 }
 
 const DEFAULT_BODY_BYTES = 1024 * 1024
-
-interface Exchange {
-  readonly request: Request
-  readonly url: URL
-  readonly segments: readonly string[]
-  readonly encoding: Encoding
-  readonly prefer: Preferences
-  readonly caller: Caller
-}
-
-type Route = (exchange: Exchange) => Promise<Response>
 
 /** Creates the REST handler of the Data API. */
 export function createRestHandler(options: RestHandlerOptions): RestHandler {
@@ -93,6 +91,17 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     ...(options.readLimits === undefined ? {} : { limits: options.readLimits }),
     ...(options.queryLimits === undefined ? {} : { queryLimits: options.queryLimits }),
   })
+  const writes = new WritePath({
+    client: options.client,
+    database: options.database,
+    policies: options.policies,
+    ...(options.metaDatabase === undefined ? {} : { metaDatabase: options.metaDatabase }),
+    ...(options.writeLimits === undefined ? {} : { limits: options.writeLimits }),
+    ...(options.queryLimits === undefined ? {} : { queryLimits: options.queryLimits }),
+    ...(options.mutationTtlSeconds === undefined
+      ? {}
+      : { mutationTtlSeconds: options.mutationTtlSeconds }),
+  })
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
   const typeBase = options.problemTypeBase ?? DEFAULT_PROBLEM_TYPE_BASE
   const idTypes = options.idTypes ?? {}
@@ -100,6 +109,15 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     maxLimit: reads.readLimits.maxLimit,
     maxSkip: reads.readLimits.maxSkip,
   }
+
+  const write = writeRoutes({
+    writes,
+    basePath,
+    idTypes,
+    maxBodyBytes,
+    problemTypeBase: typeBase,
+    requestId: (exchange) => exchange.requestId,
+  })
 
   const body = async (exchange: Exchange): Promise<unknown> =>
     (await readBody(exchange.request, maxBodyBytes))?.value
@@ -209,17 +227,24 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     const table: Readonly<Record<string, Route>> =
       segments.length === 0
         ? { GET: listCollections }
-        : segments.length === 1
-          ? { GET: find }
-          : segments.length === 2 && segments[1] === "_query"
-            ? { POST: query }
-            : segments.length === 2 && segments[1] === "_count"
-              ? { POST: count }
-              : segments.length === 2 && segments[1] === "_distinct"
-                ? { POST: distinct }
-                : segments.length === 2
-                  ? { GET: findOne }
-                  : {}
+        : segments.length === 1 && segments[0] === "_batch"
+          ? { POST: write.batch }
+          : segments.length === 1
+            ? { GET: find, POST: write.insert, PATCH: write.updateMany, DELETE: write.deleteMany }
+            : segments.length === 2 && segments[1] === "_query"
+              ? { POST: query }
+              : segments.length === 2 && segments[1] === "_count"
+                ? { POST: count }
+                : segments.length === 2 && segments[1] === "_distinct"
+                  ? { POST: distinct }
+                  : segments.length === 2
+                    ? {
+                        GET: findOne,
+                        PATCH: write.update,
+                        PUT: write.replace,
+                        DELETE: write.remove,
+                      }
+                    : {}
     const route = Object.hasOwn(table, method) ? table[method] : undefined
     return { ...(route === undefined ? {} : { route }), allow: Object.keys(table) }
   }
@@ -263,6 +288,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
         encoding,
         prefer: preferencesOf(request.headers),
         caller: { context: principal.context, subject: principal.subject },
+        requestId,
       })
     } catch (error: unknown) {
       const canopy = toCanopyError(error)
@@ -277,6 +303,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
 
   return {
     reads,
+    writes,
     async fetch(request: Request): Promise<Response> {
       const requestId = requestIdOf(request.headers)
       let response: Response

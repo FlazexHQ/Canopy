@@ -253,7 +253,10 @@ suite("WritePath against MongoDB", () => {
         ],
       })
       expect(ok.insertedIds).toEqual([1, 2])
-      expect(ok.documents).toBeUndefined()
+      expect(relaxed(ok.documents)).toEqual([
+        { _id: 1, ownerId: "alice" },
+        { _id: 2, ownerId: "alice" },
+      ])
     })
 
     it("caps insertMany", async () => {

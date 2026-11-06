@@ -24,6 +24,7 @@ export {
   readBody,
 } from "./http.ts"
 export { type IdType, parseId } from "./ids.ts"
+export { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"
 export { toNodeListener } from "./node.ts"
 export {
   type CountMode,
@@ -58,6 +59,8 @@ export {
   type ReadPathOptions,
 } from "./read-path.ts"
 export {
+  type BatchOperationResult,
+  type BatchResult,
   type Caller,
   DEFAULT_WRITE_LIMITS,
   type ReturnedDocument,

@@ -233,6 +233,8 @@ describe("parseId", () => {
     expect(parseId('{"$numberLong":"9007199254740993"}', "string")).toMatchObject({
       value: 9007199254740993n,
     })
+    expect(parseId('"6728f0c2a1b2c3d4e5f60718"')).toBe("6728f0c2a1b2c3d4e5f60718")
+    expect(invalid(() => parseId('"open'))).toMatch(/Extended JSON/)
     expect(invalid(() => parseId('{"a":1}'))).toMatch(/single value/)
     expect(invalid(() => parseId("{bad"))).toMatch(/Extended JSON/)
     expect(invalid(() => parseId(""))).toMatch(/empty/)

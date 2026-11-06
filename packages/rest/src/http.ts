@@ -9,6 +9,21 @@ import {
 } from "@canopy/protocol"
 import type { CountMode } from "./params.ts"
 import { PROBLEM_MEDIA_TYPE, type Problem } from "./problem.ts"
+import type { Caller } from "./write-path.ts"
+
+/** One request on its way through the router. */
+export interface Exchange {
+  readonly request: Request
+  readonly url: URL
+  readonly segments: readonly string[]
+  readonly encoding: Encoding
+  readonly prefer: Preferences
+  readonly caller: Caller
+  readonly requestId: string
+}
+
+/** Serves one routed request. */
+export type Route = (exchange: Exchange) => Promise<Response>
 
 /** How response values are encoded: relaxed EJSON (`application/json`) or canonical (`application/ejson`). */
 export type Encoding = "relaxed" | "canonical"
@@ -148,7 +163,7 @@ export interface CorsOptions {
 
 const ALLOWED_HEADERS =
   "apikey, authorization, content-type, accept, prefer, idempotency-key, x-request-id"
-const EXPOSED_HEADERS = "x-request-id, retry-after, location"
+const EXPOSED_HEADERS = "x-request-id, x-canopy-ct, retry-after, location"
 
 /** Returns the origin to echo, or `undefined` when the origin is not allowed. */
 export function allowedOrigin(cors: CorsOptions, origin: string | null): string | undefined {

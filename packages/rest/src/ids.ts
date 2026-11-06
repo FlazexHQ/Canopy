@@ -10,13 +10,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const NUMBER = /^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/
 
 /**
- * Reads an `_id` from a decoded path segment. A segment that starts with `{` is an EJSON value
- * (`{"$oid":"…"}`, `{"$numberLong":"…"}`) whatever the id type, so ambiguous ids can always be addressed.
+ * Reads an `_id` from a decoded path segment. A segment that starts with `{` or `"` is an EJSON value
+ * (`{"$oid":"…"}`, `{"$numberLong":"…"}`, `"6728…"` for a string that looks like an ObjectId) whatever the
+ * id type, so ambiguous ids can always be addressed.
  * Throws {@link InvalidQueryError} when the segment does not fit the id type.
  */
 export function parseId(segment: string, type: IdType = "auto"): unknown {
   if (segment === "") throw new InvalidQueryError("The id may not be empty")
-  if (segment.startsWith("{")) {
+  if (segment.startsWith("{") || segment.startsWith('"')) {
     let value: unknown
     try {
       value = parse(segment, { maxDepth: 4, maxNodes: 64 })

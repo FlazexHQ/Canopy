@@ -21,6 +21,7 @@ import {
   isDocument,
   PolicyViolationError,
   toBsonLibrary,
+  toCanopyError,
   toCt,
 } from "@canopy/protocol"
 import {
@@ -115,11 +116,21 @@ export interface WriteResult {
    */
   readonly changedIds: readonly unknown[]
   /**
-   * For single document writes and `insert`: the post image (the pre image for `delete`) projected by the
+   * For single document writes, `insert` and `insertMany`: the post image (the pre image for `delete`) projected by the
    * caller's read rules, or `null` when the caller cannot read it. Absent for bulk writes.
    */
   readonly documents?: readonly (ReturnedDocument | null)[]
   /** The cluster time of the commit, or for a replay a cluster time after it. */
+  readonly ct: ClusterTime
+  readonly replayed: boolean
+}
+
+/** The outcome of one operation of a batch. */
+export type BatchOperationResult = Omit<WriteResult, "ct" | "replayed">
+
+/** The outcome of a committed (or replayed) atomic batch. */
+export interface BatchResult {
+  readonly results: readonly BatchOperationResult[]
   readonly ct: ClusterTime
   readonly replayed: boolean
 }
@@ -134,6 +145,8 @@ export interface WriteLimits {
   readonly maxTimeMS: number
   /** Time after which a write that keeps hitting transient errors gives up. */
   readonly transactionTimeoutMS: number
+  /** Maximum operations in one atomic batch. */
+  readonly maxBatch: number
 }
 
 /** Default write limits. */
@@ -142,6 +155,7 @@ export const DEFAULT_WRITE_LIMITS: WriteLimits = {
   maxInsertMany: 1000,
   maxTimeMS: 10_000,
   transactionTimeoutMS: 30_000,
+  maxBatch: 100,
 }
 
 /** Options for {@link WritePath}. */
@@ -184,6 +198,13 @@ interface MutationRecord {
   op: string
   at: Date
   result?: Outcome
+  /** The outcomes of an atomic batch, in operation order. */
+  results?: Outcome[]
+}
+
+interface RecordKey {
+  readonly c: string
+  readonly op: string
 }
 
 class Replay extends Error {}
@@ -236,6 +257,11 @@ export class WritePath {
     this.ttlSeconds = options.mutationTtlSeconds ?? 86_400
   }
 
+  /** The write limits in force. */
+  get writeLimits(): WriteLimits {
+    return this.limits
+  }
+
   /** Creates the TTL index of the idempotency records. Runs once; writes call it on demand. */
   ensureIndexes(): Promise<void> {
     this.indexes ??= this.createIndexes().catch((error: unknown) => {
@@ -273,31 +299,85 @@ export class WritePath {
     request: WriteRequest,
     options: WriteOptions = {},
   ): Promise<WriteResult> {
-    const ctx = caller.context
-    const service = ctx.roles.has(Role.Service)
+    const service = caller.context.roles.has(Role.Service)
     abortCheck(options.signal)
-    const { mutationId } = options
-    if (mutationId !== undefined && !MUTATION_ID.test(mutationId))
-      throw new InvalidQueryError(
-        "A mutation ID must be 8 to 128 letters, digits, hyphens or underscores",
+    validateMutationId(options.mutationId)
+    const plan = this.plan(this.engine(), caller.context, request)
+    if (plan.fast && options.mutationId === undefined) return this.executeFast(plan.run, service)
+    const committed = await this.transact(
+      caller,
+      { c: request.collection, op: request.op },
+      [plan.run],
+      options,
+    )
+    const [outcome] = committed.outcomes
+    if (outcome === undefined) throw new CanopyError(ErrorCode.Internal, "The write has no outcome")
+    const { ct: _ignored, ...rest } = outcome
+    return { ...rest, ct: committed.ct, replayed: committed.replayed }
+  }
+
+  /**
+   * Commits several writes in one transaction: DLS and `check` apply to each, each sees the effects of
+   * the ones before it, and the first failure aborts all of them. A mutation ID covers the whole batch.
+   * Errors carry `details.index`, the position of the operation that failed.
+   */
+  async executeBatch(
+    caller: Caller,
+    requests: readonly WriteRequest[],
+    options: WriteOptions = {},
+  ): Promise<BatchResult> {
+    abortCheck(options.signal)
+    validateMutationId(options.mutationId)
+    if (requests.length === 0) throw new InvalidQueryError("A batch needs at least one operation")
+    if (requests.length > this.limits.maxBatch)
+      throw new CanopyError(
+        ErrorCode.BulkLimit,
+        `A batch may not have more than ${this.limits.maxBatch} operations`,
       )
-    const plan = this.plan(this.engine(), ctx, request)
-    if (plan.fast && mutationId === undefined) return this.executeFast(plan.run, service)
-    const run = plan.run
+    const engine = this.engine()
+    const runs = requests.map((request, index) => {
+      try {
+        return this.plan(engine, caller.context, request).run
+      } catch (error: unknown) {
+        throw atIndex(toCanopyError(error), index)
+      }
+    })
+    const committed = await this.transact(caller, { c: "", op: "batch" }, runs, options)
+    return {
+      results: committed.outcomes.map(({ ct: _ignored, ...rest }) => rest),
+      ct: committed.ct,
+      replayed: committed.replayed,
+    }
+  }
+
+  private async transact(
+    caller: Caller,
+    key: RecordKey,
+    runs: readonly Run[],
+    options: WriteOptions,
+  ): Promise<{ outcomes: readonly Outcome[]; ct: ClusterTime; replayed: boolean }> {
+    const service = caller.context.roles.has(Role.Service)
+    const { mutationId } = options
     await this.ensureIndexes()
     const deadline = Date.now() + this.limits.transactionTimeoutMS
     const session = this.client.startSession()
+    let failedAt: number | undefined
     try {
-      let outcome: Outcome
+      let outcomes: Outcome[]
       try {
-        outcome = await session.withTransaction(
+        outcomes = await session.withTransaction(
           async (s) => {
             abortCheck(options.signal)
             if (Date.now() > deadline)
               throw new CanopyError(ErrorCode.Timeout, "The write could not commit in time")
-            const result = await run(s)
-            if (mutationId !== undefined) await this.record(s, mutationId, caller, request, result)
-            return result
+            const results: Outcome[] = []
+            for (const [index, run] of runs.entries()) {
+              failedAt = index
+              results.push(await run(s))
+            }
+            failedAt = undefined
+            if (mutationId !== undefined) await this.record(s, mutationId, caller, key, results)
+            return results
           },
           {
             readConcern: { level: "snapshot" },
@@ -308,20 +388,21 @@ export class WritePath {
         )
       } catch (error: unknown) {
         if (mutationId !== undefined) {
-          const replayed = await this.replay(mutationId, caller, request)
-          if (replayed !== undefined) return replayed
+          const replayed = await this.replay(mutationId, caller, key)
+          if (replayed !== undefined) return { ...replayed, replayed: true }
           if (error instanceof Replay)
             throw new CanopyError(
               ErrorCode.Unavailable,
               "The mutation is being retried; send it again",
             )
         }
-        throw fromDriverError(error, service)
+        const canopy = fromDriverError(error, service)
+        throw key.op === "batch" && failedAt !== undefined ? atIndex(canopy, failedAt) : canopy
       }
       const ct = toCt(session.operationTime)
       if (ct === undefined)
         throw new CanopyError(ErrorCode.Internal, "The commit has no cluster time")
-      return { ...outcome, ct, replayed: false }
+      return { outcomes, ct, replayed: false }
     } finally {
       await session.endSession()
     }
@@ -350,18 +431,20 @@ export class WritePath {
     session: ClientSession,
     id: string,
     caller: Caller,
-    request: WriteRequest,
-    outcome: Outcome,
+    key: RecordKey,
+    outcomes: readonly Outcome[],
   ): Promise<void> {
-    const result =
-      (outcome.documents?.length ?? 0) > STORED_DOCUMENTS_MAX ? withoutDocuments(outcome) : outcome
+    const stored = outcomes.map((outcome) =>
+      (outcome.documents?.length ?? 0) > STORED_DOCUMENTS_MAX ? withoutDocuments(outcome) : outcome,
+    )
+    const [first] = stored
     const record: MutationRecord = {
       _id: id,
       sub: caller.subject,
-      c: request.collection,
-      op: request.op,
+      c: key.c,
+      op: key.op,
       at: new Date(),
-      result,
+      ...(key.op === "batch" ? { results: stored } : first === undefined ? {} : { result: first }),
     }
     try {
       await this.meta.collection<MutationRecord>("mutations").insertOne(record, { session })
@@ -371,12 +454,12 @@ export class WritePath {
     }
   }
 
-  /** Returns the stored result of a committed mutation, or `undefined` when there is none. */
+  /** Returns the stored outcomes of a committed mutation, or `undefined` when there is none. */
   private async replay(
     id: string,
     caller: Caller,
-    request: WriteRequest,
-  ): Promise<WriteResult | undefined> {
+    key: RecordKey,
+  ): Promise<{ outcomes: readonly Outcome[]; ct: ClusterTime } | undefined> {
     const session = this.client.startSession({ causalConsistency: true })
     try {
       const record = await this.meta
@@ -385,14 +468,20 @@ export class WritePath {
       if (record === null) return undefined
       if (record.sub !== caller.subject)
         throw new ConflictError("The mutation ID was used by another caller")
-      if (record.c !== request.collection || record.op !== request.op)
+      if (record.c !== key.c || record.op !== key.op)
         throw new ConflictError("The mutation ID was used for a different write")
-      if (record.result === undefined)
+      const stored =
+        key.op === "batch"
+          ? record.results
+          : record.result === undefined
+            ? undefined
+            : [record.result]
+      if (stored === undefined)
         throw new CanopyError(ErrorCode.Internal, "The idempotency record has no result")
       const ct = toCt(session.operationTime)
       if (ct === undefined)
         throw new CanopyError(ErrorCode.Internal, "The read has no cluster time")
-      return { ...normalizeOutcome(record.result), ct, replayed: true }
+      return { outcomes: stored.map(normalizeOutcome), ct }
     } finally {
       await session.endSession()
     }
@@ -459,7 +548,7 @@ export class WritePath {
       else await scope.coll.insertMany(prepared, { ...scope.writeOptions(session), ordered: true })
       const ct = scope.fastTime(session)
       const ids = prepared.map((doc) => doc["_id"])
-      const documents = await scope.verify(session, ids, check, "insert", single)
+      const documents = await scope.verify(session, ids, check, "insert", true)
       return {
         matched: 0,
         modified: 0,
@@ -850,6 +939,21 @@ class Scope {
 
 function toDriver(value: unknown): unknown {
   return toBsonLibrary(value, BSON)
+}
+
+function validateMutationId(mutationId: string | undefined): void {
+  if (mutationId !== undefined && !MUTATION_ID.test(mutationId))
+    throw new InvalidQueryError(
+      "A mutation ID must be 8 to 128 letters, digits, hyphens or underscores",
+    )
+}
+
+/** Adds the position of the failing operation of a batch to an error. */
+function atIndex(error: CanopyError, index: number): CanopyError {
+  return new CanopyError(error.code, `Operation ${index}: ${error.message}`, {
+    cause: error,
+    details: { ...error.details, index },
+  })
 }
 
 function abortCheck(signal: AbortSignal | undefined): void {
