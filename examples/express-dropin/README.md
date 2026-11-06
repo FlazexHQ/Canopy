@@ -88,7 +88,7 @@ bun run policies:test
 
 ```js
 exports.onExecutePostLogin = async (event, api) => {
-  api.accessToken.setCustomClaim('https://helpdesk.example/roles', event.authorization?.roles ?? [])
+  api.accessToken.setCustomClaim("https://helpdesk.example/roles", event.authorization?.roles ?? [])
 }
 ```
 

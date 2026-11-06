@@ -1,18 +1,18 @@
 /** The operations a policy can grant. */
-export type Operation = 'read' | 'insert' | 'update' | 'delete'
+export type Operation = "read" | "insert" | "update" | "delete"
 
 /** Every operation, in canonical order. */
-export const OPERATIONS: readonly Operation[] = ['read', 'insert', 'update', 'delete']
+export const OPERATIONS: readonly Operation[] = ["read", "insert", "update", "delete"]
 
 /** `permissive` policies are combined with OR, `restrictive` ones with AND. */
-export type PolicyKind = 'permissive' | 'restrictive'
+export type PolicyKind = "permissive" | "restrictive"
 
 /** Roles with a fixed meaning. `service` can never appear in a policy, because it bypasses DLS. */
 export const Role = {
-  Anon: 'anon',
-  Authenticated: 'authenticated',
-  Public: 'public',
-  Service: 'service',
+  Anon: "anon",
+  Authenticated: "authenticated",
+  Public: "public",
+  Service: "service",
 } as const
 
 /** A filter document as authored, possibly containing policy variables. */

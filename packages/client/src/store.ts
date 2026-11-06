@@ -1,5 +1,5 @@
-import { compileSort, type DocComparator } from '@canopy/matcher'
-import { type ClusterTime, canonicalString, compareCt, type Document } from '@canopy/protocol'
+import { compileSort, type DocComparator } from "@canopy/matcher"
+import { type ClusterTime, canonicalString, compareCt, type Document } from "@canopy/protocol"
 
 /** One cached document, reduced to the read path. */
 interface DocEntry {
@@ -16,7 +16,7 @@ export function cacheKey(coll: string, id: unknown): string {
 }
 
 /** The status of a live query. */
-export type QueryStatus = 'loading' | 'ready' | 'stale' | 'error'
+export type QueryStatus = "loading" | "ready" | "stale" | "error"
 
 /** What a live query exposes. `data` keeps object identity for unchanged documents. */
 export interface QueryState<T = Document> {
@@ -43,7 +43,7 @@ interface QueryEntry {
 /** The state of a query that has no data yet. One shared frozen value, so snapshots stay referentially stable. */
 export const LOADING_STATE: QueryState<never> = Object.freeze({
   data: Object.freeze([]),
-  status: 'loading',
+  status: "loading",
   error: undefined,
 })
 
@@ -59,10 +59,10 @@ export class Store {
       id,
       coll,
       compare: compileSort(sort ?? {}),
-      status: 'loading',
+      status: "loading",
       error: undefined,
       unconfirmed: undefined,
-      state: { data: [], status: 'loading', error: undefined },
+      state: { data: [], status: "loading", error: undefined },
       dirty: true,
     })
   }
@@ -138,7 +138,7 @@ export class Store {
     const key = cacheKey(coll, id)
     let entry = this.docs.get(key)
     if (entry === undefined) {
-      entry = { coll, id, doc: undefined, ct: '0', subs: new Set() }
+      entry = { coll, id, doc: undefined, ct: "0", subs: new Set() }
       this.docs.set(key, entry)
     }
     return entry
@@ -213,7 +213,7 @@ export class Store {
         if (entry.subs.size === 0) this.docs.delete(key)
       }
     }
-    query.status = 'ready'
+    query.status = "ready"
     query.error = undefined
     this.touch([id])
   }
@@ -228,7 +228,7 @@ export class Store {
     const unconfirmed = new Set<string>()
     for (const [key, entry] of this.docs) if (entry.subs.has(id)) unconfirmed.add(key)
     query.unconfirmed = unconfirmed
-    if (query.status === 'ready') query.status = 'stale'
+    if (query.status === "ready") query.status = "stale"
     this.touch([id])
   }
 
@@ -236,7 +236,7 @@ export class Store {
   fail(id: string, error: Error): void {
     const query = this.queries.get(id)
     if (query === undefined) return
-    query.status = 'error'
+    query.status = "error"
     query.error = error
     this.touch([id])
   }
@@ -244,8 +244,8 @@ export class Store {
   /** Marks every query stale, for example while the connection is down. */
   markStale(): void {
     for (const query of this.queries.values()) {
-      if (query.status === 'ready') {
-        query.status = 'stale'
+      if (query.status === "ready") {
+        query.status = "stale"
         query.dirty = true
       }
     }

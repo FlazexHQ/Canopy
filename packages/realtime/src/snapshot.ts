@@ -1,9 +1,9 @@
-import { withIdTieBreaker } from '@canopy/matcher'
-import { type ClusterTime, toBsonLibrary, toCt } from '@canopy/protocol'
-import { BSON, type Db, type Document, type MongoClient } from 'mongodb'
-import { type Doc, docKey } from './event.ts'
-import type { RealtimeMetrics } from './metrics.ts'
-import type { SnapshotReader } from './observers.ts'
+import { withIdTieBreaker } from "@canopy/matcher"
+import { type ClusterTime, toBsonLibrary, toCt } from "@canopy/protocol"
+import { BSON, type Db, type Document, type MongoClient } from "mongodb"
+import { type Doc, docKey } from "./event.ts"
+import type { RealtimeMetrics } from "./metrics.ts"
+import type { SnapshotReader } from "./observers.ts"
 
 /** Limits concurrent work, first come first served (the snapshot queue). */
 export class Semaphore {
@@ -86,7 +86,7 @@ export class MongoSnapshotReader implements SnapshotReader {
         if (query.limit !== undefined) cursor = cursor.limit(query.limit)
         const docs = (await cursor.toArray()) as Doc[]
         const internal = session as unknown as { snapshotTime?: unknown }
-        const ct = toCt(internal.snapshotTime) ?? toCt(session.operationTime) ?? '0'
+        const ct = toCt(internal.snapshotTime) ?? toCt(session.operationTime) ?? "0"
         this.metrics?.snapshotSeconds.observe((performance.now() - started) / 1000)
         return { docs, ct }
       } finally {
@@ -103,7 +103,7 @@ export class MongoSnapshotReader implements SnapshotReader {
       .collection(coll)
       .find({ _id: { $in: [...ids] } } as Document, EXACT_BSON)
       .toArray()
-    for (const doc of docs) out.set(docKey(coll, doc['_id']), doc as Doc)
+    for (const doc of docs) out.set(docKey(coll, doc["_id"]), doc as Doc)
     this.metrics?.lazyLookups.inc({}, ids.length)
     return out
   }

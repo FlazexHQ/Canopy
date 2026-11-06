@@ -22,8 +22,8 @@ export function uuidv7(nowMs: number = Date.now()): string {
   bytes[6] = 0x70 | ((sequence >>> 8) & 0x0f)
   bytes[7] = sequence & 0xff
   bytes[8] = 0x80 | ((bytes[8] ?? 0) & 0x3f)
-  let hex = ''
-  for (const byte of bytes) hex += byte.toString(16).padStart(2, '0')
+  let hex = ""
+  for (const byte of bytes) hex += byte.toString(16).padStart(2, "0")
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
@@ -31,5 +31,5 @@ const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 
 /** Returns true when `value` is a lower case UUIDv7 string. */
 export function isUuidV7(value: unknown): value is string {
-  return typeof value === 'string' && UUID_V7.test(value)
+  return typeof value === "string" && UUID_V7.test(value)
 }

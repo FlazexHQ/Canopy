@@ -1,10 +1,10 @@
-import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from '@canopy/auth'
+import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from "@canopy/auth"
 import {
   type CompiledProjection,
   compileFilter,
   compileProjection,
   UnsupportedQueryError,
-} from '@canopy/matcher'
+} from "@canopy/matcher"
 import {
   type Compiled,
   deniedPaths,
@@ -15,7 +15,7 @@ import {
   type RequestContext,
   toFilter,
   usesNow,
-} from '@canopy/policy'
+} from "@canopy/policy"
 import {
   CanopyError,
   type ClientMessage,
@@ -30,19 +30,19 @@ import {
   type SubMessage,
   toCanopyError,
   type WireError,
-} from '@canopy/protocol'
-import { DEFAULT_LIMITS, parseQuery, queryHash } from '@canopy/query'
-import type { MongoClient } from 'mongodb'
-import type { ControlEvent, Doc, NormalizedEvent } from './event.ts'
+} from "@canopy/protocol"
+import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
+import type { MongoClient } from "mongodb"
+import type { ControlEvent, Doc, NormalizedEvent } from "./event.ts"
 import {
   type CheckpointStore,
   type FullDocumentMode,
   Ingestor,
   metaCheckpoints,
   noCheckpoints,
-} from './ingestor.ts'
-import { type Logger, redacting, silentLogger } from './logger.ts'
-import { RealtimeMetrics } from './metrics.ts'
+} from "./ingestor.ts"
+import { type Logger, redacting, silentLogger } from "./logger.ts"
+import { RealtimeMetrics } from "./metrics.ts"
 import {
   FilterObserver,
   type ObservedQuery,
@@ -50,16 +50,16 @@ import {
   type ObserverLimits,
   PollingObserver,
   WindowObserver,
-} from './observers.ts'
+} from "./observers.ts"
 import {
   databasePolicies,
   directoryPolicies,
   type PolicySource,
   staticPolicies,
-} from './policy-source.ts'
-import { ObserverRegistry } from './registry.ts'
-import { type Coverage, FULL_COVERAGE, type RealtimeSocket, Session } from './session.ts'
-import { MongoSnapshotReader } from './snapshot.ts'
+} from "./policy-source.ts"
+import { ObserverRegistry } from "./registry.ts"
+import { type Coverage, FULL_COVERAGE, type RealtimeSocket, Session } from "./session.ts"
+import { MongoSnapshotReader } from "./snapshot.ts"
 
 /** Per connection and per node limits. All are configurable. */
 export interface RealtimeLimits {
@@ -90,7 +90,7 @@ export const DEFAULT_REALTIME_LIMITS: RealtimeLimits = {
 /** Where policies come from. */
 export type PolicyOption =
   | { readonly dir: string; readonly watch?: boolean }
-  | { readonly source: 'database'; readonly watch?: boolean }
+  | { readonly source: "database"; readonly watch?: boolean }
   | { readonly set: PolicySet }
   | PolicySource
 
@@ -107,7 +107,7 @@ export interface RealtimeOptions {
   readonly policies: PolicyOption
   readonly fullDocument?: FullDocumentMode
   /** Where the stream position is kept. `meta` uses `canopy.checkpoints`; `off` starts from now. */
-  readonly checkpoints?: 'meta' | 'off' | CheckpointStore
+  readonly checkpoints?: "meta" | "off" | CheckpointStore
   readonly limits?: Partial<RealtimeLimits>
   readonly logger?: Logger
   /** Prefix of session IDs, for routing to the right node. */
@@ -131,7 +131,7 @@ interface SubscriptionState {
   readonly id: string
   readonly coll: string
   readonly observer: Observer
-  readonly listener: ReturnType<Session['listener']>
+  readonly listener: ReturnType<Session["listener"]>
 }
 
 interface SessionState {
@@ -148,7 +148,7 @@ interface SessionState {
 function randomId(): string {
   const bytes = new Uint8Array(12)
   globalThis.crypto.getRandomValues(bytes)
-  return Buffer.from(bytes).toString('base64url')
+  return Buffer.from(bytes).toString("base64url")
 }
 
 function contextKey(ctx: RequestContext): string {
@@ -157,17 +157,17 @@ function contextKey(ctx: RequestContext): string {
 
 function coverageOf(projection: CompiledProjection | undefined): Coverage {
   if (projection === undefined) return FULL_COVERAGE
-  if (projection.mode === 'include') {
-    const fields = new Set(projection.paths.map((path) => path.split('.')[0] ?? path))
-    fields.add('_id')
+  if (projection.mode === "include") {
+    const fields = new Set(projection.paths.map((path) => path.split(".")[0] ?? path))
+    fields.add("_id")
     return { covers: (field) => fields.has(field) }
   }
-  const hidden = new Set(projection.paths.filter((path) => !path.includes('.')))
+  const hidden = new Set(projection.paths.filter((path) => !path.includes(".")))
   return { covers: (field) => !hidden.has(field) }
 }
 
 function accessDescriptor(access: FieldAccess): unknown {
-  return access.kind === 'all' ? 'all' : { [access.kind]: [...access.paths].sort() }
+  return access.kind === "all" ? "all" : { [access.kind]: [...access.paths].sort() }
 }
 
 /**
@@ -216,20 +216,20 @@ export class Realtime {
       metrics: this.metrics,
     })
     const checkpoints =
-      options.checkpoints === 'off'
+      options.checkpoints === "off"
         ? noCheckpoints
-        : options.checkpoints === undefined || options.checkpoints === 'meta'
+        : options.checkpoints === undefined || options.checkpoints === "meta"
           ? metaCheckpoints(
-              options.mongo.db(options.metaDatabase ?? 'canopy'),
+              options.mongo.db(options.metaDatabase ?? "canopy"),
               `app:${options.database}`,
-              options.nodeId ?? 'n1',
+              options.nodeId ?? "n1",
             )
           : options.checkpoints
     this.watched = this.realtimeCollections()
     this.ingestor = new Ingestor({
       client: options.mongo,
       db,
-      mode: options.fullDocument ?? 'auto',
+      mode: options.fullDocument ?? "auto",
       collections: () => this.watched,
       checkpoints,
       logger: this.logger,
@@ -260,8 +260,8 @@ export class Realtime {
       onVariableIssue: (issue) =>
         this.metrics.variableErrors.inc({ coll: issue.collection, kind: issue.kind }),
       onEvaluationError: (error, coll, op) => {
-        this.metrics.denials.inc({ surface: 'realtime', coll, op })
-        this.logger.error({ err: error, coll, op }, 'policy evaluation failed, denying')
+        this.metrics.denials.inc({ surface: "realtime", coll, op })
+        this.logger.error({ err: error, coll, op }, "policy evaluation failed, denying")
       },
     })
   }
@@ -278,7 +278,7 @@ export class Realtime {
     await this.ingestor.start()
     const watchable = this.source.watch
     const wantsWatch =
-      !('set' in this.options.policies) &&
+      !("set" in this.options.policies) &&
       (this.options.policies as { watch?: boolean }).watch !== false
     if (watchable !== undefined && wantsWatch) {
       this.stopWatching = watchable.call(
@@ -287,7 +287,7 @@ export class Realtime {
         (error) =>
           this.logger.error(
             { err: error },
-            'policy reload rejected, keeping the previous policies',
+            "policy reload rejected, keeping the previous policies",
           ),
       )
     }
@@ -310,14 +310,14 @@ export class Realtime {
         )
           affected.push(sub.id)
       }
-      this.resyncSubscriptions(state, affected, 'policy')
+      this.resyncSubscriptions(state, affected, "policy")
     }
     const collections = this.realtimeCollections()
     if (canonicalString(collections) !== canonicalString(this.watched)) {
       this.watched = collections
       this.ingestor.reopen()
     }
-    this.logger.info({ version: set.version }, 'policies reloaded')
+    this.logger.info({ version: set.version }, "policies reloaded")
   }
 
   private readonly queries = new WeakMap<SubscriptionState, { msg: SubMessage }>()
@@ -336,7 +336,7 @@ export class Realtime {
     if (ids.length === 0) return
     for (const id of ids) this.dropSubscription(state, id)
     this.metrics.resyncs.inc({ reason })
-    state.session.send({ t: 'resync', reason, s: [...ids] })
+    state.session.send({ t: "resync", reason, s: [...ids] })
   }
 
   private resyncAll(reason: string): void {
@@ -344,7 +344,7 @@ export class Realtime {
       const ids = [...state.subs.keys()]
       for (const id of ids) this.dropSubscription(state, id)
       this.metrics.resyncs.inc({ reason })
-      state.session.send({ t: 'resync', reason })
+      state.session.send({ t: "resync", reason })
     }
     for (const observer of [...this.registry.all()]) this.destroyObserver(observer)
   }
@@ -353,11 +353,11 @@ export class Realtime {
     for (const observer of this.registry.all()) {
       const def = this.engine.collection(observer.query.coll)
       if (
-        def?.policies.some((policy) => policy.ops.includes('read') && usesNow(policy.using)) ===
+        def?.policies.some((policy) => policy.ops.includes("read") && usesNow(policy.using)) ===
         true
       ) {
         if (observer instanceof PollingObserver) observer.schedule()
-        else this.resyncObserver(observer, 'time_policy')
+        else this.resyncObserver(observer, "time_policy")
       }
     }
   }
@@ -377,13 +377,13 @@ export class Realtime {
     let helloPending = true
     let lastInbound = Date.now()
     const helloTimer = setTimeout(() => {
-      if (helloPending) socket.close(CloseCode.HelloTimeout, 'no hello received')
+      if (helloPending) socket.close(CloseCode.HelloTimeout, "no hello received")
     }, 10_000)
     const heartbeat = this.options.heartbeatMs ?? 25_000
     const silenceTimer = setInterval(
       () => {
         if (Date.now() - lastInbound > 2 * heartbeat + 10_000)
-          socket.close(1001, 'heartbeat timeout')
+          socket.close(1001, "heartbeat timeout")
       },
       Math.min(5000, heartbeat),
     )
@@ -392,7 +392,7 @@ export class Realtime {
     const fail = (code: number, error: CanopyError): void => {
       socket.send(
         encodeMessage({
-          t: 'err',
+          t: "err",
           seq: state?.session.lastSeq ?? 0,
           code: error.code,
           msg: error.message,
@@ -404,7 +404,7 @@ export class Realtime {
       message: (text) => {
         lastInbound = Date.now()
         if (text.length > this.limits.maxFrameBytes) {
-          socket.close(CloseCode.FrameTooLarge, 'frame too large')
+          socket.close(CloseCode.FrameTooLarge, "frame too large")
           return
         }
         let message: ClientMessage | undefined
@@ -416,10 +416,10 @@ export class Realtime {
         }
         if (message === undefined) return
         if (helloPending) {
-          if (message.t !== 'hello') {
+          if (message.t !== "hello") {
             fail(
               CloseCode.ProtocolError,
-              new CanopyError(ErrorCode.ProtocolError, 'The first frame must be hello'),
+              new CanopyError(ErrorCode.ProtocolError, "The first frame must be hello"),
             )
             return
           }
@@ -447,7 +447,7 @@ export class Realtime {
         if (state === undefined) {
           fail(
             CloseCode.ProtocolError,
-            new CanopyError(ErrorCode.ProtocolError, 'Wait for welcome before sending more frames'),
+            new CanopyError(ErrorCode.ProtocolError, "Wait for welcome before sending more frames"),
           )
           return
         }
@@ -470,18 +470,18 @@ export class Realtime {
 
   private async hello(socket: RealtimeSocket, hello: HelloMessage): Promise<SessionState> {
     if (hello.v !== PROTOCOL_VERSION) {
-      socket.close(CloseCode.UnsupportedVersion, 'unsupported protocol version')
-      throw new CanopyError(ErrorCode.ProtocolError, 'Unsupported protocol version')
+      socket.close(CloseCode.UnsupportedVersion, "unsupported protocol version")
+      throw new CanopyError(ErrorCode.ProtocolError, "Unsupported protocol version")
     }
     const principal = await this.auth.authenticate(hello.key, hello.token)
     const count = this.subjects.get(principal.subject) ?? 0
-    if (principal.subject !== 'anon' && count >= this.limits.maxConnectionsPerSubject) {
-      socket.close(CloseCode.RateLimited, 'too many connections')
-      throw new CanopyError(ErrorCode.RateLimited, 'Too many connections for this subject')
+    if (principal.subject !== "anon" && count >= this.limits.maxConnectionsPerSubject) {
+      socket.close(CloseCode.RateLimited, "too many connections")
+      throw new CanopyError(ErrorCode.RateLimited, "Too many connections for this subject")
     }
-    const caps = new Set((hello.caps ?? []).filter((cap) => cap === 'batch' || cap === 'diff'))
+    const caps = new Set((hello.caps ?? []).filter((cap) => cap === "batch" || cap === "diff"))
     const welcome = (sid: string, resumed: boolean) => ({
-      t: 'welcome' as const,
+      t: "welcome" as const,
       sid,
       v: PROTOCOL_VERSION,
       resumed,
@@ -513,7 +513,7 @@ export class Realtime {
         this.destroySession(existing)
       }
     }
-    const sid = `${this.options.nodeId ?? 'n1'}.${randomId()}`
+    const sid = `${this.options.nodeId ?? "n1"}.${randomId()}`
     const session = new Session(sid, caps, {
       resumeBufferBytes: this.limits.resumeBufferBytes,
       softQueueBytes: this.limits.softQueueBytes,
@@ -531,7 +531,7 @@ export class Realtime {
     }
     session.onSlowConsumer = () => {
       this.metrics.slowConsumers.inc()
-      state.socket?.close(CloseCode.SlowConsumer, 'slow consumer')
+      state.socket?.close(CloseCode.SlowConsumer, "slow consumer")
       this.destroySession(state)
     }
     session.onSubscriptionFailed = (subId, error) => this.subscriptionFailed(state, subId, error)
@@ -553,20 +553,20 @@ export class Realtime {
     state.expiryTimer = setTimeout(
       () => {
         state.session.send({
-          t: 'err',
+          t: "err",
           code: ErrorCode.TokenExpired,
-          msg: 'The token has expired; send auth with a new one',
+          msg: "The token has expired; send auth with a new one",
         })
         state.graceTimer = setTimeout(() => {
           for (const id of [...state.subs.keys()]) {
             this.dropSubscription(state, id)
             state.session.send({
-              t: 'nosub',
+              t: "nosub",
               s: id,
-              err: { code: ErrorCode.TokenExpired, msg: 'The token expired' },
+              err: { code: ErrorCode.TokenExpired, msg: "The token expired" },
             })
           }
-          state.session.close(CloseCode.Unauthorized, 'token expired')
+          state.session.close(CloseCode.Unauthorized, "token expired")
           this.destroySession(state)
         }, this.options.expiryGraceMs ?? 30_000)
       },
@@ -576,38 +576,38 @@ export class Realtime {
 
   private dispatch(state: SessionState, socket: RealtimeSocket, message: ClientMessage): void {
     switch (message.t) {
-      case 'ping':
-        socket.send(encodeMessage({ t: 'pong', ts: message.ts }))
+      case "ping":
+        socket.send(encodeMessage({ t: "pong", ts: message.ts }))
         return
-      case 'sub':
+      case "sub":
         this.subscribe(state, message)
         return
-      case 'unsub':
+      case "unsub":
         if (state.subs.has(message.id)) {
           this.dropSubscription(state, message.id)
-          state.session.send({ t: 'nosub', s: message.id })
+          state.session.send({ t: "nosub", s: message.id })
         }
         return
-      case 'auth':
+      case "auth":
         this.reauthenticate(state, message.token)
         return
-      case 'mut':
+      case "mut":
         state.session.send({
-          t: 'ack',
+          t: "ack",
           m: message.id,
           ok: false,
           err: {
             code: ErrorCode.Unavailable,
-            msg: 'Mutations over the socket are not available in this version',
+            msg: "Mutations over the socket are not available in this version",
           },
         })
         return
-      case 'bye':
+      case "bye":
         this.destroySession(state)
-        socket.close(CloseCode.Normal, 'bye')
+        socket.close(CloseCode.Normal, "bye")
         return
-      case 'hello':
-        socket.close(CloseCode.ProtocolError, 'duplicate hello')
+      case "hello":
+        socket.close(CloseCode.ProtocolError, "duplicate hello")
         return
     }
   }
@@ -618,15 +618,15 @@ export class Realtime {
       (principal) => {
         if (
           principal.subject !== state.principal.subject &&
-          state.principal.subject !== 'anon' &&
-          principal.subject !== 'anon'
+          state.principal.subject !== "anon" &&
+          principal.subject !== "anon"
         ) {
           state.session.send({
-            t: 'err',
+            t: "err",
             code: ErrorCode.Forbidden,
-            msg: 'auth may not switch to another subject',
+            msg: "auth may not switch to another subject",
           })
-          state.session.close(CloseCode.Forbidden, 'subject changed')
+          state.session.close(CloseCode.Forbidden, "subject changed")
           this.destroySession(state)
           return
         }
@@ -636,12 +636,12 @@ export class Realtime {
           const affected = [...state.subs.values()]
             .filter((sub) => this.observerKeyFor(state, sub) !== sub.observer.key)
             .map((sub) => sub.id)
-          this.resyncSubscriptions(state, affected, 'auth')
+          this.resyncSubscriptions(state, affected, "auth")
         }
       },
       (error: unknown) => {
         const canopy = toCanopyError(error)
-        state.session.send({ t: 'err', code: canopy.code, msg: canopy.message })
+        state.session.send({ t: "err", code: canopy.code, msg: canopy.message })
         state.session.close(CloseCode.Unauthorized, canopy.code)
         this.destroySession(state)
       },
@@ -654,7 +654,7 @@ export class Realtime {
   ): {
     key: string
     query: ObservedQuery
-    type: 'filter' | 'window' | 'polling'
+    type: "filter" | "window" | "polling"
     projection: CompiledProjection | undefined
   } {
     const coll = message.c
@@ -666,24 +666,24 @@ export class Realtime {
     if (denied.length > 0) {
       throw new CanopyError(
         ErrorCode.InvalidQuery,
-        `The query references fields that are not readable: ${denied.join(', ')}`,
+        `The query references fields that are not readable: ${denied.join(", ")}`,
       )
     }
     const effective: Compiled = this.engine.effectiveRead(coll, parsed.filter.filter, ctx)
-    if (effective.kind === 'deny')
-      this.metrics.denials.inc({ surface: 'realtime', coll, op: 'read' })
+    if (effective.kind === "deny")
+      this.metrics.denials.inc({ surface: "realtime", coll, op: "read" })
     const filter = toFilter(effective)
-    let type: 'filter' | 'window' | 'polling' = parsed.filter.matcherSafe
+    let type: "filter" | "window" | "polling" = parsed.filter.matcherSafe
       ? parsed.limit === undefined
-        ? 'filter'
-        : 'window'
-      : 'polling'
-    if (type !== 'polling') {
+        ? "filter"
+        : "window"
+      : "polling"
+    if (type !== "polling") {
       try {
         compileFilter(filter)
       } catch (error: unknown) {
         if (!(error instanceof UnsupportedQueryError)) throw error
-        type = 'polling'
+        type = "polling"
       }
     }
     const projection =
@@ -714,7 +714,7 @@ export class Realtime {
     if (state.subs.has(message.id)) this.dropSubscription(state, message.id)
     if (state.subs.size >= this.limits.maxSubscriptionsPerConnection) {
       state.session.send({
-        t: 'nosub',
+        t: "nosub",
         s: message.id,
         err: {
           code: ErrorCode.LimitSubscriptions,
@@ -723,11 +723,11 @@ export class Realtime {
       })
       return
     }
-    let plan: ReturnType<Realtime['plan']>
+    let plan: ReturnType<Realtime["plan"]>
     try {
       plan = this.plan(state.principal.context, message)
     } catch (error: unknown) {
-      state.session.send({ t: 'nosub', s: message.id, err: toCanopyError(error).toWire() })
+      state.session.send({ t: "nosub", s: message.id, err: toCanopyError(error).toWire() })
       return
     }
     const observer = this.observerFor(plan)
@@ -742,7 +742,7 @@ export class Realtime {
     observer.attach(listener)
   }
 
-  private observerFor(plan: ReturnType<Realtime['plan']>): Observer {
+  private observerFor(plan: ReturnType<Realtime["plan"]>): Observer {
     const existing = this.registry.get(plan.key)
     if (existing !== undefined) {
       const linger = this.lingering.get(existing)
@@ -753,7 +753,7 @@ export class Realtime {
       return existing
     }
     let observer: Observer
-    if (plan.type === 'polling') {
+    if (plan.type === "polling") {
       observer = new PollingObserver(
         plan.key,
         plan.query,
@@ -764,7 +764,7 @@ export class Realtime {
     } else {
       const matcher = compileFilter(plan.query.filter)
       observer =
-        plan.type === 'window'
+        plan.type === "window"
           ? new WindowObserver(
               plan.key,
               plan.query,
@@ -800,7 +800,7 @@ export class Realtime {
     const sub = state.subs.get(subId)
     if (sub === undefined) return
     this.dropSubscription(state, subId)
-    state.session.send({ t: 'nosub', s: subId, err: error })
+    state.session.send({ t: "nosub", s: subId, err: error })
   }
 
   private lingerObserver(observer: Observer): void {
@@ -848,7 +848,7 @@ export class Realtime {
   private async processEvents(events: NormalizedEvent[]): Promise<void> {
     const lookups = new Map<string, NormalizedEvent[]>()
     for (const event of events) {
-      if (event.op !== 'update' || event.post !== undefined) continue
+      if (event.op !== "update" || event.post !== undefined) continue
       if (this.registry.candidates(event).size === 0) continue
       const list = lookups.get(event.coll) ?? []
       list.push(event)
@@ -861,7 +861,7 @@ export class Realtime {
       )
       for (const event of list) event.post = found.get(event.key) ?? null
     }
-    let last: ClusterTime = '0'
+    let last: ClusterTime = "0"
     for (const event of events) {
       const started = performance.now()
       const candidates = this.registry.candidates(event)
@@ -877,7 +877,7 @@ export class Realtime {
   }
 
   private processControl(event: ControlEvent): void {
-    if ((event.kind === 'drop' || event.kind === 'rename') && event.coll !== undefined) {
+    if ((event.kind === "drop" || event.kind === "rename") && event.coll !== undefined) {
       const error = new CanopyError(
         ErrorCode.CollectionDropped,
         `The collection ${event.coll} was dropped or renamed`,
@@ -903,15 +903,15 @@ export class Realtime {
     const drainMs = options.drainMs ?? 0
     for (const state of this.sessions.values()) {
       state.session.send({
-        t: 'reconnect',
+        t: "reconnect",
         retryAfterMs: Math.floor(Math.random() * drainMs),
-        reason: 'shutdown',
+        reason: "shutdown",
       })
       state.session.flush()
     }
     if (drainMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(drainMs, 1000)))
     for (const state of [...this.sessions.values()]) {
-      state.session.close(CloseCode.ServiceRestart, 'shutdown')
+      state.session.close(CloseCode.ServiceRestart, "shutdown")
       this.destroySession(state)
     }
     for (const observer of [...this.registry.all()]) this.destroyObserver(observer)
@@ -928,10 +928,10 @@ export class Realtime {
 
 function sourceOf(options: RealtimeOptions): PolicySource {
   const policies = options.policies
-  if ('load' in policies) return policies
-  if ('set' in policies) return staticPolicies(policies.set)
-  if ('dir' in policies) return directoryPolicies(policies.dir)
-  return databasePolicies(options.mongo, options.metaDatabase ?? 'canopy')
+  if ("load" in policies) return policies
+  if ("set" in policies) return staticPolicies(policies.set)
+  if ("dir" in policies) return directoryPolicies(policies.dir)
+  return databasePolicies(options.mongo, options.metaDatabase ?? "canopy")
 }
 
 /**
@@ -939,8 +939,8 @@ function sourceOf(options: RealtimeOptions): PolicySource {
  * made after that is missed.
  */
 export async function createRealtime(options: RealtimeOptions): Promise<Realtime> {
-  if (options.database === (options.metaDatabase ?? 'canopy')) {
-    throw new TypeError('The app database and the meta database must differ')
+  if (options.database === (options.metaDatabase ?? "canopy")) {
+    throw new TypeError("The app database and the meta database must differ")
   }
   await options.mongo.connect()
   const source = sourceOf(options)

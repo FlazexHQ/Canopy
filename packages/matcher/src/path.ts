@@ -1,4 +1,4 @@
-import { isDocument } from '@canopy/protocol'
+import { isDocument } from "@canopy/protocol"
 
 /** A value test used at the end of a path. `undefined` stands for a missing field. */
 export type LeafTest = (value: unknown) => boolean
@@ -12,7 +12,7 @@ export function isArrayIndex(part: string): boolean {
 
 /** Splits a dotted path into its segments. */
 export function splitPath(path: string): string[] {
-  return path.split('.')
+  return path.split(".")
 }
 
 /**
@@ -43,7 +43,7 @@ function walk(
     }
     return leaf(value)
   }
-  const part = parts[index] ?? ''
+  const part = parts[index] ?? ""
   if (Array.isArray(value)) {
     if (isArrayIndex(part)) {
       const position = Number(part)
@@ -97,7 +97,7 @@ function collect(value: unknown, parts: readonly string[], index: number, out: u
     }
     return
   }
-  const part = parts[index] ?? ''
+  const part = parts[index] ?? ""
   if (Array.isArray(value)) {
     if (isArrayIndex(part)) {
       const position = Number(part)

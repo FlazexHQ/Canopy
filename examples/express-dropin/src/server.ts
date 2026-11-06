@@ -1,12 +1,12 @@
-import { createApp } from './app.ts'
-import { configFromEnv } from './config.ts'
+import { createApp } from "./app.ts"
+import { configFromEnv } from "./config.ts"
 
 const config = configFromEnv(process.env)
 const helpdesk = await createApp(config)
 const server = helpdesk.app.listen(config.port, (error?: Error | null) => {
   if (error) throw error
   const auth =
-    config.identity.kind === 'dev' ? 'development issuer' : `Auth0 (${config.identity.domain})`
+    config.identity.kind === "dev" ? "development issuer" : `Auth0 (${config.identity.domain})`
   process.stdout.write(`Helpdesk on http://localhost:${config.port} with ${auth}\n`)
   process.stdout.write(`Live updates from canopy-realtime at ${config.canopyUrl}\n`)
 })
@@ -24,5 +24,5 @@ const stop = (): void => {
     },
   )
 }
-process.on('SIGINT', stop)
-process.on('SIGTERM', stop)
+process.on("SIGINT", stop)
+process.on("SIGTERM", stop)

@@ -7,10 +7,10 @@ import type {
   Operation,
   PolicyDefinition,
   PolicyKind,
-} from './model.ts'
+} from "./model.ts"
 
 /** Coercions a JWT claim variable can request. */
-export type ClaimCoercion = 'objectId' | 'string' | 'number' | 'bool' | 'date' | 'uuid'
+export type ClaimCoercion = "objectId" | "string" | "number" | "bool" | "date" | "uuid"
 
 /** A JWT claim variable in stored form. */
 export interface AuthVariable {
@@ -75,21 +75,21 @@ function builders(kind: PolicyKind): {
   ops(ops: readonly Operation[], ...roles: string[]): PolicyBuilder
 } {
   const make = (ops: readonly Operation[], roles: string[]): PolicyBuilder =>
-    new PolicyBuilder({ name: '', kind, ops: [...ops], roles })
+    new PolicyBuilder({ name: "", kind, ops: [...ops], roles })
   return {
-    read: (...roles) => make(['read'], roles),
-    insert: (...roles) => make(['insert'], roles),
-    update: (...roles) => make(['update'], roles),
-    delete: (...roles) => make(['delete'], roles),
+    read: (...roles) => make(["read"], roles),
+    insert: (...roles) => make(["insert"], roles),
+    update: (...roles) => make(["update"], roles),
+    delete: (...roles) => make(["delete"], roles),
     ops: (ops, ...roles) => make(ops, roles),
   }
 }
 
 /** Builders for permissive policies (OR combined). */
-export const allow: ReturnType<typeof builders> = builders('permissive')
+export const allow: ReturnType<typeof builders> = builders("permissive")
 
 /** Builders for restrictive policies (AND combined). */
-export const restrict: ReturnType<typeof builders> = builders('restrictive')
+export const restrict: ReturnType<typeof builders> = builders("restrictive")
 
 /** Options accepted by {@link collection}. */
 export interface CollectionOptions {
@@ -107,8 +107,8 @@ export interface CollectionOptions {
 export function collection(name: string, options: CollectionOptions = {}): CollectionPolicies {
   const policies = (options.policies ?? []).map((item, index) => {
     const definition = item instanceof PolicyBuilder ? item.definition : item
-    return definition.name === ''
-      ? { ...definition, name: `${definition.kind} ${definition.ops.join('+')} #${index + 1}` }
+    return definition.name === ""
+      ? { ...definition, name: `${definition.kind} ${definition.ops.join("+")} #${index + 1}` }
       : definition
   })
   return {

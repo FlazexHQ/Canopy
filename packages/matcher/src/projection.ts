@@ -1,7 +1,7 @@
-import { InvalidQueryError, isDocument } from '@canopy/protocol'
-import { UnsupportedQueryError } from './errors.ts'
-import { readNumeric, toDouble } from './numeric.ts'
-import { splitPath } from './path.ts'
+import { InvalidQueryError, isDocument } from "@canopy/protocol"
+import { UnsupportedQueryError } from "./errors.ts"
+import { readNumeric, toDouble } from "./numeric.ts"
+import { splitPath } from "./path.ts"
 
 /** A projection tree: `true` marks a projected path, a nested tree marks a projected sub path. */
 export interface ProjectionTree {
@@ -11,7 +11,7 @@ export interface ProjectionTree {
 /** A compiled projection. */
 export interface CompiledProjection {
   /** `include` keeps only the listed paths; `exclude` removes them. */
-  readonly mode: 'include' | 'exclude'
+  readonly mode: "include" | "exclude"
   /** Whether `_id` is part of the result. */
   readonly includeId: boolean
   /** The projected paths, without `_id`. */
@@ -21,10 +21,10 @@ export interface CompiledProjection {
 }
 
 function flag(path: string, value: unknown): boolean {
-  if (typeof value === 'boolean') return value
+  if (typeof value === "boolean") return value
   const numeric = readNumeric(value)
   if (numeric !== undefined) return toDouble(numeric) !== 0
-  if (isDocument(value) || typeof value === 'string') {
+  if (isDocument(value) || typeof value === "string") {
     throw new UnsupportedQueryError(`The projection of ${path} is not evaluated in process`)
   }
   throw new InvalidQueryError(`Invalid projection value for ${path}`)
@@ -35,7 +35,7 @@ export function buildTree(paths: readonly string[]): ProjectionTree {
   const root: Record<string, true | Record<string, unknown>> = Object.create(null)
   for (const path of paths) {
     const parts = splitPath(path)
-    if (parts.some((part) => part === '' || part.startsWith('$'))) {
+    if (parts.some((part) => part === "" || part.startsWith("$"))) {
       throw new InvalidQueryError(`Invalid projection path: ${path}`)
     }
     let node: Record<string, true | Record<string, unknown>> = root
@@ -112,13 +112,13 @@ function excludeDocument(
 
 /** Compiles a projection such as `{ title: 1, 'owner.name': 1 }` or `{ secret: 0 }`. */
 export function compileProjection(spec: unknown): CompiledProjection {
-  if (!isDocument(spec)) throw new InvalidQueryError('A projection must be a document')
+  if (!isDocument(spec)) throw new InvalidQueryError("A projection must be a document")
   let includeId = true
   const included: string[] = []
   const excluded: string[] = []
   for (const path of Object.keys(spec)) {
     const on = flag(path, spec[path])
-    if (path === '_id') {
+    if (path === "_id") {
       includeId = on
       continue
     }
@@ -126,7 +126,7 @@ export function compileProjection(spec: unknown): CompiledProjection {
     else excluded.push(path)
   }
   if (included.length > 0 && excluded.length > 0) {
-    throw new InvalidQueryError('Cannot mix inclusion and exclusion in a projection')
+    throw new InvalidQueryError("Cannot mix inclusion and exclusion in a projection")
   }
   if (included.length > 0) return inclusion(included, includeId)
   return exclusion(excluded, includeId)
@@ -134,10 +134,10 @@ export function compileProjection(spec: unknown): CompiledProjection {
 
 /** Builds an inclusion projection from paths. */
 export function inclusion(paths: readonly string[], includeId = true): CompiledProjection {
-  const withId = includeId && !paths.some((path) => path === '_id' || path.startsWith('_id.'))
-  const tree = buildTree(withId ? [...paths, '_id'] : paths)
+  const withId = includeId && !paths.some((path) => path === "_id" || path.startsWith("_id."))
+  const tree = buildTree(withId ? [...paths, "_id"] : paths)
   return {
-    mode: 'include',
+    mode: "include",
     includeId,
     paths,
     apply(doc) {
@@ -151,7 +151,7 @@ export function inclusion(paths: readonly string[], includeId = true): CompiledP
 export function exclusion(paths: readonly string[], includeId = true): CompiledProjection {
   const tree = buildTree(paths)
   return {
-    mode: 'exclude',
+    mode: "exclude",
     includeId,
     paths,
     apply(doc) {
@@ -162,7 +162,7 @@ export function exclusion(paths: readonly string[], includeId = true): CompiledP
 }
 
 function withoutId(doc: Record<string, unknown>): Record<string, unknown> {
-  if (!Object.hasOwn(doc, '_id')) return doc
+  if (!Object.hasOwn(doc, "_id")) return doc
   const { _id: _ignored, ...rest } = doc
   return rest
 }

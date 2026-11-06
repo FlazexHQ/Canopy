@@ -1,5 +1,5 @@
-import { type RequestContext, Role } from '@canopy/policy'
-import { ErrorCode, ForbiddenError, UnauthorizedError } from '@canopy/protocol'
+import { type RequestContext, Role } from "@canopy/policy"
+import { ErrorCode, ForbiddenError, UnauthorizedError } from "@canopy/protocol"
 import {
   createLocalJWKSet,
   createRemoteJWKSet,
@@ -8,7 +8,7 @@ import {
   type JWTVerifyGetKey,
   errors as joseErrors,
   jwtVerify,
-} from 'jose'
+} from "jose"
 
 /** How user tokens are verified (bring your own identity provider). */
 export interface JwtAuthOptions {
@@ -43,8 +43,8 @@ export interface Principal {
   readonly expiresAt: number | undefined
 }
 
-const DEFAULT_ALGORITHMS = ['EdDSA', 'ES256', 'ES384', 'RS256', 'RS384', 'RS512', 'PS256']
-const FORBIDDEN_ALGORITHMS = new Set(['none', 'HS256', 'HS384', 'HS512'])
+const DEFAULT_ALGORITHMS = ["EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256"]
+const FORBIDDEN_ALGORITHMS = new Set(["none", "HS256", "HS384", "HS512"])
 
 /** Verifies hello credentials and builds request contexts. */
 export class Authenticator {
@@ -68,15 +68,15 @@ export class Authenticator {
     } else if (options.jwksUrl !== undefined) {
       const url = new URL(options.jwksUrl)
       if (
-        url.protocol !== 'https:' &&
-        url.hostname !== 'localhost' &&
-        url.hostname !== '127.0.0.1'
+        url.protocol !== "https:" &&
+        url.hostname !== "localhost" &&
+        url.hostname !== "127.0.0.1"
       ) {
-        throw new TypeError('The JWKS URL must use HTTPS')
+        throw new TypeError("The JWKS URL must use HTTPS")
       }
       this.keySet = createRemoteJWKSet(url)
     } else {
-      throw new TypeError('JWT auth needs jwksUrl or jwks')
+      throw new TypeError("JWT auth needs jwksUrl or jwks")
     }
   }
 
@@ -88,28 +88,28 @@ export class Authenticator {
     if (this.keys.secret?.includes(key) === true) {
       return {
         context: { roles: new Set([Role.Service]), claims: null, now: new Date() },
-        subject: 'service',
+        subject: "service",
         expiresAt: undefined,
       }
     }
     if (this.keys.publishable !== undefined && !this.keys.publishable.includes(key)) {
-      throw new UnauthorizedError('Unknown API key')
+      throw new UnauthorizedError("Unknown API key")
     }
-    if (token === undefined || token === '') {
+    if (token === undefined || token === "") {
       return {
         context: { roles: new Set([Role.Anon]), claims: null, now: new Date() },
-        subject: 'anon',
+        subject: "anon",
         expiresAt: undefined,
       }
     }
     if (this.keySet === undefined || this.options === undefined)
-      throw new UnauthorizedError('User tokens are not accepted')
+      throw new UnauthorizedError("User tokens are not accepted")
     let payload: JWTPayload
     try {
       const verified = await jwtVerify(token, this.keySet, {
         algorithms: this.algorithms,
         issuer: [
-          ...(typeof this.options.issuer === 'string'
+          ...(typeof this.options.issuer === "string"
             ? [this.options.issuer]
             : this.options.issuer),
         ],
@@ -117,18 +117,18 @@ export class Authenticator {
           ? {}
           : {
               audience:
-                typeof this.options.audience === 'string'
+                typeof this.options.audience === "string"
                   ? this.options.audience
                   : [...this.options.audience],
             }),
         clockTolerance: this.options.clockToleranceSeconds ?? 60,
-        requiredClaims: ['exp'],
+        requiredClaims: ["exp"],
       })
       payload = verified.payload
     } catch (error: unknown) {
       if (error instanceof joseErrors.JWTExpired)
-        throw new UnauthorizedError('The token has expired', { cause: error }, true)
-      throw new UnauthorizedError('Invalid token', { cause: error })
+        throw new UnauthorizedError("The token has expired", { cause: error }, true)
+      throw new UnauthorizedError("Invalid token", { cause: error })
     }
     const roles = new Set<string>([Role.Authenticated])
     const claimed =
@@ -136,7 +136,7 @@ export class Authenticator {
     if (Array.isArray(claimed)) {
       for (const role of claimed) {
         if (
-          typeof role !== 'string' ||
+          typeof role !== "string" ||
           role === Role.Anon ||
           role === Role.Authenticated ||
           role === Role.Public
@@ -144,11 +144,11 @@ export class Authenticator {
           continue
         if (role === Role.Service) {
           if (this.options.allowServiceRoleFromJwt !== true) {
-            throw new ForbiddenError('A token may not assert the service role')
+            throw new ForbiddenError("A token may not assert the service role")
           }
           return {
             context: { roles: new Set([Role.Service]), claims: payload, now: new Date() },
-            subject: String(payload.sub ?? 'service'),
+            subject: String(payload.sub ?? "service"),
             expiresAt: expiry(payload),
           }
         }
@@ -157,21 +157,21 @@ export class Authenticator {
     }
     return {
       context: { roles, claims: payload, now: new Date() },
-      subject: typeof payload.sub === 'string' ? payload.sub : 'unknown',
+      subject: typeof payload.sub === "string" ? payload.sub : "unknown",
       expiresAt: expiry(payload),
     }
   }
 }
 
 function expiry(payload: JWTPayload): number | undefined {
-  return typeof payload.exp === 'number' ? payload.exp * 1000 : undefined
+  return typeof payload.exp === "number" ? payload.exp * 1000 : undefined
 }
 
 function readPath(payload: JWTPayload, path: string): unknown {
   if (Object.hasOwn(payload, path)) return (payload as Record<string, unknown>)[path]
   let value: unknown = payload
-  for (const segment of path.split('.')) {
-    if (typeof value !== 'object' || value === null || !Object.hasOwn(value, segment))
+  for (const segment of path.split(".")) {
+    if (typeof value !== "object" || value === null || !Object.hasOwn(value, segment))
       return undefined
     value = (value as Record<string, unknown>)[segment]
   }
@@ -184,7 +184,7 @@ export interface Credentials {
   readonly token: string | undefined
 }
 
-const SECRET_KEY_PREFIX = 'canopy_sk_'
+const SECRET_KEY_PREFIX = "canopy_sk_"
 
 /**
  * Reads the `apikey` and `Authorization: Bearer` headers. A secret key may also arrive as the bearer
@@ -192,16 +192,16 @@ const SECRET_KEY_PREFIX = 'canopy_sk_'
  * malformed `Authorization` header.
  */
 export function credentialsFromHeaders(headers: Headers): Credentials {
-  const key = headers.get('apikey') ?? ''
-  const authorization = headers.get('authorization')
+  const key = headers.get("apikey") ?? ""
+  const authorization = headers.get("authorization")
   if (authorization === null) return { key, token: undefined }
   const match = /^Bearer[ ]+(\S+)[ ]*$/i.exec(authorization)
   if (match === null || match[1] === undefined)
-    throw new UnauthorizedError('The Authorization header must use the Bearer scheme')
+    throw new UnauthorizedError("The Authorization header must use the Bearer scheme")
   const token = match[1]
   if (token.startsWith(SECRET_KEY_PREFIX)) {
-    if (key !== '' && key !== token)
-      throw new UnauthorizedError('The apikey header and the bearer secret key differ')
+    if (key !== "" && key !== token)
+      throw new UnauthorizedError("The apikey header and the bearer secret key differ")
     return { key: token, token: undefined }
   }
   return { key, token }

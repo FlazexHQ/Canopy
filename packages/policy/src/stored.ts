@@ -1,4 +1,4 @@
-import { canonicalString, isDocument, parse, sha256Hex } from '@canopy/protocol'
+import { canonicalString, isDocument, parse, sha256Hex } from "@canopy/protocol"
 import type {
   CollectionFields,
   CollectionPolicies,
@@ -6,7 +6,7 @@ import type {
   Operation,
   PolicyDefinition,
   PolicyKind,
-} from './model.ts'
+} from "./model.ts"
 
 /** One policy as stored in `canopy.policies`. Clauses are canonical EJSON strings. */
 export interface StoredPolicy {
@@ -33,7 +33,7 @@ export interface StoredCollectionPolicies {
 }
 
 /** The `_id` of the stored context lookup declarations. */
-export const CONTEXT_DOCUMENT_ID = '_context'
+export const CONTEXT_DOCUMENT_ID = "_context"
 
 function body(def: CollectionPolicies): Record<string, unknown> {
   return {
@@ -78,7 +78,7 @@ export function toStored(
     version: meta.version,
     exposed: def.exposed,
     realtime: def.realtime,
-    policies: stored['policies'] as StoredPolicy[],
+    policies: stored["policies"] as StoredPolicy[],
     ...(def.fields === undefined ? {} : { fields: def.fields }),
     ...(def.immutable === undefined ? {} : { immutable: def.immutable }),
     hash: hashCollection(def),
@@ -89,7 +89,7 @@ export function toStored(
 
 function clause(text: unknown, name: string, kind: string): Record<string, unknown> | undefined {
   if (text === undefined) return undefined
-  if (typeof text !== 'string')
+  if (typeof text !== "string")
     throw new TypeError(`Policy '${name}' has a ${kind} clause that is not a string`)
   const value = parse(text)
   if (!isDocument(value))
@@ -102,30 +102,30 @@ function clause(text: unknown, name: string, kind: string): Record<string, unkno
  * `createPolicySet`) before it is used, so a tampered document is rejected rather than trusted.
  */
 export function fromStored(stored: unknown): CollectionPolicies {
-  if (!isDocument(stored) || typeof stored['_id'] !== 'string')
-    throw new TypeError('A stored policy document needs a string _id')
-  const policies = stored['policies']
+  if (!isDocument(stored) || typeof stored["_id"] !== "string")
+    throw new TypeError("A stored policy document needs a string _id")
+  const policies = stored["policies"]
   if (!Array.isArray(policies))
-    throw new TypeError(`Policies for '${stored['_id']}' must be an array`)
+    throw new TypeError(`Policies for '${stored["_id"]}' must be an array`)
   return {
-    collection: stored['_id'],
-    exposed: stored['exposed'] === true,
-    realtime: stored['realtime'] === true,
+    collection: stored["_id"],
+    exposed: stored["exposed"] === true,
+    realtime: stored["realtime"] === true,
     policies: policies.map((raw): PolicyDefinition => {
-      if (!isDocument(raw)) throw new TypeError('A stored policy must be a document')
-      const name = String(raw['name'])
-      const using = clause(raw['using'], name, 'using')
-      const check = clause(raw['check'], name, 'check')
+      if (!isDocument(raw)) throw new TypeError("A stored policy must be a document")
+      const name = String(raw["name"])
+      const using = clause(raw["using"], name, "using")
+      const check = clause(raw["check"], name, "check")
       return {
         name,
-        kind: raw['kind'] as PolicyKind,
-        ops: (Array.isArray(raw['ops']) ? raw['ops'] : []) as Operation[],
-        roles: (Array.isArray(raw['roles']) ? raw['roles'] : []) as string[],
+        kind: raw["kind"] as PolicyKind,
+        ops: (Array.isArray(raw["ops"]) ? raw["ops"] : []) as Operation[],
+        roles: (Array.isArray(raw["roles"]) ? raw["roles"] : []) as string[],
         ...(using === undefined ? {} : { using }),
         ...(check === undefined ? {} : { check }),
       }
     }),
-    ...(isDocument(stored['fields']) ? { fields: stored['fields'] as CollectionFields } : {}),
-    ...(Array.isArray(stored['immutable']) ? { immutable: stored['immutable'] as string[] } : {}),
+    ...(isDocument(stored["fields"]) ? { fields: stored["fields"] as CollectionFields } : {}),
+    ...(Array.isArray(stored["immutable"]) ? { immutable: stored["immutable"] as string[] } : {}),
   }
 }

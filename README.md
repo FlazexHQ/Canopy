@@ -25,13 +25,13 @@ Policies are code. A collection is only reachable when it is exposed, and only t
 
 ```ts
 // canopy/policies/todos.ts
-import { allow, auth, collection } from '@canopy/policy'
+import { allow, auth, collection } from "@canopy/policy"
 
-export default collection('todos', {
+export default collection("todos", {
   exposed: true,
   realtime: true,
-  policies: [allow.read('authenticated').where({ ownerId: auth('sub') })],
-  fields: { read: { default: { omit: ['internalNotes'] } } },
+  policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
+  fields: { read: { default: { omit: ["internalNotes"] } } },
 })
 ```
 
@@ -46,9 +46,9 @@ or embed it in a Node server (Express, Fastify and Hono all run on one):
 ```ts
 const realtime = await createRealtime({
   mongo,
-  database: 'app',
+  database: "app",
   auth,
-  policies: { dir: './canopy/policies' },
+  policies: { dir: "./canopy/policies" },
 })
 await attach(realtime, server)
 ```
@@ -57,8 +57,8 @@ and read live data in React:
 
 ```tsx
 const canopy = createClient({
-  url: 'https://api.example.com',
-  publishableKey: 'canopy_pk_dev',
+  url: "https://api.example.com",
+  publishableKey: "canopy_pk_dev",
   auth: { getToken },
 })
 const db = createReactDb(canopy)

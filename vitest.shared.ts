@@ -1,4 +1,4 @@
-import { defineProject } from 'vitest/config'
+import { defineProject } from "vitest/config"
 
 /**
  * Settings shared by every package's Vitest project. Workspace packages export their TypeScript sources under
@@ -6,11 +6,11 @@ import { defineProject } from 'vitest/config'
  */
 export const sharedConfig = defineProject({
   resolve: {
-    conditions: ['@canopy/source', 'module', 'browser', 'development|production'],
+    conditions: ["@canopy/source", "module", "browser", "development|production"],
   },
   ssr: {
     resolve: {
-      conditions: ['@canopy/source', 'node', 'module', 'development|production'],
+      conditions: ["@canopy/source", "node", "module", "development|production"],
     },
   },
 })

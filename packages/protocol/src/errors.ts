@@ -3,26 +3,26 @@
  * Values never change within a major protocol version.
  */
 export const ErrorCode = {
-  Unauthorized: 'CANOPY_UNAUTHORIZED',
-  TokenExpired: 'CANOPY_TOKEN_EXPIRED',
-  Forbidden: 'CANOPY_FORBIDDEN',
-  NotFound: 'CANOPY_NOT_FOUND',
-  PolicyViolation: 'CANOPY_POLICY_VIOLATION',
-  InvalidQuery: 'CANOPY_INVALID_QUERY',
-  Conflict: 'CANOPY_CONFLICT',
-  DuplicateKey: 'CANOPY_DUPLICATE_KEY',
-  PayloadTooLarge: 'CANOPY_PAYLOAD_TOO_LARGE',
-  ValidationFailed: 'CANOPY_VALIDATION_FAILED',
-  RateLimited: 'CANOPY_RATE_LIMITED',
-  LimitSubscriptions: 'CANOPY_LIMIT_SUBSCRIPTIONS',
-  SubscriptionTooLarge: 'CANOPY_SUBSCRIPTION_TOO_LARGE',
-  BulkLimit: 'CANOPY_BULK_LIMIT',
-  CollectionDropped: 'CANOPY_COLLECTION_DROPPED',
-  SessionMoved: 'CANOPY_SESSION_MOVED',
-  ProtocolError: 'CANOPY_PROTOCOL_ERROR',
-  Timeout: 'CANOPY_TIMEOUT',
-  Unavailable: 'CANOPY_UNAVAILABLE',
-  Internal: 'CANOPY_INTERNAL',
+  Unauthorized: "CANOPY_UNAUTHORIZED",
+  TokenExpired: "CANOPY_TOKEN_EXPIRED",
+  Forbidden: "CANOPY_FORBIDDEN",
+  NotFound: "CANOPY_NOT_FOUND",
+  PolicyViolation: "CANOPY_POLICY_VIOLATION",
+  InvalidQuery: "CANOPY_INVALID_QUERY",
+  Conflict: "CANOPY_CONFLICT",
+  DuplicateKey: "CANOPY_DUPLICATE_KEY",
+  PayloadTooLarge: "CANOPY_PAYLOAD_TOO_LARGE",
+  ValidationFailed: "CANOPY_VALIDATION_FAILED",
+  RateLimited: "CANOPY_RATE_LIMITED",
+  LimitSubscriptions: "CANOPY_LIMIT_SUBSCRIPTIONS",
+  SubscriptionTooLarge: "CANOPY_SUBSCRIPTION_TOO_LARGE",
+  BulkLimit: "CANOPY_BULK_LIMIT",
+  CollectionDropped: "CANOPY_COLLECTION_DROPPED",
+  SessionMoved: "CANOPY_SESSION_MOVED",
+  ProtocolError: "CANOPY_PROTOCOL_ERROR",
+  Timeout: "CANOPY_TIMEOUT",
+  Unavailable: "CANOPY_UNAVAILABLE",
+  Internal: "CANOPY_INTERNAL",
 } as const
 
 /** One of the stable `CANOPY_*` error codes. */
@@ -55,7 +55,7 @@ const CODES: ReadonlySet<string> = new Set(Object.values(ErrorCode))
 
 /** Returns true when `value` is one of the known error codes. */
 export function isErrorCode(value: unknown): value is ErrorCode {
-  return typeof value === 'string' && CODES.has(value)
+  return typeof value === "string" && CODES.has(value)
 }
 
 /** Returns the HTTP status that REST responses use for `code`. */
@@ -80,7 +80,7 @@ export class CanopyError extends Error {
 
   constructor(code: ErrorCode, message: string, options: CanopyErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
-    this.name = 'CanopyError'
+    this.name = "CanopyError"
     this.code = code
     this.details = options.details
   }
@@ -106,7 +106,7 @@ export interface WireError {
 export class UnauthorizedError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions, expired = false) {
     super(expired ? ErrorCode.TokenExpired : ErrorCode.Unauthorized, message, options)
-    this.name = 'UnauthorizedError'
+    this.name = "UnauthorizedError"
   }
 }
 
@@ -114,7 +114,7 @@ export class UnauthorizedError extends CanopyError {
 export class ForbiddenError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.Forbidden, message, options)
-    this.name = 'ForbiddenError'
+    this.name = "ForbiddenError"
   }
 }
 
@@ -122,7 +122,7 @@ export class ForbiddenError extends CanopyError {
 export class PolicyViolationError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.PolicyViolation, message, options)
-    this.name = 'PolicyViolationError'
+    this.name = "PolicyViolationError"
   }
 }
 
@@ -130,7 +130,7 @@ export class PolicyViolationError extends CanopyError {
 export class InvalidQueryError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.InvalidQuery, message, options)
-    this.name = 'InvalidQueryError'
+    this.name = "InvalidQueryError"
   }
 }
 
@@ -138,7 +138,7 @@ export class InvalidQueryError extends CanopyError {
 export class ConflictError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.Conflict, message, options)
-    this.name = 'ConflictError'
+    this.name = "ConflictError"
   }
 }
 
@@ -146,7 +146,7 @@ export class ConflictError extends CanopyError {
 export class ValidationError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.ValidationFailed, message, options)
-    this.name = 'ValidationError'
+    this.name = "ValidationError"
   }
 }
 
@@ -154,7 +154,7 @@ export class ValidationError extends CanopyError {
 export class RateLimitError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.RateLimited, message, options)
-    this.name = 'RateLimitError'
+    this.name = "RateLimitError"
   }
 }
 
@@ -162,7 +162,7 @@ export class RateLimitError extends CanopyError {
 export class ProtocolError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.ProtocolError, message, options)
-    this.name = 'ProtocolError'
+    this.name = "ProtocolError"
   }
 }
 
@@ -195,5 +195,5 @@ export function errorFromWire(error: WireError): CanopyError {
 /** Converts any thrown value into a {@link CanopyError}, mapping unknown failures to `CANOPY_INTERNAL`. */
 export function toCanopyError(error: unknown): CanopyError {
   if (error instanceof CanopyError) return error
-  return new CanopyError(ErrorCode.Internal, 'Internal error', { cause: error })
+  return new CanopyError(ErrorCode.Internal, "Internal error", { cause: error })
 }

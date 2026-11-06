@@ -1,14 +1,14 @@
-import { UPDATE_OPERATORS } from '@canopy/matcher'
+import { UPDATE_OPERATORS } from "@canopy/matcher"
 import {
   canonicalString,
   InvalidQueryError,
   isDocument,
   isForbiddenKey,
   sha256Hex,
-} from '@canopy/protocol'
-import { type ParsedFilter, parseFilter } from './filter.ts'
-import { DEFAULT_LIMITS, type QueryLimits } from './limits.ts'
-import { normalizePositional, validatePath } from './paths.ts'
+} from "@canopy/protocol"
+import { type ParsedFilter, parseFilter } from "./filter.ts"
+import { DEFAULT_LIMITS, type QueryLimits } from "./limits.ts"
+import { normalizePositional, validatePath } from "./paths.ts"
 
 function fail(message: string): never {
   throw new InvalidQueryError(message)
@@ -22,7 +22,7 @@ export interface ParsedSort {
 
 /** Validates a sort such as `{ createdAt: -1 }`. Only `1` and `-1` are accepted. */
 export function parseSort(input: unknown, limits: QueryLimits = DEFAULT_LIMITS): ParsedSort {
-  if (!isDocument(input)) fail('A sort must be a document')
+  if (!isDocument(input)) fail("A sort must be a document")
   const keys = Object.keys(input)
   if (keys.length > limits.maxSortKeys)
     fail(`A sort may not have more than ${limits.maxSortKeys} keys`)
@@ -39,7 +39,7 @@ export function parseSort(input: unknown, limits: QueryLimits = DEFAULT_LIMITS):
 /** A validated projection. */
 export interface ParsedProjection {
   readonly projection: Readonly<Record<string, 0 | 1>>
-  readonly mode: 'include' | 'exclude'
+  readonly mode: "include" | "exclude"
   readonly paths: readonly string[]
   readonly includeId: boolean
 }
@@ -49,13 +49,13 @@ export function parseProjection(
   input: unknown,
   limits: QueryLimits = DEFAULT_LIMITS,
 ): ParsedProjection {
-  if (!isDocument(input)) fail('A projection must be a document')
+  if (!isDocument(input)) fail("A projection must be a document")
   const keys = Object.keys(input)
   if (keys.length > limits.maxProjectionPaths) {
     fail(`A projection may not have more than ${limits.maxProjectionPaths} paths`)
   }
   const projection: Record<string, 0 | 1> = {}
-  let mode: 'include' | 'exclude' | undefined
+  let mode: "include" | "exclude" | undefined
   let includeId = true
   const paths: string[] = []
   for (const path of keys) {
@@ -64,13 +64,13 @@ export function parseProjection(
     const flag = raw === 1 || raw === true ? 1 : raw === 0 || raw === false ? 0 : undefined
     if (flag === undefined) fail(`The projection of ${path} must be 0 or 1`)
     projection[path] = flag
-    if (path === '_id') {
+    if (path === "_id") {
       includeId = flag === 1
       continue
     }
-    const pathMode = flag === 1 ? 'include' : 'exclude'
+    const pathMode = flag === 1 ? "include" : "exclude"
     if (mode !== undefined && mode !== pathMode)
-      fail('A projection cannot mix inclusion and exclusion')
+      fail("A projection cannot mix inclusion and exclusion")
     mode = pathMode
     paths.push(path)
   }
@@ -79,13 +79,13 @@ export function parseProjection(
       if (a !== b && b.startsWith(`${a}.`)) fail(`Path collision between ${a} and ${b}`)
     }
   }
-  return { projection, mode: mode ?? 'exclude', paths, includeId }
+  return { projection, mode: mode ?? "exclude", paths, includeId }
 }
 
 /** Validates a `limit`. */
 export function parseLimit(input: unknown, limits: QueryLimits = DEFAULT_LIMITS): number {
-  if (typeof input !== 'number' || !Number.isSafeInteger(input) || input < 0) {
-    fail('limit must be a non negative integer')
+  if (typeof input !== "number" || !Number.isSafeInteger(input) || input < 0) {
+    fail("limit must be a non negative integer")
   }
   if (input > limits.maxLimit) fail(`limit may not exceed ${limits.maxLimit}`)
   return input
@@ -111,7 +111,7 @@ export function parseQuery(
   },
   limits: QueryLimits = DEFAULT_LIMITS,
 ): ParsedQuery {
-  const filter = parseFilter(input.filter ?? {}, { context: 'filter', limits })
+  const filter = parseFilter(input.filter ?? {}, { context: "filter", limits })
   const sort = input.sort === undefined ? undefined : parseSort(input.sort, limits)
   const limit = input.limit === undefined ? undefined : parseLimit(input.limit, limits)
   const fields = input.fields === undefined ? undefined : parseProjection(input.fields, limits)
@@ -123,7 +123,7 @@ export function parseQuery(
 export interface ParsedUpdate {
   readonly update: Record<string, unknown>
   /** `operators` for an operator update, `replacement` for a whole document. */
-  readonly kind: 'operators' | 'replacement'
+  readonly kind: "operators" | "replacement"
   /** Every path the update writes, with positional segments removed. `$rename` contributes both sides. */
   readonly writtenPaths: readonly string[]
 }
@@ -142,16 +142,16 @@ export function parseUpdate(input: unknown, options: ParseUpdateOptions = {}): P
   const limits = options.limits ?? DEFAULT_LIMITS
   if (Array.isArray(input)) {
     if (options.allowPipeline !== true)
-      fail('Pipeline updates are only accepted from the service role')
-    fail('Pipeline updates are not supported yet')
+      fail("Pipeline updates are only accepted from the service role")
+    fail("Pipeline updates are not supported yet")
   }
-  if (!isDocument(input)) fail('An update must be a document')
+  if (!isDocument(input)) fail("An update must be a document")
   const keys = Object.keys(input)
-  if (keys.length === 0 || !keys.some((key) => key.startsWith('$'))) {
+  if (keys.length === 0 || !keys.some((key) => key.startsWith("$"))) {
     validateStoredDocument(input, limits)
-    return { update: input, kind: 'replacement', writtenPaths: Object.keys(input) }
+    return { update: input, kind: "replacement", writtenPaths: Object.keys(input) }
   }
-  if (!keys.every((key) => key.startsWith('$'))) fail('An update cannot mix operators and fields')
+  if (!keys.every((key) => key.startsWith("$"))) fail("An update cannot mix operators and fields")
   const written: string[] = []
   for (const op of keys) {
     if (!OPERATORS.has(op)) fail(`The update operator ${op} is not allowed`)
@@ -161,8 +161,8 @@ export function parseUpdate(input: unknown, options: ParseUpdateOptions = {}): P
       validatePath(path, { maxLength: limits.maxPathLength, positional: true })
       written.push(normalizePositional(path))
       const value = operand[path]
-      if (op === '$rename') {
-        if (typeof value !== 'string') fail('$rename targets must be strings')
+      if (op === "$rename") {
+        if (typeof value !== "string") fail("$rename targets must be strings")
         validatePath(value, { maxLength: limits.maxPathLength })
         written.push(value)
         continue
@@ -170,36 +170,36 @@ export function parseUpdate(input: unknown, options: ParseUpdateOptions = {}): P
       validateUpdateValue(op, value, limits, 1)
     }
   }
-  return { update: input, kind: 'operators', writtenPaths: written }
+  return { update: input, kind: "operators", writtenPaths: written }
 }
 
 function validateUpdateValue(op: string, value: unknown, limits: QueryLimits, depth: number): void {
-  if (op === '$pull') {
+  if (op === "$pull") {
     if (isDocument(value)) parseFilter(isOperatorDocument(value) ? { v: value } : value, { limits })
     return
   }
   if (
-    (op === '$push' || op === '$addToSet') &&
+    (op === "$push" || op === "$addToSet") &&
     isDocument(value) &&
-    Object.hasOwn(value, '$each')
+    Object.hasOwn(value, "$each")
   ) {
     for (const key of Object.keys(value)) {
-      if (!['$each', '$position', '$slice', '$sort'].includes(key))
+      if (!["$each", "$position", "$slice", "$sort"].includes(key))
         fail(`Unknown ${op} modifier ${key}`)
     }
-    const each = value['$each']
-    if (!Array.isArray(each)) fail('$each needs an array')
+    const each = value["$each"]
+    if (!Array.isArray(each)) fail("$each needs an array")
     if (each.length > limits.maxInList)
       fail(`$each may not have more than ${limits.maxInList} values`)
     for (const item of each) validateValueForStorage(item, limits, depth + 1)
     return
   }
-  if (op === '$currentDate' || op === '$bit') return
+  if (op === "$currentDate" || op === "$bit") return
   validateValueForStorage(value, limits, depth)
 }
 
 function isOperatorDocument(value: Record<string, unknown>): boolean {
-  return Object.keys(value)[0]?.startsWith('$') ?? false
+  return Object.keys(value)[0]?.startsWith("$") ?? false
 }
 
 function validateValueForStorage(value: unknown, limits: QueryLimits, depth: number): void {
@@ -211,9 +211,9 @@ function validateValueForStorage(value: unknown, limits: QueryLimits, depth: num
   if (!isDocument(value)) return
   for (const key of Object.keys(value)) {
     if (isForbiddenKey(key)) fail(`The key "${key}" is not allowed`)
-    if (key.startsWith('$')) fail(`Field names may not start with $: ${key}`)
-    if (key.includes('.')) fail(`Field names may not contain dots: ${key}`)
-    if (key.includes('\0')) fail('Field names may not contain NUL characters')
+    if (key.startsWith("$")) fail(`Field names may not start with $: ${key}`)
+    if (key.includes(".")) fail(`Field names may not contain dots: ${key}`)
+    if (key.includes("\0")) fail("Field names may not contain NUL characters")
     validateValueForStorage(value[key], limits, depth + 1)
   }
 }
@@ -223,7 +223,7 @@ function validateValueForStorage(value: unknown, limits: QueryLimits, depth: num
  * prototype keys at any depth.
  */
 export function validateStoredDocument(doc: unknown, limits: QueryLimits = DEFAULT_LIMITS): void {
-  if (!isDocument(doc)) fail('A document must be an object')
+  if (!isDocument(doc)) fail("A document must be an object")
   validateValueForStorage(doc, limits, 1)
 }
 
@@ -244,12 +244,12 @@ function canonicalDocument(doc: Record<string, unknown>): Record<string, unknown
   const out: Record<string, unknown> = {}
   for (const key of sortedKeys(doc)) {
     const value = doc[key]
-    if (key === '$and' || key === '$or' || key === '$nor') {
+    if (key === "$and" || key === "$or" || key === "$nor") {
       const branches = (value as unknown[]).map((branch) =>
         canonicalDocument(branch as Record<string, unknown>),
       )
       out[key] = sortByCanonical(branches)
-    } else if (key.startsWith('$')) {
+    } else if (key.startsWith("$")) {
       out[key] = value
     } else {
       out[key] = canonicalCondition(value)
@@ -261,19 +261,19 @@ function canonicalDocument(doc: Record<string, unknown>): Record<string, unknown
 function canonicalCondition(value: unknown): unknown {
   if (!isDocument(value)) return value
   const first = Object.keys(value)[0]
-  if (first === undefined || !first.startsWith('$')) return value
+  if (first === undefined || !first.startsWith("$")) return value
   const out: Record<string, unknown> = {}
   for (const key of sortedKeys(value)) {
     const operand = value[key]
-    if ((key === '$in' || key === '$nin') && Array.isArray(operand))
+    if ((key === "$in" || key === "$nin") && Array.isArray(operand))
       out[key] = sortByCanonical(operand)
-    else if (key === '$elemMatch' && isDocument(operand)) {
+    else if (key === "$elemMatch" && isDocument(operand)) {
       const inner = Object.keys(operand)[0]
       out[key] =
-        inner?.startsWith('$') === true && !['$and', '$or', '$nor'].includes(inner)
+        inner?.startsWith("$") === true && !["$and", "$or", "$nor"].includes(inner)
           ? canonicalCondition(operand)
           : canonicalDocument(operand)
-    } else if (key === '$not') out[key] = canonicalCondition(operand)
+    } else if (key === "$not") out[key] = canonicalCondition(operand)
     else out[key] = operand
   }
   return out

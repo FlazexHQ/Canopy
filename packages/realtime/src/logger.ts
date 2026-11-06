@@ -17,9 +17,9 @@ const SECRET_KEYS = /^(?:authorization|apikey|api_key|token|key|password|secret|
 export function redact(object: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [name, value] of Object.entries(object)) {
-    if (SECRET_KEYS.test(name)) out[name] = '[redacted]'
+    if (SECRET_KEYS.test(name)) out[name] = "[redacted]"
     else if (
-      typeof value === 'object' &&
+      typeof value === "object" &&
       value !== null &&
       !Array.isArray(value) &&
       !(value instanceof Error)

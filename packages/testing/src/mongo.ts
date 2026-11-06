@@ -1,11 +1,11 @@
-import { type Collection, type Document, MongoClient } from 'mongodb'
-import { afterAll, beforeAll, describe } from 'vitest'
+import { type Collection, type Document, MongoClient } from "mongodb"
+import { afterAll, beforeAll, describe } from "vitest"
 
 /** The replica set used by integration and differential tests, from `CANOPY_TEST_MONGODB_URI`. */
-export const MONGODB_URI = process.env['CANOPY_TEST_MONGODB_URI']
+export const MONGODB_URI = process.env["CANOPY_TEST_MONGODB_URI"]
 
 /** Number of generated cases per differential property; raised in nightly runs through `CANOPY_DIFF_RUNS`. */
-export const DIFF_RUNS = Number(process.env['CANOPY_DIFF_RUNS'] ?? '300')
+export const DIFF_RUNS = Number(process.env["CANOPY_DIFF_RUNS"] ?? "300")
 
 /**
  * Declares a suite that needs a MongoDB replica set. Without `CANOPY_TEST_MONGODB_URI` the suite is reported as
@@ -29,11 +29,11 @@ export function describeWithMongo(name: string, body: (db: () => MongoTestDb) =>
     })
     afterAll(async () => {
       if (client === undefined || handle === undefined) return
-      await client.db(handle.collection('x').dbName).dropDatabase()
+      await client.db(handle.collection("x").dbName).dropDatabase()
       await client.close()
     })
     body(() => {
-      if (handle === undefined) throw new Error('MongoDB is not connected')
+      if (handle === undefined) throw new Error("MongoDB is not connected")
       return handle
     })
   })

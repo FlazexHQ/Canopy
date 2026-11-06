@@ -1,19 +1,19 @@
-import { type ClusterTime, isClusterTime } from './cluster-time.ts'
-import { type DecodeOptions, parse, stringify } from './ejson.ts'
-import { type ErrorCode, isErrorCode, ProtocolError, type WireError } from './errors.ts'
-import { isDocument } from './values.ts'
+import { type ClusterTime, isClusterTime } from "./cluster-time.ts"
+import { type DecodeOptions, parse, stringify } from "./ejson.ts"
+import { type ErrorCode, isErrorCode, ProtocolError, type WireError } from "./errors.ts"
+import { isDocument } from "./values.ts"
 
 /** The protocol version spoken by this package. */
 export const PROTOCOL_VERSION = 1
 
 /** The WebSocket subprotocol for JSON framing of `canopy.v1`. */
-export const SUBPROTOCOL = 'canopy.v1+json'
+export const SUBPROTOCOL = "canopy.v1+json"
 
 /** Capability flags. */
 export const Capability = {
-  Batch: 'batch',
-  Diff: 'diff',
-  MsgPack: 'msgpack',
+  Batch: "batch",
+  Diff: "diff",
+  MsgPack: "msgpack",
 } as const
 
 /** One of the capability flags in {@link Capability}. */
@@ -32,7 +32,7 @@ export interface SubQuery {
 
 /** `hello`: the first client frame, carrying credentials and an optional resume position. */
 export interface HelloMessage {
-  readonly t: 'hello'
+  readonly t: "hello"
   readonly v: number
   readonly key: string
   readonly token?: string
@@ -43,13 +43,13 @@ export interface HelloMessage {
 
 /** `auth`: replaces the user token. An empty token downgrades the connection to `anon`. */
 export interface AuthMessage {
-  readonly t: 'auth'
+  readonly t: "auth"
   readonly token: string
 }
 
 /** `sub`: subscribes to a live query. */
 export interface SubMessage {
-  readonly t: 'sub'
+  readonly t: "sub"
   readonly id: string
   readonly c: string
   readonly q: SubQuery
@@ -58,23 +58,23 @@ export interface SubMessage {
 
 /** `unsub`: ends a subscription. */
 export interface UnsubMessage {
-  readonly t: 'unsub'
+  readonly t: "unsub"
   readonly id: string
 }
 
 /** Mutation operations carried by `mut`. */
 export type MutationOp =
-  | 'insert'
-  | 'insertMany'
-  | 'update'
-  | 'updateMany'
-  | 'replace'
-  | 'delete'
-  | 'deleteMany'
+  | "insert"
+  | "insertMany"
+  | "update"
+  | "updateMany"
+  | "replace"
+  | "delete"
+  | "deleteMany"
 
 /** `mut`: a mutation, identified by a UUIDv7 that doubles as the idempotency key. */
 export interface MutMessage {
-  readonly t: 'mut'
+  readonly t: "mut"
   readonly id: string
   readonly c: string
   readonly op: MutationOp
@@ -83,13 +83,13 @@ export interface MutMessage {
 
 /** `ping`: application level heartbeat. */
 export interface PingMessage {
-  readonly t: 'ping'
+  readonly t: "ping"
   readonly ts: number
 }
 
 /** `bye`: graceful close; the server discards the session. */
 export interface ByeMessage {
-  readonly t: 'bye'
+  readonly t: "bye"
 }
 
 /** Every message a client may send. */
@@ -110,7 +110,7 @@ export interface WelcomeLimits {
 
 /** `welcome`: the handshake result. */
 export interface WelcomeMessage {
-  readonly t: 'welcome'
+  readonly t: "welcome"
   readonly seq: number
   readonly sid: string
   readonly v: number
@@ -124,7 +124,7 @@ export interface WelcomeMessage {
 
 /** `added`: a document enters the listed subscriptions. */
 export interface AddedMessage {
-  readonly t: 'added'
+  readonly t: "added"
   readonly seq: number
   readonly c: string
   readonly id: unknown
@@ -135,7 +135,7 @@ export interface AddedMessage {
 
 /** `changed`: a document level change, applied once to the client cache. */
 export interface ChangedMessage {
-  readonly t: 'changed'
+  readonly t: "changed"
   readonly seq: number
   readonly c: string
   readonly id: unknown
@@ -149,7 +149,7 @@ export interface ChangedMessage {
 
 /** `removed`: a document leaves the listed subscriptions. */
 export interface RemovedMessage {
-  readonly t: 'removed'
+  readonly t: "removed"
   readonly seq: number
   readonly c: string
   readonly id: unknown
@@ -159,7 +159,7 @@ export interface RemovedMessage {
 
 /** `ready`: the initial snapshot of a subscription is complete. */
 export interface ReadyMessage {
-  readonly t: 'ready'
+  readonly t: "ready"
   readonly seq: number
   readonly s: string
   readonly ct: ClusterTime
@@ -167,7 +167,7 @@ export interface ReadyMessage {
 
 /** `nosub`: a subscription ended. */
 export interface NosubMessage {
-  readonly t: 'nosub'
+  readonly t: "nosub"
   readonly seq: number
   readonly s: string
   readonly err?: WireError
@@ -183,7 +183,7 @@ export interface AckResult {
 
 /** `ack`: a mutation result. */
 export interface AckMessage {
-  readonly t: 'ack'
+  readonly t: "ack"
   readonly seq: number
   readonly m: string
   readonly ok: boolean
@@ -196,14 +196,14 @@ export interface AckMessage {
 
 /** `wm`: progress heartbeat. */
 export interface WatermarkMessage {
-  readonly t: 'wm'
+  readonly t: "wm"
   readonly seq: number
   readonly ct: ClusterTime
 }
 
 /** `resync`: gap free delivery can no longer be guaranteed for the listed (or all) subscriptions. */
 export interface ResyncMessage {
-  readonly t: 'resync'
+  readonly t: "resync"
   readonly seq: number
   readonly reason: string
   readonly s?: readonly string[]
@@ -211,7 +211,7 @@ export interface ResyncMessage {
 
 /** `reconnect`: the server is draining. */
 export interface ReconnectMessage {
-  readonly t: 'reconnect'
+  readonly t: "reconnect"
   readonly seq: number
   readonly retryAfterMs: number
   readonly reason: string
@@ -219,7 +219,7 @@ export interface ReconnectMessage {
 
 /** `err`: a connection level error. */
 export interface ErrMessage {
-  readonly t: 'err'
+  readonly t: "err"
   readonly seq: number
   readonly code: ErrorCode
   readonly msg: string
@@ -227,7 +227,7 @@ export interface ErrMessage {
 
 /** `pong`: heartbeat reply. It carries no `seq`. */
 export interface PongMessage {
-  readonly t: 'pong'
+  readonly t: "pong"
   readonly ts: number
 }
 
@@ -247,7 +247,7 @@ export type SequencedMessage =
 
 /** `batch`: a container of sequenced messages, each with its own `seq`. */
 export interface BatchMessage {
-  readonly t: 'batch'
+  readonly t: "batch"
   readonly m: readonly SequencedMessage[]
 }
 
@@ -256,13 +256,13 @@ export type ServerMessage = SequencedMessage | BatchMessage | PongMessage
 
 const DEFAULT_DECODE: DecodeOptions = { maxDepth: 40, maxNodes: 200_000 }
 const MUTATION_OPS: ReadonlySet<string> = new Set([
-  'insert',
-  'insertMany',
-  'update',
-  'updateMany',
-  'replace',
-  'delete',
-  'deleteMany',
+  "insert",
+  "insertMany",
+  "update",
+  "updateMany",
+  "replace",
+  "delete",
+  "deleteMany",
 ])
 const SUB_ID = /^[\w.:-]{1,64}$/
 const COLLECTION = /^[^\0$][^\0]{0,119}$/
@@ -297,27 +297,27 @@ function optionalField<T>(
   return field(record, name, check, what)
 }
 
-const isString = (value: unknown): value is string => typeof value === 'string'
+const isString = (value: unknown): value is string => typeof value === "string"
 const isNonEmptyString = (value: unknown): value is string =>
-  typeof value === 'string' && value.length > 0
-const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
+  typeof value === "string" && value.length > 0
+const isBoolean = (value: unknown): value is boolean => typeof value === "boolean"
 const isSeq = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 const isFiniteNumber = (value: unknown): value is number =>
-  typeof value === 'number' && Number.isFinite(value)
+  typeof value === "number" && Number.isFinite(value)
 const isDoc = (value: unknown): value is Document => isDocument(value)
 const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string')
-const isSubId = (value: unknown): value is string => typeof value === 'string' && SUB_ID.test(value)
+  Array.isArray(value) && value.every((item) => typeof item === "string")
+const isSubId = (value: unknown): value is string => typeof value === "string" && SUB_ID.test(value)
 const isCollection = (value: unknown): value is string =>
-  typeof value === 'string' && COLLECTION.test(value)
+  typeof value === "string" && COLLECTION.test(value)
 
 function wireError(value: unknown): WireError | undefined {
   if (value === undefined) return undefined
-  if (!isDocument(value) || !isErrorCode(value['code']) || typeof value['msg'] !== 'string') {
+  if (!isDocument(value) || !isErrorCode(value["code"]) || typeof value["msg"] !== "string") {
     return fail('"err" must be { code, msg } with a known code')
   }
-  return { code: value['code'], msg: value['msg'] }
+  return { code: value["code"], msg: value["msg"] }
 }
 
 function decodeObject(text: string, options: DecodeOptions | undefined): Document {
@@ -325,19 +325,19 @@ function decodeObject(text: string, options: DecodeOptions | undefined): Documen
   try {
     value = parse(text, options ?? DEFAULT_DECODE)
   } catch (error: unknown) {
-    throw new ProtocolError('Frame is not valid EJSON', { cause: error })
+    throw new ProtocolError("Frame is not valid EJSON", { cause: error })
   }
-  if (!isDocument(value)) fail('A frame must be a JSON object')
+  if (!isDocument(value)) fail("A frame must be a JSON object")
   return value
 }
 
 function decodeSubQuery(value: unknown): SubQuery {
   if (!isDocument(value)) return fail('"q" must be an object')
   const out: { filter?: Document; sort?: Document; limit?: number; fields?: Document } = {}
-  const filter = optionalField(value, 'filter', isDoc, 'an object')
-  const sort = optionalField(value, 'sort', isDoc, 'an object')
-  const limit = optionalField(value, 'limit', isSeq, 'a non negative integer')
-  const fields = optionalField(value, 'fields', isDoc, 'an object')
+  const filter = optionalField(value, "filter", isDoc, "an object")
+  const sort = optionalField(value, "sort", isDoc, "an object")
+  const limit = optionalField(value, "limit", isSeq, "a non negative integer")
+  const fields = optionalField(value, "fields", isDoc, "an object")
   if (filter !== undefined) out.filter = filter
   if (sort !== undefined) out.sort = sort
   if (limit !== undefined) out.limit = limit
@@ -354,24 +354,24 @@ export function decodeClientMessage(
   options?: DecodeOptions,
 ): ClientMessage | undefined {
   const raw = decodeObject(text, options)
-  const t = field(raw, 't', isNonEmptyString, 'a message type')
+  const t = field(raw, "t", isNonEmptyString, "a message type")
   switch (t) {
-    case 'hello': {
-      const v = field(raw, 'v', isSeq, 'a protocol version')
-      const key = field(raw, 'key', isString, 'a string')
-      const token = optionalField(raw, 'token', isString, 'a string')
-      const caps = optionalField(raw, 'caps', isStringArray, 'an array of strings')
-      const sdk = optionalField(raw, 'sdk', isString, 'a string')
-      const resumeRaw = optionalField(raw, 'resume', isDoc, 'an object')
+    case "hello": {
+      const v = field(raw, "v", isSeq, "a protocol version")
+      const key = field(raw, "key", isString, "a string")
+      const token = optionalField(raw, "token", isString, "a string")
+      const caps = optionalField(raw, "caps", isStringArray, "an array of strings")
+      const sdk = optionalField(raw, "sdk", isString, "a string")
+      const resumeRaw = optionalField(raw, "resume", isDoc, "an object")
       let resume: { sid: string; seq: number } | undefined
       if (resumeRaw !== undefined) {
         resume = {
-          sid: field(resumeRaw, 'sid', isNonEmptyString, 'a session id'),
-          seq: field(resumeRaw, 'seq', isSeq, 'a sequence number'),
+          sid: field(resumeRaw, "sid", isNonEmptyString, "a session id"),
+          seq: field(resumeRaw, "seq", isSeq, "a sequence number"),
         }
       }
       return {
-        t: 'hello',
+        t: "hello",
         v,
         key,
         ...(token === undefined ? {} : { token }),
@@ -380,86 +380,86 @@ export function decodeClientMessage(
         ...(sdk === undefined ? {} : { sdk }),
       }
     }
-    case 'auth':
-      return { t: 'auth', token: field(raw, 'token', isString, 'a string') }
-    case 'sub': {
-      const id = field(raw, 'id', isSubId, 'a subscription id of at most 64 word characters')
-      const c = field(raw, 'c', isCollection, 'a collection name')
-      const q = decodeSubQuery(raw['q'] ?? Object.create(null))
-      const oRaw = optionalField(raw, 'o', isDoc, 'an object')
-      if (oRaw === undefined) return { t: 'sub', id, c, q }
-      const buffer = optionalField(oRaw, 'buffer', isSeq, 'a non negative integer')
-      return { t: 'sub', id, c, q, o: buffer === undefined ? {} : { buffer } }
+    case "auth":
+      return { t: "auth", token: field(raw, "token", isString, "a string") }
+    case "sub": {
+      const id = field(raw, "id", isSubId, "a subscription id of at most 64 word characters")
+      const c = field(raw, "c", isCollection, "a collection name")
+      const q = decodeSubQuery(raw["q"] ?? Object.create(null))
+      const oRaw = optionalField(raw, "o", isDoc, "an object")
+      if (oRaw === undefined) return { t: "sub", id, c, q }
+      const buffer = optionalField(oRaw, "buffer", isSeq, "a non negative integer")
+      return { t: "sub", id, c, q, o: buffer === undefined ? {} : { buffer } }
     }
-    case 'unsub':
-      return { t: 'unsub', id: field(raw, 'id', isSubId, 'a subscription id') }
-    case 'mut': {
-      const id = field(raw, 'id', isNonEmptyString, 'a mutation id')
-      const c = field(raw, 'c', isCollection, 'a collection name')
+    case "unsub":
+      return { t: "unsub", id: field(raw, "id", isSubId, "a subscription id") }
+    case "mut": {
+      const id = field(raw, "id", isNonEmptyString, "a mutation id")
+      const c = field(raw, "c", isCollection, "a collection name")
       const op = field(
         raw,
-        'op',
+        "op",
         (v): v is MutationOp => isString(v) && MUTATION_OPS.has(v),
-        'a mutation op',
+        "a mutation op",
       )
-      const args = field(raw, 'args', isDoc, 'an object')
-      return { t: 'mut', id, c, op, args }
+      const args = field(raw, "args", isDoc, "an object")
+      return { t: "mut", id, c, op, args }
     }
-    case 'ping':
-      return { t: 'ping', ts: field(raw, 'ts', isFiniteNumber, 'a number') }
-    case 'bye':
-      return { t: 'bye' }
+    case "ping":
+      return { t: "ping", ts: field(raw, "ts", isFiniteNumber, "a number") }
+    case "bye":
+      return { t: "bye" }
     default:
       return undefined
   }
 }
 
 function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined {
-  const seq = field(raw, 'seq', isSeq, 'a sequence number')
-  const ct = (): ClusterTime => field(raw, 'ct', isClusterTime, 'a cluster time')
+  const seq = field(raw, "seq", isSeq, "a sequence number")
+  const ct = (): ClusterTime => field(raw, "ct", isClusterTime, "a cluster time")
   switch (t) {
-    case 'welcome': {
-      const limits = field(raw, 'limits', isDoc, 'an object')
+    case "welcome": {
+      const limits = field(raw, "limits", isDoc, "an object")
       const parsedLimits: Record<string, number> = { subs: 0 }
       for (const [name, value] of Object.entries(limits)) {
         if (isFiniteNumber(value)) parsedLimits[name] = value
       }
       return {
-        t: 'welcome',
+        t: "welcome",
         seq,
-        sid: field(raw, 'sid', isNonEmptyString, 'a session id'),
-        v: field(raw, 'v', isSeq, 'a protocol version'),
-        resumed: field(raw, 'resumed', isBoolean, 'a boolean'),
-        hb: field(raw, 'hb', isSeq, 'a heartbeat interval'),
-        pv: field(raw, 'pv', isString, 'a policy version'),
+        sid: field(raw, "sid", isNonEmptyString, "a session id"),
+        v: field(raw, "v", isSeq, "a protocol version"),
+        resumed: field(raw, "resumed", isBoolean, "a boolean"),
+        hb: field(raw, "hb", isSeq, "a heartbeat interval"),
+        pv: field(raw, "pv", isString, "a policy version"),
         ct: ct(),
-        caps: field(raw, 'caps', isStringArray, 'an array of strings'),
+        caps: field(raw, "caps", isStringArray, "an array of strings"),
         limits: parsedLimits as WelcomeLimits,
       }
     }
-    case 'added':
-    case 'removed': {
-      const c = field(raw, 'c', isCollection, 'a collection name')
-      if (raw['id'] === undefined) fail('"id" is required')
-      const s = field(raw, 's', isStringArray, 'an array of subscription ids')
-      if (t === 'removed') return { t: 'removed', seq, c, id: raw['id'], ct: ct(), s }
-      const d = optionalField(raw, 'd', isDoc, 'a document')
-      return { t: 'added', seq, c, id: raw['id'], ct: ct(), s, ...(d === undefined ? {} : { d }) }
+    case "added":
+    case "removed": {
+      const c = field(raw, "c", isCollection, "a collection name")
+      if (raw["id"] === undefined) fail('"id" is required')
+      const s = field(raw, "s", isStringArray, "an array of subscription ids")
+      if (t === "removed") return { t: "removed", seq, c, id: raw["id"], ct: ct(), s }
+      const d = optionalField(raw, "d", isDoc, "a document")
+      return { t: "added", seq, c, id: raw["id"], ct: ct(), s, ...(d === undefined ? {} : { d }) }
     }
-    case 'changed': {
-      const c = field(raw, 'c', isCollection, 'a collection name')
-      if (raw['id'] === undefined) fail('"id" is required')
-      const set = optionalField(raw, 'set', isDoc, 'a document')
-      const unset = optionalField(raw, 'unset', isStringArray, 'an array of paths')
-      const d = optionalField(raw, 'd', isDoc, 'a document')
-      const replace = raw['replace'] === true
-      const refetch = raw['refetch'] === true
+    case "changed": {
+      const c = field(raw, "c", isCollection, "a collection name")
+      if (raw["id"] === undefined) fail('"id" is required')
+      const set = optionalField(raw, "set", isDoc, "a document")
+      const unset = optionalField(raw, "unset", isStringArray, "an array of paths")
+      const d = optionalField(raw, "d", isDoc, "a document")
+      const replace = raw["replace"] === true
+      const refetch = raw["refetch"] === true
       if (replace && d === undefined) fail('"replace" requires "d"')
       return {
-        t: 'changed',
+        t: "changed",
         seq,
         c,
-        id: raw['id'],
+        id: raw["id"],
         ct: ct(),
         ...(set === undefined ? {} : { set }),
         ...(unset === undefined ? {} : { unset }),
@@ -468,40 +468,40 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
         ...(refetch ? { refetch: true as const } : {}),
       }
     }
-    case 'ready':
-      return { t: 'ready', seq, s: field(raw, 's', isSubId, 'a subscription id'), ct: ct() }
-    case 'nosub': {
-      const err = wireError(raw['err'])
-      const s = field(raw, 's', isSubId, 'a subscription id')
-      return err === undefined ? { t: 'nosub', seq, s } : { t: 'nosub', seq, s, err }
+    case "ready":
+      return { t: "ready", seq, s: field(raw, "s", isSubId, "a subscription id"), ct: ct() }
+    case "nosub": {
+      const err = wireError(raw["err"])
+      const s = field(raw, "s", isSubId, "a subscription id")
+      return err === undefined ? { t: "nosub", seq, s } : { t: "nosub", seq, s, err }
     }
-    case 'ack': {
-      const err = wireError(raw['err'])
-      const ackCt = optionalField(raw, 'ct', isClusterTime, 'a cluster time')
-      const echo = optionalField(raw, 'echo', isBoolean, 'a boolean')
-      const replayed = optionalField(raw, 'replayed', isBoolean, 'a boolean')
-      const resRaw = optionalField(raw, 'res', isDoc, 'an object')
+    case "ack": {
+      const err = wireError(raw["err"])
+      const ackCt = optionalField(raw, "ct", isClusterTime, "a cluster time")
+      const echo = optionalField(raw, "echo", isBoolean, "a boolean")
+      const replayed = optionalField(raw, "replayed", isBoolean, "a boolean")
+      const resRaw = optionalField(raw, "res", isDoc, "an object")
       let res: AckResult | undefined
       if (resRaw !== undefined) {
-        const insertedIds = resRaw['insertedIds']
-        const docs = resRaw['docs']
+        const insertedIds = resRaw["insertedIds"]
+        const docs = resRaw["docs"]
         if (insertedIds !== undefined && !Array.isArray(insertedIds))
           fail('"insertedIds" must be an array')
         if (docs !== undefined && !(Array.isArray(docs) && docs.every(isDocument))) {
           fail('"docs" must be an array of documents')
         }
         res = {
-          matched: field(resRaw, 'matched', isSeq, 'a count'),
-          modified: field(resRaw, 'modified', isSeq, 'a count'),
+          matched: field(resRaw, "matched", isSeq, "a count"),
+          modified: field(resRaw, "modified", isSeq, "a count"),
           ...(insertedIds === undefined ? {} : { insertedIds: insertedIds as unknown[] }),
           ...(docs === undefined ? {} : { docs: docs as Document[] }),
         }
       }
       return {
-        t: 'ack',
+        t: "ack",
         seq,
-        m: field(raw, 'm', isNonEmptyString, 'a mutation id'),
-        ok: field(raw, 'ok', isBoolean, 'a boolean'),
+        m: field(raw, "m", isNonEmptyString, "a mutation id"),
+        ok: field(raw, "ok", isBoolean, "a boolean"),
         ...(ackCt === undefined ? {} : { ct: ackCt }),
         ...(echo === undefined ? {} : { echo }),
         ...(res === undefined ? {} : { res }),
@@ -509,26 +509,26 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
         ...(err === undefined ? {} : { err }),
       }
     }
-    case 'wm':
-      return { t: 'wm', seq, ct: ct() }
-    case 'resync': {
-      const s = optionalField(raw, 's', isStringArray, 'an array of subscription ids')
-      const reason = field(raw, 'reason', isString, 'a string')
-      return s === undefined ? { t: 'resync', seq, reason } : { t: 'resync', seq, reason, s }
+    case "wm":
+      return { t: "wm", seq, ct: ct() }
+    case "resync": {
+      const s = optionalField(raw, "s", isStringArray, "an array of subscription ids")
+      const reason = field(raw, "reason", isString, "a string")
+      return s === undefined ? { t: "resync", seq, reason } : { t: "resync", seq, reason, s }
     }
-    case 'reconnect':
+    case "reconnect":
       return {
-        t: 'reconnect',
+        t: "reconnect",
         seq,
-        retryAfterMs: field(raw, 'retryAfterMs', isSeq, 'a delay in milliseconds'),
-        reason: field(raw, 'reason', isString, 'a string'),
+        retryAfterMs: field(raw, "retryAfterMs", isSeq, "a delay in milliseconds"),
+        reason: field(raw, "reason", isString, "a string"),
       }
-    case 'err':
+    case "err":
       return {
-        t: 'err',
+        t: "err",
         seq,
-        code: field(raw, 'code', isErrorCode, 'a known error code'),
-        msg: field(raw, 'msg', isString, 'a string'),
+        code: field(raw, "code", isErrorCode, "a known error code"),
+        msg: field(raw, "msg", isString, "a string"),
       }
     default:
       return undefined
@@ -544,24 +544,24 @@ export function decodeServerMessage(
   options?: DecodeOptions,
 ): ServerMessage | undefined {
   const raw = decodeObject(text, options)
-  const t = field(raw, 't', isNonEmptyString, 'a message type')
-  if (t === 'pong') return { t: 'pong', ts: field(raw, 'ts', isFiniteNumber, 'a number') }
-  if (t === 'batch') {
-    const items = raw['m']
+  const t = field(raw, "t", isNonEmptyString, "a message type")
+  if (t === "pong") return { t: "pong", ts: field(raw, "ts", isFiniteNumber, "a number") }
+  if (t === "batch") {
+    const items = raw["m"]
     if (!Array.isArray(items)) fail('"m" must be an array')
     const m: SequencedMessage[] = []
     for (const item of items) {
-      if (!isDocument(item)) fail('batch items must be objects')
-      const inner = field(item, 't', isNonEmptyString, 'a message type')
+      if (!isDocument(item)) fail("batch items must be objects")
+      const inner = field(item, "t", isNonEmptyString, "a message type")
       const decoded = decodeSequenced(item, inner)
       if (decoded !== undefined) m.push(decoded)
     }
-    return { t: 'batch', m }
+    return { t: "batch", m }
   }
   return decodeSequenced(raw, t)
 }
 
 /** Flattens a server message into its sequenced parts, unwrapping `batch` containers. */
 export function unbatch(message: ServerMessage): readonly (SequencedMessage | PongMessage)[] {
-  return message.t === 'batch' ? message.m : [message]
+  return message.t === "batch" ? message.m : [message]
 }

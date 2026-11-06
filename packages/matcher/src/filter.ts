@@ -1,10 +1,10 @@
-import { InvalidQueryError, isDocument, regexParts } from '@canopy/protocol'
-import { Bracket, type BsonType, bracketOf, bsonTypeOf, compareValues } from './compare.ts'
-import { equalityKey } from './equality-key.ts'
-import { UnsupportedQueryError } from './errors.ts'
-import { isNaNValue, readNumeric, toDouble } from './numeric.ts'
-import { anyPathValue, type LeafTest, splitPath } from './path.ts'
-import { compileRegex, type LinearRegex } from './regex.ts'
+import { InvalidQueryError, isDocument, regexParts } from "@canopy/protocol"
+import { Bracket, type BsonType, bracketOf, bsonTypeOf, compareValues } from "./compare.ts"
+import { equalityKey } from "./equality-key.ts"
+import { UnsupportedQueryError } from "./errors.ts"
+import { isNaNValue, readNumeric, toDouble } from "./numeric.ts"
+import { anyPathValue, type LeafTest, splitPath } from "./path.ts"
+import { compileRegex, type LinearRegex } from "./regex.ts"
 
 /** A document test compiled from a MongoDB filter. */
 export type DocTest = (doc: unknown) => boolean
@@ -15,71 +15,71 @@ export interface CompiledFilter {
   matches(doc: unknown): boolean
 }
 
-const LOGICAL = new Set(['$and', '$or', '$nor'])
+const LOGICAL = new Set(["$and", "$or", "$nor"])
 const UNSUPPORTED_TOP = new Set([
-  '$expr',
-  '$where',
-  '$text',
-  '$jsonSchema',
-  '$comment',
-  '$sampleRate',
+  "$expr",
+  "$where",
+  "$text",
+  "$jsonSchema",
+  "$comment",
+  "$sampleRate",
 ])
 const UNSUPPORTED_FIELD = new Set([
-  '$geoWithin',
-  '$geoIntersects',
-  '$near',
-  '$nearSphere',
-  '$within',
-  '$bitsAllSet',
-  '$bitsAnySet',
-  '$bitsAllClear',
-  '$bitsAnyClear',
-  '$jsonSchema',
+  "$geoWithin",
+  "$geoIntersects",
+  "$near",
+  "$nearSphere",
+  "$within",
+  "$bitsAllSet",
+  "$bitsAnySet",
+  "$bitsAllClear",
+  "$bitsAnyClear",
+  "$jsonSchema",
 ])
 
 const TYPE_ALIASES: Readonly<Record<string, readonly BsonType[]>> = {
-  double: ['double'],
-  string: ['string'],
-  object: ['object'],
-  array: ['array'],
-  binData: ['binData'],
-  undefined: ['undefined'],
-  objectId: ['objectId'],
-  bool: ['bool'],
-  date: ['date'],
-  null: ['null'],
-  regex: ['regex'],
-  javascript: ['javascript'],
-  symbol: ['symbol'],
-  int: ['int'],
-  timestamp: ['timestamp'],
-  long: ['long'],
-  decimal: ['decimal'],
-  minKey: ['minKey'],
-  maxKey: ['maxKey'],
-  number: ['double', 'int', 'long', 'decimal'],
+  double: ["double"],
+  string: ["string"],
+  object: ["object"],
+  array: ["array"],
+  binData: ["binData"],
+  undefined: ["undefined"],
+  objectId: ["objectId"],
+  bool: ["bool"],
+  date: ["date"],
+  null: ["null"],
+  regex: ["regex"],
+  javascript: ["javascript"],
+  symbol: ["symbol"],
+  int: ["int"],
+  timestamp: ["timestamp"],
+  long: ["long"],
+  decimal: ["decimal"],
+  minKey: ["minKey"],
+  maxKey: ["maxKey"],
+  number: ["double", "int", "long", "decimal"],
 }
 
 const TYPE_CODES: Readonly<Record<number, readonly BsonType[]>> = {
-  1: ['double'],
-  2: ['string'],
-  3: ['object'],
-  4: ['array'],
-  5: ['binData'],
-  6: ['undefined'],
-  7: ['objectId'],
-  8: ['bool'],
-  9: ['date'],
-  10: ['null'],
-  11: ['regex'],
-  13: ['javascript'],
-  14: ['symbol'],
-  16: ['int'],
-  17: ['timestamp'],
-  18: ['long'],
-  19: ['decimal'],
-  [-1]: ['minKey'],
-  127: ['maxKey'],
+  1: ["double"],
+  2: ["string"],
+  3: ["object"],
+  4: ["array"],
+  5: ["binData"],
+  6: ["undefined"],
+  7: ["objectId"],
+  8: ["bool"],
+  9: ["date"],
+  10: ["null"],
+  11: ["regex"],
+  13: ["javascript"],
+  14: ["symbol"],
+  16: ["int"],
+  17: ["timestamp"],
+  18: ["long"],
+  19: ["decimal"],
+  [-1]: ["minKey"],
+  127: ["maxKey"],
 }
 
 function invalid(message: string): never {
@@ -89,7 +89,7 @@ function invalid(message: string): never {
 function isOperatorObject(value: unknown): value is Record<string, unknown> {
   if (!isDocument(value)) return false
   const first = Object.keys(value)[0]
-  return first?.startsWith('$') ?? false
+  return first?.startsWith("$") ?? false
 }
 
 function isRegexValue(value: unknown): boolean {
@@ -103,7 +103,7 @@ function isRegexValue(value: unknown): boolean {
  * {@link InvalidQueryError} for filters MongoDB would reject.
  */
 export function compileFilter(filter: unknown): CompiledFilter {
-  if (!isDocument(filter)) invalid('A filter must be a document')
+  if (!isDocument(filter)) invalid("A filter must be a document")
   const test = compileDocument(filter)
   return { matches: test }
 }
@@ -132,10 +132,10 @@ function compileDocument(filter: Record<string, unknown>): DocTest {
   const tests: DocTest[] = []
   for (const key of Object.keys(filter)) {
     const value = filter[key]
-    if (key.startsWith('$')) {
+    if (key.startsWith("$")) {
       tests.push(compileTopOperator(key, value))
     } else {
-      if (key === '') invalid('A field path may not be empty')
+      if (key === "") invalid("A field path may not be empty")
       tests.push(compileFieldCondition(key, value))
     }
   }
@@ -149,12 +149,12 @@ function compileTopOperator(key: string, value: unknown): DocTest {
       if (!isDocument(branch)) invalid(`${key} argument entries must be objects`)
       return compileDocument(branch)
     })
-    if (key === '$and') return and(branches)
+    if (key === "$and") return and(branches)
     const any: DocTest = (doc) => {
       for (const branch of branches) if (branch(doc)) return true
       return false
     }
-    return key === '$or' ? any : (doc) => !any(doc)
+    return key === "$or" ? any : (doc) => !any(doc)
   }
   if (UNSUPPORTED_TOP.has(key))
     throw new UnsupportedQueryError(`${key} is not evaluated in process`)
@@ -163,7 +163,7 @@ function compileTopOperator(key: string, value: unknown): DocTest {
 
 function compileFieldCondition(path: string, value: unknown): DocTest {
   const parts = splitPath(path)
-  if (parts.some((part) => part === '')) invalid(`Invalid field path: ${path}`)
+  if (parts.some((part) => part === "")) invalid(`Invalid field path: ${path}`)
   if (isRegexValue(value)) {
     const leaf = regexLeaf(value)
     return (doc) => anyPathValue(doc, parts, true, leaf)
@@ -176,13 +176,13 @@ function compileFieldCondition(path: string, value: unknown): DocTest {
 function compileOperators(parts: readonly string[], ops: Record<string, unknown>): DocTest {
   const keys = Object.keys(ops)
   const tests: DocTest[] = []
-  const hasRegex = keys.includes('$regex')
-  if (keys.includes('$options') && !hasRegex) invalid('$options needs a $regex')
+  const hasRegex = keys.includes("$regex")
+  if (keys.includes("$options") && !hasRegex) invalid("$options needs a $regex")
   for (const key of keys) {
-    if (!key.startsWith('$')) invalid(`unknown operator: ${key}`)
-    if (key === '$options') continue
-    if (key === '$regex') {
-      const leaf = regexLeaf(regexFromOperator(ops['$regex'], ops['$options']))
+    if (!key.startsWith("$")) invalid(`unknown operator: ${key}`)
+    if (key === "$options") continue
+    if (key === "$regex") {
+      const leaf = regexLeaf(regexFromOperator(ops["$regex"], ops["$options"]))
       tests.push((doc) => anyPathValue(doc, parts, true, leaf))
       continue
     }
@@ -197,43 +197,43 @@ function compileOperator(parts: readonly string[], op: string, operand: unknown)
     (doc) =>
       anyPathValue(doc, parts, true, leaf)
   switch (op) {
-    case '$eq':
+    case "$eq":
       return expand(eqLeaf(operand))
-    case '$ne': {
+    case "$ne": {
       if (isRegexValue(operand)) invalid("Can't have regex as arg to $ne.")
       const eq = expand(eqLeaf(operand))
       return (doc) => !eq(doc)
     }
-    case '$gt':
-    case '$gte':
-    case '$lt':
-    case '$lte':
+    case "$gt":
+    case "$gte":
+    case "$lt":
+    case "$lte":
       return expand(comparisonLeaf(op, operand))
-    case '$in':
-      return expand(inLeaf(operand, '$in'))
-    case '$nin': {
-      const test = expand(inLeaf(operand, '$nin'))
+    case "$in":
+      return expand(inLeaf(operand, "$in"))
+    case "$nin": {
+      const test = expand(inLeaf(operand, "$nin"))
       return (doc) => !test(doc)
     }
-    case '$exists': {
+    case "$exists": {
       const exists: DocTest = (doc) =>
         anyPathValue(doc, parts, false, (value) => value !== undefined)
       return truthy(operand) ? exists : (doc) => !exists(doc)
     }
-    case '$type':
+    case "$type":
       return expand(typeLeaf(operand))
-    case '$size': {
+    case "$size": {
       const size = sizeOperand(operand)
       return (doc) =>
         anyPathValue(doc, parts, false, (value) => Array.isArray(value) && value.length === size)
     }
-    case '$mod':
+    case "$mod":
       return expand(modLeaf(operand))
-    case '$all':
+    case "$all":
       return compileAll(parts, operand)
-    case '$elemMatch':
+    case "$elemMatch":
       return compileElemMatch(parts, operand)
-    case '$not':
+    case "$not":
       return compileNot(parts, operand)
     default:
       if (UNSUPPORTED_FIELD.has(op))
@@ -243,7 +243,7 @@ function compileOperator(parts: readonly string[], op: string, operand: unknown)
 }
 
 function truthy(value: unknown): boolean {
-  if (typeof value === 'boolean') return value
+  if (typeof value === "boolean") return value
   const numeric = readNumeric(value)
   if (numeric !== undefined) return toDouble(numeric) !== 0
   return value !== null && value !== undefined
@@ -252,12 +252,12 @@ function truthy(value: unknown): boolean {
 /** Returns true for the BSON null and undefined types and for missing values. */
 function isNullish(value: unknown): boolean {
   if (value === null || value === undefined) return true
-  return bsonTypeOf(value) === 'undefined'
+  return bsonTypeOf(value) === "undefined"
 }
 
 function eqLeaf(operand: unknown): LeafTest {
   if (operand === null) return isNullish
-  if (operand === undefined) invalid('Cannot compare with undefined')
+  if (operand === undefined) invalid("Cannot compare with undefined")
   const bracket = bracketOf(operand)
   const numeric = readNumeric(operand)
   if (numeric !== undefined && isNaNValue(numeric)) {
@@ -274,19 +274,19 @@ function eqLeaf(operand: unknown): LeafTest {
     value !== undefined && bracketOf(value) === bracket && compareValues(value, operand) === 0
 }
 
-function comparisonLeaf(op: '$gt' | '$gte' | '$lt' | '$lte', operand: unknown): LeafTest {
+function comparisonLeaf(op: "$gt" | "$gte" | "$lt" | "$lte", operand: unknown): LeafTest {
   if (operand === undefined) invalid(`${op} needs a value`)
   if (isRegexValue(operand)) invalid(`Can't have RegEx as arg to non-equality predicate`)
-  const inclusive = op === '$gte' || op === '$lte'
+  const inclusive = op === "$gte" || op === "$lte"
   const accept = (cmp: number): boolean => {
     switch (op) {
-      case '$gt':
+      case "$gt":
         return cmp > 0
-      case '$gte':
+      case "$gte":
         return cmp >= 0
-      case '$lt':
+      case "$lt":
         return cmp < 0
-      case '$lte':
+      case "$lte":
         return cmp <= 0
     }
   }
@@ -352,17 +352,17 @@ function inLeaf(operand: unknown, op: string): LeafTest {
 
 function typeLeaf(operand: unknown): LeafTest {
   const specs = Array.isArray(operand) ? operand : [operand]
-  if (specs.length === 0) invalid('$type must match at least one type')
+  if (specs.length === 0) invalid("$type must match at least one type")
   const wanted = new Set<BsonType>()
   for (const spec of specs) {
-    if (typeof spec === 'string') {
+    if (typeof spec === "string") {
       const types = TYPE_ALIASES[spec]
       if (types === undefined) invalid(`Unknown type name alias: ${spec}`)
       for (const type of types) wanted.add(type)
       continue
     }
     const numeric = readNumeric(spec)
-    if (numeric === undefined) invalid('type must be represented as a number or a string')
+    if (numeric === undefined) invalid("type must be represented as a number or a string")
     const code = toDouble(numeric)
     const types = Number.isInteger(code) ? TYPE_CODES[code] : undefined
     if (types === undefined) invalid(`Invalid numerical type code: ${code}`)
@@ -373,35 +373,35 @@ function typeLeaf(operand: unknown): LeafTest {
 
 function sizeOperand(operand: unknown): number {
   const numeric = readNumeric(operand)
-  if (numeric === undefined) invalid('$size needs a number')
+  if (numeric === undefined) invalid("$size needs a number")
   const size = toDouble(numeric)
-  if (!Number.isInteger(size)) invalid('$size must be a whole number')
-  if (size < 0) invalid('$size may not be negative')
+  if (!Number.isInteger(size)) invalid("$size must be a whole number")
+  if (size < 0) invalid("$size may not be negative")
   return size
 }
 
 function modLeaf(operand: unknown): LeafTest {
   if (!Array.isArray(operand) || operand.length !== 2) {
-    invalid('malformed mod, needs to be an array of [divisor, remainder]')
+    invalid("malformed mod, needs to be an array of [divisor, remainder]")
   }
   const divisorNumeric = readNumeric(operand[0])
   const remainderNumeric = readNumeric(operand[1])
   if (divisorNumeric === undefined || remainderNumeric === undefined) {
-    invalid('malformed mod, divisor and remainder must be numbers')
+    invalid("malformed mod, divisor and remainder must be numbers")
   }
   const divisorDouble = toDouble(divisorNumeric)
   const remainderDouble = toDouble(remainderNumeric)
   if (!Number.isFinite(divisorDouble) || !Number.isFinite(remainderDouble)) {
-    invalid('malformed mod, divisor and remainder must be finite')
+    invalid("malformed mod, divisor and remainder must be finite")
   }
   const divisor = truncToBigInt(divisorDouble)
   const remainder = truncToBigInt(remainderDouble)
-  if (divisor === 0n) invalid('divisor cannot be 0')
+  if (divisor === 0n) invalid("divisor cannot be 0")
   return (value) => {
     const numeric = readNumeric(value)
     if (numeric === undefined) return false
     let dividend: bigint
-    if (numeric.kind === 'long') {
+    if (numeric.kind === "long") {
       dividend = numeric.value
     } else {
       const double = toDouble(numeric)
@@ -423,28 +423,28 @@ function truncToBigInt(value: number): bigint {
 }
 
 function regexFromOperator(pattern: unknown, options: unknown): unknown {
-  if (options !== undefined && typeof options !== 'string') invalid('$options has to be a string')
-  if (typeof pattern === 'string') {
-    return { _bsontype: 'BSONRegExp', pattern, options: options ?? '' }
+  if (options !== undefined && typeof options !== "string") invalid("$options has to be a string")
+  if (typeof pattern === "string") {
+    return { _bsontype: "BSONRegExp", pattern, options: options ?? "" }
   }
   const parts = regexParts(pattern)
-  if (parts === undefined) invalid('$regex has to be a string')
-  if (options !== undefined && parts.options !== '') {
-    invalid('options set in both $regex and $options')
+  if (parts === undefined) invalid("$regex has to be a string")
+  if (options !== undefined && parts.options !== "") {
+    invalid("options set in both $regex and $options")
   }
-  return { _bsontype: 'BSONRegExp', pattern: parts.pattern, options: options ?? parts.options }
+  return { _bsontype: "BSONRegExp", pattern: parts.pattern, options: options ?? parts.options }
 }
 
 function regexLeaf(value: unknown): LeafTest {
   const parts = regexParts(value)
-  if (parts === undefined) return invalid('expected a regular expression')
+  if (parts === undefined) return invalid("expected a regular expression")
   const compiled: LinearRegex = compileRegex(parts.pattern, parts.options)
-  const sortedOptions = [...parts.options].sort().join('')
+  const sortedOptions = [...parts.options].sort().join("")
   return (candidate) => {
-    if (typeof candidate === 'string') return compiled.test(candidate)
+    if (typeof candidate === "string") return compiled.test(candidate)
     const type = bsonTypeOf(candidate)
-    if (type === 'symbol') return compiled.test(String((candidate as { value?: unknown }).value))
-    if (type === 'regex') {
+    if (type === "symbol") return compiled.test(String((candidate as { value?: unknown }).value))
+    if (type === "regex") {
       const other = regexParts(candidate)
       return (
         other !== undefined && other.pattern === parts.pattern && other.options === sortedOptions
@@ -455,19 +455,19 @@ function regexLeaf(value: unknown): LeafTest {
 }
 
 function compileAll(parts: readonly string[], operand: unknown): DocTest {
-  if (!Array.isArray(operand)) invalid('$all needs an array')
+  if (!Array.isArray(operand)) invalid("$all needs an array")
   if (operand.length === 0) return () => false
   const elemMatches = operand.filter(
-    (item) => isDocument(item) && Object.keys(item)[0] === '$elemMatch',
+    (item) => isDocument(item) && Object.keys(item)[0] === "$elemMatch",
   )
   if (elemMatches.length > 0 && elemMatches.length !== operand.length) {
-    invalid('$all/$elemMatch has to be consistent')
+    invalid("$all/$elemMatch has to be consistent")
   }
   const tests = operand.map((item) => {
     if (elemMatches.length > 0) {
-      return compileElemMatch(parts, (item as Record<string, unknown>)['$elemMatch'])
+      return compileElemMatch(parts, (item as Record<string, unknown>)["$elemMatch"])
     }
-    if (isOperatorObject(item)) invalid('no $ expressions in $all')
+    if (isOperatorObject(item)) invalid("no $ expressions in $all")
     const leaf = isRegexValue(item) ? regexLeaf(item) : eqLeaf(item)
     return (doc: unknown) => anyPathValue(doc, parts, true, leaf)
   })
@@ -475,19 +475,19 @@ function compileAll(parts: readonly string[], operand: unknown): DocTest {
 }
 
 function isValueOperator(key: string): boolean {
-  return key.startsWith('$') && !LOGICAL.has(key) && key !== '$expr'
+  return key.startsWith("$") && !LOGICAL.has(key) && key !== "$expr"
 }
 
 function compileElemMatch(parts: readonly string[], operand: unknown): DocTest {
-  if (!isDocument(operand)) invalid('$elemMatch needs an Object')
+  if (!isDocument(operand)) invalid("$elemMatch needs an Object")
   const first = Object.keys(operand)[0]
   const valueForm = first !== undefined && isValueOperator(first)
   let element: LeafTest
   if (valueForm) {
     const tests = Object.keys(operand).map((key) => {
-      if (key === '$options') return undefined
-      if (key === '$regex') {
-        return regexLeaf(regexFromOperator(operand['$regex'], operand['$options']))
+      if (key === "$options") return undefined
+      if (key === "$regex") {
+        return regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]))
       }
       return valueOperatorLeaf(key, operand[key])
     })
@@ -519,43 +519,43 @@ function arrayAsDocument(value: readonly unknown[]): Record<string, unknown> {
 
 function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
   switch (op) {
-    case '$eq':
+    case "$eq":
       return eqLeaf(operand)
-    case '$ne': {
+    case "$ne": {
       if (isRegexValue(operand)) invalid("Can't have regex as arg to $ne.")
       const eq = eqLeaf(operand)
       return (value) => !eq(value)
     }
-    case '$gt':
-    case '$gte':
-    case '$lt':
-    case '$lte':
+    case "$gt":
+    case "$gte":
+    case "$lt":
+    case "$lte":
       return comparisonLeaf(op, operand)
-    case '$in':
+    case "$in":
       return inLeaf(operand, op)
-    case '$nin': {
+    case "$nin": {
       const test = inLeaf(operand, op)
       return (value) => !test(value)
     }
-    case '$exists': {
+    case "$exists": {
       const wanted = truthy(operand)
       return (value) => (value !== undefined) === wanted
     }
-    case '$type':
+    case "$type":
       return typeLeaf(operand)
-    case '$size': {
+    case "$size": {
       const size = sizeOperand(operand)
       return (value) => Array.isArray(value) && value.length === size
     }
-    case '$mod':
+    case "$mod":
       return modLeaf(operand)
-    case '$elemMatch': {
+    case "$elemMatch": {
       const test = compileElemMatch([], operand)
       return (value) => test(value)
     }
-    case '$all':
+    case "$all":
       return singleAllLeaf(operand)
-    case '$not':
+    case "$not":
       return singleNotLeaf(operand)
     default:
       if (UNSUPPORTED_FIELD.has(op))
@@ -565,14 +565,14 @@ function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
 }
 
 function singleAllLeaf(operand: unknown): LeafTest {
-  if (!Array.isArray(operand)) invalid('$all needs an array')
+  if (!Array.isArray(operand)) invalid("$all needs an array")
   if (operand.length === 0) return () => false
   const leaves = operand.map((item) => {
-    if (isDocument(item) && Object.keys(item)[0] === '$elemMatch') {
-      const test = compileElemMatch([], item['$elemMatch'])
+    if (isDocument(item) && Object.keys(item)[0] === "$elemMatch") {
+      const test = compileElemMatch([], item["$elemMatch"])
       return (value: unknown) => test(value)
     }
-    if (isOperatorObject(item)) invalid('no $ expressions in $all')
+    if (isOperatorObject(item)) invalid("no $ expressions in $all")
     return isRegexValue(item) ? regexLeaf(item) : eqLeaf(item)
   })
   return (value) => leaves.every((leaf) => leaf(value))
@@ -584,15 +584,15 @@ function singleNotLeaf(operand: unknown): LeafTest {
     return (value) => !leaf(value)
   }
   if (!isDocument(operand) || Object.keys(operand).length === 0)
-    invalid('$not needs a regex or a document')
+    invalid("$not needs a regex or a document")
   const keys = Object.keys(operand)
-  if (!keys.every((key) => key.startsWith('$')))
-    invalid('$not needs a regex or a document of operators')
+  if (!keys.every((key) => key.startsWith("$")))
+    invalid("$not needs a regex or a document of operators")
   const leaves = keys
-    .filter((key) => key !== '$options')
+    .filter((key) => key !== "$options")
     .map((key) =>
-      key === '$regex'
-        ? regexLeaf(regexFromOperator(operand['$regex'], operand['$options']))
+      key === "$regex"
+        ? regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]))
         : valueOperatorLeaf(key, operand[key]),
     )
   return (value) => !leaves.every((leaf) => leaf(value))
@@ -603,13 +603,13 @@ function compileNot(parts: readonly string[], operand: unknown): DocTest {
     const leaf = regexLeaf(operand)
     return (doc) => !anyPathValue(doc, parts, true, leaf)
   }
-  if (!isDocument(operand)) invalid('$not needs a regex or a document')
+  if (!isDocument(operand)) invalid("$not needs a regex or a document")
   const keys = Object.keys(operand)
-  if (keys.length === 0) invalid('$not cannot be empty')
-  if (!keys.every((key) => key.startsWith('$')))
-    invalid('$not needs a regex or a document of operators')
-  if (keys.includes('$regex') === false && keys.includes('$options'))
-    invalid('$options needs a $regex')
+  if (keys.length === 0) invalid("$not cannot be empty")
+  if (!keys.every((key) => key.startsWith("$")))
+    invalid("$not needs a regex or a document of operators")
+  if (keys.includes("$regex") === false && keys.includes("$options"))
+    invalid("$options needs a $regex")
   const inner = compileOperators(parts, operand)
   return (doc) => !inner(doc)
 }

@@ -1,11 +1,11 @@
-import type { Document, ObjectId } from '@canopy/client'
+import type { Document, ObjectId } from "@canopy/client"
 
 /** Ticket states, in workflow order. */
-export const STATUSES = ['open', 'in_progress', 'closed'] as const
+export const STATUSES = ["open", "in_progress", "closed"] as const
 export type Status = (typeof STATUSES)[number]
 
 /** Ticket priorities, lowest first. */
-export const PRIORITIES = ['low', 'normal', 'high'] as const
+export const PRIORITIES = ["low", "normal", "high"] as const
 export type Priority = (typeof PRIORITIES)[number]
 
 /** A ticket as the live query delivers it. `internalNotes` arrives only for support agents. */
@@ -32,11 +32,11 @@ export interface PublicConfig {
   readonly publishableKey: string
   readonly auth:
     | {
-        readonly kind: 'dev'
+        readonly kind: "dev"
         readonly users: readonly { readonly id: string; readonly name: string }[]
       }
     | {
-        readonly kind: 'auth0'
+        readonly kind: "auth0"
         readonly domain: string
         readonly clientId: string
         readonly audience: string

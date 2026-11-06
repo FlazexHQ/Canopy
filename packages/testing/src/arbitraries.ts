@@ -1,4 +1,4 @@
-import fc from 'fast-check'
+import fc from "fast-check"
 import {
   Binary,
   BSONRegExp,
@@ -9,10 +9,10 @@ import {
   MinKey,
   ObjectId,
   Timestamp,
-} from 'mongodb'
+} from "mongodb"
 
-const OID_A = new ObjectId('6728f0c2a1b2c3d4e5f60718')
-const OID_B = new ObjectId('6728f0c2a1b2c3d4e5f60719')
+const OID_A = new ObjectId("6728f0c2a1b2c3d4e5f60718")
+const OID_B = new ObjectId("6728f0c2a1b2c3d4e5f60719")
 
 /** Scalars chosen so that generated filters and documents collide often. */
 export const scalar: fc.Arbitrary<unknown> = fc.oneof(
@@ -34,29 +34,29 @@ export const scalar: fc.Arbitrary<unknown> = fc.oneof(
   {
     weight: 1,
     arbitrary: fc.constantFrom(
-      Decimal128.fromString('1'),
-      Decimal128.fromString('1.50'),
-      Decimal128.fromString('-0'),
-      Decimal128.fromString('NaN'),
-      Decimal128.fromString('1E+400'),
+      Decimal128.fromString("1"),
+      Decimal128.fromString("1.50"),
+      Decimal128.fromString("-0"),
+      Decimal128.fromString("NaN"),
+      Decimal128.fromString("1E+400"),
     ),
   },
   {
     weight: 5,
     arbitrary: fc.constantFrom(
-      '',
-      'a',
-      'b',
-      'A',
-      'ab',
-      'abc',
-      'B',
-      'ba',
-      '1',
-      'é',
-      '\u{1f600}',
-      'a\nb',
-      ' a',
+      "",
+      "a",
+      "b",
+      "A",
+      "ab",
+      "abc",
+      "B",
+      "ba",
+      "1",
+      "é",
+      "\u{1f600}",
+      "a\nb",
+      " a",
     ),
   },
   { weight: 3, arbitrary: fc.constantFrom(null, true, false) },
@@ -65,7 +65,7 @@ export const scalar: fc.Arbitrary<unknown> = fc.oneof(
     arbitrary: fc.constantFrom(
       new Date(0),
       new Date(1000),
-      new Date('2020-01-01T00:00:00Z'),
+      new Date("2020-01-01T00:00:00Z"),
       new Date(-1),
     ),
   },
@@ -80,27 +80,27 @@ export const scalar: fc.Arbitrary<unknown> = fc.oneof(
       new Timestamp({ t: 1, i: 2 }),
       new MinKey(),
       new MaxKey(),
-      new BSONRegExp('a', 'i'),
-      new BSONRegExp('a', ''),
+      new BSONRegExp("a", "i"),
+      new BSONRegExp("a", ""),
     ),
   },
 )
 
-const KEYS = ['a', 'b', 'c']
+const KEYS = ["a", "b", "c"]
 
 /** Generated values: scalars, small documents over a fixed key set and arrays. */
 export const value: fc.Arbitrary<unknown> = fc.letrec<{ value: unknown }>((tie) => ({
   value: fc.oneof(
-    { depthSize: 'small', withCrossShrink: true },
+    { depthSize: "small", withCrossShrink: true },
     { weight: 6, arbitrary: scalar },
     {
       weight: 2,
-      arbitrary: fc.array(tie('value'), { maxLength: 3 }),
+      arbitrary: fc.array(tie("value"), { maxLength: 3 }),
     },
     {
       weight: 2,
       arbitrary: fc
-        .uniqueArray(fc.tuple(fc.constantFrom(...KEYS), tie('value')), {
+        .uniqueArray(fc.tuple(fc.constantFrom(...KEYS), tie("value")), {
           maxLength: 3,
           selector: ([key]) => key,
         })
@@ -119,56 +119,56 @@ export const document: fc.Arbitrary<Record<string, unknown>> = fc
 
 /** Paths used by generated filters, including array positions and nested fields. */
 export const path: fc.Arbitrary<string> = fc.constantFrom(
-  'a',
-  'b',
-  'a.b',
-  'a.c',
-  'a.0',
-  'a.b.c',
-  'b.0',
-  'a.0.b',
-  'c',
+  "a",
+  "b",
+  "a.b",
+  "a.c",
+  "a.0",
+  "a.b.c",
+  "b.0",
+  "a.0.b",
+  "c",
 )
 
 const REGEX_PATTERNS = [
-  '^a',
-  'a',
-  'b$',
-  '^$',
-  '.',
-  'A',
-  '^a.c',
-  '[ab]',
-  '\\d',
-  '\\w+',
-  '(a|b)c',
-  'a*',
-  'x?',
-  '^\\s',
-  'a\\nb',
-  '^.$',
-  '[^a]',
-  '\\bb',
+  "^a",
+  "a",
+  "b$",
+  "^$",
+  ".",
+  "A",
+  "^a.c",
+  "[ab]",
+  "\\d",
+  "\\w+",
+  "(a|b)c",
+  "a*",
+  "x?",
+  "^\\s",
+  "a\\nb",
+  "^.$",
+  "[^a]",
+  "\\bb",
 ]
 
 /** Regular expressions that the linear time engine supports. */
 export const regex: fc.Arbitrary<BSONRegExp> = fc
-  .tuple(fc.constantFrom(...REGEX_PATTERNS), fc.constantFrom('', 'i', 'm', 's', 'is', 'im'))
+  .tuple(fc.constantFrom(...REGEX_PATTERNS), fc.constantFrom("", "i", "m", "s", "is", "im"))
   .map(([pattern, options]) => new BSONRegExp(pattern, options))
 
 const typeSpec = fc.oneof(
   fc.constantFrom(
-    'double',
-    'string',
-    'object',
-    'array',
-    'binData',
-    'objectId',
-    'bool',
-    'date',
-    'null',
+    "double",
+    "string",
+    "object",
+    "array",
+    "binData",
+    "objectId",
+    "bool",
+    "date",
+    "null",
   ),
-  fc.constantFrom('regex', 'int', 'timestamp', 'long', 'decimal', 'minKey', 'maxKey', 'number'),
+  fc.constantFrom("regex", "int", "timestamp", "long", "decimal", "minKey", "maxKey", "number"),
   fc.constantFrom(1, 2, 3, 4, 8, 10, 16, 18, 19, -1, 127),
 )
 
@@ -211,9 +211,9 @@ export function operatorExpression(depth: number): fc.Arbitrary<unknown> {
     {
       weight: 1,
       arbitrary: fc
-        .tuple(fc.constantFrom('a', '^b', 'B'), fc.constantFrom('', 'i'))
+        .tuple(fc.constantFrom("a", "^b", "B"), fc.constantFrom("", "i"))
         .map(([pattern, options]) =>
-          options === '' ? { $regex: pattern } : { $regex: pattern, $options: options },
+          options === "" ? { $regex: pattern } : { $regex: pattern, $options: options },
         ),
     },
   )
@@ -238,11 +238,11 @@ export function operatorExpression(depth: number): fc.Arbitrary<unknown> {
 function operatorObject(depth: number): fc.Arbitrary<Record<string, unknown>> {
   return operatorExpression(depth).filter(
     (expression): expression is Record<string, unknown> =>
-      typeof expression === 'object' &&
+      typeof expression === "object" &&
       expression !== null &&
       !Array.isArray(expression) &&
       Object.keys(expression).length > 0 &&
-      Object.keys(expression).every((key) => key.startsWith('$')),
+      Object.keys(expression).every((key) => key.startsWith("$")),
   )
 }
 
@@ -258,7 +258,7 @@ export function filter(depth: number): fc.Arbitrary<Record<string, unknown>> {
   if (depth <= 0) return fields
   const logical = fc
     .tuple(
-      fc.constantFrom('$and', '$or', '$nor'),
+      fc.constantFrom("$and", "$or", "$nor"),
       fc.array(filter(depth - 1), { minLength: 1, maxLength: 3 }),
     )
     .map(([op, branches]) => ({ [op]: branches }))

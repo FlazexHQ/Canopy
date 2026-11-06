@@ -1,10 +1,10 @@
-import { isDocument, Long, longValue, regexParts, Timestamp } from '@canopy/protocol'
-import { bsonTypeOf, compareValues, valuesEqual } from './compare.ts'
-import { UnsupportedQueryError, UpdateError } from './errors.ts'
-import { compileFilter, type DocTest } from './filter.ts'
-import { readNumeric, toDouble } from './numeric.ts'
-import { isArrayIndex, splitPath } from './path.ts'
-import { compileSort } from './sort.ts'
+import { isDocument, Long, longValue, regexParts, Timestamp } from "@canopy/protocol"
+import { bsonTypeOf, compareValues, valuesEqual } from "./compare.ts"
+import { UnsupportedQueryError, UpdateError } from "./errors.ts"
+import { compileFilter, type DocTest } from "./filter.ts"
+import { readNumeric, toDouble } from "./numeric.ts"
+import { isArrayIndex, splitPath } from "./path.ts"
+import { compileSort } from "./sort.ts"
 
 /** Options for {@link applyUpdate}. */
 export interface UpdateOptions {
@@ -18,36 +18,36 @@ export interface UpdateOptions {
 
 /** The update operators the in-process updater supports. */
 export const UPDATE_OPERATORS: readonly string[] = [
-  '$set',
-  '$unset',
-  '$inc',
-  '$mul',
-  '$min',
-  '$max',
-  '$currentDate',
-  '$rename',
-  '$setOnInsert',
-  '$push',
-  '$addToSet',
-  '$pop',
-  '$pull',
-  '$pullAll',
-  '$bit',
+  "$set",
+  "$unset",
+  "$inc",
+  "$mul",
+  "$min",
+  "$max",
+  "$currentDate",
+  "$rename",
+  "$setOnInsert",
+  "$push",
+  "$addToSet",
+  "$pop",
+  "$pull",
+  "$pullAll",
+  "$bit",
 ]
 
 const OPERATORS = new Set(UPDATE_OPERATORS)
 const CREATING = new Set([
-  '$rename-to',
-  '$set',
-  '$inc',
-  '$mul',
-  '$min',
-  '$max',
-  '$currentDate',
-  '$setOnInsert',
-  '$push',
-  '$addToSet',
-  '$bit',
+  "$rename-to",
+  "$set",
+  "$inc",
+  "$mul",
+  "$min",
+  "$max",
+  "$currentDate",
+  "$setOnInsert",
+  "$push",
+  "$addToSet",
+  "$bit",
 ])
 
 interface Leaf {
@@ -74,7 +74,7 @@ function newNode(): Node {
 /** Returns true when `update` is an operator update rather than a replacement document. */
 export function isOperatorUpdate(update: Record<string, unknown>): boolean {
   const keys = Object.keys(update)
-  return keys.length > 0 && keys.every((key) => key.startsWith('$'))
+  return keys.length > 0 && keys.every((key) => key.startsWith("$"))
 }
 
 /**
@@ -88,11 +88,11 @@ export function applyUpdate(
   options: UpdateOptions = {},
 ): Record<string, unknown> {
   if (Array.isArray(update))
-    throw new UnsupportedQueryError('Pipeline updates are not evaluated in process')
-  if (!isDocument(update)) fail('An update must be a document')
+    throw new UnsupportedQueryError("Pipeline updates are not evaluated in process")
+  if (!isDocument(update)) fail("An update must be a document")
   const keys = Object.keys(update)
-  if (keys.some((key) => key.startsWith('$'))) {
-    if (!keys.every((key) => key.startsWith('$'))) fail('An update cannot mix operators and fields')
+  if (keys.some((key) => key.startsWith("$"))) {
+    if (!keys.every((key) => key.startsWith("$"))) fail("An update cannot mix operators and fields")
     return applyOperators(doc, update, options)
   }
   return applyReplacement(doc, update)
@@ -102,19 +102,19 @@ function applyReplacement(
   doc: Record<string, unknown>,
   replacement: Record<string, unknown>,
 ): Record<string, unknown> {
-  validateStorage(replacement, '')
-  const id = doc['_id']
+  validateStorage(replacement, "")
+  const id = doc["_id"]
   if (
-    replacement['_id'] !== undefined &&
+    replacement["_id"] !== undefined &&
     id !== undefined &&
-    !valuesEqual(replacement['_id'], id)
+    !valuesEqual(replacement["_id"], id)
   ) {
     fail("After applying the update, the (immutable) field '_id' was found to have been altered")
   }
   const out: Record<string, unknown> = {}
-  if (id !== undefined) out['_id'] = id
+  if (id !== undefined) out["_id"] = id
   for (const key of Object.keys(replacement)) {
-    if (key === '_id' && id !== undefined) continue
+    if (key === "_id" && id !== undefined) continue
     out[key] = replacement[key]
   }
   return out
@@ -129,12 +129,12 @@ function validateStorage(value: unknown, path: string): void {
   }
   if (!isDocument(value)) return
   for (const key of Object.keys(value)) {
-    if (key.startsWith('$')) {
+    if (key.startsWith("$")) {
       fail(
-        `The dollar ($) prefixed field '${key}' in '${path === '' ? key : `${path}.${key}`}' is not allowed`,
+        `The dollar ($) prefixed field '${key}' in '${path === "" ? key : `${path}.${key}`}' is not allowed`,
       )
     }
-    validateStorage(value[key], path === '' ? key : `${path}.${key}`)
+    validateStorage(value[key], path === "" ? key : `${path}.${key}`)
   }
 }
 
@@ -153,7 +153,7 @@ function applyOperators(
       fail(`Modifiers operate on fields but we found type ${bsonTypeOf(operand)} instead`)
     for (const path of Object.keys(operand)) {
       const value = operand[path]
-      if (op === '$rename') {
+      if (op === "$rename") {
         addRename(root, doc, path, value)
         continue
       }
@@ -167,8 +167,8 @@ function applyOperators(
     }
   }
   const out = cloneDocument(doc)
-  applyChildren(out, root, '', options, identifiers)
-  if (doc['_id'] !== undefined && !valuesEqual(out['_id'], doc['_id'])) {
+  applyChildren(out, root, "", options, identifiers)
+  if (doc["_id"] !== undefined && !valuesEqual(out["_id"], doc["_id"])) {
     fail("Performing an update on the path '_id' would modify the immutable field '_id'")
   }
   return out
@@ -177,21 +177,21 @@ function applyOperators(
 function parseArrayFilters(filters: readonly Record<string, unknown>[]): Map<string, DocTest> {
   const out = new Map<string, DocTest>()
   for (const filter of filters) {
-    if (!isDocument(filter)) fail('Each array filter must be a document')
+    if (!isDocument(filter)) fail("Each array filter must be a document")
     let identifier: string | undefined
     for (const key of Object.keys(filter)) {
-      const id = splitPath(key)[0] ?? ''
+      const id = splitPath(key)[0] ?? ""
       if (!/^[a-z][a-zA-Z0-9]*$/.test(id)) {
         fail(
           `The top level field name must be an alphanumeric string beginning with a lowercase letter: ${id}`,
         )
       }
       if (identifier !== undefined && identifier !== id) {
-        fail('Each array filter must use a single top level field name')
+        fail("Each array filter must use a single top level field name")
       }
       identifier = id
     }
-    if (identifier === undefined) fail('Cannot use an expression without a top level field name')
+    if (identifier === undefined) fail("Cannot use an expression without a top level field name")
     if (out.has(identifier))
       fail(`Found multiple array filters with the same top level field name ${identifier}`)
     const test = compileFilter(filter).matches
@@ -202,57 +202,57 @@ function parseArrayFilters(filters: readonly Record<string, unknown>[]): Map<str
 
 function validateOperand(op: string, path: string, value: unknown): void {
   switch (op) {
-    case '$inc':
-    case '$mul':
+    case "$inc":
+    case "$mul":
       if (readNumeric(value) === undefined) {
         fail(
-          `Cannot ${op === '$inc' ? 'increment' : 'multiply'} with non-numeric argument: {${path}: ...}`,
+          `Cannot ${op === "$inc" ? "increment" : "multiply"} with non-numeric argument: {${path}: ...}`,
         )
       }
-      if (readNumeric(value)?.kind === 'decimal') {
-        throw new UnsupportedQueryError('Decimal128 arithmetic is not evaluated in process')
+      if (readNumeric(value)?.kind === "decimal") {
+        throw new UnsupportedQueryError("Decimal128 arithmetic is not evaluated in process")
       }
       return
-    case '$pop': {
+    case "$pop": {
       const numeric = readNumeric(value)
       const n = numeric === undefined ? Number.NaN : toDouble(numeric)
-      if (n !== 1 && n !== -1) fail('$pop expects 1 or -1')
+      if (n !== 1 && n !== -1) fail("$pop expects 1 or -1")
       return
     }
-    case '$currentDate': {
-      if (typeof value === 'boolean') return
+    case "$currentDate": {
+      if (typeof value === "boolean") return
       if (isDocument(value)) {
-        const type = value['$type']
-        if (Object.keys(value).length === 1 && (type === 'date' || type === 'timestamp')) return
+        const type = value["$type"]
+        if (Object.keys(value).length === 1 && (type === "date" || type === "timestamp")) return
       }
       fail(`${path} is not valid for $currentDate`)
       return
     }
-    case '$pullAll':
+    case "$pullAll":
       if (!Array.isArray(value))
         fail(`$pullAll requires an array argument but was given a ${bsonTypeOf(value)}`)
       return
-    case '$bit': {
+    case "$bit": {
       if (!isDocument(value) || Object.keys(value).length === 0)
-        fail('$bit needs a document of and, or, xor')
+        fail("$bit needs a document of and, or, xor")
       for (const key of Object.keys(value)) {
-        if (key !== 'and' && key !== 'or' && key !== 'xor')
+        if (key !== "and" && key !== "or" && key !== "xor")
           fail(`The $bit modifier only supports and, or and xor, not ${key}`)
         const kind = readNumeric(value[key])?.kind
-        if (kind !== 'int' && kind !== 'long')
-          fail('The $bit modifier field must be an integer value')
+        if (kind !== "int" && kind !== "long")
+          fail("The $bit modifier field must be an integer value")
       }
       return
     }
-    case '$set':
-    case '$setOnInsert':
-    case '$min':
-    case '$max':
+    case "$set":
+    case "$setOnInsert":
+    case "$min":
+    case "$max":
       validateStorage(value, path)
       return
-    case '$push':
-    case '$addToSet':
-      if (isDocument(value) && Object.hasOwn(value, '$each')) {
+    case "$push":
+    case "$addToSet":
+      if (isDocument(value) && Object.hasOwn(value, "$each")) {
         validateEach(op, value)
       } else {
         validateStorage(value, path)
@@ -264,34 +264,34 @@ function validateOperand(op: string, path: string, value: unknown): void {
 }
 
 function validateEach(op: string, value: Record<string, unknown>): void {
-  const each = value['$each']
+  const each = value["$each"]
   if (!Array.isArray(each)) fail(`The argument to $each in ${op} must be an array`)
   for (const key of Object.keys(value)) {
-    if (key === '$each') continue
-    if (op === '$addToSet') fail(`Found unexpected fields after $each in $addToSet: ${key}`)
-    if (key !== '$position' && key !== '$slice' && key !== '$sort')
+    if (key === "$each") continue
+    if (op === "$addToSet") fail(`Found unexpected fields after $each in $addToSet: ${key}`)
+    if (key !== "$position" && key !== "$slice" && key !== "$sort")
       fail(`Unrecognized clause in $push: ${key}`)
   }
-  for (const item of each) validateStorage(item, '')
-  if (value['$position'] !== undefined) {
-    const kind = readNumeric(value['$position'])
+  for (const item of each) validateStorage(item, "")
+  if (value["$position"] !== undefined) {
+    const kind = readNumeric(value["$position"])
     if (kind === undefined || !Number.isInteger(toDouble(kind)))
-      fail('The value for $position must be an integer')
+      fail("The value for $position must be an integer")
   }
-  if (value['$slice'] !== undefined) {
-    const kind = readNumeric(value['$slice'])
+  if (value["$slice"] !== undefined) {
+    const kind = readNumeric(value["$slice"])
     if (kind === undefined || !Number.isInteger(toDouble(kind)))
-      fail('The value for $slice must be an integer')
+      fail("The value for $slice must be an integer")
   }
-  if (value['$sort'] !== undefined) {
-    const sort = value['$sort']
+  if (value["$sort"] !== undefined) {
+    const sort = value["$sort"]
     const numeric = readNumeric(sort)
     if (numeric !== undefined) {
       const n = toDouble(numeric)
-      if (n !== 1 && n !== -1) fail('The $sort element value must be either 1 or -1')
+      if (n !== 1 && n !== -1) fail("The $sort element value must be either 1 or -1")
     } else if (!isDocument(sort) || Object.keys(sort).length === 0) {
       fail(
-        'The $sort is invalid: use 1/-1 to sort the whole element, or {field:1/-1} to sort embedded fields',
+        "The $sort is invalid: use 1/-1 to sort the whole element, or {field:1/-1} to sort embedded fields",
       )
     } else {
       compileSort(sort)
@@ -300,10 +300,10 @@ function validateEach(op: string, value: Record<string, unknown>): void {
 }
 
 function pathParts(path: string): string[] {
-  if (path === '') fail('An empty update path is not valid')
+  if (path === "") fail("An empty update path is not valid")
   const parts = splitPath(path)
   for (const part of parts) {
-    if (part === '')
+    if (part === "")
       fail(`The update path '${path}' contains an empty field name, which is not allowed`)
   }
   return parts
@@ -319,11 +319,11 @@ function addLeaf(
   const parts = pathParts(path)
   let node = root
   const creates = CREATING.has(leaf.op)
-  const strict = !creates && leaf.op !== '$unset' && leaf.op !== '$rename-missing'
+  const strict = !creates && leaf.op !== "$unset" && leaf.op !== "$rename-missing"
   parts.forEach((part, index) => {
-    if (part.startsWith('$')) {
-      if (part === '$')
-        throw new UnsupportedQueryError('The positional $ operator is not evaluated in process')
+    if (part.startsWith("$")) {
+      if (part === "$")
+        throw new UnsupportedQueryError("The positional $ operator is not evaluated in process")
       const match = /^\$\[([a-z][a-zA-Z0-9]*)?\]$/.exec(part)
       if (match === null)
         fail(`The dollar ($) prefixed field '${part}' in '${path}' is not allowed`)
@@ -338,15 +338,15 @@ function addLeaf(
       fail(`Updating the path '${path}' would create a conflict at '${node.leaf.path}'`)
     if (creates) node.creates = true
     if (strict) node.strict = true
-    const positional = part.startsWith('$[')
+    const positional = part.startsWith("$[")
     for (const sibling of node.children.keys()) {
       if (
         sibling !== part &&
-        (positional || sibling.startsWith('$[')) &&
-        !(positional && sibling.startsWith('$['))
+        (positional || sibling.startsWith("$[")) &&
+        !(positional && sibling.startsWith("$["))
       ) {
         fail(
-          `Updating the path '${path}' would create a conflict at '${parts.slice(0, index).join('.')}'`,
+          `Updating the path '${path}' would create a conflict at '${parts.slice(0, index).join(".")}'`,
         )
       }
     }
@@ -368,7 +368,7 @@ function addLeaf(
 }
 
 function addRename(root: Node, doc: Record<string, unknown>, from: string, to: unknown): void {
-  if (typeof to !== 'string')
+  if (typeof to !== "string")
     fail(`The 'to' field for $rename must be a string: ${from}: ${String(to)}`)
   if (from === to) fail(`The source and target field for $rename must differ: ${from}: "${to}"`)
   if (to.startsWith(`${from}.`) || from.startsWith(`${to}.`)) {
@@ -376,38 +376,38 @@ function addRename(root: Node, doc: Record<string, unknown>, from: string, to: u
   }
   const fromParts = pathParts(from)
   const toParts = pathParts(to)
-  if ([...fromParts, ...toParts].some((part) => part.startsWith('$'))) {
-    fail('The source and target field for $rename must not contain positional operators')
+  if ([...fromParts, ...toParts].some((part) => part.startsWith("$"))) {
+    fail("The source and target field for $rename must not contain positional operators")
   }
-  const source = readForRename(doc, fromParts, 'source')
-  if (source.found) readForRename(doc, toParts, 'destination')
+  const source = readForRename(doc, fromParts, "source")
+  if (source.found) readForRename(doc, toParts, "destination")
   const empty = new Map<string, DocTest>()
   const used = new Set<string>()
-  addLeaf(root, from, { op: '$unset', operand: '', path: from }, empty, used)
+  addLeaf(root, from, { op: "$unset", operand: "", path: from }, empty, used)
   if (source.found) {
-    addLeaf(root, to, { op: '$rename-to', operand: source.value, path: to }, empty, used)
+    addLeaf(root, to, { op: "$rename-to", operand: source.value, path: to }, empty, used)
   } else {
-    addLeaf(root, to, { op: '$rename-missing', operand: undefined, path: to }, empty, used)
+    addLeaf(root, to, { op: "$rename-missing", operand: undefined, path: to }, empty, used)
   }
 }
 
 function readForRename(
   doc: Record<string, unknown>,
   parts: readonly string[],
-  role: 'source' | 'destination',
+  role: "source" | "destination",
 ): { found: boolean; value: unknown } {
   let value: unknown = doc
   for (const [index, part] of parts.entries()) {
     if (Array.isArray(value)) {
       fail(
-        `The ${role} field cannot be an array element, '${parts.slice(0, index).join('.')}' is an array`,
+        `The ${role} field cannot be an array element, '${parts.slice(0, index).join(".")}' is an array`,
       )
     }
     if (value === undefined) return { found: false, value: undefined }
     if (!isDocument(value)) {
-      if (role === 'destination') return { found: false, value: undefined }
+      if (role === "destination") return { found: false, value: undefined }
       fail(
-        `cannot use the part (${parts[index - 1] ?? part} of ${parts.join('.')}) to traverse the element`,
+        `cannot use the part (${parts[index - 1] ?? part} of ${parts.join(".")}) to traverse the element`,
       )
     }
     if (!Object.hasOwn(value, part)) return { found: false, value: undefined }
@@ -434,8 +434,8 @@ function orderedChildren(node: Node): [string, Node][] {
 }
 
 function parentOf(path: string): string {
-  const parts = path.split('.')
-  return parts.slice(0, -1).join('.') || path
+  const parts = path.split(".")
+  return parts.slice(0, -1).join(".") || path
 }
 
 function describe(value: unknown): string {
@@ -451,12 +451,12 @@ function applyChildren(
 ): void {
   const touched = new Set<number>()
   for (const [key, child] of orderedChildren(node)) {
-    const path = prefix === '' ? key : `${prefix}.${key}`
-    if (key.startsWith('$[')) {
+    const path = prefix === "" ? key : `${prefix}.${key}`
+    if (key.startsWith("$[")) {
       if (!Array.isArray(container))
         fail(`Cannot apply array updates to non-array element ${prefix}`)
-      const identifier = /^\$\[([a-zA-Z0-9]*)\]$/.exec(key)?.[1] ?? ''
-      const test = identifier === '' ? undefined : identifiers.get(identifier)
+      const identifier = /^\$\[([a-zA-Z0-9]*)\]$/.exec(key)?.[1] ?? ""
+      const test = identifier === "" ? undefined : identifiers.get(identifier)
       const targets: number[] = []
       container.forEach((element, index) => {
         if (test === undefined || test({ [identifier]: element })) targets.push(index)
@@ -497,7 +497,7 @@ function writeSlot(
   if (Array.isArray(container)) {
     if (!isArrayIndex(key)) {
       fail(
-        `Cannot create field '${key}' in element {${path.split('.').slice(0, -1).join('.')}: [...]}`,
+        `Cannot create field '${key}' in element {${path.split(".").slice(0, -1).join(".")}: [...]}`,
       )
     }
     const index = Number(key)
@@ -529,14 +529,14 @@ function applyAt(
     applyLeaf(container, key, slot, node.leaf, path, options)
     return
   }
-  const hasPositional = [...node.children.keys()].some((child) => child.startsWith('$['))
+  const hasPositional = [...node.children.keys()].some((child) => child.startsWith("$["))
   if (!slot.exists || slot.value === undefined) {
     if (hasPositional)
       fail(`The path '${path}' must exist in the document in order to apply array updates.`)
     if (!node.creates) return
     if (Array.isArray(container) && !isArrayIndex(key)) {
       fail(
-        `Cannot create field '${key}' in element {${path.split('.').slice(0, -1).join('.') || key}: [...]}`,
+        `Cannot create field '${key}' in element {${path.split(".").slice(0, -1).join(".") || key}: [...]}`,
       )
     }
     const created: Record<string, unknown> = {}
@@ -557,7 +557,7 @@ function applyAt(
     applyChildren(copy, node, path, options, identifiers)
     return
   }
-  const firstChild = [...node.children.keys()][0] ?? ''
+  const firstChild = [...node.children.keys()][0] ?? ""
   if (hasPositional)
     fail(`Cannot apply array updates to non-array element ${path}: ${describe(current)}`)
   if (node.creates)
@@ -580,26 +580,26 @@ function applyLeaf(
   const set = (value: unknown): void => writeSlot(container, key, value, path)
   const present = slot.exists && slot.value !== undefined
   switch (op) {
-    case '$set':
+    case "$set":
       set(operand)
       return
-    case '$setOnInsert':
+    case "$setOnInsert":
       if (options.isInsert === true) set(operand)
       return
-    case '$rename-to':
+    case "$rename-to":
       set(operand)
       return
-    case '$rename-missing':
+    case "$rename-missing":
       return
-    case '$unset':
+    case "$unset":
       if (!slot.exists) return
       if (Array.isArray(container)) container[Number(key)] = null
       else delete container[key]
       return
-    case '$inc':
-    case '$mul': {
+    case "$inc":
+    case "$mul": {
       if (!present) {
-        set(op === '$inc' ? operand : zeroLike(operand))
+        set(op === "$inc" ? operand : zeroLike(operand))
         return
       }
       if (readNumeric(slot.value) === undefined) {
@@ -608,19 +608,19 @@ function applyLeaf(
       set(arithmetic(op, slot.value, operand))
       return
     }
-    case '$min':
-    case '$max': {
+    case "$min":
+    case "$max": {
       if (!present) {
         set(operand)
         return
       }
       const cmp = compareValues(operand, slot.value)
-      if ((op === '$min' && cmp < 0) || (op === '$max' && cmp > 0)) set(operand)
+      if ((op === "$min" && cmp < 0) || (op === "$max" && cmp > 0)) set(operand)
       return
     }
-    case '$currentDate': {
+    case "$currentDate": {
       const now = options.now ?? new Date()
-      const wantsTimestamp = isDocument(operand) && operand['$type'] === 'timestamp'
+      const wantsTimestamp = isDocument(operand) && operand["$type"] === "timestamp"
       set(
         wantsTimestamp
           ? new Timestamp(Math.floor(now.getTime() / 1000), 1)
@@ -628,38 +628,38 @@ function applyLeaf(
       )
       return
     }
-    case '$push':
-    case '$addToSet': {
+    case "$push":
+    case "$addToSet": {
       if (present && !Array.isArray(slot.value)) {
         fail(
           `The field '${key}' must be an array but is of type ${describe(slot.value)} in document`,
         )
       }
       const current = present ? [...(slot.value as unknown[])] : []
-      set(op === '$push' ? push(current, operand) : addToSet(current, operand))
+      set(op === "$push" ? push(current, operand) : addToSet(current, operand))
       return
     }
-    case '$pop': {
+    case "$pop": {
       if (!present) return
       if (!Array.isArray(slot.value))
         fail(`Path '${path}' contains an element of non-array type '${describe(slot.value)}'`)
       if (slot.value.length === 0) return
-      const n = toDouble(readNumeric(operand) ?? { kind: 'int', value: 1 })
+      const n = toDouble(readNumeric(operand) ?? { kind: "int", value: 1 })
       set(n === 1 ? slot.value.slice(0, -1) : slot.value.slice(1))
       return
     }
-    case '$pull':
-    case '$pullAll': {
+    case "$pull":
+    case "$pullAll": {
       if (!present) return
-      if (!Array.isArray(slot.value)) fail('Cannot apply $pull to a non-array value')
-      const remove = op === '$pullAll' ? pullAllTest(operand as unknown[]) : pullTest(operand)
+      if (!Array.isArray(slot.value)) fail("Cannot apply $pull to a non-array value")
+      const remove = op === "$pullAll" ? pullAllTest(operand as unknown[]) : pullTest(operand)
       set(slot.value.filter((element) => !remove(element)))
       return
     }
-    case '$bit': {
+    case "$bit": {
       const current = present ? slot.value : 0
       const kind = readNumeric(current)?.kind
-      if (kind !== 'int' && kind !== 'long') {
+      if (kind !== "int" && kind !== "long") {
         fail(`Cannot apply $bit to a value of non-integral type. {${key}: ${describe(current)}}`)
       }
       set(bitwise(current, operand as Record<string, unknown>))
@@ -672,21 +672,21 @@ function applyLeaf(
 
 function zeroLike(operand: unknown): unknown {
   const numeric = readNumeric(operand)
-  if (numeric?.kind === 'long') return longLike(operand, 0n)
-  if (numeric?.kind === 'double') return numeric.value * 0
+  if (numeric?.kind === "long") return longLike(operand, 0n)
+  if (numeric?.kind === "double") return numeric.value * 0
   return 0
 }
 
 function longLike(template: unknown, value: bigint): unknown {
-  if (typeof template === 'bigint') return value
+  if (typeof template === "bigint") return value
   return new Long(value)
 }
 
 function asBigInt(value: unknown): bigint {
-  if (typeof value === 'bigint') return value
+  if (typeof value === "bigint") return value
   const long = longValue(value)
   if (long !== undefined) return long
-  return BigInt(toDouble(readNumeric(value) ?? { kind: 'int', value: 0 }))
+  return BigInt(toDouble(readNumeric(value) ?? { kind: "int", value: 0 }))
 }
 
 const INT64_MIN = -(2n ** 63n)
@@ -696,37 +696,37 @@ function arithmetic(op: string, current: unknown, operand: unknown): unknown {
   const a = readNumeric(current)
   const b = readNumeric(operand)
   if (a === undefined || b === undefined) fail(`Cannot apply ${op}`)
-  if (a.kind === 'decimal' || b.kind === 'decimal') {
-    throw new UnsupportedQueryError('Decimal128 arithmetic is not evaluated in process')
+  if (a.kind === "decimal" || b.kind === "decimal") {
+    throw new UnsupportedQueryError("Decimal128 arithmetic is not evaluated in process")
   }
-  if (a.kind === 'double' || b.kind === 'double') {
+  if (a.kind === "double" || b.kind === "double") {
     const x = toDouble(a)
     const y = toDouble(b)
-    return op === '$inc' ? x + y : x * y
+    return op === "$inc" ? x + y : x * y
   }
-  if (a.kind === 'int' && b.kind === 'int') {
+  if (a.kind === "int" && b.kind === "int") {
     const exact =
-      op === '$inc' ? BigInt(a.value) + BigInt(b.value) : BigInt(a.value) * BigInt(b.value)
+      op === "$inc" ? BigInt(a.value) + BigInt(b.value) : BigInt(a.value) * BigInt(b.value)
     const asNumber = Number(exact)
     return Number.isSafeInteger(asNumber) ? asNumber : longLike(current, exact)
   }
   const x = asBigInt(current)
   const y = asBigInt(operand)
-  const result = op === '$inc' ? x + y : x * y
+  const result = op === "$inc" ? x + y : x * y
   if (result < INT64_MIN || result > INT64_MAX) {
     fail(`Failed to apply ${op} operations to current value: integer overflow`)
   }
-  return longLike(a.kind === 'long' ? current : operand, result)
+  return longLike(a.kind === "long" ? current : operand, result)
 }
 
 function bitwise(current: unknown, spec: Record<string, unknown>): unknown {
   let value = asBigInt(current)
-  let isLong = readNumeric(current)?.kind === 'long'
+  let isLong = readNumeric(current)?.kind === "long"
   for (const key of Object.keys(spec)) {
     const operand = spec[key]
-    if (readNumeric(operand)?.kind === 'long') isLong = true
+    if (readNumeric(operand)?.kind === "long") isLong = true
     const other = asBigInt(operand)
-    value = key === 'and' ? value & other : key === 'or' ? value | other : value ^ other
+    value = key === "and" ? value & other : key === "or" ? value | other : value ^ other
   }
   if (!isLong) {
     const asInt = Number(BigInt.asIntN(32, value))
@@ -736,19 +736,19 @@ function bitwise(current: unknown, spec: Record<string, unknown>): unknown {
 }
 
 function push(current: unknown[], operand: unknown): unknown[] {
-  if (!isDocument(operand) || !Object.hasOwn(operand, '$each')) return [...current, operand]
-  const each = operand['$each'] as unknown[]
+  if (!isDocument(operand) || !Object.hasOwn(operand, "$each")) return [...current, operand]
+  const each = operand["$each"] as unknown[]
   let out = [...current]
-  const positionRaw = operand['$position']
+  const positionRaw = operand["$position"]
   if (positionRaw === undefined) {
     out.push(...each)
   } else {
-    let position = toDouble(readNumeric(positionRaw) ?? { kind: 'int', value: 0 })
+    let position = toDouble(readNumeric(positionRaw) ?? { kind: "int", value: 0 })
     if (position < 0) position = Math.max(0, out.length + position)
     position = Math.min(position, out.length)
     out.splice(position, 0, ...each)
   }
-  const sort = operand['$sort']
+  const sort = operand["$sort"]
   if (sort !== undefined) {
     const numeric = readNumeric(sort)
     if (numeric !== undefined) {
@@ -759,9 +759,9 @@ function push(current: unknown[], operand: unknown): unknown[] {
       out = stableSort(out, compare)
     }
   }
-  const sliceRaw = operand['$slice']
+  const sliceRaw = operand["$slice"]
   if (sliceRaw !== undefined) {
-    const slice = toDouble(readNumeric(sliceRaw) ?? { kind: 'int', value: 0 })
+    const slice = toDouble(readNumeric(sliceRaw) ?? { kind: "int", value: 0 })
     out = slice >= 0 ? out.slice(0, slice) : out.slice(Math.max(0, out.length + slice))
   }
   return out
@@ -770,7 +770,7 @@ function push(current: unknown[], operand: unknown): unknown[] {
 function compileElementSort(spec: Record<string, unknown>): (a: unknown, b: unknown) => number {
   const keys = Object.keys(spec).map((path) => ({
     parts: splitPath(path),
-    direction: toDouble(readNumeric(spec[path]) ?? { kind: 'int', value: 1 }),
+    direction: toDouble(readNumeric(spec[path]) ?? { kind: "int", value: 1 }),
   }))
   const read = (value: unknown, parts: readonly string[]): unknown => {
     let current = value
@@ -798,8 +798,8 @@ function stableSort(values: unknown[], compare: (a: unknown, b: unknown) => numb
 
 function addToSet(current: unknown[], operand: unknown): unknown[] {
   const items =
-    isDocument(operand) && Object.hasOwn(operand, '$each')
-      ? (operand['$each'] as unknown[])
+    isDocument(operand) && Object.hasOwn(operand, "$each")
+      ? (operand["$each"] as unknown[])
       : [operand]
   const out = [...current]
   for (const item of items) {
@@ -813,7 +813,7 @@ function pullAllTest(values: readonly unknown[]): (element: unknown) => boolean 
 }
 
 function isExpressionKey(key: string): boolean {
-  return key.startsWith('$') && !['$and', '$or', '$nor'].includes(key)
+  return key.startsWith("$") && !["$and", "$or", "$nor"].includes(key)
 }
 
 function pullTest(condition: unknown): (element: unknown) => boolean {

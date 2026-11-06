@@ -5,7 +5,7 @@ import type {
   LiveQuery,
   LiveQueryOptions,
   QueryState,
-} from '@canopy/client'
+} from "@canopy/client"
 import {
   createContext,
   createElement,
@@ -13,7 +13,7 @@ import {
   useCallback,
   useContext,
   useSyncExternalStore,
-} from 'react'
+} from "react"
 
 const ClientContext = createContext<CanopyClient | undefined>(undefined)
 
@@ -31,7 +31,7 @@ export function CanopyProvider({ client, children }: CanopyProviderProps): React
 /** Returns the client from the nearest {@link CanopyProvider}. */
 export function useCanopy(): CanopyClient {
   const client = useContext(ClientContext)
-  if (client === undefined) throw new Error('useCanopy must be used inside <CanopyProvider>')
+  if (client === undefined) throw new Error("useCanopy must be used inside <CanopyProvider>")
   return client
 }
 
@@ -51,7 +51,7 @@ export function useCanopyStatus(): ConnectionStatus {
 }
 
 function stableKey(value: unknown): string {
-  return JSON.stringify(value) ?? ''
+  return JSON.stringify(value) ?? ""
 }
 
 /** Hooks for one collection. */
@@ -75,7 +75,7 @@ export function createReactDb<DB extends Record<string, Document> = Record<strin
   const queries = new Map<string, LiveQuery<Document>>()
   return new Proxy({} as ReactDb<DB>, {
     get(_target, name) {
-      if (typeof name !== 'string') return undefined
+      if (typeof name !== "string") return undefined
       let hooks = cache.get(name)
       if (hooks === undefined) {
         hooks = {

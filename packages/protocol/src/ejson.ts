@@ -8,8 +8,8 @@ import {
   MinKey,
   ObjectId,
   Timestamp,
-} from './bson.ts'
-import { InvalidQueryError } from './errors.ts'
+} from "./bson.ts"
+import { InvalidQueryError } from "./errors.ts"
 import {
   binaryParts,
   decimalString,
@@ -19,7 +19,7 @@ import {
   regexParts,
   timestampParts,
   wrappedNumber,
-} from './values.ts'
+} from "./values.ts"
 
 /** Limits applied while decoding untrusted EJSON. */
 export interface DecodeOptions {
@@ -29,25 +29,25 @@ export interface DecodeOptions {
   readonly maxNodes?: number
 }
 
-const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype'])
+const FORBIDDEN_KEYS: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"])
 const WRAPPER_KEYS: ReadonlySet<string> = new Set([
-  '$oid',
-  '$numberLong',
-  '$numberInt',
-  '$numberDouble',
-  '$numberDecimal',
-  '$date',
-  '$binary',
-  '$uuid',
-  '$timestamp',
-  '$regularExpression',
-  '$minKey',
-  '$maxKey',
-  '$symbol',
-  '$code',
-  '$scope',
-  '$dbPointer',
-  '$undefined',
+  "$oid",
+  "$numberLong",
+  "$numberInt",
+  "$numberDouble",
+  "$numberDecimal",
+  "$date",
+  "$binary",
+  "$uuid",
+  "$timestamp",
+  "$regularExpression",
+  "$minKey",
+  "$maxKey",
+  "$symbol",
+  "$code",
+  "$scope",
+  "$dbPointer",
+  "$undefined",
 ])
 const INT32 = /^-?\d{1,10}$/
 const INT64 = /^-?\d{1,19}$/
@@ -65,7 +65,7 @@ export function parse(text: string, options?: DecodeOptions): unknown {
   try {
     raw = JSON.parse(text)
   } catch (error: unknown) {
-    throw new InvalidQueryError('Malformed JSON', { cause: error })
+    throw new InvalidQueryError("Malformed JSON", { cause: error })
   }
   return decode(raw, options)
 }
@@ -82,20 +82,20 @@ interface DecodeState {
 }
 
 function decodeValue(value: unknown, depth: number, maxDepth: number, state: DecodeState): unknown {
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value
-  if (typeof value === 'number') return value
-  if (typeof value !== 'object')
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value
+  if (typeof value === "number") return value
+  if (typeof value !== "object")
     throw new InvalidQueryError(`Unsupported JSON value: ${typeof value}`)
   if (depth >= maxDepth) throw new InvalidQueryError(`Nesting deeper than ${maxDepth} levels`)
   if (Array.isArray(value)) {
     state.nodes += value.length
-    if (state.nodes > state.maxNodes) throw new InvalidQueryError('Too many values')
+    if (state.nodes > state.maxNodes) throw new InvalidQueryError("Too many values")
     return value.map((item) => decodeValue(item, depth + 1, maxDepth, state))
   }
   const record = value as Record<string, unknown>
   const keys = Object.keys(record)
   state.nodes += keys.length
-  if (state.nodes > state.maxNodes) throw new InvalidQueryError('Too many values')
+  if (state.nodes > state.maxNodes) throw new InvalidQueryError("Too many values")
   if (keys.some((key) => WRAPPER_KEYS.has(key))) return decodeWrapper(record, keys)
   const out: Record<string, unknown> = Object.create(null)
   for (const key of keys) {
@@ -109,90 +109,90 @@ function decodeWrapper(record: Record<string, unknown>, keys: readonly string[])
   const fail = (what: string): never => {
     throw new InvalidQueryError(`Invalid EJSON ${what}`)
   }
-  if (keys.length !== 1) fail(`wrapper with keys ${keys.join(', ')}`)
-  const key = keys[0] ?? ''
+  if (keys.length !== 1) fail(`wrapper with keys ${keys.join(", ")}`)
+  const key = keys[0] ?? ""
   const inner = record[key]
   switch (key) {
-    case '$oid':
-      if (typeof inner !== 'string' || !ObjectId.isValid(inner)) fail('$oid')
+    case "$oid":
+      if (typeof inner !== "string" || !ObjectId.isValid(inner)) fail("$oid")
       return new ObjectId(inner as string)
-    case '$numberInt': {
-      if (typeof inner !== 'string' || !INT32.test(inner)) fail('$numberInt')
+    case "$numberInt": {
+      if (typeof inner !== "string" || !INT32.test(inner)) fail("$numberInt")
       const n = Number(inner)
-      if (n < -2147483648 || n > 2147483647) fail('$numberInt')
+      if (n < -2147483648 || n > 2147483647) fail("$numberInt")
       return n
     }
-    case '$numberLong': {
-      if (typeof inner !== 'string' || !INT64.test(inner)) fail('$numberLong')
+    case "$numberLong": {
+      if (typeof inner !== "string" || !INT64.test(inner)) fail("$numberLong")
       try {
         return new Long(BigInt(inner as string))
       } catch {
-        return fail('$numberLong')
+        return fail("$numberLong")
       }
     }
-    case '$numberDouble': {
-      if (typeof inner !== 'string') return fail('$numberDouble')
-      if (inner === 'Infinity') return Number.POSITIVE_INFINITY
-      if (inner === '-Infinity') return Number.NEGATIVE_INFINITY
-      if (inner === 'NaN') return Number.NaN
+    case "$numberDouble": {
+      if (typeof inner !== "string") return fail("$numberDouble")
+      if (inner === "Infinity") return Number.POSITIVE_INFINITY
+      if (inner === "-Infinity") return Number.NEGATIVE_INFINITY
+      if (inner === "NaN") return Number.NaN
       const n = Number(inner)
-      if (inner.trim() === '' || !Number.isFinite(n)) fail('$numberDouble')
+      if (inner.trim() === "" || !Number.isFinite(n)) fail("$numberDouble")
       return n
     }
-    case '$numberDecimal':
-      if (typeof inner !== 'string') return fail('$numberDecimal')
+    case "$numberDecimal":
+      if (typeof inner !== "string") return fail("$numberDecimal")
       try {
         return new Decimal128(inner)
       } catch {
-        return fail('$numberDecimal')
+        return fail("$numberDecimal")
       }
-    case '$date':
+    case "$date":
       return decodeDate(inner, fail)
-    case '$binary': {
-      if (!isPlainRecord(inner)) return fail('$binary')
-      const base64 = inner['base64']
-      const subType = inner['subType']
+    case "$binary": {
+      if (!isPlainRecord(inner)) return fail("$binary")
+      const base64 = inner["base64"]
+      const subType = inner["subType"]
       if (
-        typeof base64 !== 'string' ||
-        typeof subType !== 'string' ||
+        typeof base64 !== "string" ||
+        typeof subType !== "string" ||
         !/^[0-9a-f]{1,2}$/i.test(subType)
       ) {
-        return fail('$binary')
+        return fail("$binary")
       }
       return new Binary(base64ToBytes(base64, fail), Number.parseInt(subType, 16))
     }
-    case '$uuid':
-      if (typeof inner !== 'string' || !UUID.test(inner)) return fail('$uuid')
-      return new Binary(hexToBytes(inner.replaceAll('-', '')), 4)
-    case '$timestamp': {
-      if (!isPlainRecord(inner)) return fail('$timestamp')
-      const t = inner['t']
-      const i = inner['i']
-      if (typeof t !== 'number' || typeof i !== 'number') return fail('$timestamp')
+    case "$uuid":
+      if (typeof inner !== "string" || !UUID.test(inner)) return fail("$uuid")
+      return new Binary(hexToBytes(inner.replaceAll("-", "")), 4)
+    case "$timestamp": {
+      if (!isPlainRecord(inner)) return fail("$timestamp")
+      const t = inner["t"]
+      const i = inner["i"]
+      if (typeof t !== "number" || typeof i !== "number") return fail("$timestamp")
       try {
         return new Timestamp(t, i)
       } catch {
-        return fail('$timestamp')
+        return fail("$timestamp")
       }
     }
-    case '$regularExpression': {
-      if (!isPlainRecord(inner)) return fail('$regularExpression')
-      const pattern = inner['pattern']
-      const options = inner['options']
+    case "$regularExpression": {
+      if (!isPlainRecord(inner)) return fail("$regularExpression")
+      const pattern = inner["pattern"]
+      const options = inner["options"]
       if (
-        typeof pattern !== 'string' ||
-        typeof options !== 'string' ||
+        typeof pattern !== "string" ||
+        typeof options !== "string" ||
         !/^[imsux]*$/.test(options)
       ) {
-        return fail('$regularExpression')
+        return fail("$regularExpression")
       }
       return new BSONRegExp(pattern, options)
     }
-    case '$minKey':
-      if (inner !== 1) fail('$minKey')
+    case "$minKey":
+      if (inner !== 1) fail("$minKey")
       return new MinKey()
-    case '$maxKey':
-      if (inner !== 1) fail('$maxKey')
+    case "$maxKey":
+      if (inner !== 1) fail("$maxKey")
       return new MaxKey()
     default:
       return fail(`type ${key}, which is not supported`)
@@ -200,25 +200,25 @@ function decodeWrapper(record: Record<string, unknown>, keys: readonly string[])
 }
 
 function decodeDate(inner: unknown, fail: (what: string) => never): Date {
-  if (typeof inner === 'string') {
-    if (!/^\d{4}-\d{2}-\d{2}T/.test(inner)) fail('$date')
+  if (typeof inner === "string") {
+    if (!/^\d{4}-\d{2}-\d{2}T/.test(inner)) fail("$date")
     const ms = Date.parse(inner)
-    if (Number.isNaN(ms)) fail('$date')
+    if (Number.isNaN(ms)) fail("$date")
     return new Date(ms)
   }
   if (isPlainRecord(inner)) {
     const keys = Object.keys(inner)
-    const long = inner['$numberLong']
-    if (keys.length !== 1 || typeof long !== 'string' || !INT64.test(long)) fail('$date')
+    const long = inner["$numberLong"]
+    if (keys.length !== 1 || typeof long !== "string" || !INT64.test(long)) fail("$date")
     const ms = Number(long)
-    if (!Number.isSafeInteger(ms) || Math.abs(ms) > 8.64e15) fail('$date')
+    if (!Number.isSafeInteger(ms) || Math.abs(ms) > 8.64e15) fail("$date")
     return new Date(ms)
   }
-  return fail('$date')
+  return fail("$date")
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function base64ToBytes(base64: string, fail: (what: string) => never): Uint8Array {
@@ -226,7 +226,7 @@ function base64ToBytes(base64: string, fail: (what: string) => never): Uint8Arra
   try {
     binary = atob(base64)
   } catch {
-    return fail('base64 payload')
+    return fail("base64 payload")
   }
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
@@ -234,7 +234,7 @@ function base64ToBytes(base64: string, fail: (what: string) => never): Uint8Arra
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
-  let binary = ''
+  let binary = ""
   for (const byte of bytes) binary += String.fromCharCode(byte)
   return btoa(binary)
 }
@@ -271,10 +271,10 @@ export function canonicalString(value: unknown): string {
 }
 
 function encodeNumber(value: number, canonical: boolean): unknown {
-  if (Number.isNaN(value)) return { $numberDouble: 'NaN' }
-  if (value === Number.POSITIVE_INFINITY) return { $numberDouble: 'Infinity' }
-  if (value === Number.NEGATIVE_INFINITY) return { $numberDouble: '-Infinity' }
-  if (Object.is(value, -0)) return { $numberDouble: '-0.0' }
+  if (Number.isNaN(value)) return { $numberDouble: "NaN" }
+  if (value === Number.POSITIVE_INFINITY) return { $numberDouble: "Infinity" }
+  if (value === Number.NEGATIVE_INFINITY) return { $numberDouble: "-Infinity" }
+  if (Object.is(value, -0)) return { $numberDouble: "-0.0" }
   if (!canonical) return value
   if (Number.isInteger(value) && value >= -2147483648 && value <= 2147483647) {
     return { $numberInt: String(value) }
@@ -292,7 +292,7 @@ function encodeLong(value: bigint, canonical: boolean): unknown {
 
 function encodeDate(value: Date, canonical: boolean): unknown {
   const ms = value.getTime()
-  if (Number.isNaN(ms)) throw new InvalidQueryError('Cannot encode an invalid Date')
+  if (Number.isNaN(ms)) throw new InvalidQueryError("Cannot encode an invalid Date")
   const year = value.getUTCFullYear()
   if (!canonical && year >= 1970 && year <= 9999) return { $date: value.toISOString() }
   return { $date: { $numberLong: String(ms) } }
@@ -301,14 +301,14 @@ function encodeDate(value: Date, canonical: boolean): unknown {
 function encodeValue(value: unknown, canonical: boolean): unknown {
   if (value === null || value === undefined) return null
   switch (typeof value) {
-    case 'string':
-    case 'boolean':
+    case "string":
+    case "boolean":
       return value
-    case 'number':
+    case "number":
       return encodeNumber(value, canonical)
-    case 'bigint':
+    case "bigint":
       return encodeLong(value, canonical)
-    case 'object':
+    case "object":
       break
     default:
       throw new InvalidQueryError(`Cannot encode a value of type ${typeof value}`)
@@ -316,7 +316,7 @@ function encodeValue(value: unknown, canonical: boolean): unknown {
   if (Array.isArray(value)) return value.map((item) => encodeValue(item, canonical))
   if (value instanceof Date) return encodeDate(value, canonical)
   if (value instanceof Uint8Array) {
-    return { $binary: { base64: bytesToBase64(value), subType: '00' } }
+    return { $binary: { base64: bytesToBase64(value), subType: "00" } }
   }
   if (isDocument(value)) {
     const out: Record<string, unknown> = {}
@@ -334,36 +334,36 @@ function encodeBsonValue(value: object, canonical: boolean): unknown {
   if (regex !== undefined) return { $regularExpression: regex }
   const tag = bsonTypeTag(value)
   switch (tag) {
-    case 'ObjectId':
+    case "ObjectId":
       return { $oid: objectIdHex(value) }
-    case 'Long':
+    case "Long":
       return encodeLong(longValue(value) ?? 0n, canonical)
-    case 'Int32':
-    case 'Double':
+    case "Int32":
+    case "Double":
       return encodeNumber(wrappedNumber(value) ?? 0, canonical)
-    case 'Decimal128':
+    case "Decimal128":
       return { $numberDecimal: decimalString(value) }
-    case 'Binary': {
+    case "Binary": {
       const parts = binaryParts(value)
       if (parts === undefined) break
       return {
         $binary: {
           base64: bytesToBase64(parts.bytes),
-          subType: parts.subType.toString(16).padStart(2, '0'),
+          subType: parts.subType.toString(16).padStart(2, "0"),
         },
       }
     }
-    case 'Timestamp': {
+    case "Timestamp": {
       const parts = timestampParts(value)
       if (parts === undefined) break
       return { $timestamp: { t: parts.t, i: parts.i } }
     }
-    case 'MinKey':
+    case "MinKey":
       return { $minKey: 1 }
-    case 'MaxKey':
+    case "MaxKey":
       return { $maxKey: 1 }
     default:
       break
   }
-  throw new InvalidQueryError(`Cannot encode BSON type ${tag ?? 'unknown'}`)
+  throw new InvalidQueryError(`Cannot encode BSON type ${tag ?? "unknown"}`)
 }

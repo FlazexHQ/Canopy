@@ -20,7 +20,7 @@ function rotr(x: number, n: number): number {
  * asynchronous, and observer keys and policy hashes are computed on hot, synchronous paths.
  */
 export function sha256Hex(input: string | Uint8Array): string {
-  const data = typeof input === 'string' ? encoder.encode(input) : input
+  const data = typeof input === "string" ? encoder.encode(input) : input
   const bitLength = data.length * 8
   const paddedLength = Math.ceil((data.length + 9) / 64) * 64
   const bytes = new Uint8Array(paddedLength)
@@ -76,7 +76,7 @@ export function sha256Hex(input: string | Uint8Array): string {
     h[6] = ((h[6] ?? 0) + g) >>> 0
     h[7] = ((h[7] ?? 0) + hh) >>> 0
   }
-  let hex = ''
-  for (const word of h) hex += word.toString(16).padStart(8, '0')
+  let hex = ""
+  for (const word of h) hex += word.toString(16).padStart(8, "0")
   return hex
 }

@@ -1,5 +1,5 @@
-import { CanopyError, canonicalString, ErrorCode, isDocument } from '@canopy/protocol'
-import { type FieldAccess, fieldAccess } from './fields.ts'
+import { CanopyError, canonicalString, ErrorCode, isDocument } from "@canopy/protocol"
+import { type FieldAccess, fieldAccess } from "./fields.ts"
 import {
   type CollectionPolicies,
   type ContextDefinitions,
@@ -8,10 +8,10 @@ import {
   type PolicyDefinition,
   type RequestContext,
   Role,
-} from './model.ts'
-import { hashCollection, hashPolicySet } from './stored.ts'
-import { validateCollectionPolicies, validateContexts } from './validate.ts'
-import { resolveClause, type VariableIssue } from './variables.ts'
+} from "./model.ts"
+import { hashCollection, hashPolicySet } from "./stored.ts"
+import { validateCollectionPolicies, validateContexts } from "./validate.ts"
+import { resolveClause, type VariableIssue } from "./variables.ts"
 
 /** The filter that matches no document. Cheap for the planner. */
 export const DENY_FILTER: Readonly<Record<string, unknown>> = Object.freeze({
@@ -20,21 +20,21 @@ export const DENY_FILTER: Readonly<Record<string, unknown>> = Object.freeze({
 
 /** The result of compiling a clause set for one request. */
 export type Compiled =
-  | { readonly kind: 'all' }
-  | { readonly kind: 'deny' }
-  | { readonly kind: 'filter'; readonly filter: Record<string, unknown> }
+  | { readonly kind: "all" }
+  | { readonly kind: "deny" }
+  | { readonly kind: "filter"; readonly filter: Record<string, unknown> }
 
-const ALL: Compiled = { kind: 'all' }
-const DENY: Compiled = { kind: 'deny' }
+const ALL: Compiled = { kind: "all" }
+const DENY: Compiled = { kind: "deny" }
 
 /** Converts a compiled result into a MongoDB filter. */
 export function toFilter(compiled: Compiled): Record<string, unknown> {
   switch (compiled.kind) {
-    case 'all':
+    case "all":
       return {}
-    case 'deny':
+    case "deny":
       return { _id: { $in: [] } }
-    case 'filter':
+    case "filter":
       return compiled.filter
   }
 }
@@ -89,7 +89,7 @@ interface Applicable {
 /** One line of an {@link Explanation}. */
 export interface ExplainedPolicy {
   readonly name: string
-  readonly kind: PolicyDefinition['kind']
+  readonly kind: PolicyDefinition["kind"]
   readonly applies: boolean
   readonly reason: string
   readonly resolved?: Record<string, unknown>
@@ -99,7 +99,7 @@ export interface ExplainedPolicy {
 export interface Explanation {
   readonly collection: string
   readonly op: Operation
-  readonly clause: 'using' | 'check'
+  readonly clause: "using" | "check"
   readonly roles: readonly string[]
   readonly bypass: boolean
   readonly exposed: boolean
@@ -127,8 +127,8 @@ function flattenAnd(filters: readonly Record<string, unknown>[]): Record<string,
   const out: Record<string, unknown>[] = []
   for (const filter of filters) {
     const keys = Object.keys(filter)
-    if (keys.length === 1 && keys[0] === '$and' && Array.isArray(filter['$and'])) {
-      out.push(...flattenAnd(filter['$and'] as Record<string, unknown>[]))
+    if (keys.length === 1 && keys[0] === "$and" && Array.isArray(filter["$and"])) {
+      out.push(...flattenAnd(filter["$and"] as Record<string, unknown>[]))
     } else if (!isEmptyFilter(filter)) {
       out.push(filter)
     }
@@ -138,13 +138,13 @@ function flattenAnd(filters: readonly Record<string, unknown>[]): Record<string,
 
 /** Combines filters with AND, dropping empty ones and flattening nested `$and`. */
 export function and(...parts: readonly Compiled[]): Compiled {
-  if (parts.some((part) => part.kind === 'deny')) return DENY
+  if (parts.some((part) => part.kind === "deny")) return DENY
   const filters = dedupe(
-    flattenAnd(parts.filter((part) => part.kind === 'filter').map((part) => toFilter(part))),
+    flattenAnd(parts.filter((part) => part.kind === "filter").map((part) => toFilter(part))),
   )
   if (filters.length === 0) return ALL
-  if (filters.length === 1) return { kind: 'filter', filter: filters[0] as Record<string, unknown> }
-  return { kind: 'filter', filter: { $and: filters } }
+  if (filters.length === 1) return { kind: "filter", filter: filters[0] as Record<string, unknown> }
+  return { kind: "filter", filter: { $and: filters } }
 }
 
 function combine(
@@ -157,10 +157,10 @@ function combine(
     : (() => {
         const unique = dedupe(permissive)
         return unique.length === 1
-          ? { kind: 'filter', filter: unique[0] as Record<string, unknown> }
-          : { kind: 'filter', filter: { $or: unique } }
+          ? { kind: "filter", filter: unique[0] as Record<string, unknown> }
+          : { kind: "filter", filter: { $or: unique } }
       })()
-  return and(anyOf, ...restrictive.map((filter): Compiled => ({ kind: 'filter', filter })))
+  return and(anyOf, ...restrictive.map((filter): Compiled => ({ kind: "filter", filter })))
 }
 
 /**
@@ -203,7 +203,7 @@ export class PolicyEngine {
     op: Operation,
     roles: ReadonlySet<string>,
   ): Applicable {
-    const key = `${def.collection}\u0000${op}\u0000${[...roles].sort().join(',')}`
+    const key = `${def.collection}\u0000${op}\u0000${[...roles].sort().join(",")}`
     const cached = this.cache.get(key)
     if (cached !== undefined) return cached
     const policies = def.policies.filter(
@@ -212,8 +212,8 @@ export class PolicyEngine {
         (policy.roles.includes(Role.Public) || policy.roles.some((role) => roles.has(role))),
     )
     const result: Applicable = {
-      permissive: policies.filter((policy) => policy.kind === 'permissive'),
-      restrictive: policies.filter((policy) => policy.kind === 'restrictive'),
+      permissive: policies.filter((policy) => policy.kind === "permissive"),
+      restrictive: policies.filter((policy) => policy.kind === "restrictive"),
     }
     this.cache.set(key, result)
     return result
@@ -229,20 +229,20 @@ export class PolicyEngine {
 
   /** `USING(op)` for one request: which existing documents the operation may touch. */
   using(collection: string, op: Operation, ctx: RequestContext): Compiled {
-    return this.evaluate(collection, op, ctx, 'using')
+    return this.evaluate(collection, op, ctx, "using")
   }
 
   /** `CHECK(op)` for one request: what resulting documents must satisfy. */
-  check(collection: string, op: 'insert' | 'update', ctx: RequestContext): Compiled {
-    return this.evaluate(collection, op, ctx, 'check')
+  check(collection: string, op: "insert" | "update", ctx: RequestContext): Compiled {
+    return this.evaluate(collection, op, ctx, "check")
   }
 
   /**
    * The target of an update or delete: `USING(op) AND USING(read)`, because a caller cannot modify what it
    * cannot see.
    */
-  target(collection: string, op: 'update' | 'delete', ctx: RequestContext): Compiled {
-    return and(this.using(collection, op, ctx), this.using(collection, 'read', ctx))
+  target(collection: string, op: "update" | "delete", ctx: RequestContext): Compiled {
+    return and(this.using(collection, op, ctx), this.using(collection, "read", ctx))
   }
 
   /** The effective read filter: the caller's filter AND `USING(read)`. */
@@ -251,21 +251,21 @@ export class PolicyEngine {
     userFilter: Record<string, unknown>,
     ctx: RequestContext,
   ): Compiled {
-    return and({ kind: 'filter', filter: userFilter }, this.using(collection, 'read', ctx))
+    return and({ kind: "filter", filter: userFilter }, this.using(collection, "read", ctx))
   }
 
   /** The fields the request may read. */
   readable(collection: string, ctx: RequestContext): FieldAccess {
-    if (ctx.roles.has(Role.Service)) return { kind: 'all' }
+    if (ctx.roles.has(Role.Service)) return { kind: "all" }
     return fieldAccess(this.set.collections.get(collection)?.fields?.read, ctx.roles)
   }
 
   /** The fields the request may write. `update` rules override `write` rules for updates. */
-  writable(collection: string, op: 'insert' | 'update', ctx: RequestContext): FieldAccess {
-    if (ctx.roles.has(Role.Service)) return { kind: 'all' }
+  writable(collection: string, op: "insert" | "update", ctx: RequestContext): FieldAccess {
+    if (ctx.roles.has(Role.Service)) return { kind: "all" }
     const fields = this.set.collections.get(collection)?.fields
     const rules: FieldRules | undefined =
-      op === 'update' ? (fields?.update ?? fields?.write) : fields?.write
+      op === "update" ? (fields?.update ?? fields?.write) : fields?.write
     return fieldAccess(rules, ctx.roles)
   }
 
@@ -278,7 +278,7 @@ export class PolicyEngine {
     collection: string,
     op: Operation,
     ctx: RequestContext,
-    clause: 'using' | 'check',
+    clause: "using" | "check",
   ): Compiled {
     if (ctx.roles.has(Role.Service)) return ALL
     try {
@@ -307,11 +307,11 @@ export class PolicyEngine {
   private resolve(
     def: CollectionPolicies,
     policy: PolicyDefinition,
-    clause: 'using' | 'check',
+    clause: "using" | "check",
     ctx: RequestContext,
   ): Record<string, unknown> | undefined {
     const template =
-      clause === 'check' ? (policy.check ?? policy.using ?? {}) : (policy.using ?? {})
+      clause === "check" ? (policy.check ?? policy.using ?? {}) : (policy.using ?? {})
     if (!isDocument(template)) return undefined
     const resolved = resolveClause(template, ctx)
     if (!resolved.ok) {
@@ -330,7 +330,7 @@ export class PolicyEngine {
     collection: string,
     op: Operation,
     ctx: RequestContext,
-    clause: 'using' | 'check' = 'using',
+    clause: "using" | "check" = "using",
   ): Explanation {
     const roles = [...ctx.roles].sort()
     const def = this.set.collections.get(collection)
@@ -347,12 +347,12 @@ export class PolicyEngine {
             name: policy.name,
             kind: policy.kind,
             applies: false,
-            reason: forOp ? `not granted to roles ${roles.join(', ')}` : `does not cover ${op}`,
+            reason: forOp ? `not granted to roles ${roles.join(", ")}` : `does not cover ${op}`,
           })
           continue
         }
         const template =
-          clause === 'check' ? (policy.check ?? policy.using ?? {}) : (policy.using ?? {})
+          clause === "check" ? (policy.check ?? policy.using ?? {}) : (policy.using ?? {})
         const resolved = resolveClause(template, ctx)
         policies.push(
           resolved.ok
@@ -360,14 +360,14 @@ export class PolicyEngine {
                 name: policy.name,
                 kind: policy.kind,
                 applies: true,
-                reason: 'applies',
+                reason: "applies",
                 resolved: resolved.filter,
               }
             : {
                 name: policy.name,
                 kind: policy.kind,
                 applies: false,
-                reason: `variable ${resolved.issue.variable} is ${resolved.issue.kind === 'missing' ? 'missing or null' : `invalid (${resolved.issue.kind})`}`,
+                reason: `variable ${resolved.issue.variable} is ${resolved.issue.kind === "missing" ? "missing or null" : `invalid (${resolved.issue.kind})`}`,
               },
         )
       }

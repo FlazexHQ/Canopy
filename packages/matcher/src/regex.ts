@@ -1,5 +1,5 @@
-import { CanopyError, ErrorCode, InvalidQueryError } from '@canopy/protocol'
-import { UnsupportedQueryError } from './errors.ts'
+import { CanopyError, ErrorCode, InvalidQueryError } from "@canopy/protocol"
+import { UnsupportedQueryError } from "./errors.ts"
 
 /**
  * A regular expression engine with linear time matching (a Pike VM over code points). It accepts the subset
@@ -10,20 +10,20 @@ import { UnsupportedQueryError } from './errors.ts'
 type CharTest = (cp: number) => boolean
 
 type Node =
-  | { readonly k: 'char'; readonly test: CharTest }
-  | { readonly k: 'seq'; readonly items: readonly Node[] }
-  | { readonly k: 'alt'; readonly items: readonly Node[] }
-  | { readonly k: 'rep'; readonly node: Node; readonly min: number; readonly max: number }
-  | { readonly k: 'assert'; readonly kind: AssertKind; readonly multiline: boolean }
+  | { readonly k: "char"; readonly test: CharTest }
+  | { readonly k: "seq"; readonly items: readonly Node[] }
+  | { readonly k: "alt"; readonly items: readonly Node[] }
+  | { readonly k: "rep"; readonly node: Node; readonly min: number; readonly max: number }
+  | { readonly k: "assert"; readonly kind: AssertKind; readonly multiline: boolean }
 
-type AssertKind = 'bol' | 'eol' | 'start' | 'end' | 'endz' | 'word' | 'nonword'
+type AssertKind = "bol" | "eol" | "start" | "end" | "endz" | "word" | "nonword"
 
 type Inst =
-  | { op: 'char'; test: CharTest }
-  | { op: 'split'; x: number; y: number }
-  | { op: 'jmp'; x: number }
-  | { op: 'assert'; kind: AssertKind; multiline: boolean }
-  | { op: 'match' }
+  | { op: "char"; test: CharTest }
+  | { op: "split"; x: number; y: number }
+  | { op: "jmp"; x: number }
+  | { op: "assert"; kind: AssertKind; multiline: boolean }
+  | { op: "match" }
 
 interface Flags {
   i: boolean
@@ -44,7 +44,7 @@ export const REGEX_LIMITS = {
   maxSteps: 50_000_000,
 } as const
 
-const NOT_LINEAR = 'is not supported by the linear time regex engine'
+const NOT_LINEAR = "is not supported by the linear time regex engine"
 
 function unsupported(what: string): never {
   throw new UnsupportedQueryError(`Regular expression ${what} ${NOT_LINEAR}`)
@@ -121,7 +121,7 @@ class Parser {
 
   parse(): Node {
     const node = this.parseAlt()
-    if (this.pos < this.cps.length) syntax('unmatched )')
+    if (this.pos < this.cps.length) syntax("unmatched )")
     return node
   }
 
@@ -155,7 +155,7 @@ class Parser {
   private parseAlt(): Node {
     const items: Node[] = [this.parseSeq()]
     while (this.eat(0x7c)) items.push(this.parseSeq())
-    return items.length === 1 ? (items[0] as Node) : { k: 'alt', items }
+    return items.length === 1 ? (items[0] as Node) : { k: "alt", items }
   }
 
   private parseSeq(): Node {
@@ -170,7 +170,7 @@ class Parser {
       items.push(this.parseQuantifier(atom))
     }
     this.flags = saved
-    return items.length === 1 ? (items[0] as Node) : { k: 'seq', items }
+    return items.length === 1 ? (items[0] as Node) : { k: "seq", items }
   }
 
   private parseQuantifier(atom: Node): Node {
@@ -197,24 +197,24 @@ class Parser {
     } else {
       return atom
     }
-    if (atom.k === 'assert') syntax('quantifier after an assertion')
-    if (this.eat(0x2b)) unsupported('with a possessive quantifier')
+    if (atom.k === "assert") syntax("quantifier after an assertion")
+    if (this.eat(0x2b)) unsupported("with a possessive quantifier")
     this.eat(0x3f)
     const next = this.peek()
-    if (next === 0x2a || next === 0x2b || next === 0x3f) syntax('nested quantifier')
-    return { k: 'rep', node: atom, min, max }
+    if (next === 0x2a || next === 0x2b || next === 0x3f) syntax("nested quantifier")
+    return { k: "rep", node: atom, min, max }
   }
 
   private tryCounted(): [number, number] | undefined {
     const start = this.pos
     this.pos += 1
     const readInt = (): number | undefined => {
-      let digits = ''
+      let digits = ""
       while (this.peek() !== undefined && isDigit(this.peek() ?? 0)) {
         digits += String.fromCodePoint(this.peek() ?? 0)
         this.pos += 1
       }
-      return digits === '' ? undefined : Number.parseInt(digits, 10)
+      return digits === "" ? undefined : Number.parseInt(digits, 10)
     }
     const min = readInt()
     let max = min
@@ -229,17 +229,17 @@ class Parser {
     if (min > REGEX_LIMITS.maxRepeat || (Number.isFinite(max) && max > REGEX_LIMITS.maxRepeat)) {
       unsupported(`with a repetition count above ${REGEX_LIMITS.maxRepeat}`)
     }
-    if (max < min) syntax('numbers out of order in a {} quantifier')
+    if (max < min) syntax("numbers out of order in a {} quantifier")
     return [min, max]
   }
 
   private literal(cp: number): Node {
     const test: CharTest = (c) => c === cp
-    return { k: 'char', test: this.flags.i ? caseless(test) : test }
+    return { k: "char", test: this.flags.i ? caseless(test) : test }
   }
 
   private charNode(test: CharTest): Node {
-    return { k: 'char', test: this.flags.i ? caseless(test) : test }
+    return { k: "char", test: this.flags.i ? caseless(test) : test }
   }
 
   private parseAtom(): Node | undefined {
@@ -249,12 +249,12 @@ class Parser {
     switch (cp) {
       case 0x2e: {
         const dotAll = this.flags.s
-        return { k: 'char', test: dotAll ? () => true : (c) => c !== 0x0a }
+        return { k: "char", test: dotAll ? () => true : (c) => c !== 0x0a }
       }
       case 0x5e:
-        return { k: 'assert', kind: 'bol', multiline: this.flags.m }
+        return { k: "assert", kind: "bol", multiline: this.flags.m }
       case 0x24:
-        return { k: 'assert', kind: 'eol', multiline: this.flags.m }
+        return { k: "assert", kind: "eol", multiline: this.flags.m }
       case 0x28:
         return this.parseGroup()
       case 0x5b:
@@ -264,7 +264,7 @@ class Parser {
       case 0x2a:
       case 0x2b:
       case 0x3f:
-        return syntax('quantifier does not follow a repeatable item')
+        return syntax("quantifier does not follow a repeatable item")
       default:
         return this.literal(cp)
     }
@@ -277,14 +277,14 @@ class Parser {
         this.pos += 1
         return this.groupBody()
       }
-      if (cp === 0x3d || cp === 0x21) unsupported('with lookahead')
-      if (cp === 0x3e) unsupported('with an atomic group')
-      if (cp === 0x28) unsupported('with a conditional group')
+      if (cp === 0x3d || cp === 0x21) unsupported("with lookahead")
+      if (cp === 0x3e) unsupported("with an atomic group")
+      if (cp === 0x28) unsupported("with a conditional group")
       if (cp === 0x52 || cp === 0x26 || (cp !== undefined && isDigit(cp)))
-        unsupported('with recursion')
+        unsupported("with recursion")
       if (cp === 0x3c) {
         const next = this.peek(1)
-        if (next === 0x3d || next === 0x21) unsupported('with lookbehind')
+        if (next === 0x3d || next === 0x21) unsupported("with lookbehind")
         this.pos += 1
         this.skipName(0x3e)
         return this.groupBody()
@@ -296,7 +296,7 @@ class Parser {
           this.skipName(0x3e)
           return this.groupBody()
         }
-        unsupported('with a named backreference')
+        unsupported("with a named backreference")
       }
       if (cp === 0x27) {
         this.pos += 1
@@ -305,7 +305,7 @@ class Parser {
       }
       if (cp === 0x23) {
         while (this.peek() !== undefined && this.peek() !== 0x29) this.pos += 1
-        if (!this.eat(0x29)) syntax('missing ) after a comment')
+        if (!this.eat(0x29)) syntax("missing ) after a comment")
         return undefined
       }
       return this.parseInlineFlags()
@@ -316,18 +316,18 @@ class Parser {
   private skipName(terminator: number): void {
     let length = 0
     while (this.peek() !== undefined && this.peek() !== terminator) {
-      if (!isWordChar(this.peek() ?? 0)) syntax('invalid group name')
+      if (!isWordChar(this.peek() ?? 0)) syntax("invalid group name")
       this.pos += 1
       length += 1
     }
-    if (length === 0 || !this.eat(terminator)) syntax('invalid group name')
+    if (length === 0 || !this.eat(terminator)) syntax("invalid group name")
   }
 
   private groupBody(): Node {
     const saved = { ...this.flags }
     const node = this.parseAlt()
     this.flags = saved
-    if (!this.eat(0x29)) syntax('missing )')
+    if (!this.eat(0x29)) syntax("missing )")
     return node
   }
 
@@ -336,7 +336,7 @@ class Parser {
     const next: Flags = { ...this.flags }
     for (;;) {
       const cp = this.peek()
-      if (cp === undefined) syntax('missing ) after inline flags')
+      if (cp === undefined) syntax("missing ) after inline flags")
       this.pos += 1
       if (cp === 0x29) {
         this.flags = next
@@ -347,7 +347,7 @@ class Parser {
         this.flags = next
         const node = this.parseAlt()
         this.flags = saved
-        if (!this.eat(0x29)) syntax('missing )')
+        if (!this.eat(0x29)) syntax("missing )")
         return node
       }
       if (cp === 0x2d) {
@@ -355,7 +355,7 @@ class Parser {
         continue
       }
       const letter = String.fromCodePoint(cp ?? 0)
-      if (letter === 'i' || letter === 'm' || letter === 's' || letter === 'x') {
+      if (letter === "i" || letter === "m" || letter === "s" || letter === "x") {
         next[letter] = on
       } else {
         unsupported(`with the inline option (?${letter})`)
@@ -365,29 +365,29 @@ class Parser {
 
   private parseEscape(): Node | undefined {
     const cp = this.peek()
-    if (cp === undefined) syntax('\\ at end of pattern')
+    if (cp === undefined) syntax("\\ at end of pattern")
     const letter = String.fromCodePoint(cp)
     switch (letter) {
-      case 'b':
+      case "b":
         this.pos += 1
-        return { k: 'assert', kind: 'word', multiline: false }
-      case 'B':
+        return { k: "assert", kind: "word", multiline: false }
+      case "B":
         this.pos += 1
-        return { k: 'assert', kind: 'nonword', multiline: false }
-      case 'A':
+        return { k: "assert", kind: "nonword", multiline: false }
+      case "A":
         this.pos += 1
-        return { k: 'assert', kind: 'start', multiline: false }
-      case 'z':
+        return { k: "assert", kind: "start", multiline: false }
+      case "z":
         this.pos += 1
-        return { k: 'assert', kind: 'end', multiline: false }
-      case 'Z':
+        return { k: "assert", kind: "end", multiline: false }
+      case "Z":
         this.pos += 1
-        return { k: 'assert', kind: 'endz', multiline: false }
-      case 'G':
-      case 'K':
+        return { k: "assert", kind: "endz", multiline: false }
+      case "G":
+      case "K":
         return unsupported(`with \\${letter}`)
-      case 'Q':
-        return unsupported('with \\Q quoting')
+      case "Q":
+        return unsupported("with \\Q quoting")
       default: {
         const test = this.parseClassEscape(true)
         return this.charNode(test)
@@ -397,55 +397,55 @@ class Parser {
 
   private parseClassEscape(outsideClass: boolean): CharTest {
     const cp = this.peek()
-    if (cp === undefined) syntax('\\ at end of pattern')
+    if (cp === undefined) syntax("\\ at end of pattern")
     this.pos += 1
     const letter = String.fromCodePoint(cp)
     switch (letter) {
-      case 'd':
+      case "d":
         return isDigit
-      case 'D':
+      case "D":
         return (c) => !isDigit(c)
-      case 'w':
+      case "w":
         return isWordChar
-      case 'W':
+      case "W":
         return (c) => !isWordChar(c)
-      case 's':
+      case "s":
         return isSpace
-      case 'S':
+      case "S":
         return (c) => !isSpace(c)
-      case 'h':
+      case "h":
         return isHorizontalSpace
-      case 'H':
+      case "H":
         return (c) => !isHorizontalSpace(c)
-      case 'v':
+      case "v":
         return isVerticalSpace
-      case 'V':
+      case "V":
         return (c) => !isVerticalSpace(c)
-      case 't':
+      case "t":
         return (c) => c === 0x09
-      case 'n':
+      case "n":
         return (c) => c === 0x0a
-      case 'r':
+      case "r":
         return (c) => c === 0x0d
-      case 'f':
+      case "f":
         return (c) => c === 0x0c
-      case 'e':
+      case "e":
         return (c) => c === 0x1b
-      case 'a':
+      case "a":
         return (c) => c === 0x07
-      case 'x': {
+      case "x": {
         const value = this.parseHex()
         return (c) => c === value
       }
-      case 'c': {
+      case "c": {
         const next = this.peek()
-        if (next === undefined) syntax('\\c at end of pattern')
+        if (next === undefined) syntax("\\c at end of pattern")
         this.pos += 1
         const value = String.fromCodePoint(next).toUpperCase().codePointAt(0) ?? 0
         const control = value ^ 0x40
         return (c) => c === control
       }
-      case '0': {
+      case "0": {
         let value = 0
         for (let count = 0; count < 2 && isOctal(this.peek()); count += 1) {
           value = value * 8 + ((this.peek() ?? 0x30) - 0x30)
@@ -453,25 +453,25 @@ class Parser {
         }
         return (c) => c === value
       }
-      case 'p':
-      case 'P':
-        return unsupported('with Unicode property classes')
-      case 'R':
-      case 'X':
+      case "p":
+      case "P":
+        return unsupported("with Unicode property classes")
+      case "R":
+      case "X":
         return unsupported(`with \\${letter}`)
-      case 'g':
-      case 'k':
-        return unsupported('with a backreference')
-      case 'u':
-      case 'U':
-      case 'N':
-      case 'C':
+      case "g":
+      case "k":
+        return unsupported("with a backreference")
+      case "u":
+      case "U":
+      case "N":
+      case "C":
         return unsupported(`with \\${letter}`)
       default:
         if (isDigit(cp)) {
           return outsideClass
-            ? unsupported('with a backreference')
-            : unsupported('with an octal escape')
+            ? unsupported("with a backreference")
+            : unsupported("with an octal escape")
         }
         if (isWordChar(cp)) syntax(`unrecognized escape \\${letter}`)
         return (c) => c === cp
@@ -480,24 +480,24 @@ class Parser {
 
   private parseHex(): number {
     if (this.eat(0x7b)) {
-      let digits = ''
+      let digits = ""
       while (this.peek() !== undefined && this.peek() !== 0x7d) {
         digits += String.fromCodePoint(this.peek() ?? 0)
         this.pos += 1
       }
-      if (!this.eat(0x7d) || !/^[0-9a-fA-F]{1,6}$/.test(digits)) syntax('invalid \\x{} escape')
+      if (!this.eat(0x7d) || !/^[0-9a-fA-F]{1,6}$/.test(digits)) syntax("invalid \\x{} escape")
       const value = Number.parseInt(digits, 16)
-      if (value > 0x10ffff) syntax('code point out of range')
+      if (value > 0x10ffff) syntax("code point out of range")
       return value
     }
-    let digits = ''
+    let digits = ""
     for (let count = 0; count < 2; count += 1) {
       const cp = this.peek()
       if (cp === undefined || !/[0-9a-fA-F]/.test(String.fromCodePoint(cp))) break
       digits += String.fromCodePoint(cp)
       this.pos += 1
     }
-    return digits === '' ? 0 : Number.parseInt(digits, 16)
+    return digits === "" ? 0 : Number.parseInt(digits, 16)
   }
 
   private parseClass(): CharTest {
@@ -506,7 +506,7 @@ class Parser {
     let first = true
     for (;;) {
       const cp = this.peek()
-      if (cp === undefined) syntax('missing terminating ] for a character class')
+      if (cp === undefined) syntax("missing terminating ] for a character class")
       if (cp === 0x5d && !first) {
         this.pos += 1
         break
@@ -518,18 +518,18 @@ class Parser {
       }
       const low = this.parseClassAtom()
       if (this.peek() === 0x2d && this.peek(1) !== 0x5d && this.peek(1) !== undefined) {
-        if (typeof low !== 'number') {
+        if (typeof low !== "number") {
           tests.push(low)
           continue
         }
         this.pos += 1
         const high = this.parseClassAtom()
-        if (typeof high !== 'number') syntax('invalid range in a character class')
-        if (high < low) syntax('range out of order in a character class')
+        if (typeof high !== "number") syntax("invalid range in a character class")
+        if (high < low) syntax("range out of order in a character class")
         tests.push((c) => c >= low && c <= high)
         continue
       }
-      if (typeof low === 'number') tests.push((c) => c === low)
+      if (typeof low === "number") tests.push((c) => c === low)
       else tests.push(low)
     }
     const union: CharTest = (c) => tests.some((test) => test(c))
@@ -539,11 +539,11 @@ class Parser {
 
   private parseClassAtom(): number | CharTest {
     const cp = this.peek()
-    if (cp === undefined) syntax('missing terminating ]')
+    if (cp === undefined) syntax("missing terminating ]")
     this.pos += 1
     if (cp !== 0x5c) return cp
     const next = this.peek()
-    if (next === undefined) syntax('\\ at end of pattern')
+    if (next === undefined) syntax("\\ at end of pattern")
     if (next === 0x62) {
       this.pos += 1
       return 0x08
@@ -575,12 +575,12 @@ class Parser {
   private parsePosix(): CharTest {
     this.pos += 2
     const negate = this.eat(0x5e)
-    let name = ''
+    let name = ""
     while (this.peek() !== undefined && this.peek() !== 0x3a) {
       name += String.fromCodePoint(this.peek() ?? 0)
       this.pos += 1
     }
-    if (!this.eat(0x3a) || !this.eat(0x5d)) syntax('invalid POSIX class')
+    if (!this.eat(0x3a) || !this.eat(0x5d)) syntax("invalid POSIX class")
     const test = POSIX[name]
     if (test === undefined) syntax(`unknown POSIX class ${name}`)
     return negate ? (c) => !test(c) : test
@@ -604,23 +604,23 @@ class Compiler {
 
   compile(node: Node): void {
     switch (node.k) {
-      case 'char':
-        this.emit({ op: 'char', test: node.test })
+      case "char":
+        this.emit({ op: "char", test: node.test })
         return
-      case 'assert':
-        this.emit({ op: 'assert', kind: node.kind, multiline: node.multiline })
+      case "assert":
+        this.emit({ op: "assert", kind: node.kind, multiline: node.multiline })
         return
-      case 'seq':
+      case "seq":
         for (const item of node.items) this.compile(item)
         return
-      case 'alt': {
+      case "alt": {
         const jumps: number[] = []
         node.items.forEach((item, index) => {
           if (index < node.items.length - 1) {
-            const split = this.emit({ op: 'split', x: 0, y: 0 })
+            const split = this.emit({ op: "split", x: 0, y: 0 })
             this.patchSplit(split, this.program.length, -1)
             this.compile(item)
-            jumps.push(this.emit({ op: 'jmp', x: 0 }))
+            jumps.push(this.emit({ op: "jmp", x: 0 }))
             this.patchSplit(split, -1, this.program.length)
           } else {
             this.compile(item)
@@ -629,19 +629,19 @@ class Compiler {
         for (const jump of jumps) this.patchJump(jump, this.program.length)
         return
       }
-      case 'rep': {
+      case "rep": {
         for (let count = 0; count < node.min; count += 1) this.compile(node.node)
         if (node.max === Number.POSITIVE_INFINITY) {
-          const split = this.emit({ op: 'split', x: 0, y: 0 })
+          const split = this.emit({ op: "split", x: 0, y: 0 })
           this.patchSplit(split, this.program.length, -1)
           this.compile(node.node)
-          this.emit({ op: 'jmp', x: split })
+          this.emit({ op: "jmp", x: split })
           this.patchSplit(split, -1, this.program.length)
           return
         }
         const splits: number[] = []
         for (let count = node.min; count < node.max; count += 1) {
-          const split = this.emit({ op: 'split', x: 0, y: 0 })
+          const split = this.emit({ op: "split", x: 0, y: 0 })
           this.patchSplit(split, this.program.length, -1)
           splits.push(split)
           this.compile(node.node)
@@ -654,14 +654,14 @@ class Compiler {
 
   private patchSplit(at: number, x: number, y: number): void {
     const inst = this.program[at]
-    if (inst?.op !== 'split') return
+    if (inst?.op !== "split") return
     if (x >= 0) inst.x = x
     if (y >= 0) inst.y = y
   }
 
   private patchJump(at: number, x: number): void {
     const inst = this.program[at]
-    if (inst?.op === 'jmp') inst.x = x
+    if (inst?.op === "jmp") inst.x = x
   }
 }
 
@@ -676,8 +676,8 @@ export interface LinearRegex {
 function parseOptions(options: string): Flags {
   const flags: Flags = { i: false, m: false, s: false, x: false }
   for (const letter of options) {
-    if (letter === 'i' || letter === 'm' || letter === 's' || letter === 'x') flags[letter] = true
-    else if (letter !== 'u') syntax(`unknown option ${letter}`)
+    if (letter === "i" || letter === "m" || letter === "s" || letter === "x") flags[letter] = true
+    else if (letter !== "u") syntax(`unknown option ${letter}`)
   }
   return flags
 }
@@ -686,17 +686,17 @@ function parseOptions(options: string): Flags {
  * Compiles a MongoDB regular expression for in-process matching. Throws {@link InvalidQueryError} for invalid
  * patterns and for patterns that a linear time engine cannot run.
  */
-export function compileRegex(pattern: string, options = ''): LinearRegex {
+export function compileRegex(pattern: string, options = ""): LinearRegex {
   if (pattern.length > REGEX_LIMITS.maxPatternLength) {
     throw new InvalidQueryError(
       `Regular expression longer than ${REGEX_LIMITS.maxPatternLength} characters`,
     )
   }
-  if (pattern.includes('\0')) syntax('NUL character in pattern')
+  if (pattern.includes("\0")) syntax("NUL character in pattern")
   const ast = new Parser(pattern, parseOptions(options)).parse()
   const compiler = new Compiler()
   compiler.compile(ast)
-  compiler.emit({ op: 'match' })
+  compiler.emit({ op: "match" })
   const program = compiler.program
   return {
     pattern,
@@ -706,7 +706,7 @@ export function compileRegex(pattern: string, options = ''): LinearRegex {
 }
 
 /** Returns true when `pattern` compiles under the linear time engine. */
-export function isLinearRegex(pattern: string, options = ''): boolean {
+export function isLinearRegex(pattern: string, options = ""): boolean {
   try {
     compileRegex(pattern, options)
     return true
@@ -724,22 +724,22 @@ function checkAssert(
 ): boolean {
   const length = cps.length
   switch (kind) {
-    case 'bol':
+    case "bol":
       return at === 0 || (multiline && cps[at - 1] === 0x0a)
-    case 'eol':
+    case "eol":
       if (multiline) return at === length || cps[at] === 0x0a
       return at === length || (at === length - 1 && cps[at] === 0x0a)
-    case 'start':
+    case "start":
       return at === 0
-    case 'end':
+    case "end":
       return at === length
-    case 'endz':
+    case "endz":
       return at === length || (at === length - 1 && cps[at] === 0x0a)
-    case 'word':
-    case 'nonword': {
+    case "word":
+    case "nonword": {
       const before = at > 0 && isWordChar(cps[at - 1] ?? 0)
       const after = at < length && isWordChar(cps[at] ?? 0)
-      return kind === 'word' ? before !== after : before === after
+      return kind === "word" ? before !== after : before === after
     }
   }
 }
@@ -750,7 +750,7 @@ function run(program: readonly Inst[], input: string): boolean {
   if ((cps.length + 1) * program.length > REGEX_LIMITS.maxSteps) {
     throw new CanopyError(
       ErrorCode.Timeout,
-      'Regular expression input is too large to match in process',
+      "Regular expression input is too large to match in process",
     )
   }
   const size = program.length
@@ -778,13 +778,13 @@ function run(program: readonly Inst[], input: string): boolean {
       const inst = program[pc]
       if (inst === undefined) continue
       switch (inst.op) {
-        case 'jmp':
+        case "jmp":
           stack.push(inst.x)
           break
-        case 'split':
+        case "split":
           stack.push(inst.y, inst.x)
           break
-        case 'assert':
+        case "assert":
           if (checkAssert(inst.kind, inst.multiline, cps, at)) stack.push(pc + 1)
           break
         default:
@@ -802,8 +802,8 @@ function run(program: readonly Inst[], input: string): boolean {
     for (let index = 0; index < currentCount; index += 1) {
       const inst = program[current[index] ?? 0]
       if (inst === undefined) continue
-      if (inst.op === 'match') return true
-      if (inst.op === 'char' && cp !== undefined && inst.test(cp)) {
+      if (inst.op === "match") return true
+      if (inst.op === "char" && cp !== undefined && inst.test(cp)) {
         nextCount = add(next, nextCount, (current[index] ?? 0) + 1, at + 1, at + 1)
       }
     }

@@ -11,7 +11,7 @@ export {
   RateLimitError,
   Timestamp,
   ValidationError,
-} from '@canopy/protocol'
+} from "@canopy/protocol"
 export {
   CanopyClient,
   type ClientOptions,
@@ -22,5 +22,5 @@ export {
   QueryBuilder,
   type WebSocketConstructor,
   type WebSocketLike,
-} from './client.ts'
-export { cacheKey, type QueryState, type QueryStatus, Store } from './store.ts'
+} from "./client.ts"
+export { cacheKey, type QueryState, type QueryStatus, Store } from "./store.ts"

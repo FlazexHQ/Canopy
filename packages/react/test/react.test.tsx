@@ -1,15 +1,15 @@
-import { CanopyClient, type WebSocketLike } from '@canopy/client'
-import { act, type ReactNode } from 'react'
-import { createRoot } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
-import { CanopyProvider, createReactDb, type ReactDb, useCanopyStatus } from '../src/index.tsx'
+import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { act, type ReactNode } from "react"
+import { createRoot } from "react-dom/client"
+import { afterEach, describe, expect, it } from "vitest"
+import { CanopyProvider, createReactDb, type ReactDb, useCanopyStatus } from "../src/index.tsx"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 class FakeSocket implements WebSocketLike {
   static all: FakeSocket[] = []
   readyState = 0
-  protocol = 'canopy.v1+json'
+  protocol = "canopy.v1+json"
   readonly sent: { t: string; id?: string }[] = []
   onopen: ((event: unknown) => void) | null = null
   onmessage: ((event: { readonly data: unknown }) => void) | null = null
@@ -63,20 +63,20 @@ const tick = async (): Promise<void> => {
   })
 }
 
-describe('@canopy/react', () => {
+describe("@canopy/react", () => {
   const containers: HTMLElement[] = []
   afterEach(() => {
     for (const element of containers.splice(0)) element.remove()
   })
 
-  it('renders live results and the connection status, sharing one subscription between components', async () => {
+  it("renders live results and the connection status, sharing one subscription between components", async () => {
     const client = new CanopyClient({
-      url: 'http://canopy.test',
-      publishableKey: 'pk',
+      url: "http://canopy.test",
+      publishableKey: "pk",
       WebSocket: FakeSocket,
     })
     const db = createReactDb<{ todos: Todo }>(client)
-    const container = document.createElement('div')
+    const container = document.createElement("div")
     document.body.append(container)
     containers.push(container)
     const root = createRoot(container)
@@ -90,71 +90,71 @@ describe('@canopy/react', () => {
     })
     await tick()
     const socket = FakeSocket.all.at(-1) as FakeSocket
-    expect(container.querySelector('ul')?.dataset['status']).toBe('loading')
+    expect(container.querySelector("ul")?.dataset["status"]).toBe("loading")
     await act(async () => {
       socket.push({
-        t: 'welcome',
+        t: "welcome",
         seq: 0,
-        sid: 'n1.x',
+        sid: "n1.x",
         v: 1,
         resumed: false,
         hb: 25000,
-        pv: '',
-        ct: '1',
+        pv: "",
+        ct: "1",
         caps: [],
         limits: { subs: 100 },
       })
     })
     await tick()
-    expect(socket.sent.filter((message) => message.t === 'sub')).toHaveLength(1)
+    expect(socket.sent.filter((message) => message.t === "sub")).toHaveLength(1)
     await act(async () => {
       socket.push({
-        t: 'added',
+        t: "added",
         seq: 1,
-        c: 'todos',
+        c: "todos",
         id: 2,
-        d: { _id: 2, title: 'b' },
-        ct: '1',
-        s: ['s1'],
+        d: { _id: 2, title: "b" },
+        ct: "1",
+        s: ["s1"],
       })
       socket.push({
-        t: 'added',
+        t: "added",
         seq: 2,
-        c: 'todos',
+        c: "todos",
         id: 1,
-        d: { _id: 1, title: 'a' },
-        ct: '1',
-        s: ['s1'],
+        d: { _id: 1, title: "a" },
+        ct: "1",
+        s: ["s1"],
       })
-      socket.push({ t: 'ready', seq: 3, s: 's1', ct: '1' })
+      socket.push({ t: "ready", seq: 3, s: "s1", ct: "1" })
     })
     await tick()
-    const lists = [...container.querySelectorAll('ul')]
-    expect(lists.map((list) => list.textContent)).toEqual(['ab', 'ab'])
-    expect(lists[0]?.dataset['status']).toBe('ready')
-    expect(lists[0]?.dataset['connection']).toBe('live')
+    const lists = [...container.querySelectorAll("ul")]
+    expect(lists.map((list) => list.textContent)).toEqual(["ab", "ab"])
+    expect(lists[0]?.dataset["status"]).toBe("ready")
+    expect(lists[0]?.dataset["connection"]).toBe("live")
 
     const before = counter.renders
     await act(async () => {
-      socket.push({ t: 'changed', seq: 4, c: 'todos', id: 1, ct: '2', set: { title: 'c' } })
+      socket.push({ t: "changed", seq: 4, c: "todos", id: 1, ct: "2", set: { title: "c" } })
     })
     await tick()
-    expect([...container.querySelectorAll('ul')].map((list) => list.textContent)).toEqual([
-      'bc',
-      'bc',
+    expect([...container.querySelectorAll("ul")].map((list) => list.textContent)).toEqual([
+      "bc",
+      "bc",
     ])
     expect(counter.renders - before).toBeLessThanOrEqual(4)
 
     await act(async () => root.unmount())
     await tick()
-    expect(socket.sent.filter((message) => message.t === 'unsub')).toEqual([
-      { t: 'unsub', id: 's1' },
+    expect(socket.sent.filter((message) => message.t === "unsub")).toEqual([
+      { t: "unsub", id: "s1" },
     ])
     client.close()
   })
 
-  it('requires a provider for the status hook', async () => {
-    const container = document.createElement('div')
+  it("requires a provider for the status hook", async () => {
+    const container = document.createElement("div")
     containers.push(container)
     const root = createRoot(container)
     const errors: unknown[] = []
@@ -169,6 +169,6 @@ describe('@canopy/react', () => {
     } finally {
       console.error = original
     }
-    expect(String(errors[0])).toContain('CanopyProvider')
+    expect(String(errors[0])).toContain("CanopyProvider")
   })
 })

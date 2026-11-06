@@ -1,8 +1,8 @@
-import type { IncomingMessage, Server } from 'node:http'
-import type { Duplex } from 'node:stream'
-import { CloseCode, SUBPROTOCOL } from '@canopy/protocol'
-import type { Realtime } from './realtime.ts'
-import type { RealtimeSocket } from './session.ts'
+import type { IncomingMessage, Server } from "node:http"
+import type { Duplex } from "node:stream"
+import { CloseCode, SUBPROTOCOL } from "@canopy/protocol"
+import type { Realtime } from "./realtime.ts"
+import type { RealtimeSocket } from "./session.ts"
 
 /** Options for {@link attach}. */
 export interface AttachOptions {
@@ -20,7 +20,7 @@ export interface Attachment {
 }
 
 function pathOf(request: IncomingMessage): string {
-  return new URL(request.url ?? '/', 'http://localhost').pathname
+  return new URL(request.url ?? "/", "http://localhost").pathname
 }
 
 /**
@@ -34,8 +34,8 @@ export async function attach(
   server: Server,
   options: AttachOptions = {},
 ): Promise<Attachment> {
-  const { WebSocketServer } = await import('ws')
-  const path = options.path ?? '/realtime/v1'
+  const { WebSocketServer } = await import("ws")
+  const path = options.path ?? "/realtime/v1"
   const wss = new WebSocketServer({
     noServer: true,
     maxPayload: options.maxPayload ?? 256 * 1024,
@@ -46,7 +46,7 @@ export async function attach(
     if (pathOf(request) !== path) return
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (ws.protocol !== SUBPROTOCOL) {
-        ws.close(CloseCode.UnsupportedVersion, 'unsupported subprotocol')
+        ws.close(CloseCode.UnsupportedVersion, "unsupported subprotocol")
         return
       }
       const adapter: RealtimeSocket = {
@@ -68,29 +68,29 @@ export async function attach(
         alive = false
         ws.ping()
       }, options.pingIntervalMs ?? 25_000)
-      ws.on('pong', () => {
+      ws.on("pong", () => {
         alive = true
       })
-      ws.on('message', (data, isBinary) => {
+      ws.on("message", (data, isBinary) => {
         if (isBinary) {
-          ws.close(CloseCode.ProtocolError, 'binary frames are not supported')
+          ws.close(CloseCode.ProtocolError, "binary frames are not supported")
           return
         }
         connection.message(
-          Array.isArray(data) ? Buffer.concat(data).toString('utf8') : data.toString('utf8'),
+          Array.isArray(data) ? Buffer.concat(data).toString("utf8") : data.toString("utf8"),
         )
       })
-      ws.on('close', () => {
+      ws.on("close", () => {
         clearInterval(ping)
         connection.close()
       })
-      ws.on('error', () => ws.terminate())
+      ws.on("error", () => ws.terminate())
     })
   }
-  server.on('upgrade', onUpgrade)
+  server.on("upgrade", onUpgrade)
   return {
     close: async () => {
-      server.off('upgrade', onUpgrade)
+      server.off("upgrade", onUpgrade)
       for (const client of wss.clients) client.terminate()
       await new Promise<void>((resolve) => wss.close(() => resolve()))
     },
@@ -111,7 +111,7 @@ export interface BunServerLike<T> {
 }
 
 interface BunData {
-  connection: ReturnType<Realtime['connect']> | undefined
+  connection: ReturnType<Realtime["connect"]> | undefined
 }
 
 /**
@@ -133,24 +133,24 @@ export function bunHandlers(
     close(ws: BunSocket<BunData>): void
   }
 } {
-  const path = options.path ?? '/realtime/v1'
+  const path = options.path ?? "/realtime/v1"
   return {
     fetch(request, server) {
       if (new URL(request.url).pathname !== path) {
         return options.fallback === undefined
-          ? new Response('Not found', { status: 404 })
+          ? new Response("Not found", { status: 404 })
           : options.fallback(request)
       }
-      const protocols = (request.headers.get('sec-websocket-protocol') ?? '')
-        .split(',')
+      const protocols = (request.headers.get("sec-websocket-protocol") ?? "")
+        .split(",")
         .map((p) => p.trim())
       if (!protocols.includes(SUBPROTOCOL))
-        return new Response('Unsupported subprotocol', { status: 426 })
+        return new Response("Unsupported subprotocol", { status: 426 })
       const upgraded = server.upgrade(request, {
-        headers: { 'Sec-WebSocket-Protocol': SUBPROTOCOL },
+        headers: { "Sec-WebSocket-Protocol": SUBPROTOCOL },
         data: { connection: undefined },
       })
-      return upgraded ? undefined : new Response('Upgrade failed', { status: 400 })
+      return upgraded ? undefined : new Response("Upgrade failed", { status: 400 })
     },
     websocket: {
       maxPayloadLength: 256 * 1024,
@@ -166,8 +166,8 @@ export function bunHandlers(
         })
       },
       message(ws, message) {
-        if (typeof message !== 'string') {
-          ws.close(CloseCode.ProtocolError, 'binary frames are not supported')
+        if (typeof message !== "string") {
+          ws.close(CloseCode.ProtocolError, "binary frames are not supported")
           return
         }
         ws.data.connection?.message(message)

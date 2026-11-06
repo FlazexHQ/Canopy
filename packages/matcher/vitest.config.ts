@@ -1,12 +1,12 @@
-import { defineProject, mergeConfig } from 'vitest/config'
-import { sharedConfig } from '../../vitest.shared.ts'
+import { defineProject, mergeConfig } from "vitest/config"
+import { sharedConfig } from "../../vitest.shared.ts"
 
 export default mergeConfig(
   sharedConfig,
   defineProject({
     test: {
-      name: 'matcher',
-      include: ['test/**/*.test.ts'],
+      name: "matcher",
+      include: ["test/**/*.test.ts"],
     },
   }),
 )

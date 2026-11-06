@@ -1,17 +1,17 @@
-import { stringify } from '@canopy/protocol'
-import { arbitraries, DIFF_RUNS, describeWithMongo } from '@canopy/testing'
-import fc from 'fast-check'
-import type { Collection, Document } from 'mongodb'
-import { beforeAll, expect, it } from 'vitest'
+import { stringify } from "@canopy/protocol"
+import { arbitraries, DIFF_RUNS, describeWithMongo } from "@canopy/testing"
+import fc from "fast-check"
+import type { Collection, Document } from "mongodb"
+import { beforeAll, expect, it } from "vitest"
 import {
   applyUpdate,
   compileFilter,
   compileProjection,
   compileSort,
   UnsupportedQueryError,
-} from '../src/index.ts'
+} from "../src/index.ts"
 
-const SEED = Number(process.env['CANOPY_DIFF_SEED'] ?? '20261106')
+const SEED = Number(process.env["CANOPY_DIFF_SEED"] ?? "20261106")
 const DOCS = 300
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; unsupported: boolean; message: string }
@@ -40,12 +40,12 @@ function localOutcome<T>(run: () => T): Outcome<T> {
   }
 }
 
-describeWithMongo('differential: matcher against MongoDB', (db) => {
+describeWithMongo("differential: matcher against MongoDB", (db) => {
   let coll: Collection<Document>
   let docs: Document[]
 
   beforeAll(async () => {
-    coll = db().collection('filters')
+    coll = db().collection("filters")
     const generated = fc.sample(arbitraries.document, { numRuns: DOCS, seed: SEED })
     await coll.insertMany(generated.map((doc, index) => ({ _id: index, ...doc }) as Document))
     docs = await coll
@@ -62,7 +62,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
     for (const query of filters) {
       const expected = await mongoOutcome(async () =>
         (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
-          Number(doc['_id']),
+          Number(doc["_id"]),
         ),
       )
       const compiled = localOutcome(() => compileFilter(query))
@@ -74,7 +74,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
         cases += 1
         if (expected.ok !== compiled.ok) {
           mismatches.push(
-            `filter ${stringify(query)}: MongoDB ${expected.ok ? 'accepted it' : `rejected it (${expected.message})`}, matcher ${compiled.ok ? 'accepted it' : `rejected it (${compiled.message})`}`,
+            `filter ${stringify(query)}: MongoDB ${expected.ok ? "accepted it" : `rejected it (${expected.message})`}, matcher ${compiled.ok ? "accepted it" : `rejected it (${compiled.message})`}`,
           )
         }
         continue
@@ -83,7 +83,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
       for (const doc of docs) {
         cases += 1
         const got = localOutcome(() => compiled.value.matches(doc))
-        const id = Number(doc['_id'])
+        const id = Number(doc["_id"])
         if (!got.ok || got.value !== want.has(id)) {
           mismatches.push(
             `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${want.has(id)}, matcher ${got.ok ? got.value : got.message}`,
@@ -96,11 +96,11 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
     expect(unsupported).toBeLessThan(filters.length / 4)
   }, 600_000)
 
-  it('sort order agrees with find().sort()', async () => {
+  it("sort order agrees with find().sort()", async () => {
     const specs = fc.sample(
       fc
         .uniqueArray(
-          fc.tuple(fc.constantFrom('a', 'b', 'a.b', 'c', 'a.0'), fc.constantFrom(1, -1)),
+          fc.tuple(fc.constantFrom("a", "b", "a.b", "c", "a.0"), fc.constantFrom(1, -1)),
           {
             minLength: 1,
             maxLength: 2,
@@ -118,10 +118,10 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
             .find({}, { projection: { _id: 1 } })
             .sort({ ...spec, _id: 1 })
             .toArray()
-        ).map((doc) => doc['_id']),
+        ).map((doc) => doc["_id"]),
       )
       const compare = compileSort(spec)
-      const actual = localOutcome(() => [...docs].sort(compare).map((doc) => Number(doc['_id'])))
+      const actual = localOutcome(() => [...docs].sort(compare).map((doc) => Number(doc["_id"])))
       expect(actual.ok, `sort ${JSON.stringify(spec)} succeeds in both or fails in both`).toBe(
         expected.ok,
       )
@@ -133,11 +133,11 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
     expect(compared).toBeGreaterThan(0)
   }, 120_000)
 
-  it('projections agree with find() projections', async () => {
+  it("projections agree with find() projections", async () => {
     const specs = fc.sample(
       fc.oneof(
         fc
-          .uniqueArray(fc.constantFrom('a', 'b', 'a.b', 'a.c', 'c', 'a.b.c'), {
+          .uniqueArray(fc.constantFrom("a", "b", "a.b", "a.c", "c", "a.b.c"), {
             minLength: 1,
             maxLength: 2,
           })
@@ -147,7 +147,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
           .chain((paths) =>
             fc.tuple(fc.constantFrom(0, 1), fc.boolean()).map(([flag, hideId]) => {
               const spec: Record<string, number> = Object.fromEntries(paths.map((p) => [p, flag]))
-              if (hideId) spec['_id'] = 0
+              if (hideId) spec["_id"] = 0
               return spec
             }),
           ),
@@ -165,25 +165,25 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
     }
   }, 120_000)
 
-  it('updates agree with findOneAndUpdate()', async () => {
-    const target = db().collection('updates')
+  it("updates agree with findOneAndUpdate()", async () => {
+    const target = db().collection("updates")
     const { value } = arbitraries
     const operand = fc.oneof(value, fc.constantFrom(1, -1, 2, 0.5))
     const updatePath = fc.constantFrom(
-      'a',
-      'b',
-      'a.b',
-      'a.c',
-      'a.0',
-      'a.1',
-      'a.b.c',
-      'd',
-      'a.$[]',
-      'a.$[x]',
+      "a",
+      "b",
+      "a.b",
+      "a.c",
+      "a.0",
+      "a.1",
+      "a.b.c",
+      "d",
+      "a.$[]",
+      "a.$[x]",
     )
     const op = fc.oneof(
       fc.record({ $set: fc.dictionary(updatePath, value, { minKeys: 1, maxKeys: 2 }) }),
-      fc.record({ $unset: fc.dictionary(updatePath, fc.constant(''), { minKeys: 1, maxKeys: 2 }) }),
+      fc.record({ $unset: fc.dictionary(updatePath, fc.constant(""), { minKeys: 1, maxKeys: 2 }) }),
       fc.record({ $inc: fc.dictionary(updatePath, operand, { minKeys: 1, maxKeys: 1 }) }),
       fc.record({ $mul: fc.dictionary(updatePath, operand, { minKeys: 1, maxKeys: 1 }) }),
       fc.record({ $min: fc.dictionary(updatePath, value, { minKeys: 1, maxKeys: 1 }) }),
@@ -191,7 +191,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
       fc.record({ $push: fc.dictionary(updatePath, value, { minKeys: 1, maxKeys: 1 }) }),
       fc.record({
         $push: fc.dictionary(
-          fc.constantFrom('a', 'b', 'a.b'),
+          fc.constantFrom("a", "b", "a.b"),
           fc.record(
             {
               $each: fc.array(value, { maxLength: 3 }),
@@ -199,7 +199,7 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
               $position: fc.constantFrom(0, 1, -1),
               $sort: fc.constantFrom(1, -1),
             },
-            { requiredKeys: ['$each'] },
+            { requiredKeys: ["$each"] },
           ),
           { minKeys: 1, maxKeys: 1 },
         ),
@@ -210,18 +210,18 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
       }),
       fc.record({
         $pull: fc.dictionary(
-          fc.constantFrom('a', 'b', 'a.b'),
+          fc.constantFrom("a", "b", "a.b"),
           fc.oneof(value, fc.record({ $gte: value })),
           { minKeys: 1, maxKeys: 1 },
         ),
       }),
       fc.record({
-        $pullAll: fc.dictionary(fc.constantFrom('a', 'b'), fc.array(value, { maxLength: 3 }), {
+        $pullAll: fc.dictionary(fc.constantFrom("a", "b"), fc.array(value, { maxLength: 3 }), {
           minKeys: 1,
           maxKeys: 1,
         }),
       }),
-      fc.record({ $rename: fc.constantFrom({ a: 'z' }, { b: 'a.q' }, { 'a.b': 'y' }, { a: 'b' }) }),
+      fc.record({ $rename: fc.constantFrom({ a: "z" }, { b: "a.q" }, { "a.b": "y" }, { a: "b" }) }),
     )
     const updates = fc.sample(
       fc.tuple(fc.array(op, { minLength: 1, maxLength: 2 }), fc.nat({ max: DOCS - 1 })),
@@ -232,14 +232,14 @@ describeWithMongo('differential: matcher against MongoDB', (db) => {
       const update = Object.assign({}, ...ops) as Record<string, unknown>
       const usesFilter = JSON.stringify(
         Object.keys(update).map((key) => Object.keys(update[key] as object)),
-      ).includes('$[x]')
+      ).includes("$[x]")
       const arrayFilters = usesFilter ? [{ x: { $gte: 1 } }] : undefined
       const original = docs[index] as Document
       await target.deleteMany({})
       await target.insertOne(original)
       const expected = await mongoOutcome(async () => {
-        const result = await target.findOneAndUpdate({ _id: original['_id'] }, update, {
-          returnDocument: 'after',
+        const result = await target.findOneAndUpdate({ _id: original["_id"] }, update, {
+          returnDocument: "after",
           ...(arrayFilters === undefined ? {} : { arrayFilters }),
         })
         return result

@@ -1,7 +1,7 @@
-import { type CanopyClient, createClient } from '@canopy/client'
-import { CanopyProvider, createReactDb, useCanopyStatus } from '@canopy/react'
-import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { createTicket, updateTicket } from './api.ts'
+import { type CanopyClient, createClient } from "@canopy/client"
+import { CanopyProvider, createReactDb, useCanopyStatus } from "@canopy/react"
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { createTicket, updateTicket } from "./api.ts"
 import {
   type Collections,
   PRIORITIES,
@@ -11,25 +11,25 @@ import {
   STATUSES,
   type Status,
   type Ticket,
-} from './types.ts'
+} from "./types.ts"
 
 const STATUS_LABELS: Record<Status, string> = {
-  open: 'Open',
-  in_progress: 'In progress',
-  closed: 'Closed',
+  open: "Open",
+  in_progress: "In progress",
+  closed: "Closed",
 }
 
 const CONNECTION_LABELS: Record<string, string> = {
-  connecting: 'Connecting',
-  live: 'Live',
-  reconnecting: 'Reconnecting',
-  offline: 'Offline',
-  closed: 'Closed',
+  connecting: "Connecting",
+  live: "Live",
+  reconnecting: "Reconnecting",
+  offline: "Offline",
+  closed: "Closed",
 }
 
 function ago(date: Date, now: number): string {
   const seconds = Math.max(0, Math.round((now - date.getTime()) / 1000))
-  if (seconds < 45) return 'just now'
+  if (seconds < 45) return "just now"
   const minutes = Math.round(seconds / 60)
   if (minutes < 60) return `${minutes} min ago`
   const hours = Math.round(minutes / 60)
@@ -61,15 +61,15 @@ function NewTicket({
 }: {
   readonly onCreate: (title: string, priority: Priority) => Promise<void>
 }): ReactNode {
-  const [title, setTitle] = useState('')
-  const [priority, setPriority] = useState<Priority>('normal')
+  const [title, setTitle] = useState("")
+  const [priority, setPriority] = useState<Priority>("normal")
   const [busy, setBusy] = useState(false)
   const submit = (event: FormEvent): void => {
     event.preventDefault()
-    if (title.trim() === '') return
+    if (title.trim() === "") return
     setBusy(true)
     onCreate(title.trim(), priority)
-      .then(() => setTitle(''))
+      .then(() => setTitle(""))
       .catch(() => {})
       .finally(() => setBusy(false))
   }
@@ -93,7 +93,7 @@ function NewTicket({
           </option>
         ))}
       </select>
-      <button type="submit" disabled={busy || title.trim() === ''}>
+      <button type="submit" disabled={busy || title.trim() === ""}>
         Open ticket
       </button>
     </form>
@@ -118,9 +118,9 @@ function TicketRow({
       <div className="ticket-main">
         <span className="title">{ticket.title}</span>
         <span className="meta">
-          {ticket.ownerName} ·{' '}
+          {ticket.ownerName} ·{" "}
           <span className={`priority priority-${ticket.priority}`}>{ticket.priority}</span>
-          {' · '}
+          {" · "}
           updated {ago(ticket.updatedAt, now)}
         </span>
         {support ? (
@@ -180,7 +180,7 @@ function Board({
     return result
   }, [tickets.data])
   const urgent = tickets.data.filter(
-    (ticket) => ticket.priority === 'high' && ticket.status !== 'closed',
+    (ticket) => ticket.priority === "high" && ticket.status !== "closed",
   ).length
 
   return (
@@ -217,9 +217,9 @@ function Board({
       <NewTicket onCreate={(title, priority) => report(createTicket(session, title, priority))} />
       {problem === undefined ? null : <p className="problem">{problem}</p>}
 
-      {tickets.status === 'error' ? (
+      {tickets.status === "error" ? (
         <p className="problem">The live query failed: {tickets.error?.message}</p>
-      ) : tickets.status === 'loading' ? (
+      ) : tickets.status === "loading" ? (
         <p className="empty">Loading tickets…</p>
       ) : tickets.data.length === 0 ? (
         <p className="empty">
@@ -237,7 +237,7 @@ function Board({
           ))}
         </ul>
       )}
-      {tickets.status === 'stale' ? (
+      {tickets.status === "stale" ? (
         <p className="empty">Reconnecting, showing the last known state.</p>
       ) : null}
     </div>

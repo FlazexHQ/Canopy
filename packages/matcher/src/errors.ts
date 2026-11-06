@@ -1,4 +1,4 @@
-import { type CanopyErrorOptions, InvalidQueryError } from '@canopy/protocol'
+import { type CanopyErrorOptions, InvalidQueryError } from "@canopy/protocol"
 
 /**
  * Raised for a valid MongoDB query construct that the in-process matcher does not evaluate, such as `$expr`,
@@ -8,7 +8,7 @@ import { type CanopyErrorOptions, InvalidQueryError } from '@canopy/protocol'
 export class UnsupportedQueryError extends InvalidQueryError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(message, options)
-    this.name = 'UnsupportedQueryError'
+    this.name = "UnsupportedQueryError"
   }
 }
 
@@ -16,6 +16,6 @@ export class UnsupportedQueryError extends InvalidQueryError {
 export class UpdateError extends InvalidQueryError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(message, options)
-    this.name = 'UpdateError'
+    this.name = "UpdateError"
   }
 }

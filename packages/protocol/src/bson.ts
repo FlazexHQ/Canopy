@@ -15,8 +15,8 @@ function randomBytes(length: number): Uint8Array {
 }
 
 function toHex(bytes: Uint8Array): string {
-  let out = ''
-  for (const byte of bytes) out += byte.toString(16).padStart(2, '0')
+  let out = ""
+  for (const byte of bytes) out += byte.toString(16).padStart(2, "0")
   return out
 }
 
@@ -30,19 +30,19 @@ export class ObjectId {
     if (hex === undefined) {
       this.hex = ObjectId.generateHex()
     } else {
-      if (!HEX.test(hex)) throw new TypeError('An ObjectId must be 24 hexadecimal characters')
+      if (!HEX.test(hex)) throw new TypeError("An ObjectId must be 24 hexadecimal characters")
       this.hex = hex.toLowerCase()
     }
   }
 
   /** The `bson` compatible type tag. */
-  get _bsontype(): 'ObjectId' {
-    return 'ObjectId'
+  get _bsontype(): "ObjectId" {
+    return "ObjectId"
   }
 
   /** Returns true when `value` is a 24 character hex string. */
   static isValid(value: unknown): boolean {
-    return typeof value === 'string' && HEX.test(value)
+    return typeof value === "string" && HEX.test(value)
   }
 
   /** Generates the hex form of a new ObjectId: 4 byte timestamp, 5 random bytes, 3 byte counter. */
@@ -97,14 +97,14 @@ export class Long {
   readonly value: bigint
 
   constructor(value: bigint | number | string) {
-    const big = typeof value === 'bigint' ? value : BigInt(value)
+    const big = typeof value === "bigint" ? value : BigInt(value)
     if (big < INT64_MIN || big > INT64_MAX)
-      throw new RangeError('A Long must fit in 64 signed bits')
+      throw new RangeError("A Long must fit in 64 signed bits")
     this.value = big
   }
 
-  get _bsontype(): 'Long' {
-    return 'Long'
+  get _bsontype(): "Long" {
+    return "Long"
   }
 
   toBigInt(): bigint {
@@ -135,8 +135,8 @@ export class Decimal128 {
     this.value = value
   }
 
-  get _bsontype(): 'Decimal128' {
-    return 'Decimal128'
+  get _bsontype(): "Decimal128" {
+    return "Decimal128"
   }
 
   toString(): string {
@@ -155,14 +155,14 @@ export class Binary {
 
   constructor(bytes: Uint8Array, subType = 0) {
     if (!Number.isInteger(subType) || subType < 0 || subType > 255) {
-      throw new RangeError('A binary subtype must be an integer from 0 to 255')
+      throw new RangeError("A binary subtype must be an integer from 0 to 255")
     }
     this.bytes = bytes
     this.subType = subType
   }
 
-  get _bsontype(): 'Binary' {
-    return 'Binary'
+  get _bsontype(): "Binary" {
+    return "Binary"
   }
 
   /** The `bson` compatible subtype accessor. */
@@ -188,14 +188,14 @@ export class Timestamp {
 
   constructor(t: number, i: number) {
     if (!isUint32(t) || !isUint32(i)) {
-      throw new RangeError('Timestamp parts must be unsigned 32 bit integers')
+      throw new RangeError("Timestamp parts must be unsigned 32 bit integers")
     }
     this.t = t
     this.i = i
   }
 
-  get _bsontype(): 'Timestamp' {
-    return 'Timestamp'
+  get _bsontype(): "Timestamp" {
+    return "Timestamp"
   }
 
   /** The uint64 value `(t << 32) | i`. */
@@ -213,27 +213,27 @@ export class BSONRegExp {
   readonly pattern: string
   readonly options: string
 
-  constructor(pattern: string, options = '') {
+  constructor(pattern: string, options = "") {
     this.pattern = pattern
-    this.options = [...options].sort().join('')
+    this.options = [...options].sort().join("")
   }
 
-  get _bsontype(): 'BSONRegExp' {
-    return 'BSONRegExp'
+  get _bsontype(): "BSONRegExp" {
+    return "BSONRegExp"
   }
 }
 
 /** The BSON MinKey value, which sorts before every other value. */
 export class MinKey {
-  get _bsontype(): 'MinKey' {
-    return 'MinKey'
+  get _bsontype(): "MinKey" {
+    return "MinKey"
   }
 }
 
 /** The BSON MaxKey value, which sorts after every other value. */
 export class MaxKey {
-  get _bsontype(): 'MaxKey' {
-    return 'MaxKey'
+  get _bsontype(): "MaxKey" {
+    return "MaxKey"
   }
 }
 
@@ -243,23 +243,23 @@ function isUint32(value: number): boolean {
 
 /** The type tags this package understands, from either this package or the `bson` package. */
 export type BsonTypeTag =
-  | 'ObjectId'
-  | 'Long'
-  | 'Int32'
-  | 'Double'
-  | 'Decimal128'
-  | 'Binary'
-  | 'Timestamp'
-  | 'BSONRegExp'
-  | 'MinKey'
-  | 'MaxKey'
-  | 'BSONSymbol'
-  | 'Code'
-  | 'DBRef'
+  | "ObjectId"
+  | "Long"
+  | "Int32"
+  | "Double"
+  | "Decimal128"
+  | "Binary"
+  | "Timestamp"
+  | "BSONRegExp"
+  | "MinKey"
+  | "MaxKey"
+  | "BSONSymbol"
+  | "Code"
+  | "DBRef"
 
 /** Returns the `_bsontype` tag of a value, or `undefined` for plain values. */
 export function bsonTypeTag(value: unknown): string | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
+  if (typeof value !== "object" || value === null) return undefined
   const tag: unknown = (value as { _bsontype?: unknown })._bsontype
-  return typeof tag === 'string' ? tag : undefined
+  return typeof tag === "string" ? tag : undefined
 }

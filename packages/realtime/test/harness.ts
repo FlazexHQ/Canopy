@@ -1,6 +1,6 @@
-import { createServer, type Server } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { type CollectionPolicies, createPolicySet } from '@canopy/policy'
+import { createServer, type Server } from "node:http"
+import type { AddressInfo } from "node:net"
+import { type CollectionPolicies, createPolicySet } from "@canopy/policy"
 import {
   type ClientMessage,
   canonicalString,
@@ -9,34 +9,34 @@ import {
   type SequencedMessage,
   SUBPROTOCOL,
   unbatch,
-} from '@canopy/protocol'
-import { exportJWK, generateKeyPair, type JWK, SignJWT } from 'jose'
-import { type Db, MongoClient } from 'mongodb'
-import WebSocket from 'ws'
-import { attach, createRealtime, type Realtime, type RealtimeOptions } from '../src/index.ts'
+} from "@canopy/protocol"
+import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
+import { type Db, MongoClient } from "mongodb"
+import WebSocket from "ws"
+import { attach, createRealtime, type Realtime, type RealtimeOptions } from "../src/index.ts"
 
-export const ISSUER = 'https://issuer.test/'
-export const AUDIENCE = 'https://api.test'
+export const ISSUER = "https://issuer.test/"
+export const AUDIENCE = "https://api.test"
 
 /** A signing key and its public JWKS. */
 export interface Keys {
-  readonly privateKey: Awaited<ReturnType<typeof generateKeyPair>>['privateKey']
+  readonly privateKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"]
   readonly jwk: JWK
 }
 
 export async function makeKeys(): Promise<Keys> {
-  const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' })
-  const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'EdDSA', use: 'sig' }
+  const { privateKey, publicKey } = await generateKeyPair("EdDSA", { crv: "Ed25519" })
+  const jwk = { ...(await exportJWK(publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
   return { privateKey, jwk }
 }
 
 export async function token(
   keys: Keys,
   claims: Record<string, unknown>,
-  expiresIn = '1h',
+  expiresIn = "1h",
 ): Promise<string> {
   return new SignJWT(claims)
-    .setProtectedHeader({ alg: 'EdDSA', kid: 'k1' })
+    .setProtectedHeader({ alg: "EdDSA", kid: "k1" })
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
     .setIssuedAt()
@@ -66,10 +66,10 @@ export async function startEngine(
     mongo: client,
     database: dbName,
     metaDatabase: `${dbName}_meta`,
-    auth: { jwks: { keys: [keys.jwk] }, issuer: ISSUER, audience: AUDIENCE, rolesClaim: 'roles' },
-    keys: { publishable: ['pk_test'] },
+    auth: { jwks: { keys: [keys.jwk] }, issuer: ISSUER, audience: AUDIENCE, rolesClaim: "roles" },
+    keys: { publishable: ["pk_test"] },
     policies: { set: createPolicySet(policies) },
-    checkpoints: 'off',
+    checkpoints: "off",
     observerLingerMs: 0,
     ...overrides,
   })
@@ -78,7 +78,7 @@ export async function startEngine(
     response.end()
   })
   const attachment = await attach(realtime, server)
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const port = (server.address() as AddressInfo).port
   return {
     realtime,
@@ -106,17 +106,17 @@ export class TestClient {
 
   private constructor(socket: WebSocket) {
     this.socket = socket
-    socket.on('message', (data) => {
+    socket.on("message", (data) => {
       const message = decodeServerMessage(data.toString())
       if (message === undefined) return
       for (const part of unbatch(message)) {
-        if (part.t === 'pong') continue
+        if (part.t === "pong") continue
         this.messages.push(part)
         this.apply(part)
       }
       this.check()
     })
-    socket.on('close', (code) => {
+    socket.on("close", (code) => {
       this.closeCode = code
       this.check()
     })
@@ -125,8 +125,8 @@ export class TestClient {
   static async open(url: string): Promise<TestClient> {
     const socket = new WebSocket(url, SUBPROTOCOL)
     await new Promise<void>((resolve, reject) => {
-      socket.once('open', () => resolve())
-      socket.once('error', reject)
+      socket.once("open", () => resolve())
+      socket.once("error", reject)
     })
     return new TestClient(socket)
   }
@@ -138,15 +138,15 @@ export class TestClient {
   ): Promise<TestClient> {
     const client = await TestClient.open(url)
     client.send({
-      t: 'hello',
+      t: "hello",
       v: 1,
-      key: 'pk_test',
+      key: "pk_test",
       ...(tokenValue === undefined ? {} : { token: tokenValue }),
-      caps: ['diff'],
+      caps: ["diff"],
       ...extra,
     } as ClientMessage)
     await client.until(
-      () => client.messages.some((m) => m.t === 'welcome') || client.closeCode !== undefined,
+      () => client.messages.some((m) => m.t === "welcome") || client.closeCode !== undefined,
     )
     return client
   }
@@ -165,13 +165,13 @@ export class TestClient {
 
   /** Ends the session for good (`bye`), so the server does not keep it for a resume. */
   bye(): void {
-    if (this.socket.readyState === WebSocket.OPEN) this.send({ t: 'bye' })
+    if (this.socket.readyState === WebSocket.OPEN) this.send({ t: "bye" })
     this.socket.close()
   }
 
-  get welcome(): Extract<SequencedMessage, { t: 'welcome' }> | undefined {
+  get welcome(): Extract<SequencedMessage, { t: "welcome" }> | undefined {
     return this.messages.find(
-      (m): m is Extract<SequencedMessage, { t: 'welcome' }> => m.t === 'welcome',
+      (m): m is Extract<SequencedMessage, { t: "welcome" }> => m.t === "welcome",
     )
   }
 
@@ -181,7 +181,7 @@ export class TestClient {
 
   private apply(message: SequencedMessage): void {
     switch (message.t) {
-      case 'added': {
+      case "added": {
         const key = `${message.c}/${canonicalString(message.id)}`
         if (message.d !== undefined) this.docs.set(key, message.d)
         for (const sub of message.s) {
@@ -191,7 +191,7 @@ export class TestClient {
         }
         return
       }
-      case 'changed': {
+      case "changed": {
         const key = `${message.c}/${canonicalString(message.id)}`
         if (message.replace === true && message.d !== undefined) {
           this.docs.set(key, message.d)
@@ -203,15 +203,15 @@ export class TestClient {
         this.docs.set(key, doc)
         return
       }
-      case 'removed': {
+      case "removed": {
         const key = `${message.c}/${canonicalString(message.id)}`
         for (const sub of message.s) this.members.get(sub)?.delete(key)
         return
       }
-      case 'ready':
+      case "ready":
         this.ready.add(message.s)
         return
-      case 'resync':
+      case "resync":
         for (const sub of message.s ?? [...this.members.keys()]) {
           this.members.delete(sub)
           this.ready.delete(sub)
@@ -233,7 +233,7 @@ export class TestClient {
   }
 
   ids(sub: string): unknown[] {
-    return [...this.view(sub).values()].map((doc) => doc['_id'])
+    return [...this.view(sub).values()].map((doc) => doc["_id"])
   }
 
   private check(): void {
@@ -268,9 +268,9 @@ export class TestClient {
   }
 
   async subscribe(id: string, c: string, q: Record<string, unknown> = {}): Promise<void> {
-    this.send({ t: 'sub', id, c, q } as ClientMessage)
+    this.send({ t: "sub", id, c, q } as ClientMessage)
     await this.until(
-      () => this.ready.has(id) || this.messages.some((m) => m.t === 'nosub' && m.s === id),
+      () => this.ready.has(id) || this.messages.some((m) => m.t === "nosub" && m.s === id),
     )
   }
 }

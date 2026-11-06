@@ -1,38 +1,38 @@
-import { exclusion, inclusion } from '@canopy/matcher'
-import { isDocument } from '@canopy/protocol'
-import { isWithin, pathsOverlap, stripIndexes } from '@canopy/query'
-import type { FieldRule, FieldRules } from './model.ts'
+import { exclusion, inclusion } from "@canopy/matcher"
+import { isDocument } from "@canopy/protocol"
+import { isWithin, pathsOverlap, stripIndexes } from "@canopy/query"
+import type { FieldRule, FieldRules } from "./model.ts"
 
 /** The fields a request may read or write, after combining the rules of all its roles. */
 export type FieldAccess =
-  | { readonly kind: 'all' }
-  | { readonly kind: 'only'; readonly paths: readonly string[] }
-  | { readonly kind: 'omit'; readonly paths: readonly string[] }
+  | { readonly kind: "all" }
+  | { readonly kind: "only"; readonly paths: readonly string[] }
+  | { readonly kind: "omit"; readonly paths: readonly string[] }
 
-const ALL: FieldAccess = { kind: 'all' }
+const ALL: FieldAccess = { kind: "all" }
 
 function fromRule(rule: FieldRule): FieldAccess {
-  if ('only' in rule) return rule.only.includes('*') ? ALL : { kind: 'only', paths: [...rule.only] }
-  return rule.omit.length === 0 ? ALL : { kind: 'omit', paths: [...rule.omit] }
+  if ("only" in rule) return rule.only.includes("*") ? ALL : { kind: "only", paths: [...rule.only] }
+  return rule.omit.length === 0 ? ALL : { kind: "omit", paths: [...rule.omit] }
 }
 
 function union(a: FieldAccess, b: FieldAccess): FieldAccess {
-  if (a.kind === 'all' || b.kind === 'all') return ALL
-  if (a.kind === 'only' && b.kind === 'only')
-    return { kind: 'only', paths: [...new Set([...a.paths, ...b.paths])] }
-  if (a.kind === 'omit' && b.kind === 'omit') {
+  if (a.kind === "all" || b.kind === "all") return ALL
+  if (a.kind === "only" && b.kind === "only")
+    return { kind: "only", paths: [...new Set([...a.paths, ...b.paths])] }
+  if (a.kind === "omit" && b.kind === "omit") {
     const hidden = new Set<string>()
     for (const x of a.paths)
       for (const y of b.paths) {
         if (isWithin(x, y)) hidden.add(x)
         else if (isWithin(y, x)) hidden.add(y)
       }
-    return hidden.size === 0 ? ALL : { kind: 'omit', paths: [...hidden] }
+    return hidden.size === 0 ? ALL : { kind: "omit", paths: [...hidden] }
   }
-  const only = a.kind === 'only' ? a : (b as { kind: 'only'; paths: readonly string[] })
-  const omit = a.kind === 'omit' ? a : (b as { kind: 'omit'; paths: readonly string[] })
+  const only = a.kind === "only" ? a : (b as { kind: "only"; paths: readonly string[] })
+  const omit = a.kind === "omit" ? a : (b as { kind: "omit"; paths: readonly string[] })
   const hidden = omit.paths.filter((x) => !only.paths.some((allowed) => isWithin(x, allowed)))
-  return hidden.length === 0 ? ALL : { kind: 'omit', paths: hidden }
+  return hidden.length === 0 ? ALL : { kind: "omit", paths: hidden }
 }
 
 /**
@@ -48,11 +48,11 @@ export function fieldAccess(
   if (rules === undefined) return ALL
   let access: FieldAccess | undefined
   for (const role of roles) {
-    const rule = Object.hasOwn(rules, role) ? rules[role] : rules['default']
+    const rule = Object.hasOwn(rules, role) ? rules[role] : rules["default"]
     const next = rule === undefined ? ALL : fromRule(rule)
     access = access === undefined ? next : union(access, next)
   }
-  return access ?? (rules['default'] === undefined ? ALL : fromRule(rules['default']))
+  return access ?? (rules["default"] === undefined ? ALL : fromRule(rules["default"]))
 }
 
 /**
@@ -63,13 +63,13 @@ export function fieldAccess(
  */
 export function canAccess(access: FieldAccess, path: string): boolean {
   const normalized = stripIndexes(path)
-  if (normalized === '_id') return true
+  if (normalized === "_id") return true
   switch (access.kind) {
-    case 'all':
+    case "all":
       return true
-    case 'only':
+    case "only":
       return access.paths.some((allowed) => isWithin(normalized, allowed))
-    case 'omit':
+    case "omit":
       return !access.paths.some((hidden) => pathsOverlap(normalized, hidden))
   }
 }
@@ -85,11 +85,11 @@ export function projectReadable(
   doc: Record<string, unknown>,
 ): Record<string, unknown> {
   switch (access.kind) {
-    case 'all':
+    case "all":
       return doc
-    case 'only':
+    case "only":
       return inclusion(access.paths, true).apply(doc)
-    case 'omit':
+    case "omit":
       return exclusion(access.paths, true).apply(doc)
   }
 }
@@ -100,11 +100,11 @@ export function projectReadable(
  */
 export function toProjection(access: FieldAccess): Record<string, 0 | 1> | undefined {
   switch (access.kind) {
-    case 'all':
+    case "all":
       return undefined
-    case 'only':
+    case "only":
       return Object.fromEntries(access.paths.map((path) => [path, 1 as const]))
-    case 'omit':
+    case "omit":
       return Object.fromEntries(access.paths.map((path) => [path, 0 as const]))
   }
 }
@@ -119,12 +119,12 @@ export function intersectProjection(
   readable: FieldAccess,
 ): Record<string, 0 | 1> | undefined {
   if (user === undefined) return toProjection(readable)
-  const userPaths = Object.keys(user).filter((path) => path !== '_id')
+  const userPaths = Object.keys(user).filter((path) => path !== "_id")
   const userInclude = userPaths.some((path) => user[path] === 1)
-  if (readable.kind === 'all') return { ...user }
+  if (readable.kind === "all") return { ...user }
   if (userInclude) {
     const kept = userPaths.filter((path) => user[path] === 1 && canAccess(readable, path))
-    if (readable.kind === 'only') {
+    if (readable.kind === "only") {
       for (const allowed of readable.paths) {
         if (
           userPaths.some((path) => user[path] === 1 && isWithin(allowed, path)) &&
@@ -138,21 +138,21 @@ export function intersectProjection(
       (path) => !kept.some((other) => other !== path && isWithin(path, other)),
     )
     const out: Record<string, 0 | 1> = Object.fromEntries(pruned.map((path) => [path, 1 as const]))
-    if (user['_id'] === 0) out['_id'] = 0
+    if (user["_id"] === 0) out["_id"] = 0
     return pruned.length === 0 ? { _id: 1 } : out
   }
-  if (readable.kind === 'omit') {
+  if (readable.kind === "omit") {
     const excluded = [...new Set([...userPaths, ...readable.paths])]
     const pruned = excluded.filter(
       (path) => !excluded.some((other) => other !== path && isWithin(path, other)),
     )
     const out: Record<string, 0 | 1> = Object.fromEntries(pruned.map((path) => [path, 0 as const]))
-    if (user['_id'] === 0) out['_id'] = 0
+    if (user["_id"] === 0) out["_id"] = 0
     return out
   }
   const kept = readable.paths.filter((path) => !userPaths.some((hidden) => isWithin(path, hidden)))
   const out: Record<string, 0 | 1> = Object.fromEntries(kept.map((path) => [path, 1 as const]))
-  if (user['_id'] === 0) out['_id'] = 0
+  if (user["_id"] === 0) out["_id"] = 0
   return kept.length === 0 ? { _id: 1 } : out
 }
 

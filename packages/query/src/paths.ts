@@ -1,4 +1,4 @@
-import { InvalidQueryError, isForbiddenKey } from '@canopy/protocol'
+import { InvalidQueryError, isForbiddenKey } from "@canopy/protocol"
 
 const POSITIONAL = /^\$(?:\[(?:[a-z][a-zA-Z0-9]*)?\])?$/
 
@@ -14,19 +14,19 @@ export interface PathOptions {
  * positional operators in updates), no NUL characters and no prototype keys.
  */
 export function validatePath(path: string, options: PathOptions): void {
-  if (path === '') throw new InvalidQueryError('A field path may not be empty')
+  if (path === "") throw new InvalidQueryError("A field path may not be empty")
   if (path.length > options.maxLength) {
     throw new InvalidQueryError(
       `A field path may not be longer than ${options.maxLength} characters`,
     )
   }
-  if (path.includes('\0'))
-    throw new InvalidQueryError('A field path may not contain NUL characters')
-  for (const segment of path.split('.')) {
-    if (segment === '') throw new InvalidQueryError(`Invalid field path: ${path}`)
+  if (path.includes("\0"))
+    throw new InvalidQueryError("A field path may not contain NUL characters")
+  for (const segment of path.split(".")) {
+    if (segment === "") throw new InvalidQueryError(`Invalid field path: ${path}`)
     if (isForbiddenKey(segment))
       throw new InvalidQueryError(`The field name "${segment}" is not allowed`)
-    if (segment.startsWith('$')) {
+    if (segment.startsWith("$")) {
       if (options.positional === true && POSITIONAL.test(segment)) continue
       throw new InvalidQueryError(`Invalid field path: ${path}`)
     }
@@ -36,9 +36,9 @@ export function validatePath(path: string, options: PathOptions): void {
 /** Removes positional segments (`$`, `$[]`, `$[identifier]`) from an update path. */
 export function normalizePositional(path: string): string {
   return path
-    .split('.')
+    .split(".")
     .filter((segment) => !POSITIONAL.test(segment))
-    .join('.')
+    .join(".")
 }
 
 /**
@@ -57,7 +57,7 @@ export function isWithin(path: string, ancestor: string): boolean {
 /** Removes array index segments, so `items.3.price` and `items.price` refer to the same field rule. */
 export function stripIndexes(path: string): string {
   return path
-    .split('.')
+    .split(".")
     .filter((segment) => !/^(?:0|[1-9]\d*)$/.test(segment))
-    .join('.')
+    .join(".")
 }

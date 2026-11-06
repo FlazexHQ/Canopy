@@ -1,18 +1,18 @@
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { allow, auth, collection, createPolicySet } from '@canopy/policy'
-import { attach, createRealtime } from '@canopy/realtime'
-import { MONGODB_URI } from '@canopy/testing'
-import { exportJWK, generateKeyPair, SignJWT } from 'jose'
-import { type Document, MongoClient } from 'mongodb'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { attach, createRealtime } from "@canopy/realtime"
+import { MONGODB_URI } from "@canopy/testing"
+import { exportJWK, generateKeyPair, SignJWT } from "jose"
+import { type Document, MongoClient } from "mongodb"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   type CanopyClient,
   createClient,
   type QueryState,
   type WebSocketConstructor,
   type WebSocketLike,
-} from '../src/index.ts'
+} from "../src/index.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -32,12 +32,12 @@ const Tracked = class extends (globalThis as unknown as { WebSocket: WebSocketCo
 async function until(test: () => boolean, timeoutMs = 10_000): Promise<void> {
   const started = Date.now()
   while (!test()) {
-    if (Date.now() - started > timeoutMs) throw new Error('timed out')
+    if (Date.now() - started > timeoutMs) throw new Error("timed out")
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
 
-suite('client against the realtime engine', () => {
+suite("client against the realtime engine", () => {
   const dbName = `canopy_client_${process.pid}`
   let mongo: MongoClient
   let url: string
@@ -45,33 +45,33 @@ suite('client against the realtime engine', () => {
   let token: string
 
   beforeAll(async () => {
-    const { privateKey, publicKey } = await generateKeyPair('EdDSA', { crv: 'Ed25519' })
-    const jwk = { ...(await exportJWK(publicKey)), kid: 'k', alg: 'EdDSA' }
-    token = await new SignJWT({ sub: 'alice' })
-      .setProtectedHeader({ alg: 'EdDSA', kid: 'k' })
-      .setIssuer('iss')
-      .setAudience('aud')
-      .setExpirationTime('1h')
+    const { privateKey, publicKey } = await generateKeyPair("EdDSA", { crv: "Ed25519" })
+    const jwk = { ...(await exportJWK(publicKey)), kid: "k", alg: "EdDSA" }
+    token = await new SignJWT({ sub: "alice" })
+      .setProtectedHeader({ alg: "EdDSA", kid: "k" })
+      .setIssuer("iss")
+      .setAudience("aud")
+      .setExpirationTime("1h")
       .sign(privateKey)
-    mongo = new MongoClient(MONGODB_URI ?? '')
+    mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
-    const todos = collection('todos', {
+    const todos = collection("todos", {
       exposed: true,
       realtime: true,
-      policies: [allow.read('authenticated').where({ ownerId: auth('sub') })],
+      policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
     })
     const realtime = await createRealtime({
       mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      auth: { jwks: { keys: [jwk] }, issuer: 'iss', audience: 'aud' },
+      auth: { jwks: { keys: [jwk] }, issuer: "iss", audience: "aud" },
       policies: { set: createPolicySet([todos]) },
-      checkpoints: 'off',
+      checkpoints: "off",
       observerLingerMs: 0,
     })
     const server = createServer()
     const attachment = await attach(realtime, server)
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     stop = async () => {
       await realtime.close()
@@ -86,45 +86,45 @@ suite('client against the realtime engine', () => {
     await mongo.close()
   })
 
-  it('shows live, sorted, DLS filtered results and recovers from a dropped connection', async () => {
-    const rows = mongo.db(dbName).collection<Row>('todos')
+  it("shows live, sorted, DLS filtered results and recovers from a dropped connection", async () => {
+    const rows = mongo.db(dbName).collection<Row>("todos")
     await rows.insertMany([
-      { _id: 1, ownerId: 'alice', rank: 2 },
-      { _id: 2, ownerId: 'bob', rank: 1 },
-      { _id: 3, ownerId: 'alice', rank: 1 },
+      { _id: 1, ownerId: "alice", rank: 2 },
+      { _id: 2, ownerId: "bob", rank: 1 },
+      { _id: 3, ownerId: "alice", rank: 1 },
     ])
     const client: CanopyClient = createClient({
       url,
-      publishableKey: 'pk',
+      publishableKey: "pk",
       auth: { getToken: () => token },
       WebSocket: Tracked,
     })
     let state: QueryState | undefined
     const stopQuery = client
-      .from('todos')
+      .from("todos")
       .find({})
       .sort({ rank: 1 })
       .subscribe((next) => {
         state = next
       })
-    await until(() => state?.status === 'ready')
-    expect(state?.data.map((doc) => doc['_id'])).toEqual([3, 1])
-    expect(client.connectionStatus).toBe('live')
+    await until(() => state?.status === "ready")
+    expect(state?.data.map((doc) => doc["_id"])).toEqual([3, 1])
+    expect(client.connectionStatus).toBe("live")
 
-    await rows.insertOne({ _id: 4, ownerId: 'alice', rank: 0 })
+    await rows.insertOne({ _id: 4, ownerId: "alice", rank: 0 })
     await until(() => state?.data.length === 3)
-    expect(state?.data.map((doc) => doc['_id'])).toEqual([4, 3, 1])
+    expect(state?.data.map((doc) => doc["_id"])).toEqual([4, 3, 1])
 
-    sockets.at(-1)?.close(4500, 'simulated failure')
-    await until(() => client.connectionStatus === 'reconnecting')
+    sockets.at(-1)?.close(4500, "simulated failure")
+    await until(() => client.connectionStatus === "reconnecting")
     await rows.updateOne({ _id: 1 }, { $set: { rank: -1 } })
     await rows.deleteOne({ _id: 3 })
-    await until(() => client.connectionStatus === 'live' && state?.data.length === 2, 15_000)
-    expect(state?.data.map((doc) => doc['_id'])).toEqual([1, 4])
+    await until(() => client.connectionStatus === "live" && state?.data.length === 2, 15_000)
+    expect(state?.data.map((doc) => doc["_id"])).toEqual([1, 4])
     expect(sockets.length).toBeGreaterThanOrEqual(2)
 
     stopQuery()
     client.close()
-    expect(client.connectionStatus).toBe('closed')
+    expect(client.connectionStatus).toBe("closed")
   })
 })

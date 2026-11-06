@@ -1,10 +1,10 @@
-import { Auth0Provider, useAuth0 } from '@auth0/auth0-react'
-import { type ReactNode, useMemo, useState } from 'react'
-import type { PublicConfig, Session } from './types.ts'
+import { Auth0Provider, useAuth0 } from "@auth0/auth0-react"
+import { type ReactNode, useMemo, useState } from "react"
+import type { PublicConfig, Session } from "./types.ts"
 
 type Render = (session: Session) => ReactNode
 
-const STORAGE_KEY = 'helpdesk.devUser'
+const STORAGE_KEY = "helpdesk.devUser"
 
 function remembered(): string | null {
   try {
@@ -25,7 +25,7 @@ function DevSignIn({
   users,
   children,
 }: {
-  readonly users: Extract<PublicConfig['auth'], { kind: 'dev' }>['users']
+  readonly users: Extract<PublicConfig["auth"], { kind: "dev" }>["users"]
   readonly children: Render
 }): ReactNode {
   const [userId, setUserId] = useState(() => {
@@ -38,9 +38,9 @@ function DevSignIn({
     return {
       label: user.name,
       async getToken() {
-        const response = await fetch('/dev/token', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
+        const response = await fetch("/dev/token", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
           body: JSON.stringify({ user: user.id }),
         })
         if (!response.ok) throw new Error(`The development issuer answered ${response.status}`)
@@ -91,13 +91,13 @@ function Auth0Gate({ children }: { readonly children: Render }): ReactNode {
     getAccessTokenSilently,
   } = useAuth0()
   const subject = user?.sub
-  const name = user?.name ?? user?.email ?? subject ?? 'Signed in'
+  const name = user?.name ?? user?.email ?? subject ?? "Signed in"
   const session = useMemo<Session>(
     () => ({
       label: name,
       async getToken() {
         const token = await getAccessTokenSilently()
-        if (token === undefined || token === '') throw new Error('Auth0 returned no access token')
+        if (token === undefined || token === "") throw new Error("Auth0 returned no access token")
         return token
       },
       signOut: () => {
@@ -126,10 +126,10 @@ export function SignIn({
   auth,
   children,
 }: {
-  readonly auth: PublicConfig['auth']
+  readonly auth: PublicConfig["auth"]
   readonly children: Render
 }): ReactNode {
-  if (auth.kind === 'dev') return <DevSignIn users={auth.users}>{children}</DevSignIn>
+  if (auth.kind === "dev") return <DevSignIn users={auth.users}>{children}</DevSignIn>
   return (
     <Auth0Provider
       domain={auth.domain}

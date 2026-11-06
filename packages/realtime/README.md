@@ -40,22 +40,22 @@ and only through its policies. This one lets users read their own orders and hid
 
 ```ts
 // canopy/policies/orders.ts
-import { allow, auth, collection } from '@canopy/policy'
+import { allow, auth, collection } from "@canopy/policy"
 
-export default collection('orders', {
+export default collection("orders", {
   exposed: true,
   realtime: true,
   policies: [
     allow
-      .read('authenticated')
-      .where({ customerId: auth('sub') })
-      .named('customers read their own orders'),
-    allow.read('staff').named('staff read every order'),
+      .read("authenticated")
+      .where({ customerId: auth("sub") })
+      .named("customers read their own orders"),
+    allow.read("staff").named("staff read every order"),
   ],
   fields: {
     read: {
-      default: { omit: ['margin'] },
-      staff: { only: ['*'] },
+      default: { omit: ["margin"] },
+      staff: { only: ["*"] },
     },
   },
 })
@@ -75,17 +75,17 @@ MongoDB, which must agree:
 
 ```ts
 // canopy/policies/orders.test.ts
-import { as, describePolicies } from '@canopy/policy/testing'
+import { as, describePolicies } from "@canopy/policy/testing"
 
-describePolicies('orders', ({ doc, expect }) => {
-  const order = doc({ _id: 'o1', customerId: 'user_1', total: 40, margin: 12 })
-  expect(as.user({ sub: 'user_1' }))
+describePolicies("orders", ({ doc, expect }) => {
+  const order = doc({ _id: "o1", customerId: "user_1", total: 40, margin: 12 })
+  expect(as.user({ sub: "user_1" }))
     .can.read(order)
-    .withoutFields(['margin'])
-  expect(as.user({ sub: 'user_2' })).cannot.read(order)
-  expect(as.user({ sub: 'user_9' }, { roles: ['staff'] }))
+    .withoutFields(["margin"])
+  expect(as.user({ sub: "user_2" })).cannot.read(order)
+  expect(as.user({ sub: "user_9" }, { roles: ["staff"] }))
     .can.read(order)
-    .withFields(['margin'])
+    .withFields(["margin"])
   expect(as.anon()).cannot.read(order)
 })
 ```
@@ -150,20 +150,20 @@ bun add @canopy/client @canopy/react
 ```
 
 ```tsx
-import { createClient } from '@canopy/client'
-import { CanopyProvider, createReactDb, useCanopyStatus } from '@canopy/react'
+import { createClient } from "@canopy/client"
+import { CanopyProvider, createReactDb, useCanopyStatus } from "@canopy/react"
 
 const canopy = createClient({
-  url: 'http://localhost:8080',
-  publishableKey: 'pk_shop_1',
+  url: "http://localhost:8080",
+  publishableKey: "pk_shop_1",
   auth: { getToken: () => getAccessTokenSilently() },
 })
 const db = createReactDb<{ orders: Order }>(canopy)
 
 function Orders() {
   const status = useCanopyStatus()
-  const orders = db.orders.useQuery({ status: 'open' }, { sort: { createdAt: -1 }, limit: 50 })
-  if (orders.status === 'loading') return <p>Loading…</p>
+  const orders = db.orders.useQuery({ status: "open" }, { sort: { createdAt: -1 }, limit: 50 })
+  if (orders.status === "loading") return <p>Loading…</p>
   return (
     <>
       <p>{status}</p>
@@ -196,8 +196,8 @@ Without React, subscribe directly:
 
 ```ts
 const stop = canopy
-  .from<Order>('orders')
-  .find({ status: 'open' })
+  .from<Order>("orders")
+  .find({ status: "open" })
   .sort({ createdAt: -1 })
   .limit(50)
   .subscribe(({ data, status }) => render(data, status))
@@ -241,23 +241,23 @@ const stop = canopy
 ## Embedded mode
 
 ```ts
-import { createServer } from 'node:http'
-import { attach, createRealtime } from '@canopy/realtime'
-import express from 'express'
-import { MongoClient } from 'mongodb'
+import { createServer } from "node:http"
+import { attach, createRealtime } from "@canopy/realtime"
+import express from "express"
+import { MongoClient } from "mongodb"
 
 const app = express()
 const server = createServer(app)
 const realtime = await createRealtime({
-  mongo: new MongoClient(process.env.MONGODB_URI ?? ''),
-  database: 'shop',
+  mongo: new MongoClient(process.env.MONGODB_URI ?? ""),
+  database: "shop",
   auth: {
-    jwksUrl: 'https://YOUR_TENANT.us.auth0.com/.well-known/jwks.json',
-    issuer: 'https://YOUR_TENANT.us.auth0.com/',
-    audience: 'https://api.shop.example',
-    rolesClaim: 'https://shop.example/roles',
+    jwksUrl: "https://YOUR_TENANT.us.auth0.com/.well-known/jwks.json",
+    issuer: "https://YOUR_TENANT.us.auth0.com/",
+    audience: "https://api.shop.example",
+    rolesClaim: "https://shop.example/roles",
   },
-  policies: { dir: './canopy/policies' },
+  policies: { dir: "./canopy/policies" },
 })
 await attach(realtime, server)
 server.listen(3000)

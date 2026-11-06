@@ -6,4 +6,4 @@ export {
   type JwtAuthOptions,
   type KeyOptions,
   type Principal,
-} from './authenticator.ts'
+} from "./authenticator.ts"

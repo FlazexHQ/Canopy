@@ -1,4 +1,4 @@
-import { timestampParts } from './values.ts'
+import { timestampParts } from "./values.ts"
 
 /**
  * Cluster time on the wire: the decimal string of the uint64 `(seconds << 32) | increment`.
@@ -10,7 +10,7 @@ const UINT64_MAX = (1n << 64n) - 1n
 
 /** Returns true when `value` is a valid `ct` string. */
 export function isClusterTime(value: unknown): value is ClusterTime {
-  if (typeof value !== 'string' || !CT.test(value)) return false
+  if (typeof value !== "string" || !CT.test(value)) return false
   return BigInt(value) <= UINT64_MAX
 }
 
@@ -53,4 +53,4 @@ export function toCt(value: unknown): ClusterTime | undefined {
 }
 
 /** The zero cluster time, earlier than every real one. */
-export const ZERO_CT: ClusterTime = '0'
+export const ZERO_CT: ClusterTime = "0"

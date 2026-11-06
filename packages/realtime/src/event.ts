@@ -1,4 +1,4 @@
-import { type ClusterTime, canonicalString, isDocument, toCt } from '@canopy/protocol'
+import { type ClusterTime, canonicalString, isDocument, toCt } from "@canopy/protocol"
 
 /** A document as read from MongoDB. */
 export type Doc = Record<string, unknown>
@@ -10,7 +10,7 @@ export interface NormalizedEvent {
   readonly token: unknown
   readonly wallTime: Date | undefined
   readonly coll: string
-  readonly op: 'insert' | 'update' | 'replace' | 'delete'
+  readonly op: "insert" | "update" | "replace" | "delete"
   readonly id: unknown
   readonly key: string
   /** `undefined` when not requested or unavailable, `null` when there is none (insert). */
@@ -27,7 +27,7 @@ export interface NormalizedEvent {
 export interface ControlEvent {
   readonly ct: ClusterTime
   readonly token: unknown
-  readonly kind: 'drop' | 'rename' | 'dropDatabase' | 'invalidate'
+  readonly kind: "drop" | "rename" | "dropDatabase" | "invalidate"
   readonly coll: string | undefined
 }
 
@@ -48,30 +48,30 @@ function asDoc(value: unknown): Doc | null | undefined {
 export function normalize(
   raw: Record<string, unknown>,
 ): NormalizedEvent | ControlEvent | undefined {
-  const op = raw['operationType']
-  const ct = toCt(raw['clusterTime']) ?? '0'
-  const token = raw['_id']
-  const ns = isDocument(raw['ns']) ? raw['ns'] : undefined
-  const coll = typeof ns?.['coll'] === 'string' ? ns['coll'] : undefined
-  if (op === 'drop' || op === 'rename' || op === 'dropDatabase' || op === 'invalidate') {
+  const op = raw["operationType"]
+  const ct = toCt(raw["clusterTime"]) ?? "0"
+  const token = raw["_id"]
+  const ns = isDocument(raw["ns"]) ? raw["ns"] : undefined
+  const coll = typeof ns?.["coll"] === "string" ? ns["coll"] : undefined
+  if (op === "drop" || op === "rename" || op === "dropDatabase" || op === "invalidate") {
     return { ct, token, kind: op, coll }
   }
-  if (op !== 'insert' && op !== 'update' && op !== 'replace' && op !== 'delete') return undefined
+  if (op !== "insert" && op !== "update" && op !== "replace" && op !== "delete") return undefined
   if (coll === undefined) return undefined
-  const documentKey = isDocument(raw['documentKey']) ? raw['documentKey'] : {}
-  const id = documentKey['_id']
-  const wall = raw['wallTime']
-  let diff: NormalizedEvent['diff']
-  if (op === 'update' && isDocument(raw['updateDescription'])) {
-    const description = raw['updateDescription']
-    const set = isDocument(description['updatedFields']) ? description['updatedFields'] : {}
-    const removed = Array.isArray(description['removedFields']) ? description['removedFields'] : []
-    diff = { set, unset: removed.filter((field): field is string => typeof field === 'string') }
+  const documentKey = isDocument(raw["documentKey"]) ? raw["documentKey"] : {}
+  const id = documentKey["_id"]
+  const wall = raw["wallTime"]
+  let diff: NormalizedEvent["diff"]
+  if (op === "update" && isDocument(raw["updateDescription"])) {
+    const description = raw["updateDescription"]
+    const set = isDocument(description["updatedFields"]) ? description["updatedFields"] : {}
+    const removed = Array.isArray(description["removedFields"]) ? description["removedFields"] : []
+    diff = { set, unset: removed.filter((field): field is string => typeof field === "string") }
   }
-  const rawPost = asDoc(raw['fullDocument'])
-  const post = op === 'delete' ? null : op === 'update' && rawPost === null ? undefined : rawPost
-  const rawPre = asDoc(raw['fullDocumentBeforeChange'])
-  const pre = op === 'insert' ? null : rawPre === null ? undefined : rawPre
+  const rawPost = asDoc(raw["fullDocument"])
+  const post = op === "delete" ? null : op === "update" && rawPost === null ? undefined : rawPost
+  const rawPre = asDoc(raw["fullDocumentBeforeChange"])
+  const pre = op === "insert" ? null : rawPre === null ? undefined : rawPre
   return {
     ct,
     token,
@@ -88,7 +88,7 @@ export function normalize(
 
 /** Returns true for data events. */
 export function isDataEvent(event: NormalizedEvent | ControlEvent): event is NormalizedEvent {
-  return 'op' in event
+  return "op" in event
 }
 
 /** Merges the fragments of a split event (`$changeStreamSplitLargeEvent`). */
@@ -98,7 +98,7 @@ export function mergeFragments(
   const out: Record<string, unknown> = {}
   for (const fragment of fragments) {
     for (const [name, value] of Object.entries(fragment)) {
-      if (name === 'splitEvent') continue
+      if (name === "splitEvent") continue
       out[name] = value
     }
   }

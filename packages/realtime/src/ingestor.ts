@@ -1,18 +1,18 @@
-import { type ClusterTime, isDocument } from '@canopy/protocol'
-import type { ChangeStream, ChangeStreamOptions, Db, Document, MongoClient } from 'mongodb'
+import { type ClusterTime, isDocument } from "@canopy/protocol"
+import type { ChangeStream, ChangeStreamOptions, Db, Document, MongoClient } from "mongodb"
 import {
   type ControlEvent,
   isDataEvent,
   mergeFragments,
   type NormalizedEvent,
   normalize,
-} from './event.ts'
-import type { Logger } from './logger.ts'
-import type { RealtimeMetrics } from './metrics.ts'
-import { EXACT_BSON } from './snapshot.ts'
+} from "./event.ts"
+import type { Logger } from "./logger.ts"
+import type { RealtimeMetrics } from "./metrics.ts"
+import { EXACT_BSON } from "./snapshot.ts"
 
 /** How full documents are obtained. */
-export type FullDocumentMode = 'auto' | 'updateLookup' | 'images'
+export type FullDocumentMode = "auto" | "updateLookup" | "images"
 
 /** Where the stream position is stored between restarts. */
 export interface CheckpointStore {
@@ -23,7 +23,7 @@ export interface CheckpointStore {
 /** Stores checkpoints in `canopy.checkpoints`, which is never the app database. */
 export function metaCheckpoints(meta: Db, streamId: string, node: string): CheckpointStore {
   const coll = meta.collection<{ _id: string; token: unknown; ct: string; node: string; at: Date }>(
-    'checkpoints',
+    "checkpoints",
   )
   return {
     async load() {
@@ -76,10 +76,10 @@ const HISTORY_LOST = new Set([260, 280, 286])
 
 function errorCode(error: unknown): number | undefined {
   if (
-    typeof error === 'object' &&
+    typeof error === "object" &&
     error !== null &&
-    'code' in error &&
-    typeof error.code === 'number'
+    "code" in error &&
+    typeof error.code === "number"
   )
     return error.code
   return undefined
@@ -94,7 +94,7 @@ export class Ingestor {
   private stream: ChangeStream | undefined
   private running = false
   private token: unknown
-  private lastCt: ClusterTime = '0'
+  private lastCt: ClusterTime = "0"
   private sinceCheckpoint = 0
   private lastCheckpoint = Date.now()
   private timer: ReturnType<typeof setInterval> | undefined
@@ -117,7 +117,7 @@ export class Ingestor {
     await this.open()
     this.timer = setInterval(() => {
       this.checkpoint(true).catch((error: unknown) =>
-        this.options.logger.warn({ err: error }, 'checkpoint failed'),
+        this.options.logger.warn({ err: error }, "checkpoint failed"),
       )
     }, this.options.checkpointIntervalMs ?? 1000)
     this.loop = this.run()
@@ -144,10 +144,10 @@ export class Ingestor {
         $match: {
           $or: [
             {
-              operationType: { $in: ['insert', 'update', 'replace', 'delete', 'drop', 'rename'] },
-              'ns.coll': { $in: [...this.options.collections()] },
+              operationType: { $in: ["insert", "update", "replace", "delete", "drop", "rename"] },
+              "ns.coll": { $in: [...this.options.collections()] },
             },
-            { operationType: { $in: ['dropDatabase', 'invalidate'] } },
+            { operationType: { $in: ["dropDatabase", "invalidate"] } },
           ],
         },
       },
@@ -161,10 +161,10 @@ export class Ingestor {
       ...EXACT_BSON,
       showExpandedEvents: true,
       fullDocument:
-        mode === 'updateLookup' ? 'updateLookup' : mode === 'images' ? 'required' : 'whenAvailable',
-      ...(mode === 'updateLookup'
+        mode === "updateLookup" ? "updateLookup" : mode === "images" ? "required" : "whenAvailable",
+      ...(mode === "updateLookup"
         ? {}
-        : { fullDocumentBeforeChange: mode === 'images' ? 'required' : 'whenAvailable' }),
+        : { fullDocumentBeforeChange: mode === "images" ? "required" : "whenAvailable" }),
       ...(this.token === undefined ? {} : { startAfter: this.token }),
     }
     this.stream = this.options.db.watch(this.pipeline(), options)
@@ -201,33 +201,33 @@ export class Ingestor {
         if (!this.running) return
         if (this.reopenRequested) {
           this.reopenRequested = false
-          this.options.metrics.restarts.inc({ reason: 'reopen' })
+          this.options.metrics.restarts.inc({ reason: "reopen" })
           await this.open()
           continue
         }
         const code = errorCode(error)
         if (code !== undefined && HISTORY_LOST.has(code)) {
-          this.options.metrics.restarts.inc({ reason: 'history_lost' })
+          this.options.metrics.restarts.inc({ reason: "history_lost" })
           this.options.logger.error(
             { err: error },
-            'change stream history lost, restarting from now',
+            "change stream history lost, restarting from now",
           )
           this.token = undefined
           await this.open()
-          this.options.handlers.onRestart('history_lost')
+          this.options.handlers.onRestart("history_lost")
           continue
         }
-        this.options.metrics.restarts.inc({ reason: 'error' })
-        this.options.logger.warn({ err: error }, 'change stream failed, reopening')
+        this.options.metrics.restarts.inc({ reason: "error" })
+        this.options.logger.warn({ err: error }, "change stream failed, reopening")
         await new Promise((resolve) => setTimeout(resolve, 500))
         try {
           await this.open()
         } catch (reopenError: unknown) {
-          this.options.logger.error({ err: reopenError }, 'change stream could not be reopened')
+          this.options.logger.error({ err: reopenError }, "change stream could not be reopened")
           this.token = undefined
           await new Promise((resolve) => setTimeout(resolve, 2000))
           await this.open().catch(() => {})
-          this.options.handlers.onRestart('reopen_failed')
+          this.options.handlers.onRestart("reopen_failed")
         }
       }
     }
@@ -241,10 +241,10 @@ export class Ingestor {
       await this.options.handlers.onEvents(chunk)
     }
     for (let change of raw) {
-      const split = change['splitEvent']
+      const split = change["splitEvent"]
       if (isDocument(split)) {
         this.fragments.push(change)
-        if (split['fragment'] !== split['of']) continue
+        if (split["fragment"] !== split["of"]) continue
         change = mergeFragments(this.fragments)
         this.fragments = []
       }

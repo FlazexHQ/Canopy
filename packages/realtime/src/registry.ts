@@ -1,7 +1,7 @@
-import { equalityKey } from '@canopy/matcher'
-import { isDocument, regexParts } from '@canopy/protocol'
-import type { NormalizedEvent } from './event.ts'
-import type { MembershipHooks, Observer } from './observers.ts'
+import { equalityKey } from "@canopy/matcher"
+import { isDocument, regexParts } from "@canopy/protocol"
+import type { NormalizedEvent } from "./event.ts"
+import type { MembershipHooks, Observer } from "./observers.ts"
 
 const MAX_IN_VALUES = 32
 
@@ -13,8 +13,8 @@ interface IndexedConjunct {
 
 function conjunctsOf(filter: Record<string, unknown>): Record<string, unknown>[] {
   const keys = Object.keys(filter)
-  if (keys.length === 1 && keys[0] === '$and' && Array.isArray(filter['$and'])) {
-    return (filter['$and'] as unknown[]).flatMap((part) =>
+  if (keys.length === 1 && keys[0] === "$and" && Array.isArray(filter["$and"])) {
+    return (filter["$and"] as unknown[]).flatMap((part) =>
       isDocument(part) ? conjunctsOf(part) : [],
     )
   }
@@ -37,19 +37,19 @@ export function indexableConjunct(filter: Record<string, unknown>): IndexedConju
   let best: IndexedConjunct | undefined
   for (const conjunct of conjunctsOf(filter).reverse()) {
     const [field] = Object.keys(conjunct)
-    if (field === undefined || field.startsWith('$') || field.includes('.')) continue
+    if (field === undefined || field.startsWith("$") || field.includes(".")) continue
     const value = conjunct[field]
     let keys: (string | undefined)[] | undefined
     if (isDocument(value)) {
       const ops = Object.keys(value)
-      if (ops.length === 1 && ops[0] === '$eq') keys = [scalarKey(value['$eq'])]
+      if (ops.length === 1 && ops[0] === "$eq") keys = [scalarKey(value["$eq"])]
       else if (
         ops.length === 1 &&
-        ops[0] === '$in' &&
-        Array.isArray(value['$in']) &&
-        value['$in'].length <= MAX_IN_VALUES
+        ops[0] === "$in" &&
+        Array.isArray(value["$in"]) &&
+        value["$in"].length <= MAX_IN_VALUES
       ) {
-        keys = (value['$in'] as unknown[]).map(scalarKey)
+        keys = (value["$in"] as unknown[]).map(scalarKey)
       }
     } else {
       keys = [scalarKey(value)]
@@ -70,8 +70,8 @@ export function referencedTopFields(filter: unknown, out: Set<string> = new Set(
   }
   if (!isDocument(filter)) return out
   for (const key of Object.keys(filter)) {
-    if (key === '$and' || key === '$or' || key === '$nor') referencedTopFields(filter[key], out)
-    else if (!key.startsWith('$')) out.add(key.split('.')[0] ?? key)
+    if (key === "$and" || key === "$or" || key === "$nor") referencedTopFields(filter[key], out)
+    else if (!key.startsWith("$")) out.add(key.split(".")[0] ?? key)
   }
   return out
 }
@@ -130,7 +130,7 @@ export class ObserverRegistry implements MembershipHooks {
   add(observer: Observer): void {
     this.observers.set(observer.key, observer)
     const index = this.index(observer.query.coll)
-    if (observer.type === 'polling') {
+    if (observer.type === "polling") {
       index.polling.add(observer)
       return
     }
@@ -155,7 +155,7 @@ export class ObserverRegistry implements MembershipHooks {
     }
     const fields = referencedTopFields(observer.query.filter)
     for (const field of Object.keys(observer.query.sort ?? {}))
-      fields.add(field.split('.')[0] ?? field)
+      fields.add(field.split(".")[0] ?? field)
     this.paths.set(observer, fields)
     for (const field of fields) {
       let set = index.byPath.get(field)
@@ -222,7 +222,7 @@ export class ObserverRegistry implements MembershipHooks {
     if (index === undefined) return out
     for (const observer of index.docRefs.get(event.key) ?? []) out.add(observer)
     for (const observer of index.polling) out.add(observer)
-    if (event.op === 'delete') return out
+    if (event.op === "delete") return out
     const post = event.post
     if (post !== undefined && post !== null) {
       for (const observer of index.unindexed) out.add(observer)
@@ -240,7 +240,7 @@ export class ObserverRegistry implements MembershipHooks {
     if (event.diff !== undefined) {
       const touched = new Set<string>()
       for (const path of [...Object.keys(event.diff.set), ...event.diff.unset])
-        touched.add(path.split('.')[0] ?? path)
+        touched.add(path.split(".")[0] ?? path)
       for (const field of touched)
         for (const observer of index.byPath.get(field) ?? []) out.add(observer)
     } else {

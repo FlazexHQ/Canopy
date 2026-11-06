@@ -1,4 +1,4 @@
-import { bsonTypeTag, longValue, objectIdHex, wrappedNumber } from '@canopy/protocol'
+import { bsonTypeTag, longValue, objectIdHex, wrappedNumber } from "@canopy/protocol"
 
 /**
  * Returns a string key such that two values with keys get equal keys exactly when MongoDB considers them
@@ -7,39 +7,39 @@ import { bsonTypeTag, longValue, objectIdHex, wrappedNumber } from '@canopy/prot
  */
 export function equalityKey(value: unknown): string | undefined {
   switch (typeof value) {
-    case 'string':
+    case "string":
       return `s:${value}`
-    case 'number':
+    case "number":
       return `n:${String(value)}`
-    case 'bigint':
+    case "bigint":
       return bigintKey(value)
-    case 'boolean':
-      return value ? 'b:1' : 'b:0'
-    case 'object':
+    case "boolean":
+      return value ? "b:1" : "b:0"
+    case "object":
       break
     default:
       return undefined
   }
-  if (value === null) return 'z'
+  if (value === null) return "z"
   if (value instanceof Date) {
     const ms = value.getTime()
     return Number.isNaN(ms) ? undefined : `d:${ms}`
   }
   switch (bsonTypeTag(value)) {
-    case 'ObjectId':
+    case "ObjectId":
       return `o:${objectIdHex(value)}`
-    case 'Int32':
-    case 'Double': {
+    case "Int32":
+    case "Double": {
       const n = wrappedNumber(value)
       return n === undefined ? undefined : `n:${String(n)}`
     }
-    case 'Long': {
+    case "Long": {
       const n = longValue(value)
       return n === undefined ? undefined : bigintKey(n)
     }
-    case 'BSONSymbol': {
+    case "BSONSymbol": {
       const inner: unknown = (value as { value?: unknown }).value
-      return typeof inner === 'string' ? `s:${inner}` : undefined
+      return typeof inner === "string" ? `s:${inner}` : undefined
     }
     default:
       return undefined

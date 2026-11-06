@@ -1,4 +1,4 @@
-import { type CompiledFilter, compileSort, type DocComparator } from '@canopy/matcher'
+import { type CompiledFilter, compileSort, type DocComparator } from "@canopy/matcher"
 import {
   CanopyError,
   type ClusterTime,
@@ -6,8 +6,8 @@ import {
   compareCt,
   ErrorCode,
   maxCt,
-} from '@canopy/protocol'
-import { type Doc, docKey, type NormalizedEvent } from './event.ts'
+} from "@canopy/protocol"
+import { type Doc, docKey, type NormalizedEvent } from "./event.ts"
 
 /** A query an observer keeps current. */
 export interface ObservedQuery {
@@ -46,7 +46,7 @@ export interface MembershipHooks {
 }
 
 /** The observer types: in process filter, sorted window, and MongoDB polling. */
-export type ObserverType = 'filter' | 'window' | 'polling'
+export type ObserverType = "filter" | "window" | "polling"
 
 /** Limits that apply to observers. */
 export interface ObserverLimits {
@@ -85,8 +85,8 @@ export abstract class Observer {
   protected readonly limits: ObserverLimits
   protected readonly listeners = new Set<ObserverListener>()
   private readonly waiting = new Set<ObserverListener>()
-  protected state: 'idle' | 'loading' | 'live' | 'failed' = 'idle'
-  protected ct: ClusterTime = '0'
+  protected state: "idle" | "loading" | "live" | "failed" = "idle"
+  protected ct: ClusterTime = "0"
   private buffered: NormalizedEvent[] = []
   private failure: CanopyError | undefined
   private refreshing = false
@@ -149,13 +149,13 @@ export abstract class Observer {
 
   /** Attaches a subscription. */
   attach(listener: ObserverListener): void {
-    if (this.state === 'failed' && this.failure !== undefined) {
+    if (this.state === "failed" && this.failure !== undefined) {
       listener.failed(this.failure)
       return
     }
-    if (this.state !== 'live') {
+    if (this.state !== "live") {
       this.waiting.add(listener)
-      if (this.state === 'idle') this.start()
+      if (this.state === "idle") this.start()
       return
     }
     this.serve(listener)
@@ -175,7 +175,7 @@ export abstract class Observer {
   }
 
   private start(): void {
-    this.state = 'loading'
+    this.state = "loading"
     this.refresh(true)
   }
 
@@ -197,7 +197,7 @@ export abstract class Observer {
       .then(
         ({ docs, ct }) => {
           this.refreshing = false
-          if (this.state === 'failed') return
+          if (this.state === "failed") return
           const pending = this.buffered
           this.buffered = []
           this.muted = true
@@ -218,7 +218,7 @@ export abstract class Observer {
           }
           if (this.isFailed()) return
           if (initial) {
-            this.state = 'live'
+            this.state = "live"
             const waiting = [...this.waiting]
             this.waiting.clear()
             for (const listener of waiting) this.serve(listener)
@@ -235,7 +235,7 @@ export abstract class Observer {
           this.fail(
             error instanceof CanopyError
               ? error
-              : new CanopyError(ErrorCode.Unavailable, 'Snapshot failed', { cause: error }),
+              : new CanopyError(ErrorCode.Unavailable, "Snapshot failed", { cause: error }),
           )
         },
       )
@@ -248,13 +248,13 @@ export abstract class Observer {
 
   /** Whether the observer failed and serves nothing. */
   isFailed(): boolean {
-    return this.state === 'failed'
+    return this.state === "failed"
   }
 
   /** Marks the observer as failed and ends every subscription with the error. */
   fail(error: CanopyError): void {
-    if (this.state === 'failed') return
-    this.state = 'failed'
+    if (this.state === "failed") return
+    this.state = "failed"
     this.failure = error
     for (const key of [...this.trackedKeys()]) this.hooks.memberRemoved(this, key)
     const all = [...this.listeners, ...this.waiting]
@@ -265,8 +265,8 @@ export abstract class Observer {
 
   /** Routes an event to the observer. */
   apply(event: NormalizedEvent): void {
-    if (this.state === 'failed' || this.state === 'idle') return
-    if (this.state === 'loading' || this.refreshing) {
+    if (this.state === "failed" || this.state === "idle") return
+    if (this.state === "loading" || this.refreshing) {
       this.buffered.push(event)
       return
     }
@@ -276,7 +276,7 @@ export abstract class Observer {
 
   /** Records that the stream advanced, so `ready` for new subscriptions carries a current time. */
   advance(ct: ClusterTime): void {
-    if (this.state === 'live' && !this.refreshing) this.ct = maxCt(this.ct, ct)
+    if (this.state === "live" && !this.refreshing) this.ct = maxCt(this.ct, ct)
   }
 
   protected emitDiff(before: ReadonlyMap<string, Member>, ct: ClusterTime): void {
@@ -295,7 +295,7 @@ export abstract class Observer {
 
 /** Matcher safe filter, no limit. Tracks members, capped at `maxTrackedDocs`. */
 export class FilterObserver extends Observer {
-  readonly type: ObserverType = 'filter'
+  readonly type: ObserverType = "filter"
   private readonly matcher: CompiledFilter
   private members = new Map<string, Member>()
 
@@ -340,8 +340,8 @@ export class FilterObserver extends Observer {
     for (const key of this.members.keys()) this.hooks.memberRemoved(this, key)
     this.members = new Map()
     for (const doc of docs) {
-      const key = docKey(this.query.coll, doc['_id'])
-      this.members.set(key, { id: doc['_id'], doc })
+      const key = docKey(this.query.coll, doc["_id"])
+      this.members.set(key, { id: doc["_id"], doc })
       this.hooks.memberAdded(this, key)
     }
   }
@@ -349,7 +349,7 @@ export class FilterObserver extends Observer {
   protected applyEvent(event: NormalizedEvent): void {
     const before = this.members.get(event.key)
     let after: boolean
-    if (event.op === 'delete') after = false
+    if (event.op === "delete") after = false
     else if (event.post === undefined || event.post === null) return
     else after = this.matcher.matches(event.post)
     if (after && event.post !== null && event.post !== undefined) {
@@ -359,7 +359,7 @@ export class FilterObserver extends Observer {
           this.fail(
             new CanopyError(
               ErrorCode.SubscriptionTooLarge,
-              'The subscription grew beyond the tracked document limit',
+              "The subscription grew beyond the tracked document limit",
             ),
           )
           return
@@ -392,7 +392,7 @@ interface Ranked {
  * `requeryIntervalMs`).
  */
 export class WindowObserver extends Observer {
-  readonly type: ObserverType = 'window'
+  readonly type: ObserverType = "window"
   private readonly matcher: CompiledFilter
   private readonly compare: DocComparator
   private known: Ranked[] = []
@@ -440,8 +440,8 @@ export class WindowObserver extends Observer {
   protected load(docs: readonly Doc[]): void {
     for (const entry of this.known) this.hooks.memberRemoved(this, entry.key)
     this.known = docs.map((doc) => ({
-      key: docKey(this.query.coll, doc['_id']),
-      member: { id: doc['_id'], doc },
+      key: docKey(this.query.coll, doc["_id"]),
+      member: { id: doc["_id"], doc },
     }))
     this.known.sort((a, b) => this.compare(a.member.doc, b.member.doc))
     this.complete = docs.length < this.capacity
@@ -451,7 +451,7 @@ export class WindowObserver extends Observer {
   protected applyEvent(event: NormalizedEvent): void {
     const before = new Map(this.visible())
     const index = this.known.findIndex((entry) => entry.key === event.key)
-    if (event.op !== 'delete' && (event.post === undefined || event.post === null)) {
+    if (event.op !== "delete" && (event.post === undefined || event.post === null)) {
       if (index >= 0) this.scheduleRequery()
       return
     }
@@ -459,7 +459,7 @@ export class WindowObserver extends Observer {
       const [removed] = this.known.splice(index, 1)
       if (removed !== undefined) this.hooks.memberRemoved(this, removed.key)
     }
-    const post = event.op === 'delete' ? null : (event.post as Doc)
+    const post = event.op === "delete" ? null : (event.post as Doc)
     if (post !== null && this.matcher.matches(post)) {
       const doc = this.query.readable(post)
       const entry: Ranked = { key: event.key, member: { id: event.id, doc } }
@@ -508,7 +508,7 @@ export class WindowObserver extends Observer {
  * namespace, throttled, backing off under load, and diffs the result.
  */
 export class PollingObserver extends Observer {
-  readonly type: ObserverType = 'polling'
+  readonly type: ObserverType = "polling"
   private members = new Map<string, Member>()
   private order: string[] = []
   private timer: ReturnType<typeof setTimeout> | undefined
@@ -546,8 +546,8 @@ export class PollingObserver extends Observer {
     this.members = new Map()
     this.order = []
     for (const doc of docs) {
-      const key = docKey(this.query.coll, doc['_id'])
-      this.members.set(key, { id: doc['_id'], doc })
+      const key = docKey(this.query.coll, doc["_id"])
+      this.members.set(key, { id: doc["_id"], doc })
       this.order.push(key)
       this.hooks.memberAdded(this, key)
     }

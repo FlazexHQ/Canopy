@@ -17,18 +17,18 @@ function key(labels: Labels): string {
   return Object.keys(labels)
     .sort()
     .map((name) => `${name}=${labels[name]}`)
-    .join(',')
+    .join(",")
 }
 
 function escapeLabel(value: string): string {
-  return value.replaceAll('\\', '\\\\').replaceAll('\n', '\\n').replaceAll('"', '\\"')
+  return value.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll('"', '\\"')
 }
 
 function formatLabels(labels: Labels, extra?: Readonly<Record<string, string>>): string {
   const all = { ...labels, ...extra }
   const names = Object.keys(all)
-  if (names.length === 0) return ''
-  return `{${names.map((name) => `${name}="${escapeLabel(all[name] ?? '')}"`).join(',')}}`
+  if (names.length === 0) return ""
+  return `{${names.map((name) => `${name}="${escapeLabel(all[name] ?? "")}"`).join(",")}}`
 }
 
 /** A counter: a value that only goes up. */
@@ -57,7 +57,7 @@ export class Counter {
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} counter`]
     for (const entry of this.series.values())
       lines.push(`${this.name}${formatLabels(entry.labels)} ${entry.value}`)
-    return lines.join('\n')
+    return lines.join("\n")
   }
 }
 
@@ -91,7 +91,7 @@ export class Gauge {
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} gauge`]
     for (const entry of this.series.values())
       lines.push(`${this.name}${formatLabels(entry.labels)} ${entry.value}`)
-    return lines.join('\n')
+    return lines.join("\n")
   }
 }
 
@@ -135,11 +135,11 @@ export class Histogram {
           `${this.name}_bucket${formatLabels(entry.labels, { le: String(bound) })} ${entry.counts[index] ?? 0}`,
         )
       })
-      lines.push(`${this.name}_bucket${formatLabels(entry.labels, { le: '+Inf' })} ${entry.count}`)
+      lines.push(`${this.name}_bucket${formatLabels(entry.labels, { le: "+Inf" })} ${entry.count}`)
       lines.push(`${this.name}_sum${formatLabels(entry.labels)} ${entry.sum}`)
       lines.push(`${this.name}_count${formatLabels(entry.labels)} ${entry.count}`)
     }
-    return lines.join('\n')
+    return lines.join("\n")
   }
 }
 
@@ -149,64 +149,64 @@ const COUNTS = [0, 1, 2, 5, 10, 25, 50, 100, 250, 1000]
 /** The realtime metrics, rendered in the Prometheus text format. */
 export class RealtimeMetrics {
   readonly lag: Gauge = new Gauge(
-    'canopy_changestream_lag_seconds',
-    'now minus wallTime of the last processed event',
+    "canopy_changestream_lag_seconds",
+    "now minus wallTime of the last processed event",
   )
   readonly events: Counter = new Counter(
-    'canopy_changestream_events_total',
-    'Ingested change events',
+    "canopy_changestream_events_total",
+    "Ingested change events",
   )
   readonly restarts: Counter = new Counter(
-    'canopy_changestream_restarts_total',
-    'Change stream resumes, reopens and history loss',
+    "canopy_changestream_restarts_total",
+    "Change stream resumes, reopens and history loss",
   )
   readonly connections: Gauge = new Gauge(
-    'canopy_realtime_connections',
-    'Open realtime connections',
+    "canopy_realtime_connections",
+    "Open realtime connections",
   )
-  readonly subscriptions: Gauge = new Gauge('canopy_realtime_subscriptions', 'Active subscriptions')
-  readonly observers: Gauge = new Gauge('canopy_realtime_observers', 'Live observers by type')
+  readonly subscriptions: Gauge = new Gauge("canopy_realtime_subscriptions", "Active subscriptions")
+  readonly observers: Gauge = new Gauge("canopy_realtime_observers", "Live observers by type")
   readonly candidates: Histogram = new Histogram(
-    'canopy_realtime_candidates_per_event',
-    'Observers evaluated per event',
+    "canopy_realtime_candidates_per_event",
+    "Observers evaluated per event",
     COUNTS,
   )
   readonly matchEvaluations: Counter = new Counter(
-    'canopy_realtime_match_evaluations_total',
-    'Matcher calls',
+    "canopy_realtime_match_evaluations_total",
+    "Matcher calls",
   )
   readonly lazyLookups: Counter = new Counter(
-    'canopy_realtime_lazy_lookups_total',
-    'Post images fetched by the lazy resolver',
+    "canopy_realtime_lazy_lookups_total",
+    "Post images fetched by the lazy resolver",
   )
   readonly fanoutLatency: Histogram = new Histogram(
-    'canopy_realtime_fanout_latency_seconds',
-    'Event received to frame written',
+    "canopy_realtime_fanout_latency_seconds",
+    "Event received to frame written",
     LATENCY,
   )
   readonly messages: Counter = new Counter(
-    'canopy_realtime_messages_total',
-    'Outbound protocol messages',
+    "canopy_realtime_messages_total",
+    "Outbound protocol messages",
   )
-  readonly bytes: Counter = new Counter('canopy_realtime_bytes_total', 'Outbound bytes')
+  readonly bytes: Counter = new Counter("canopy_realtime_bytes_total", "Outbound bytes")
   readonly snapshotSeconds: Histogram = new Histogram(
-    'canopy_realtime_snapshot_seconds',
-    'Snapshot query time',
+    "canopy_realtime_snapshot_seconds",
+    "Snapshot query time",
     LATENCY,
   )
   readonly snapshotQueueDepth: Gauge = new Gauge(
-    'canopy_realtime_snapshot_queue_depth',
-    'Snapshots waiting for a slot',
+    "canopy_realtime_snapshot_queue_depth",
+    "Snapshots waiting for a slot",
   )
   readonly slowConsumers: Counter = new Counter(
-    'canopy_realtime_slow_consumers_total',
-    'Sessions dropped as slow consumers',
+    "canopy_realtime_slow_consumers_total",
+    "Sessions dropped as slow consumers",
   )
-  readonly resyncs: Counter = new Counter('canopy_realtime_resyncs_total', 'Resync messages sent')
-  readonly denials: Counter = new Counter('canopy_policy_denials_total', 'DLS denials')
+  readonly resyncs: Counter = new Counter("canopy_realtime_resyncs_total", "Resync messages sent")
+  readonly denials: Counter = new Counter("canopy_policy_denials_total", "DLS denials")
   readonly variableErrors: Counter = new Counter(
-    'canopy_policy_variable_errors_total',
-    'Policy variables that failed to resolve',
+    "canopy_policy_variable_errors_total",
+    "Policy variables that failed to resolve",
   )
 
   /** Renders every metric in the Prometheus text exposition format. */
@@ -232,6 +232,6 @@ export class RealtimeMetrics {
       this.variableErrors,
     ]
       .map((metric) => metric.render())
-      .join('\n')}\n`
+      .join("\n")}\n`
   }
 }

@@ -1,9 +1,9 @@
-import { Binary, isDocument, ObjectId } from '@canopy/protocol'
-import { isVariable } from '@canopy/query'
-import type { RequestContext } from './model.ts'
+import { Binary, isDocument, ObjectId } from "@canopy/protocol"
+import { isVariable } from "@canopy/query"
+import type { RequestContext } from "./model.ts"
 
 /** Why a variable made its policy non matching. */
-export type VariableIssueKind = 'missing' | 'shape' | 'coercion'
+export type VariableIssueKind = "missing" | "shape" | "coercion"
 
 /** Reported for every variable that fails to resolve (feeds `canopy_policy_variable_errors_total`). */
 export interface VariableIssue {
@@ -14,7 +14,7 @@ export interface VariableIssue {
 /** The largest array a variable may resolve to under `$in`, `$nin` or `$all`. */
 export const MAX_VARIABLE_LIST = 1000
 
-const LIST_OPERATORS = new Set(['$in', '$nin', '$all'])
+const LIST_OPERATORS = new Set(["$in", "$nin", "$all"])
 const DURATION =
   /^([+-])?P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -29,7 +29,7 @@ class Unresolvable {
 /** Reads a dotted path from a claims object, following only own properties of plain objects. */
 export function readClaim(claims: Readonly<Record<string, unknown>> | null, path: string): unknown {
   let value: unknown = claims
-  for (const segment of path.split('.')) {
+  for (const segment of path.split(".")) {
     if (!isDocument(value) || !Object.hasOwn(value, segment)) return undefined
     value = value[segment]
   }
@@ -40,7 +40,7 @@ export function readClaim(claims: Readonly<Record<string, unknown>> | null, path
 export function shiftDate(date: Date, duration: string): Date {
   const match = DURATION.exec(duration)
   if (match === null) throw new TypeError(`Invalid ISO 8601 duration: ${duration}`)
-  const sign = match[1] === '-' ? -1 : 1
+  const sign = match[1] === "-" ? -1 : 1
   const n = (index: number): number => Number(match[index] ?? 0)
   const out = new Date(date.getTime())
   out.setUTCFullYear(out.getUTCFullYear() + sign * n(2))
@@ -58,37 +58,37 @@ function isScalar(value: unknown): boolean {
 function coerce(value: unknown, as: string | undefined, variable: string): unknown {
   if (as === undefined) return value
   const fail = (): never => {
-    throw new Unresolvable({ kind: 'coercion', variable })
+    throw new Unresolvable({ kind: "coercion", variable })
   }
   switch (as) {
-    case 'objectId':
-      if (typeof value === 'string' && ObjectId.isValid(value)) return new ObjectId(value)
+    case "objectId":
+      if (typeof value === "string" && ObjectId.isValid(value)) return new ObjectId(value)
       return fail()
-    case 'string':
-      if (typeof value === 'string') return value
-      if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+    case "string":
+      if (typeof value === "string") return value
+      if (typeof value === "number" && Number.isFinite(value)) return String(value)
       return fail()
-    case 'number':
-      if (typeof value === 'number' && Number.isFinite(value)) return value
-      if (typeof value === 'string' && /^-?\d+(?:\.\d+)?$/.test(value)) return Number(value)
+    case "number":
+      if (typeof value === "number" && Number.isFinite(value)) return value
+      if (typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value)) return Number(value)
       return fail()
-    case 'bool':
-      if (typeof value === 'boolean') return value
-      if (value === 'true' || value === 'false') return value === 'true'
+    case "bool":
+      if (typeof value === "boolean") return value
+      if (value === "true" || value === "false") return value === "true"
       return fail()
-    case 'date': {
+    case "date": {
       const date =
-        typeof value === 'number'
+        typeof value === "number"
           ? new Date(value * 1000)
-          : typeof value === 'string'
+          : typeof value === "string"
             ? new Date(value)
             : undefined
       if (date === undefined || Number.isNaN(date.getTime())) return fail()
       return date
     }
-    case 'uuid': {
-      if (typeof value !== 'string' || !UUID.test(value)) return fail()
-      const hex = value.replaceAll('-', '')
+    case "uuid": {
+      if (typeof value !== "string" || !UUID.test(value)) return fail()
+      const hex = value.replaceAll("-", "")
       const bytes = new Uint8Array(16)
       for (let index = 0; index < 16; index += 1)
         bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16)
@@ -107,33 +107,33 @@ function resolveVariable(
   let raw: unknown
   let name: string
   let as: string | undefined
-  if (Object.hasOwn(variable, '$auth')) {
-    name = `$auth:${String(variable['$auth'])}`
-    raw = readClaim(ctx.claims, String(variable['$auth']))
-    as = typeof variable['as'] === 'string' ? variable['as'] : undefined
-  } else if (Object.hasOwn(variable, '$ctx')) {
-    const key = String(variable['$ctx'])
+  if (Object.hasOwn(variable, "$auth")) {
+    name = `$auth:${String(variable["$auth"])}`
+    raw = readClaim(ctx.claims, String(variable["$auth"]))
+    as = typeof variable["as"] === "string" ? variable["as"] : undefined
+  } else if (Object.hasOwn(variable, "$ctx")) {
+    const key = String(variable["$ctx"])
     name = `$ctx:${key}`
     raw = ctx.ctx !== undefined && Object.hasOwn(ctx.ctx, key) ? ctx.ctx[key] : undefined
   } else {
-    name = '$now'
-    const spec = variable['$now']
+    name = "$now"
+    const spec = variable["$now"]
     const offset =
-      isDocument(spec) && typeof spec['offset'] === 'string' ? spec['offset'] : undefined
+      isDocument(spec) && typeof spec["offset"] === "string" ? spec["offset"] : undefined
     const value = offset === undefined ? new Date(ctx.now.getTime()) : shiftDate(ctx.now, offset)
-    if (list) throw new Unresolvable({ kind: 'shape', variable: name })
+    if (list) throw new Unresolvable({ kind: "shape", variable: name })
     return value
   }
-  if (raw === undefined || raw === null) throw new Unresolvable({ kind: 'missing', variable: name })
+  if (raw === undefined || raw === null) throw new Unresolvable({ kind: "missing", variable: name })
   if (list) {
     if (!Array.isArray(raw) || raw.length > MAX_VARIABLE_LIST)
-      throw new Unresolvable({ kind: 'shape', variable: name })
+      throw new Unresolvable({ kind: "shape", variable: name })
     return raw.map((item) => {
-      if (!isScalar(item)) throw new Unresolvable({ kind: 'shape', variable: name })
+      if (!isScalar(item)) throw new Unresolvable({ kind: "shape", variable: name })
       return coerce(item, as, name)
     })
   }
-  if (!isScalar(raw)) throw new Unresolvable({ kind: 'shape', variable: name })
+  if (!isScalar(raw)) throw new Unresolvable({ kind: "shape", variable: name })
   return coerce(raw, as, name)
 }
 
@@ -174,7 +174,7 @@ export function resolveClause(
 export function usesNow(clause: unknown): boolean {
   if (Array.isArray(clause)) return clause.some(usesNow)
   if (!isDocument(clause)) return false
-  if (Object.hasOwn(clause, '$now')) return true
+  if (Object.hasOwn(clause, "$now")) return true
   return Object.keys(clause).some((key) => usesNow(clause[key]))
 }
 
@@ -187,8 +187,8 @@ export function claimPaths(clause: unknown): string[] {
       return
     }
     if (!isDocument(value)) return
-    if (typeof value['$auth'] === 'string') {
-      out.push(value['$auth'])
+    if (typeof value["$auth"] === "string") {
+      out.push(value["$auth"])
       return
     }
     for (const key of Object.keys(value)) visit(value[key])

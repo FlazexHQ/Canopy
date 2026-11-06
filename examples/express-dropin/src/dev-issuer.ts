@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto'
-import { exportJWK, generateKeyPair, type JSONWebKeySet, SignJWT } from 'jose'
+import { randomUUID } from "node:crypto"
+import { exportJWK, generateKeyPair, type JSONWebKeySet, SignJWT } from "jose"
 
 /** A demo user of the development issuer. */
 export interface DevUser {
@@ -10,9 +10,9 @@ export interface DevUser {
 
 /** The demo users: two customers and one support agent. */
 export const DEV_USERS: readonly DevUser[] = [
-  { id: 'alice', name: 'Alice', roles: [] },
-  { id: 'bob', name: 'Bob', roles: [] },
-  { id: 'sam', name: 'Sam (support)', roles: ['support'] },
+  { id: "alice", name: "Alice", roles: [] },
+  { id: "bob", name: "Bob", roles: [] },
+  { id: "sam", name: "Sam (support)", roles: ["support"] },
 ]
 
 /** A local stand in for Auth0: it publishes a JWKS and signs RS256 access tokens for the demo users. */
@@ -29,20 +29,20 @@ export async function createDevIssuer(options: {
   readonly rolesClaim: string
 }): Promise<DevIssuer> {
   const kid = randomUUID()
-  const { privateKey, publicKey } = await generateKeyPair('RS256')
-  const jwk = { ...(await exportJWK(publicKey)), kid, alg: 'RS256', use: 'sig' }
+  const { privateKey, publicKey } = await generateKeyPair("RS256")
+  const jwk = { ...(await exportJWK(publicKey)), kid, alg: "RS256", use: "sig" }
   return {
     jwks: { keys: [jwk] },
     async sign(userId) {
       const user = DEV_USERS.find((candidate) => candidate.id === userId)
       if (user === undefined) return undefined
       return new SignJWT({ name: user.name, [options.rolesClaim]: [...user.roles] })
-        .setProtectedHeader({ alg: 'RS256', kid, typ: 'at+jwt' })
+        .setProtectedHeader({ alg: "RS256", kid, typ: "at+jwt" })
         .setIssuer(options.issuer)
         .setAudience(options.audience)
         .setSubject(`dev|${user.id}`)
         .setIssuedAt()
-        .setExpirationTime('1h')
+        .setExpirationTime("1h")
         .sign(privateKey)
     },
   }

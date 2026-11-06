@@ -1,9 +1,9 @@
-import { applyUpdate, compileFilter } from '@canopy/matcher'
-import { CanopyError, isDocument } from '@canopy/protocol'
-import { parseUpdate, pathsOverlap } from '@canopy/query'
-import { type Compiled, type PolicyEngine, toFilter } from './engine.ts'
-import { canAccess, documentPaths, projectReadable } from './fields.ts'
-import { type RequestContext, Role } from './model.ts'
+import { applyUpdate, compileFilter } from "@canopy/matcher"
+import { CanopyError, isDocument } from "@canopy/protocol"
+import { parseUpdate, pathsOverlap } from "@canopy/query"
+import { type Compiled, type PolicyEngine, toFilter } from "./engine.ts"
+import { canAccess, documentPaths, projectReadable } from "./fields.ts"
+import { type RequestContext, Role } from "./model.ts"
 
 /** Who performs an action in a policy test. */
 export interface Actor {
@@ -23,7 +23,7 @@ export const as: {
   service(): Actor
 } = {
   user(claims, options = {}) {
-    const label = typeof claims['sub'] === 'string' ? claims['sub'] : 'user'
+    const label = typeof claims["sub"] === "string" ? claims["sub"] : "user"
     return {
       label,
       roles: [Role.Authenticated, ...(options.roles ?? [])],
@@ -32,15 +32,15 @@ export const as: {
     }
   },
   anon() {
-    return { label: 'anon', roles: [Role.Anon], claims: null }
+    return { label: "anon", roles: [Role.Anon], claims: null }
   },
   service() {
-    return { label: 'service', roles: [Role.Service], claims: null }
+    return { label: "service", roles: [Role.Service], claims: null }
   },
 }
 
 /** The actions a policy test can check. */
-export type PolicyAction = 'read' | 'insert' | 'update' | 'delete'
+export type PolicyAction = "read" | "insert" | "update" | "delete"
 
 /** One declared expectation. */
 export interface PolicyTestCase {
@@ -113,7 +113,7 @@ export function describePolicies(
         suite: name,
         collection,
         actor,
-        action: 'read',
+        action: "read",
         doc,
         expected,
       }
@@ -131,13 +131,13 @@ export function describePolicies(
       return chain
     },
     insert(doc) {
-      cases.push({ suite: name, collection, actor, action: 'insert', doc, expected })
+      cases.push({ suite: name, collection, actor, action: "insert", doc, expected })
     },
     update(doc, update) {
-      cases.push({ suite: name, collection, actor, action: 'update', doc, update, expected })
+      cases.push({ suite: name, collection, actor, action: "update", doc, update, expected })
     },
     delete(doc) {
-      cases.push({ suite: name, collection, actor, action: 'delete', doc, expected })
+      cases.push({ suite: name, collection, actor, action: "delete", doc, expected })
     },
   })
   body({
@@ -165,15 +165,15 @@ export function contextOf(actor: Actor, now: Date = new Date()): RequestContext 
 }
 
 function matches(compiled: Compiled, doc: Record<string, unknown>): boolean {
-  if (compiled.kind === 'all') return true
-  if (compiled.kind === 'deny') return false
+  if (compiled.kind === "all") return true
+  if (compiled.kind === "deny") return false
   return compileFilter(toFilter(compiled)).matches(doc)
 }
 
 /** Evaluates cases with the in-process matcher and updater. */
 export function memoryBackend(engine: PolicyEngine, now: Date = new Date()): PolicyBackend {
   return {
-    name: 'memory',
+    name: "memory",
     async evaluate(testCase) {
       return evaluateInMemory(engine, testCase, now)
     },
@@ -191,33 +191,33 @@ export function evaluateInMemory(
   const { collection, doc } = testCase
   const service = ctx.roles.has(Role.Service)
   if (!service && !engine.isExposed(collection))
-    return { allowed: false, reason: 'the collection is not exposed' }
+    return { allowed: false, reason: "the collection is not exposed" }
   switch (testCase.action) {
-    case 'read': {
-      if (!matches(engine.using(collection, 'read', ctx), doc))
-        return { allowed: false, reason: 'USING(read) does not match' }
+    case "read": {
+      if (!matches(engine.using(collection, "read", ctx), doc))
+        return { allowed: false, reason: "USING(read) does not match" }
       return {
         allowed: true,
-        reason: 'visible',
+        reason: "visible",
         document: projectReadable(engine.readable(collection, ctx), doc),
       }
     }
-    case 'insert': {
-      if (!engine.hasGrant(collection, 'insert', ctx))
-        return { allowed: false, reason: 'no policy grants insert' }
-      const writable = engine.writable(collection, 'insert', ctx)
+    case "insert": {
+      if (!engine.hasGrant(collection, "insert", ctx))
+        return { allowed: false, reason: "no policy grants insert" }
+      const writable = engine.writable(collection, "insert", ctx)
       const denied = documentPaths(doc).filter((path) => !canAccess(writable, path))
       if (denied.length > 0)
-        return { allowed: false, reason: `fields not writable: ${denied.join(', ')}` }
-      if (!matches(engine.check(collection, 'insert', ctx), doc))
-        return { allowed: false, reason: 'CHECK(insert) fails' }
-      return { allowed: true, reason: 'inserted' }
+        return { allowed: false, reason: `fields not writable: ${denied.join(", ")}` }
+      if (!matches(engine.check(collection, "insert", ctx), doc))
+        return { allowed: false, reason: "CHECK(insert) fails" }
+      return { allowed: true, reason: "inserted" }
     }
-    case 'update': {
-      if (!engine.hasGrant(collection, 'update', ctx))
-        return { allowed: false, reason: 'no policy grants update' }
-      if (!matches(engine.target(collection, 'update', ctx), doc))
-        return { allowed: false, reason: 'not a target (matched 0)' }
+    case "update": {
+      if (!engine.hasGrant(collection, "update", ctx))
+        return { allowed: false, reason: "no policy grants update" }
+      if (!matches(engine.target(collection, "update", ctx), doc))
+        return { allowed: false, reason: "not a target (matched 0)" }
       const update = testCase.update ?? {}
       let written: readonly string[]
       try {
@@ -226,15 +226,15 @@ export function evaluateInMemory(
         return { allowed: false, reason: error instanceof Error ? error.message : String(error) }
       }
       if (!service) {
-        const writable = engine.writable(collection, 'update', ctx)
+        const writable = engine.writable(collection, "update", ctx)
         const denied = written.filter((path) => !canAccess(writable, path))
         if (denied.length > 0)
-          return { allowed: false, reason: `fields not writable: ${denied.join(', ')}` }
+          return { allowed: false, reason: `fields not writable: ${denied.join(", ")}` }
         const immutable = written.filter((path) =>
           engine.immutable(collection).some((field) => pathsOverlap(path, field)),
         )
         if (immutable.length > 0)
-          return { allowed: false, reason: `immutable fields: ${immutable.join(', ')}` }
+          return { allowed: false, reason: `immutable fields: ${immutable.join(", ")}` }
       }
       let post: Record<string, unknown>
       try {
@@ -245,16 +245,16 @@ export function evaluateInMemory(
           reason: error instanceof CanopyError ? error.message : String(error),
         }
       }
-      if (!matches(engine.check(collection, 'update', ctx), post))
-        return { allowed: false, reason: 'CHECK(update) fails' }
-      return { allowed: true, reason: 'updated' }
+      if (!matches(engine.check(collection, "update", ctx), post))
+        return { allowed: false, reason: "CHECK(update) fails" }
+      return { allowed: true, reason: "updated" }
     }
-    case 'delete': {
-      if (!engine.hasGrant(collection, 'delete', ctx))
-        return { allowed: false, reason: 'no policy grants delete' }
-      if (!matches(engine.target(collection, 'delete', ctx), doc))
-        return { allowed: false, reason: 'not a target (matched 0)' }
-      return { allowed: true, reason: 'deleted' }
+    case "delete": {
+      if (!engine.hasGrant(collection, "delete", ctx))
+        return { allowed: false, reason: "no policy grants delete" }
+      if (!matches(engine.target(collection, "delete", ctx), doc))
+        return { allowed: false, reason: "not a target (matched 0)" }
+      return { allowed: true, reason: "deleted" }
     }
   }
 }
@@ -269,7 +269,7 @@ export interface PolicyTestResult {
 
 function hasPath(doc: Record<string, unknown>, path: string): boolean {
   let value: unknown = doc
-  for (const segment of path.split('.')) {
+  for (const segment of path.split(".")) {
     if (!isDocument(value) || !Object.hasOwn(value, segment)) return false
     value = value[segment]
   }
@@ -277,8 +277,8 @@ function hasPath(doc: Record<string, unknown>, path: string): boolean {
 }
 
 function describeCase(testCase: PolicyTestCase): string {
-  const verb = testCase.expected ? 'can' : 'cannot'
-  return `${testCase.actor.label} ${verb} ${testCase.action} ${JSON.stringify(testCase.doc['_id'] ?? testCase.doc)}`
+  const verb = testCase.expected ? "can" : "cannot"
+  return `${testCase.actor.label} ${verb} ${testCase.action} ${JSON.stringify(testCase.doc["_id"] ?? testCase.doc)}`
 }
 
 /**
@@ -328,9 +328,9 @@ export async function runPolicyTests(
           `backends disagree: ${Object.entries(outcomes)
             .map(
               ([name, outcome]) =>
-                `${name} ${outcome.allowed ? 'allowed' : 'denied'} (${outcome.reason})`,
+                `${name} ${outcome.allowed ? "allowed" : "denied"} (${outcome.reason})`,
             )
-            .join(', ')}`,
+            .join(", ")}`,
         )
       }
       results.push({ testCase, outcomes, passed: failures.length === 0, failures })

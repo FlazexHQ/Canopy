@@ -10,11 +10,11 @@ import {
   SUBPROTOCOL,
   type SubQuery,
   unbatch,
-} from '@canopy/protocol'
-import { LOADING_STATE, type QueryState, Store } from './store.ts'
+} from "@canopy/protocol"
+import { LOADING_STATE, type QueryState, Store } from "./store.ts"
 
 /** The connection status an application sees. */
-export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'closed'
+export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline" | "closed"
 
 /** The minimal WebSocket surface the client needs; the global `WebSocket` satisfies it. */
 export interface WebSocketLike {
@@ -68,13 +68,13 @@ function backoff(attempt: number, maxMs: number): number {
 }
 
 function tokenExpiry(token: string): number | undefined {
-  const part = token.split('.')[1]
+  const part = token.split(".")[1]
   if (part === undefined) return undefined
   try {
-    const json = JSON.parse(atob(part.replaceAll('-', '+').replaceAll('_', '/'))) as {
+    const json = JSON.parse(atob(part.replaceAll("-", "+").replaceAll("_", "/"))) as {
       exp?: unknown
     }
-    return typeof json.exp === 'number' ? json.exp * 1000 : undefined
+    return typeof json.exp === "number" ? json.exp * 1000 : undefined
   } catch {
     return undefined
   }
@@ -96,7 +96,7 @@ export class CanopyClient {
   private readonly options: ClientOptions
   private readonly socketUrl: string
   private socket: WebSocketLike | undefined
-  private status: ConnectionStatus = 'connecting'
+  private status: ConnectionStatus = "connecting"
   private readonly statusListeners = new Set<(status: ConnectionStatus) => void>()
   private readonly subscriptions = new Map<string, Subscription>()
   private readonly byQuery = new Map<string, Subscription>()
@@ -116,8 +116,8 @@ export class CanopyClient {
     this.options = options
     const base = new URL(options.url)
     base.protocol =
-      base.protocol === 'https:' ? 'wss:' : base.protocol === 'http:' ? 'ws:' : base.protocol
-    base.pathname = `${base.pathname.replace(/\/$/, '')}/realtime/v1`
+      base.protocol === "https:" ? "wss:" : base.protocol === "http:" ? "ws:" : base.protocol
+    base.pathname = `${base.pathname.replace(/\/$/, "")}/realtime/v1`
     this.socketUrl = base.toString()
     this.connect()
   }
@@ -156,7 +156,7 @@ export class CanopyClient {
       ...(options.limit === undefined ? {} : { limit: options.limit }),
       ...(options.fields === undefined ? {} : { fields: options.fields }),
     }
-    const key = `${collection}\u0000${encodeMessage({ t: 'sub', id: 'k', c: collection, q: query })}`
+    const key = `${collection}\u0000${encodeMessage({ t: "sub", id: "k", c: collection, q: query })}`
     return {
       getState: () => {
         const sub = this.byQuery.get(key)
@@ -170,7 +170,7 @@ export class CanopyClient {
           this.byQuery.set(key, sub)
           this.subscriptions.set(sub.id, sub)
           this.store.addQuery(sub.id, collection, options.sort)
-          this.send({ t: 'sub', id: sub.id, c: collection, q: query })
+          this.send({ t: "sub", id: sub.id, c: collection, q: query })
         }
         sub.refs += 1
         const current = sub
@@ -185,7 +185,7 @@ export class CanopyClient {
           this.byQuery.delete(key)
           this.subscriptions.delete(current.id)
           this.store.removeQuery(current.id)
-          this.send({ t: 'unsub', id: current.id })
+          this.send({ t: "unsub", id: current.id })
         }
       },
     }
@@ -201,16 +201,16 @@ export class CanopyClient {
     const WebSocketImpl =
       this.options.WebSocket ?? (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket
     if (WebSocketImpl === undefined)
-      throw new TypeError('No WebSocket implementation is available; pass one in options')
-    this.setStatus(this.attempt === 0 ? 'connecting' : 'reconnecting')
+      throw new TypeError("No WebSocket implementation is available; pass one in options")
+    this.setStatus(this.attempt === 0 ? "connecting" : "reconnecting")
     const socket = new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
     this.socket = socket
     this.welcomed = false
     socket.onopen = () => {
-      this.hello(socket).catch(() => socket.close(4500, 'token source failed'))
+      this.hello(socket).catch(() => socket.close(4500, "token source failed"))
     }
     socket.onmessage = (event) => {
-      if (typeof event.data === 'string') this.receive(event.data)
+      if (typeof event.data === "string") this.receive(event.data)
     }
     socket.onclose = (event) => this.onClose(socket, event.code)
     socket.onerror = () => {}
@@ -220,13 +220,13 @@ export class CanopyClient {
     const token = (await this.options.auth?.getToken()) ?? undefined
     if (this.socket !== socket || socket.readyState !== 1) return
     const message: ClientMessage = {
-      t: 'hello',
+      t: "hello",
       v: PROTOCOL_VERSION,
       key: this.options.publishableKey,
       ...(token === undefined || token === null ? {} : { token }),
       ...(this.sid === undefined ? {} : { resume: { sid: this.sid, seq: this.lastSeq } }),
-      caps: ['batch', 'diff'],
-      sdk: this.options.sdk ?? 'canopy-js/0.1.0',
+      caps: ["batch", "diff"],
+      sdk: this.options.sdk ?? "canopy-js/0.1.0",
     }
     socket.send(encodeMessage(message))
     this.scheduleRefresh(token ?? undefined)
@@ -243,7 +243,7 @@ export class CanopyClient {
       () => {
         Promise.resolve(this.options.auth?.getToken())
           .then((next) => {
-            this.send({ t: 'auth', token: next ?? '' })
+            this.send({ t: "auth", token: next ?? "" })
             this.scheduleRefresh(next ?? undefined)
           })
           .catch(() => {})
@@ -258,13 +258,13 @@ export class CanopyClient {
     const message = decodeServerMessage(text)
     if (message === undefined) return
     for (const part of unbatch(message)) {
-      if (part.t === 'pong') continue
+      if (part.t === "pong") continue
       this.handle(part)
     }
   }
 
   private handle(message: SequencedMessage): void {
-    if (message.t === 'welcome') {
+    if (message.t === "welcome") {
       this.welcomed = true
       this.attempt = 0
       this.heartbeatMs = message.hb
@@ -275,49 +275,49 @@ export class CanopyClient {
         this.lastSeq = 0
         for (const sub of this.subscriptions.values()) {
           this.store.beginResync(sub.id)
-          this.send({ t: 'sub', id: sub.id, c: sub.coll, q: sub.query })
+          this.send({ t: "sub", id: sub.id, c: sub.coll, q: sub.query })
         }
       }
-      this.setStatus('live')
+      this.setStatus("live")
       return
     }
     if (message.seq <= this.lastSeq) return
     this.lastSeq = message.seq
     switch (message.t) {
-      case 'added':
+      case "added":
         this.store.added(message.c, message.id, message.d, message.ct, message.s)
         return
-      case 'changed':
+      case "changed":
         this.store.changed(message.c, message.id, message.ct, {
           ...(message.set === undefined ? {} : { set: message.set }),
           ...(message.unset === undefined ? {} : { unset: message.unset }),
           ...(message.replace === true && message.d !== undefined ? { replace: message.d } : {}),
         })
         return
-      case 'removed':
+      case "removed":
         this.store.removed(message.c, message.id, message.ct, message.s)
         return
-      case 'ready':
+      case "ready":
         this.store.ready(message.s)
         return
-      case 'nosub': {
+      case "nosub": {
         if (message.err !== undefined) this.store.fail(message.s, errorFromWire(message.err))
         return
       }
-      case 'resync': {
+      case "resync": {
         const ids = message.s ?? [...this.subscriptions.keys()]
         for (const id of ids) {
           const sub = this.subscriptions.get(id)
           if (sub === undefined) continue
           this.store.beginResync(id)
-          this.send({ t: 'sub', id, c: sub.coll, q: sub.query })
+          this.send({ t: "sub", id, c: sub.coll, q: sub.query })
         }
         return
       }
-      case 'reconnect': {
+      case "reconnect": {
         const socket = this.socket
         this.detach()
-        socket?.close(1000, 'server asked to reconnect')
+        socket?.close(1000, "server asked to reconnect")
         this.scheduleReconnect(message.retryAfterMs)
         return
       }
@@ -331,10 +331,10 @@ export class CanopyClient {
     this.lastInbound = Date.now()
     this.heartbeatTimer = setInterval(() => {
       if (Date.now() - this.lastInbound > 2 * this.heartbeatMs) {
-        this.socket?.close(4000, 'heartbeat timeout')
+        this.socket?.close(4000, "heartbeat timeout")
         return
       }
-      this.send({ t: 'ping', ts: Date.now() })
+      this.send({ t: "ping", ts: Date.now() })
     }, this.heartbeatMs)
   }
 
@@ -350,12 +350,12 @@ export class CanopyClient {
     if (this.socket !== socket) return
     this.detach()
     if (this.closed) {
-      this.setStatus('closed')
+      this.setStatus("closed")
       return
     }
     const reaction = closeReaction(code)
     if (!reaction.reconnect) {
-      this.setStatus('closed')
+      this.setStatus("closed")
       return
     }
     if (!reaction.resume) this.sid = undefined
@@ -364,7 +364,7 @@ export class CanopyClient {
 
   private scheduleReconnect(minDelayMs: number): void {
     if (this.reconnectTimer !== undefined || this.closed) return
-    this.setStatus('reconnecting')
+    this.setStatus("reconnecting")
     const delay = Math.max(minDelayMs, backoff(this.attempt, this.options.maxBackoffMs ?? 30_000))
     this.attempt += 1
     this.reconnectTimer = setTimeout(() => {
@@ -388,9 +388,9 @@ export class CanopyClient {
       if (timer !== undefined) clearTimeout(timer)
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
     if (this.socket !== undefined && this.socket.readyState === 1)
-      this.socket.send(encodeMessage({ t: 'bye' }))
-    this.socket?.close(1000, 'bye')
-    this.setStatus('closed')
+      this.socket.send(encodeMessage({ t: "bye" }))
+    this.socket?.close(1000, "bye")
+    this.setStatus("closed")
   }
 }
 

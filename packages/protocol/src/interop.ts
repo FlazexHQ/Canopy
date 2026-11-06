@@ -7,7 +7,7 @@ import {
   MinKey,
   ObjectId,
   Timestamp,
-} from './bson.ts'
+} from "./bson.ts"
 
 /**
  * The constructors of a full BSON library, such as the `BSON` namespace the MongoDB driver exports. The
@@ -30,7 +30,7 @@ export interface BsonLibrary {
  * are kept as they are. Plain objects are copied with a null prototype.
  */
 export function toBsonLibrary(value: unknown, library: BsonLibrary): unknown {
-  if (value === null || typeof value !== 'object') return value
+  if (value === null || typeof value !== "object") return value
   if (Array.isArray(value)) return value.map((item) => toBsonLibrary(item, library))
   if (value instanceof ObjectId) return new library.ObjectId(value.hex)
   if (value instanceof Long) return library.Long.fromBigInt(value.value)

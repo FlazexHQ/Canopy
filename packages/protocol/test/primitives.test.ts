@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
-import * as bson from 'bson'
-import fc from 'fast-check'
-import { describe, expect, it } from 'vitest'
+import { createHash } from "node:crypto"
+import * as bson from "bson"
+import fc from "fast-check"
+import { describe, expect, it } from "vitest"
 import {
   CanopyError,
   CloseCode,
@@ -23,57 +23,57 @@ import {
   toCt,
   UnauthorizedError,
   uuidv7,
-} from '../src/index.ts'
+} from "../src/index.ts"
 
-describe('sha256Hex', () => {
-  it('matches the published test vectors', () => {
-    expect(sha256Hex('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855')
-    expect(sha256Hex('abc')).toBe(
-      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+describe("sha256Hex", () => {
+  it("matches the published test vectors", () => {
+    expect(sha256Hex("")).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    expect(sha256Hex("abc")).toBe(
+      "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
     )
-    expect(sha256Hex('abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq')).toBe(
-      '248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1',
+    expect(sha256Hex("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")).toBe(
+      "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
     )
   })
 
-  it('matches node:crypto for arbitrary input, including every padding boundary', () => {
+  it("matches node:crypto for arbitrary input, including every padding boundary", () => {
     for (let length = 0; length < 200; length += 1) {
-      const text = 'x'.repeat(length)
-      expect(sha256Hex(text)).toBe(createHash('sha256').update(text).digest('hex'))
+      const text = "x".repeat(length)
+      expect(sha256Hex(text)).toBe(createHash("sha256").update(text).digest("hex"))
     }
     fc.assert(
       fc.property(fc.uint8Array({ maxLength: 2000 }), (bytes) => {
-        expect(sha256Hex(bytes)).toBe(createHash('sha256').update(bytes).digest('hex'))
+        expect(sha256Hex(bytes)).toBe(createHash("sha256").update(bytes).digest("hex"))
       }),
     )
   })
 
-  it('hashes strings as UTF-8', () => {
-    const text = 'café \u{1f333}'
-    expect(sha256Hex(text)).toBe(createHash('sha256').update(text, 'utf8').digest('hex'))
+  it("hashes strings as UTF-8", () => {
+    const text = "café \u{1f333}"
+    expect(sha256Hex(text)).toBe(createHash("sha256").update(text, "utf8").digest("hex"))
   })
 })
 
-describe('uuidv7', () => {
-  it('produces RFC 9562 version 7 ids that sort by creation order', () => {
+describe("uuidv7", () => {
+  it("produces RFC 9562 version 7 ids that sort by creation order", () => {
     const now = 1_793_871_004_000
     const ids = Array.from({ length: 500 }, () => uuidv7(now))
     for (const id of ids) expect(isUuidV7(id)).toBe(true)
     expect([...ids].sort()).toEqual(ids)
     expect(new Set(ids).size).toBe(ids.length)
-    expect(Number.parseInt(ids[0]?.replaceAll('-', '').slice(0, 12) ?? '', 16)).toBe(now)
+    expect(Number.parseInt(ids[0]?.replaceAll("-", "").slice(0, 12) ?? "", 16)).toBe(now)
   })
 
-  it('orders ids across milliseconds', () => {
+  it("orders ids across milliseconds", () => {
     const a = uuidv7(1000)
     const b = uuidv7(1001)
     expect(a < b).toBe(true)
   })
 })
 
-describe('cluster time', () => {
-  it('packs seconds into the high 32 bits and the increment into the low 32 bits', () => {
-    expect(ctFromParts(1, 0)).toBe('4294967296')
+describe("cluster time", () => {
+  it("packs seconds into the high 32 bits and the increment into the low 32 bits", () => {
+    expect(ctFromParts(1, 0)).toBe("4294967296")
     expect(ctFromParts(1_793_871_004, 1)).toBe(((1_793_871_004n << 32n) | 1n).toString())
     fc.assert(
       fc.property(fc.nat({ max: 0xffffffff }), fc.nat({ max: 0xffffffff }), (t, i) => {
@@ -82,31 +82,31 @@ describe('cluster time', () => {
     )
   })
 
-  it('compares numerically, not as strings', () => {
-    expect(compareCt('9', '10')).toBeLessThan(0)
-    expect(compareCt('10', '9')).toBeGreaterThan(0)
-    expect(compareCt('7704617278242816001', '7704617278242816001')).toBe(0)
-    expect(maxCt('9', '10')).toBe('10')
+  it("compares numerically, not as strings", () => {
+    expect(compareCt("9", "10")).toBeLessThan(0)
+    expect(compareCt("10", "9")).toBeGreaterThan(0)
+    expect(compareCt("7704617278242816001", "7704617278242816001")).toBe(0)
+    expect(maxCt("9", "10")).toBe("10")
   })
 
-  it('validates the wire form', () => {
-    expect(isClusterTime('0')).toBe(true)
-    expect(isClusterTime('18446744073709551615')).toBe(true)
-    expect(isClusterTime('18446744073709551616')).toBe(false)
-    expect(isClusterTime('-1')).toBe(false)
-    expect(isClusterTime('1.5')).toBe(false)
+  it("validates the wire form", () => {
+    expect(isClusterTime("0")).toBe(true)
+    expect(isClusterTime("18446744073709551615")).toBe(true)
+    expect(isClusterTime("18446744073709551616")).toBe(false)
+    expect(isClusterTime("-1")).toBe(false)
+    expect(isClusterTime("1.5")).toBe(false)
     expect(isClusterTime(5)).toBe(false)
   })
 
-  it('converts driver and local timestamps', () => {
+  it("converts driver and local timestamps", () => {
     expect(toCt(new bson.Timestamp({ t: 1_793_871_004, i: 3 }))).toBe(ctFromParts(1_793_871_004, 3))
     expect(toCt(new Timestamp(5, 6))).toBe(ctFromParts(5, 6))
     expect(toCt({ t: 5 })).toBeUndefined()
   })
 })
 
-describe('errors', () => {
-  it('maps codes to their REST HTTP statuses', () => {
+describe("errors", () => {
+  it("maps codes to their REST HTTP statuses", () => {
     expect(httpStatusOf(ErrorCode.InvalidQuery)).toBe(400)
     expect(httpStatusOf(ErrorCode.BulkLimit)).toBe(400)
     expect(httpStatusOf(ErrorCode.Unauthorized)).toBe(401)
@@ -124,28 +124,28 @@ describe('errors', () => {
     expect(httpStatusOf(ErrorCode.Timeout)).toBe(504)
   })
 
-  it('rebuilds typed errors from the wire', () => {
-    expect(errorFromWire({ code: ErrorCode.Conflict, msg: 'x' })).toBeInstanceOf(ConflictError)
-    expect(errorFromWire({ code: ErrorCode.PolicyViolation, msg: 'x' })).toBeInstanceOf(
+  it("rebuilds typed errors from the wire", () => {
+    expect(errorFromWire({ code: ErrorCode.Conflict, msg: "x" })).toBeInstanceOf(ConflictError)
+    expect(errorFromWire({ code: ErrorCode.PolicyViolation, msg: "x" })).toBeInstanceOf(
       PolicyViolationError,
     )
-    const expired = errorFromWire({ code: ErrorCode.TokenExpired, msg: 'late' })
+    const expired = errorFromWire({ code: ErrorCode.TokenExpired, msg: "late" })
     expect(expired).toBeInstanceOf(UnauthorizedError)
     expect(expired.code).toBe(ErrorCode.TokenExpired)
-    const generic = errorFromWire({ code: ErrorCode.BulkLimit, msg: 'big' })
+    const generic = errorFromWire({ code: ErrorCode.BulkLimit, msg: "big" })
     expect(generic).toBeInstanceOf(CanopyError)
-    expect(generic.toWire()).toEqual({ code: ErrorCode.BulkLimit, msg: 'big' })
+    expect(generic.toWire()).toEqual({ code: ErrorCode.BulkLimit, msg: "big" })
   })
 
-  it('hides unknown failures behind CANOPY_INTERNAL', () => {
-    const wrapped = toCanopyError(new Error('secret connection string'))
+  it("hides unknown failures behind CANOPY_INTERNAL", () => {
+    const wrapped = toCanopyError(new Error("secret connection string"))
     expect(wrapped.code).toBe(ErrorCode.Internal)
-    expect(wrapped.message).not.toContain('secret')
+    expect(wrapped.message).not.toContain("secret")
   })
 })
 
-describe('closeReaction', () => {
-  it('reconnects, refreshes or gives up as each close code requires', () => {
+describe("closeReaction", () => {
+  it("reconnects, refreshes or gives up as each close code requires", () => {
     expect(closeReaction(CloseCode.Normal).reconnect).toBe(false)
     expect(closeReaction(CloseCode.Forbidden).reconnect).toBe(false)
     expect(closeReaction(CloseCode.UnsupportedVersion).reconnect).toBe(false)

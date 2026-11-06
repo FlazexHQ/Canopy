@@ -4,8 +4,8 @@ export {
   type ParsedFilter,
   type ParseFilterOptions,
   parseFilter,
-} from './filter.ts'
-export { DEFAULT_LIMITS, type QueryLimits, USING_LIMITS } from './limits.ts'
+} from "./filter.ts"
+export { DEFAULT_LIMITS, type QueryLimits, USING_LIMITS } from "./limits.ts"
 export {
   isWithin,
   normalizePositional,
@@ -13,7 +13,7 @@ export {
   pathsOverlap,
   stripIndexes,
   validatePath,
-} from './paths.ts'
+} from "./paths.ts"
 export {
   canonicalizeFilter,
   canonicalQuery,
@@ -30,4 +30,4 @@ export {
   type QueryKeyParts,
   queryHash,
   validateStoredDocument,
-} from './query.ts'
+} from "./query.ts"

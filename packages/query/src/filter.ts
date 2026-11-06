@@ -1,14 +1,14 @@
-import { isLinearRegex, isMatcherSafe } from '@canopy/matcher'
-import { InvalidQueryError, isDocument, isForbiddenKey, regexParts } from '@canopy/protocol'
-import { DEFAULT_LIMITS, type QueryLimits } from './limits.ts'
-import { validatePath } from './paths.ts'
+import { isLinearRegex, isMatcherSafe } from "@canopy/matcher"
+import { InvalidQueryError, isDocument, isForbiddenKey, regexParts } from "@canopy/protocol"
+import { DEFAULT_LIMITS, type QueryLimits } from "./limits.ts"
+import { validatePath } from "./paths.ts"
 
 /**
  * Where a filter comes from. Each context has its own operator allowlist:
  * `filter` is a caller's query, `using` a policy clause evaluated in process and by MongoDB, and `check` a
  * policy clause evaluated only by MongoDB inside the write transaction.
  */
-export type FilterContext = 'filter' | 'using' | 'check'
+export type FilterContext = "filter" | "using" | "check"
 
 /** Options for {@link parseFilter}. */
 export interface ParseFilterOptions {
@@ -29,39 +29,39 @@ export interface ParsedFilter {
   readonly hasVariables: boolean
 }
 
-const LOGICAL = new Set(['$and', '$or', '$nor'])
+const LOGICAL = new Set(["$and", "$or", "$nor"])
 const MATCHER_FIELD_OPERATORS = new Set([
-  '$eq',
-  '$ne',
-  '$gt',
-  '$gte',
-  '$lt',
-  '$lte',
-  '$in',
-  '$nin',
-  '$exists',
-  '$type',
-  '$all',
-  '$elemMatch',
-  '$size',
-  '$mod',
-  '$regex',
-  '$options',
-  '$not',
+  "$eq",
+  "$ne",
+  "$gt",
+  "$gte",
+  "$lt",
+  "$lte",
+  "$in",
+  "$nin",
+  "$exists",
+  "$type",
+  "$all",
+  "$elemMatch",
+  "$size",
+  "$mod",
+  "$regex",
+  "$options",
+  "$not",
 ])
 const FILTER_ONLY_FIELD_OPERATORS = new Set([
-  '$geoWithin',
-  '$geoIntersects',
-  '$near',
-  '$nearSphere',
-  '$bitsAllSet',
-  '$bitsAnySet',
-  '$bitsAllClear',
-  '$bitsAnyClear',
+  "$geoWithin",
+  "$geoIntersects",
+  "$near",
+  "$nearSphere",
+  "$bitsAllSet",
+  "$bitsAnySet",
+  "$bitsAllClear",
+  "$bitsAnyClear",
 ])
-const BANNED_EXPRESSIONS = new Set(['$function', '$accumulator', '$where'])
-const ALLOWED_SYSTEM_VARIABLES = new Set(['$$NOW', '$$ROOT', '$$CURRENT', '$$REMOVE'])
-const VARIABLE_KEYS = new Set(['$auth', '$ctx', '$now'])
+const BANNED_EXPRESSIONS = new Set(["$function", "$accumulator", "$where"])
+const ALLOWED_SYSTEM_VARIABLES = new Set(["$$NOW", "$$ROOT", "$$CURRENT", "$$REMOVE"])
+const VARIABLE_KEYS = new Set(["$auth", "$ctx", "$now"])
 
 /** Returns true when `value` is a policy variable such as `{ $auth: 'sub' }`. */
 export function isVariable(value: unknown): value is Record<string, unknown> {
@@ -101,16 +101,16 @@ function checkDepth(state: State, depth: number): void {
  */
 export function parseFilter(input: unknown, options: ParseFilterOptions = {}): ParsedFilter {
   const state: State = {
-    context: options.context ?? 'filter',
+    context: options.context ?? "filter",
     limits: options.limits ?? DEFAULT_LIMITS,
     variables: options.variables ?? false,
     paths: new Set(),
     nodes: 0,
     hasVariables: false,
   }
-  if (!isDocument(input)) fail('A filter must be a document')
-  validateFilterDocument(input, state, 1, '')
-  const matcherSafe = state.context === 'filter' ? isMatcherSafe(input) : state.context === 'using'
+  if (!isDocument(input)) fail("A filter must be a document")
+  validateFilterDocument(input, state, 1, "")
+  const matcherSafe = state.context === "filter" ? isMatcherSafe(input) : state.context === "using"
   return { filter: input, paths: [...state.paths], matcherSafe, hasVariables: state.hasVariables }
 }
 
@@ -125,12 +125,12 @@ function validateFilterDocument(
   count(state, keys.length)
   for (const key of keys) {
     const value = doc[key]
-    if (key.startsWith('$')) {
+    if (key.startsWith("$")) {
       validateTopOperator(key, value, state, depth, prefix)
       continue
     }
     validatePath(key, { maxLength: state.limits.maxPathLength })
-    const path = prefix === '' ? key : `${prefix}.${key}`
+    const path = prefix === "" ? key : `${prefix}.${key}`
     state.paths.add(path)
     validateCondition(value, path, state, depth + 1)
   }
@@ -152,27 +152,27 @@ function validateTopOperator(
     }
     return
   }
-  if (key === '$expr') {
-    if (state.context !== 'check') fail('$expr is only allowed in check clauses')
+  if (key === "$expr") {
+    if (state.context !== "check") fail("$expr is only allowed in check clauses")
     validateExpression(value, state, depth + 1)
     return
   }
-  if (key === '$jsonSchema') {
-    if (state.context !== 'check') fail('$jsonSchema is only allowed in check clauses')
-    if (!isDocument(value)) fail('$jsonSchema must be a document')
+  if (key === "$jsonSchema") {
+    if (state.context !== "check") fail("$jsonSchema is only allowed in check clauses")
+    if (!isDocument(value)) fail("$jsonSchema must be a document")
     validateLiteral(value, state, depth + 1, true)
     return
   }
-  if (key === '$text') {
-    if (state.context !== 'filter' || prefix !== '' || depth !== 1)
-      fail('$text is only allowed at the top level of a query')
-    if (!isDocument(value)) fail('$text must be a document')
+  if (key === "$text") {
+    if (state.context !== "filter" || prefix !== "" || depth !== 1)
+      fail("$text is only allowed at the top level of a query")
+    if (!isDocument(value)) fail("$text must be a document")
     validateLiteral(value, state, depth + 1, true)
     return
   }
-  if (key === '$comment') {
-    if (state.context !== 'filter') fail('$comment is not allowed in policies')
-    if (typeof value !== 'string') fail('$comment must be a string')
+  if (key === "$comment") {
+    if (state.context !== "filter") fail("$comment is not allowed in policies")
+    if (typeof value !== "string") fail("$comment must be a string")
     return
   }
   fail(`The operator ${key} is not allowed`)
@@ -181,7 +181,7 @@ function validateTopOperator(
 function isOperatorObject(value: unknown): value is Record<string, unknown> {
   if (!isDocument(value) || isVariable(value)) return false
   const first = Object.keys(value)[0]
-  return first?.startsWith('$') ?? false
+  return first?.startsWith("$") ?? false
 }
 
 function validateCondition(value: unknown, path: string, state: State, depth: number): void {
@@ -207,79 +207,79 @@ function validateOperators(
   count(state, keys.length)
   for (const op of keys) {
     const operand = ops[op]
-    if (!op.startsWith('$'))
+    if (!op.startsWith("$"))
       fail(`Unknown operator ${op} at ${path}: operators and fields cannot be mixed`)
     if (FILTER_ONLY_FIELD_OPERATORS.has(op)) {
-      if (state.context !== 'filter') fail(`${op} is not allowed in policies`)
+      if (state.context !== "filter") fail(`${op} is not allowed in policies`)
       validateLiteral(operand, state, depth + 1, true)
       continue
     }
     if (!MATCHER_FIELD_OPERATORS.has(op)) fail(`The operator ${op} is not allowed`)
     switch (op) {
-      case '$eq':
-      case '$ne':
-      case '$gt':
-      case '$gte':
-      case '$lt':
-      case '$lte':
+      case "$eq":
+      case "$ne":
+      case "$gt":
+      case "$gte":
+      case "$lt":
+      case "$lte":
         validateValue(operand, state, depth + 1)
         break
-      case '$in':
-      case '$nin':
-      case '$all':
+      case "$in":
+      case "$nin":
+      case "$all":
         validateList(op, operand, path, state, depth + 1)
         break
-      case '$exists':
-        if (typeof operand !== 'boolean' && typeof operand !== 'number')
-          fail('$exists needs a boolean')
+      case "$exists":
+        if (typeof operand !== "boolean" && typeof operand !== "number")
+          fail("$exists needs a boolean")
         break
-      case '$type':
+      case "$type":
         if (Array.isArray(operand)) {
           count(state, operand.length)
-          if (!operand.every((item) => typeof item === 'string' || typeof item === 'number')) {
-            fail('$type needs type names or codes')
+          if (!operand.every((item) => typeof item === "string" || typeof item === "number")) {
+            fail("$type needs type names or codes")
           }
-        } else if (typeof operand !== 'string' && typeof operand !== 'number') {
-          fail('$type needs a type name or code')
+        } else if (typeof operand !== "string" && typeof operand !== "number") {
+          fail("$type needs a type name or code")
         }
         break
-      case '$size':
-        if (typeof operand !== 'number') fail('$size needs a number')
+      case "$size":
+        if (typeof operand !== "number") fail("$size needs a number")
         break
-      case '$mod':
+      case "$mod":
         if (
           !Array.isArray(operand) ||
           operand.length !== 2 ||
-          !operand.every((item) => typeof item === 'number')
+          !operand.every((item) => typeof item === "number")
         ) {
-          fail('$mod needs [divisor, remainder]')
+          fail("$mod needs [divisor, remainder]")
         }
         break
-      case '$regex': {
-        const pattern = typeof operand === 'string' ? operand : regexParts(operand)?.pattern
-        if (pattern === undefined) fail('$regex needs a string or a regular expression')
+      case "$regex": {
+        const pattern = typeof operand === "string" ? operand : regexParts(operand)?.pattern
+        if (pattern === undefined) fail("$regex needs a string or a regular expression")
         const options =
-          typeof ops['$options'] === 'string'
-            ? ops['$options']
-            : (regexParts(operand)?.options ?? '')
+          typeof ops["$options"] === "string"
+            ? ops["$options"]
+            : (regexParts(operand)?.options ?? "")
         validateRegexParts(pattern, options, state)
         break
       }
-      case '$options':
-        if (typeof operand !== 'string' || !/^[imsxu]*$/.test(operand))
-          fail('$options must be a string of imsxu')
-        if (!keys.includes('$regex')) fail('$options needs a $regex')
+      case "$options":
+        if (typeof operand !== "string" || !/^[imsxu]*$/.test(operand))
+          fail("$options must be a string of imsxu")
+        if (!keys.includes("$regex")) fail("$options needs a $regex")
         break
-      case '$elemMatch':
+      case "$elemMatch":
         validateElemMatch(operand, path, state, depth + 1)
         break
-      case '$not':
+      case "$not":
         if (regexParts(operand) !== undefined) {
           validateRegex(operand, state)
         } else if (isOperatorObject(operand)) {
           validateOperators(operand, path, state, depth + 1)
         } else {
-          fail('$not needs a regular expression or a document of operators')
+          fail("$not needs a regular expression or a document of operators")
         }
         break
       default:
@@ -304,10 +304,10 @@ function validateList(
     fail(`${op} may not have more than ${state.limits.maxInList} values`)
   count(state, operand.length)
   for (const item of operand) {
-    if (op === '$all' && isDocument(item) && Object.keys(item)[0] === '$elemMatch') {
-      validateElemMatch(item['$elemMatch'], path, state, depth + 1)
+    if (op === "$all" && isDocument(item) && Object.keys(item)[0] === "$elemMatch") {
+      validateElemMatch(item["$elemMatch"], path, state, depth + 1)
     } else if (regexParts(item) !== undefined) {
-      if (op === '$all') fail('$all does not accept regular expressions here')
+      if (op === "$all") fail("$all does not accept regular expressions here")
       validateRegex(item, state)
     } else {
       validateValue(item, state, depth + 1)
@@ -316,11 +316,11 @@ function validateList(
 }
 
 function isOperatorKey(key: string): boolean {
-  return key.startsWith('$') && !LOGICAL.has(key)
+  return key.startsWith("$") && !LOGICAL.has(key)
 }
 
 function validateElemMatch(operand: unknown, path: string, state: State, depth: number): void {
-  if (!isDocument(operand)) fail('$elemMatch needs a document')
+  if (!isDocument(operand)) fail("$elemMatch needs a document")
   const first = Object.keys(operand)[0]
   if (first !== undefined && isOperatorKey(first)) {
     validateOperators(operand, path, state, depth)
@@ -331,7 +331,7 @@ function validateElemMatch(operand: unknown, path: string, state: State, depth: 
 
 function validateRegex(value: unknown, state: State): void {
   const parts = regexParts(value)
-  if (parts === undefined) fail('expected a regular expression')
+  if (parts === undefined) fail("expected a regular expression")
   validateRegexParts(parts.pattern, parts.options, state)
 }
 
@@ -340,9 +340,9 @@ function validateRegexParts(pattern: string, options: string, state: State): voi
     fail(`A regular expression may not be longer than ${state.limits.maxRegexLength} characters`)
   }
   if (!/^[imsxu]*$/.test(options)) fail(`Unsupported regular expression options: ${options}`)
-  if (state.context === 'using' && !isLinearRegex(pattern, options)) {
+  if (state.context === "using" && !isLinearRegex(pattern, options)) {
     fail(
-      'Regular expressions in using clauses must be compatible with a linear time engine (no backreferences or lookaround)',
+      "Regular expressions in using clauses must be compatible with a linear time engine (no backreferences or lookaround)",
     )
   }
 }
@@ -357,7 +357,7 @@ function validateValue(value: unknown, state: State, depth: number): void {
 
 function validateVariable(value: Record<string, unknown>, state: State): void {
   if (!state.variables)
-    fail(`Variables such as ${Object.keys(value)[0] ?? ''} are only allowed in policies`)
+    fail(`Variables such as ${Object.keys(value)[0] ?? ""} are only allowed in policies`)
   state.hasVariables = true
   count(state, Object.keys(value).length)
 }
@@ -379,16 +379,16 @@ function validateLiteral(
   count(state, keys.length)
   for (const key of keys) {
     if (isForbiddenKey(key)) fail(`The key "${key}" is not allowed`)
-    if (key.startsWith('$') && !allowDollarKeys) fail(`The key ${key} is not allowed in a value`)
+    if (key.startsWith("$") && !allowDollarKeys) fail(`The key ${key} is not allowed in a value`)
     validateLiteral(value[key], state, depth + 1, allowDollarKeys)
   }
 }
 
 function validateExpression(value: unknown, state: State, depth: number): void {
   checkDepth(state, depth)
-  if (typeof value === 'string') {
-    if (value.startsWith('$$')) {
-      const name = value.split('.')[0] ?? value
+  if (typeof value === "string") {
+    if (value.startsWith("$$")) {
+      const name = value.split(".")[0] ?? value
       if (!ALLOWED_SYSTEM_VARIABLES.has(name)) fail(`The system variable ${name} is not allowed`)
     }
     return

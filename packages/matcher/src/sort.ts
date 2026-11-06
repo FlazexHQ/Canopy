@@ -1,8 +1,8 @@
-import { InvalidQueryError, isDocument } from '@canopy/protocol'
-import { Bracket, bracketOf, compareValues } from './compare.ts'
-import { UnsupportedQueryError } from './errors.ts'
-import { readNumeric, toDouble } from './numeric.ts'
-import { isArrayIndex, splitPath } from './path.ts'
+import { InvalidQueryError, isDocument } from "@canopy/protocol"
+import { Bracket, bracketOf, compareValues } from "./compare.ts"
+import { UnsupportedQueryError } from "./errors.ts"
+import { readNumeric, toDouble } from "./numeric.ts"
+import { isArrayIndex, splitPath } from "./path.ts"
 
 /** One key of a sort specification. */
 export interface SortKey {
@@ -14,22 +14,22 @@ export interface SortKey {
 /** A comparator over documents. */
 export type DocComparator = (a: unknown, b: unknown) => number
 
-const EMPTY_ARRAY = Symbol('empty array')
+const EMPTY_ARRAY = Symbol("empty array")
 
 /** Parses a sort specification such as `{ createdAt: -1, _id: 1 }`. */
 export function parseSort(spec: unknown): SortKey[] {
-  if (!isDocument(spec)) throw new InvalidQueryError('A sort must be a document')
+  if (!isDocument(spec)) throw new InvalidQueryError("A sort must be a document")
   const keys: SortKey[] = []
   for (const path of Object.keys(spec)) {
     const raw = spec[path]
-    if (isDocument(raw)) throw new UnsupportedQueryError('$meta sorts are not evaluated in process')
+    if (isDocument(raw)) throw new UnsupportedQueryError("$meta sorts are not evaluated in process")
     const numeric = readNumeric(raw)
     const value = numeric === undefined ? Number.NaN : toDouble(numeric)
     if (value !== 1 && value !== -1) {
       throw new InvalidQueryError(`The sort direction for ${path} must be 1 or -1`)
     }
     const parts = splitPath(path)
-    if (path === '' || parts.some((part) => part === '' || part.startsWith('$'))) {
+    if (path === "" || parts.some((part) => part === "" || part.startsWith("$"))) {
       throw new InvalidQueryError(`Invalid sort path: ${path}`)
     }
     keys.push({ path, parts, direction: value })
@@ -54,7 +54,7 @@ interface Cursor {
   readonly element?: boolean
 }
 
-const PARALLEL = 'cannot sort with keys that are parallel arrays'
+const PARALLEL = "cannot sort with keys that are parallel arrays"
 
 function leafKey(cursor: Cursor): unknown {
   return cursor.value === undefined ? null : cursor.value
@@ -64,7 +64,7 @@ function advance(cursor: Cursor, parts: readonly string[]): Cursor {
   let { value, index } = cursor
   let positional = cursor.positional
   while (index < parts.length) {
-    const part = parts[index] ?? ''
+    const part = parts[index] ?? ""
     if (Array.isArray(value)) {
       if (!isArrayIndex(part)) break
       value = value[Number(part)]
@@ -151,17 +151,17 @@ function arrayPrefixes(root: unknown, parts: readonly string[]): string[] {
     if (Array.isArray(value)) {
       out.push(prefix)
       if (index === parts.length) return
-      const part = parts[index] ?? ''
+      const part = parts[index] ?? ""
       const next = `${prefix}.${part}`
       if (isArrayIndex(part)) visit(value[Number(part)], index + 1, next)
       for (const element of value) if (isDocument(element)) visit(element[part], index + 1, next)
       return
     }
     if (index === parts.length || !isDocument(value)) return
-    const part = parts[index] ?? ''
-    visit(value[part], index + 1, prefix === '' ? part : `${prefix}.${part}`)
+    const part = parts[index] ?? ""
+    visit(value[part], index + 1, prefix === "" ? part : `${prefix}.${part}`)
   }
-  visit(root, 0, '')
+  visit(root, 0, "")
   return out
 }
 
@@ -215,14 +215,14 @@ export function sortKeyOf(doc: unknown, key: SortKey): unknown {
  */
 export function compileSort(spec: unknown): DocComparator {
   const keys = parseSort(spec)
-  if (!keys.some((key) => key.path === '_id')) {
-    keys.push({ path: '_id', parts: ['_id'], direction: 1 })
+  if (!keys.some((key) => key.path === "_id")) {
+    keys.push({ path: "_id", parts: ["_id"], direction: 1 })
   }
   return (a, b) => compareTuples(bestTuple(a, keys), bestTuple(b, keys), keys)
 }
 
 /** Returns the sort specification with the `_id` tie breaker appended, for queries sent to MongoDB. */
 export function withIdTieBreaker(spec: Readonly<Record<string, unknown>>): Record<string, unknown> {
-  if (Object.hasOwn(spec, '_id')) return { ...spec }
+  if (Object.hasOwn(spec, "_id")) return { ...spec }
   return { ...spec, _id: 1 }
 }

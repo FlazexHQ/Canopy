@@ -4,9 +4,9 @@ import {
   encodeMessage,
   type SequencedMessage,
   type WireError,
-} from '@canopy/protocol'
-import type { Doc } from './event.ts'
-import type { ObserverListener } from './observers.ts'
+} from "@canopy/protocol"
+import type { Doc } from "./event.ts"
+import type { ObserverListener } from "./observers.ts"
 
 /** A transport level socket. Adapters exist for `ws` on Node and for `Bun.serve`. */
 export interface RealtimeSocket {
@@ -19,7 +19,7 @@ export interface RealtimeSocket {
 /** The content of a server message before it gets its sequence number. */
 export type Outgoing = SequencedMessage extends infer M
   ? M extends { seq: number }
-    ? Omit<M, 'seq'>
+    ? Omit<M, "seq">
     : never
   : never
 
@@ -86,8 +86,8 @@ export class Session {
   constructor(sid: string, caps: ReadonlySet<string>, limits: SessionLimits) {
     this.sid = sid
     this.limits = limits
-    this.diffs = caps.has('diff')
-    this.batching = caps.has('batch')
+    this.diffs = caps.has("diff")
+    this.batching = caps.has("batch")
   }
 
   /** The last sequence number sent. */
@@ -103,7 +103,7 @@ export class Session {
   /** Attaches a socket and writes the welcome frame (always `seq: 0`). */
   connect(
     socket: RealtimeSocket,
-    welcome: Omit<Extract<SequencedMessage, { t: 'welcome' }>, 'seq'>,
+    welcome: Omit<Extract<SequencedMessage, { t: "welcome" }>, "seq">,
   ): void {
     this.socket = socket
     this.disconnectedAt = undefined
@@ -170,7 +170,7 @@ export class Session {
       this.onSlowConsumer?.()
       return
     }
-    if (this.batching && queued.length > 1) socket.send(`{"t":"batch","m":[${queued.join(',')}]}`)
+    if (this.batching && queued.length > 1) socket.send(`{"t":"batch","m":[${queued.join(",")}]}`)
     else for (const text of queued) socket.send(text)
   }
 
@@ -186,7 +186,7 @@ export class Session {
       added: (key, id, doc, ct) => this.added(coll, key, id, subId, project(doc), ct),
       changed: (key, id, doc, ct) => this.changed(coll, key, id, subId, project(doc), coverage, ct),
       removed: (key, _id, ct) => this.removed(coll, key, subId, ct),
-      ready: (ct) => this.send({ t: 'ready', s: subId, ct }),
+      ready: (ct) => this.send({ t: "ready", s: subId, ct }),
       failed: (error) => this.endSubscription(subId, error.toWire()),
     }
   }
@@ -209,19 +209,19 @@ export class Session {
     const entry = this.mergeBox.get(key)
     if (entry === undefined) {
       this.mergeBox.set(key, { coll, id, subs: new Set([subId]), doc })
-      this.send({ t: 'added', c: coll, id, d: doc, ct, s: [subId] })
+      this.send({ t: "added", c: coll, id, d: doc, ct, s: [subId] })
       return
     }
     const merged: Doc = { ...entry.doc, ...doc }
     const known = entry.subs.has(subId)
     entry.subs.add(subId)
     if (canonicalString(merged) === canonicalString(entry.doc)) {
-      if (!known) this.send({ t: 'added', c: coll, id, ct, s: [subId] })
+      if (!known) this.send({ t: "added", c: coll, id, ct, s: [subId] })
       return
     }
     entry.doc = merged
     if (known) this.sendChange(coll, id, ct, entry.doc, merged)
-    else this.send({ t: 'added', c: coll, id, d: merged, ct, s: [subId] })
+    else this.send({ t: "added", c: coll, id, d: merged, ct, s: [subId] })
   }
 
   private changed(
@@ -252,7 +252,7 @@ export class Session {
     if (Object.keys(set).length === 0 && unset.length === 0) return
     if (this.diffs) {
       this.send({
-        t: 'changed',
+        t: "changed",
         c: coll,
         id,
         ct,
@@ -260,7 +260,7 @@ export class Session {
         ...(unset.length === 0 ? {} : { unset }),
       })
     } else {
-      this.send({ t: 'changed', c: coll, id, ct, d: after, replace: true })
+      this.send({ t: "changed", c: coll, id, ct, d: after, replace: true })
     }
   }
 
@@ -269,7 +269,7 @@ export class Session {
     if (entry === undefined || !entry.subs.has(subId)) return
     entry.subs.delete(subId)
     if (entry.subs.size === 0) this.mergeBox.delete(key)
-    this.send({ t: 'removed', c: coll, id: entry.id, ct, s: [subId] })
+    this.send({ t: "removed", c: coll, id: entry.id, ct, s: [subId] })
   }
 
   /** Removes a subscription from the merge box without messages (used by `unsub` and resync). */
