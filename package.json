@@ -10,7 +10,8 @@
   "workspaces": {
     "packages": [
       "packages/*",
-      "apps/*"
+      "apps/*",
+      "examples/*"
     ],
     "catalog": {
       "@biomejs/biome": "2.6.3",

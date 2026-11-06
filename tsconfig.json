@@ -28,6 +28,8 @@
     { "path": "packages/react" },
     { "path": "packages/react/test" },
     { "path": "packages/cli" },
-    { "path": "packages/cli/test" }
+    { "path": "packages/cli/test" },
+    { "path": "examples/express-dropin" },
+    { "path": "examples/express-dropin/web" }
   ]
 }
