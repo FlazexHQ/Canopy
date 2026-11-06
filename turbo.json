@@ -8,7 +8,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "inputs": ["src/**", "vitest.config.ts", "package.json"],
+      "inputs": ["src/**", "test/**", "vectors/**", "vitest.config.ts", "package.json"],
       "outputs": []
     },
     "test:integration": {

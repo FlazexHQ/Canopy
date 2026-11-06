@@ -11,5 +11,23 @@
     "tsBuildInfoFile": "node_modules/.cache/tsc/root.tsbuildinfo"
   },
   "include": ["*.ts"],
-  "references": []
+  "references": [
+    { "path": "packages/testing" },
+    { "path": "packages/protocol" },
+    { "path": "packages/protocol/test" },
+    { "path": "packages/matcher" },
+    { "path": "packages/matcher/test" },
+    { "path": "packages/query" },
+    { "path": "packages/query/test" },
+    { "path": "packages/policy" },
+    { "path": "packages/policy/test" },
+    { "path": "packages/realtime" },
+    { "path": "packages/realtime/test" },
+    { "path": "packages/client" },
+    { "path": "packages/client/test" },
+    { "path": "packages/react" },
+    { "path": "packages/react/test" },
+    { "path": "packages/cli" },
+    { "path": "packages/cli/test" }
+  ]
 }
