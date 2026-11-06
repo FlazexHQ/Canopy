@@ -1,0 +1,79 @@
+export {
+  type AuthVariable,
+  allow,
+  auth,
+  type ClaimCoercion,
+  type CollectionOptions,
+  type CtxVariable,
+  collection,
+  context,
+  ctx,
+  type NowVariable,
+  now,
+  PolicyBuilder,
+  restrict,
+} from './dsl.ts'
+export {
+  and,
+  type Compiled,
+  createPolicySet,
+  DENY_FILTER,
+  type EngineHooks,
+  type ExplainedPolicy,
+  type Explanation,
+  PolicyEngine,
+  type PolicySet,
+  toFilter,
+} from './engine.ts'
+export {
+  canAccess,
+  deniedPaths,
+  documentPaths,
+  type FieldAccess,
+  fieldAccess,
+  intersectProjection,
+  projectReadable,
+  toProjection,
+} from './fields.ts'
+export { type LintEnvironment, type LintFinding, type LintSeverity, lintPolicies } from './lint.ts'
+export {
+  type CollectionFields,
+  type CollectionPolicies,
+  type ContextDefinitions,
+  type ContextLookup,
+  type FieldRule,
+  type FieldRules,
+  type FilterTemplate,
+  OPERATIONS,
+  type Operation,
+  type PolicyDefinition,
+  type PolicyKind,
+  type RequestContext,
+  Role,
+} from './model.ts'
+export {
+  CONTEXT_DOCUMENT_ID,
+  fromStored,
+  hashCollection,
+  hashPolicySet,
+  type StoredCollectionPolicies,
+  type StoredPolicy,
+  toStored,
+} from './stored.ts'
+export {
+  POLICY_LIMITS,
+  PolicyValidationError,
+  validateCollectionPolicies,
+  validateContexts,
+} from './validate.ts'
+export {
+  claimPaths,
+  MAX_VARIABLE_LIST,
+  type ResolvedClause,
+  readClaim,
+  resolveClause,
+  shiftDate,
+  usesNow,
+  type VariableIssue,
+  type VariableIssueKind,
+} from './variables.ts'
