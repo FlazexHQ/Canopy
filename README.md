@@ -67,6 +67,10 @@ const { data, status } = db.todos.useQuery({ done: false }, { sort: { createdAt:
 
 Check a deployment and test policies with `canopy doctor` and `canopy policies test --mongodb-uri ...`.
 
+The full walkthrough is the [sidecar quickstart](packages/realtime/README.md#sidecar-quickstart-about-10-minutes),
+and [`examples/express-dropin`](examples/express-dropin) turns an Express, Mongoose and Auth0 helpdesk into a live
+dashboard with no server code changes.
+
 ## Requirements
 
 - [Bun](https://bun.com) 1.4 or newer (primary runtime and the repository's package manager)
@@ -103,6 +107,7 @@ they do not work on a standalone server.
 | ----------------- | --------------------------------------------------------------------- |
 | `packages/`       | Libraries published as `@canopy/*`                                    |
 | `apps/`           | Applications such as Studio and the docs site                         |
+| `examples/`       | Runnable example apps with end to end tests                           |
 | `deploy/`         | Docker Compose files and deployment assets                            |
 | `tsconfig.*.json` | Shared TypeScript 6 settings: `server`, `universal`, `web` and `edge` |
 

@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Canopy (working name) is an open source, self hostable backend platform for MongoDB, "Supabase for MongoDB".
 The repository is in **Phase 1 (DLS core and Canopy Realtime, v0.1)**. Packages: `protocol`, `matcher`, `query`,
 `policy` (universal), `realtime` (engine plus the `canopy-realtime` sidecar), `client`, `react`, `cli` and the private
-`testing` harness. Not built yet: the `express-dropin` example and the sidecar quickstart. The only branch is
+`testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar),
+and the sidecar quickstart is `packages/realtime/README.md`. The only branch is
 **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers and Changesets.
 `docs/` is the source of truth for the design:
 start at `docs/README.md` (reading order, one page summary, glossary), then `docs/plan/00` to `13`, then the ADRs in
@@ -99,6 +100,11 @@ Package layout: library code in `src/` (built by the package `tsconfig.json`), t
 `tsconfig.json` on the server variant (so tests may use `node:` modules and the driver). Workspace packages export
 their sources under the `@canopy/source` condition, which `vitest.shared.ts` enables, so tests run without a
 build. Protocol conformance vectors live in `packages/protocol/vectors/` and run through the client.
+
+Examples are private workspace members named `@canopy/example-<name>` with end to end tests in CI. They pin
+third party versions directly (no `catalog:`) so they stay copyable, run their server TypeScript directly on
+Node 24+ or Bun, and their scripts call `node` so `npm`, `pnpm` and `yarn` work; `bun --bun run <script>` runs
+the same scripts on Bun. Their tests spawn `canopy-realtime` from source with `--conditions=@canopy/source`.
 
 Adding a package: create `packages/<name>/` by hand with `package.json` (`@canopy/<name>`, `"type": "module"`),
 a `tsconfig.json` that extends one of the root `tsconfig.{server,universal,web,edge}.json` and sets `rootDir`,
