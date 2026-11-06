@@ -50,6 +50,7 @@ export {
   ValidationError,
   type WireError,
 } from './errors.ts'
+export { type BsonLibrary, toBsonLibrary } from './interop.ts'
 export {
   type AckMessage,
   type AckResult,
