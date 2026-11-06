@@ -1,0 +1,36 @@
+{
+  "name": "@canopy/auth",
+  "version": "0.0.0",
+  "description": "Canopy authentication: API keys and bring your own identity provider JWTs verified through JWKS, turned into DLS request contexts.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "jose": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

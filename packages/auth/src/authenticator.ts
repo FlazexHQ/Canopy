@@ -178,6 +178,35 @@ function readPath(payload: JWTPayload, path: string): unknown {
   return value
 }
 
+/** The credentials an HTTP request carries. */
+export interface Credentials {
+  readonly key: string
+  readonly token: string | undefined
+}
+
+const SECRET_KEY_PREFIX = 'canopy_sk_'
+
+/**
+ * Reads the `apikey` and `Authorization: Bearer` headers. A secret key may also arrive as the bearer
+ * token, for server callers that only set `Authorization`. Throws {@link UnauthorizedError} for a
+ * malformed `Authorization` header.
+ */
+export function credentialsFromHeaders(headers: Headers): Credentials {
+  const key = headers.get('apikey') ?? ''
+  const authorization = headers.get('authorization')
+  if (authorization === null) return { key, token: undefined }
+  const match = /^Bearer[ ]+(\S+)[ ]*$/i.exec(authorization)
+  if (match === null || match[1] === undefined)
+    throw new UnauthorizedError('The Authorization header must use the Bearer scheme')
+  const token = match[1]
+  if (token.startsWith(SECRET_KEY_PREFIX)) {
+    if (key !== '' && key !== token)
+      throw new UnauthorizedError('The apikey header and the bearer secret key differ')
+    return { key: token, token: undefined }
+  }
+  return { key, token }
+}
+
 /** True when the error means the token expired rather than being invalid. */
 export function isExpired(error: unknown): boolean {
   return error instanceof UnauthorizedError && error.code === ErrorCode.TokenExpired

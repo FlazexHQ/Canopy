@@ -1,0 +1,45 @@
+{
+  "name": "@canopy/rest",
+  "version": "0.0.0",
+  "description": "Canopy Data API: the DLS enforced REST endpoints and the transactional write path shared with realtime mutations.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run",
+    "bench": "node --conditions=@canopy/source bench/write-cost.ts"
+  },
+  "dependencies": {
+    "@canopy/auth": "workspace:*",
+    "@canopy/matcher": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/query": "workspace:*"
+  },
+  "peerDependencies": {
+    "mongodb": "^7.0.0"
+  },
+  "devDependencies": {
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "fast-check": "catalog:",
+    "mongodb": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

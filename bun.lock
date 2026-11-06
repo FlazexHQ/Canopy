@@ -43,6 +43,20 @@
         "vitest": "5.0.5",
       },
     },
+    "packages/auth": {
+      "name": "@canopy/auth",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/policy": "workspace:*",
+        "@canopy/protocol": "workspace:*",
+        "jose": "catalog:",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/cli": {
       "name": "@canopy/cli",
       "version": "0.0.0",
@@ -165,17 +179,40 @@
         "canopy-realtime": "./dist/bin/canopy-realtime.js",
       },
       "dependencies": {
+        "@canopy/auth": "workspace:*",
         "@canopy/matcher": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/query": "workspace:*",
-        "jose": "catalog:",
         "ws": "catalog:",
       },
       "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
         "@types/ws": "catalog:",
+        "fast-check": "catalog:",
+        "jose": "catalog:",
+        "mongodb": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+      "peerDependencies": {
+        "mongodb": "^7.0.0",
+      },
+    },
+    "packages/rest": {
+      "name": "@canopy/rest",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/auth": "workspace:*",
+        "@canopy/matcher": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/protocol": "workspace:*",
+        "@canopy/query": "workspace:*",
+      },
+      "devDependencies": {
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
         "fast-check": "catalog:",
         "mongodb": "catalog:",
         "typescript": "catalog:",
@@ -249,6 +286,8 @@
 
     "@biomejs/cli-win32-x64": ["@biomejs/cli-win32-x64@2.6.3", "", { "os": "win32", "cpu": "x64" }, "sha512-GhtOPphBWlnCepqpNk/w5eGN5oGRCzL20EbAkL1XCIpyboeVC9R642noyT43l8LSenGS4qz9IL8sKPfwY37V/Q=="],
 
+    "@canopy/auth": ["@canopy/auth@workspace:packages/auth"],
+
     "@canopy/cli": ["@canopy/cli@workspace:packages/cli"],
 
     "@canopy/client": ["@canopy/client@workspace:packages/client"],
@@ -266,6 +305,8 @@
     "@canopy/react": ["@canopy/react@workspace:packages/react"],
 
     "@canopy/realtime": ["@canopy/realtime@workspace:packages/realtime"],
+
+    "@canopy/rest": ["@canopy/rest@workspace:packages/rest"],
 
     "@canopy/testing": ["@canopy/testing@workspace:packages/testing"],
 

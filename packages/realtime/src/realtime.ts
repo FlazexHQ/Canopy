@@ -1,3 +1,4 @@
+import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from '@canopy/auth'
 import {
   type CompiledProjection,
   compileFilter,
@@ -32,7 +33,6 @@ import {
 } from '@canopy/protocol'
 import { DEFAULT_LIMITS, parseQuery, queryHash } from '@canopy/query'
 import type { MongoClient } from 'mongodb'
-import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from './auth.ts'
 import type { ControlEvent, Doc, NormalizedEvent } from './event.ts'
 import {
   type CheckpointStore,

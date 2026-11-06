@@ -1,5 +1,5 @@
+export { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from '@canopy/auth'
 export { toCt } from '@canopy/protocol'
-export { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from './auth.ts'
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from './event.ts'
 export {
   type CheckpointStore,

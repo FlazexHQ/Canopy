@@ -11,6 +11,7 @@
     { "path": "../protocol" },
     { "path": "../matcher" },
     { "path": "../query" },
-    { "path": "../policy" }
+    { "path": "../policy" },
+    { "path": "../auth" }
   ]
 }
