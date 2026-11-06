@@ -1,9 +1,9 @@
 import { compileFilter } from '@canopy/matcher'
 import { allow, auth, collection, createPolicySet, restrict } from '@canopy/policy'
-import { canonicalString, ErrorCode } from '@canopy/protocol'
+import { canonicalString, ErrorCode, Long, ObjectId } from '@canopy/protocol'
 import { MONGODB_URI } from '@canopy/testing'
 import fc from 'fast-check'
-import type { Collection, Document } from 'mongodb'
+import { BSON, type Collection, type Document } from 'mongodb'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   type Keys,
@@ -121,6 +121,23 @@ suite('realtime engine against MongoDB', () => {
     await rows().deleteOne({ _id: 1 })
     await client.until(() => !client.ids('s1').map(Number).includes(1))
     expect(client.ids('s1').map(Number)).toEqual([3])
+  })
+
+  it('runs snapshots for filters holding EJSON BSON values such as $oid and $numberLong', async () => {
+    const hex = '6728f0c2a1b2c3d4e5f60718'
+    await rows().insertMany([
+      { _id: 1, ownerId: 'alice', ref: new BSON.ObjectId(hex), n: BSON.Long.fromNumber(5) },
+      { _id: 2, ownerId: 'alice', ref: new BSON.ObjectId(), n: BSON.Long.fromNumber(5) },
+      { _id: 3, ownerId: 'alice', ref: new BSON.ObjectId(hex), n: BSON.Long.fromNumber(6) },
+    ])
+    const client = await connect(alice)
+    await client.subscribe('s1', 'todos', {
+      filter: { ref: new ObjectId(hex), n: new Long(5n) },
+    })
+    expect(client.messages.some((m) => m.t === 'nosub')).toBe(false)
+    expect(client.ids('s1').map(Number)).toEqual([1])
+    await rows().updateOne({ _id: 3 }, { $set: { n: BSON.Long.fromNumber(5) } })
+    await client.until(() => client.ids('s1').map(Number).includes(3))
   })
 
   it('never sends a document to a subscriber the policy does not allow, nor removes one it never had', async () => {
