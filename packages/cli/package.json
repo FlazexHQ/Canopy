@@ -1,0 +1,40 @@
+{
+  "name": "@canopy/cli",
+  "version": "0.0.0",
+  "description": "The canopy command line: doctor and policy lint and test.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/commands.d.ts",
+      "@canopy/source": "./src/commands.ts",
+      "default": "./dist/commands.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "canopy": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/policy": "workspace:*",
+    "@canopy/query": "workspace:*",
+    "@canopy/realtime": "workspace:*",
+    "mongodb": "catalog:"
+  },
+  "devDependencies": {
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

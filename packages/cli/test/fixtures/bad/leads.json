@@ -1,0 +1,17 @@
+{
+  "_id": "leads",
+  "version": 1,
+  "exposed": true,
+  "realtime": false,
+  "policies": [
+    { "name": "anyone edits", "kind": "permissive", "ops": ["update"], "roles": ["anon"] },
+    {
+      "name": "tenant",
+      "kind": "permissive",
+      "ops": ["read"],
+      "roles": ["authenticated"],
+      "using": "{\"tenant\":{\"$auth\":\"user_metadata.tenant\"}}"
+    }
+  ],
+  "hash": "ignored"
+}
