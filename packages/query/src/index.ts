@@ -3,6 +3,7 @@ export {
   isVariable,
   type ParsedFilter,
   type ParseFilterOptions,
+  parseExpression,
   parseFilter,
 } from "./filter.ts"
 export { DEFAULT_LIMITS, type QueryLimits, USING_LIMITS } from "./limits.ts"

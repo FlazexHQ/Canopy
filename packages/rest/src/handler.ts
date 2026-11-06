@@ -219,32 +219,48 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     return jsonResponse({ data: result.doc, ct: result.ct }, encoding)
   }
 
+  const aggregate: Route = async (exchange) => {
+    const input = await body(exchange)
+    if (!isDocument(input)) throw new InvalidQueryError("The aggregate body must be a document")
+    for (const key of Object.keys(input)) {
+      if (key !== "pipeline") throw new InvalidQueryError(`Unknown aggregate field ${key}`)
+    }
+    const result = await reads.aggregate(
+      exchange.caller,
+      exchange.segments[0] ?? "",
+      input["pipeline"],
+      { signal: exchange.request.signal },
+    )
+    return jsonResponse({ data: result.docs, ct: result.ct }, exchange.encoding)
+  }
+
+  const actions: Readonly<Record<string, Route>> = {
+    _query: query,
+    _count: count,
+    _distinct: distinct,
+    _aggregate: aggregate,
+  }
+
   /** Picks the route of a path and method, or the methods the path allows. */
   const resolve = (
     segments: readonly string[],
     method: string,
   ): { readonly route?: Route; readonly allow: readonly string[] } => {
+    const [first, second] = segments
+    const action =
+      second !== undefined && Object.hasOwn(actions, second) ? actions[second] : undefined
     const table: Readonly<Record<string, Route>> =
       segments.length === 0
         ? { GET: listCollections }
-        : segments.length === 1 && segments[0] === "_batch"
+        : segments.length === 1 && first === "_batch"
           ? { POST: write.batch }
           : segments.length === 1
             ? { GET: find, POST: write.insert, PATCH: write.updateMany, DELETE: write.deleteMany }
-            : segments.length === 2 && segments[1] === "_query"
-              ? { POST: query }
-              : segments.length === 2 && segments[1] === "_count"
-                ? { POST: count }
-                : segments.length === 2 && segments[1] === "_distinct"
-                  ? { POST: distinct }
-                  : segments.length === 2
-                    ? {
-                        GET: findOne,
-                        PATCH: write.update,
-                        PUT: write.replace,
-                        DELETE: write.remove,
-                      }
-                    : {}
+            : segments.length === 2 && action !== undefined
+              ? { POST: action }
+              : segments.length === 2
+                ? { GET: findOne, PATCH: write.update, PUT: write.replace, DELETE: write.remove }
+                : {}
     const route = Object.hasOwn(table, method) ? table[method] : undefined
     return { ...(route === undefined ? {} : { route }), allow: Object.keys(table) }
   }

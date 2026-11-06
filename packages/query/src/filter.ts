@@ -16,6 +16,11 @@ export interface ParseFilterOptions {
   readonly limits?: QueryLimits
   /** Accept policy variables (`$auth`, `$ctx`, `$now`) in value positions. */
   readonly variables?: boolean
+  /**
+   * Accept `$expr` in a caller filter, with the variables an aggregation pipeline binds (`$$name`, starting
+   * with a lower case letter). Used for the `$match` stages of sanitized aggregations.
+   */
+  readonly expressions?: boolean
 }
 
 /** The result of validating a filter. */
@@ -62,6 +67,7 @@ const FILTER_ONLY_FIELD_OPERATORS = new Set([
 const BANNED_EXPRESSIONS = new Set(["$function", "$accumulator", "$where"])
 const ALLOWED_SYSTEM_VARIABLES = new Set(["$$NOW", "$$ROOT", "$$CURRENT", "$$REMOVE"])
 const VARIABLE_KEYS = new Set(["$auth", "$ctx", "$now"])
+const USER_VARIABLE = /^\$\$[a-z][A-Za-z0-9_]*$/
 
 /** Returns true when `value` is a policy variable such as `{ $auth: 'sub' }`. */
 export function isVariable(value: unknown): value is Record<string, unknown> {
@@ -75,6 +81,7 @@ interface State {
   readonly context: FilterContext
   readonly limits: QueryLimits
   readonly variables: boolean
+  readonly expressions: boolean
   readonly paths: Set<string>
   nodes: number
   hasVariables: boolean
@@ -104,6 +111,7 @@ export function parseFilter(input: unknown, options: ParseFilterOptions = {}): P
     context: options.context ?? "filter",
     limits: options.limits ?? DEFAULT_LIMITS,
     variables: options.variables ?? false,
+    expressions: options.expressions ?? false,
     paths: new Set(),
     nodes: 0,
     hasVariables: false,
@@ -153,7 +161,8 @@ function validateTopOperator(
     return
   }
   if (key === "$expr") {
-    if (state.context !== "check") fail("$expr is only allowed in check clauses")
+    if (state.context !== "check" && !state.expressions)
+      fail("$expr is only allowed in check clauses")
     validateExpression(value, state, depth + 1)
     return
   }
@@ -384,12 +393,31 @@ function validateLiteral(
   }
 }
 
+/**
+ * Validates an aggregation expression from an untrusted caller: `$function`, `$accumulator` and `$where`
+ * are rejected at any depth, and so are system variables other than `$$NOW`, `$$ROOT`, `$$CURRENT` and
+ * `$$REMOVE`. Variables bound by the pipeline (`$$name`) are accepted. Throws {@link InvalidQueryError}.
+ */
+export function parseExpression(input: unknown, limits: QueryLimits = DEFAULT_LIMITS): void {
+  const state: State = {
+    context: "filter",
+    limits,
+    variables: false,
+    expressions: true,
+    paths: new Set(),
+    nodes: 0,
+    hasVariables: false,
+  }
+  validateExpression(input, state, 1)
+}
+
 function validateExpression(value: unknown, state: State, depth: number): void {
   checkDepth(state, depth)
   if (typeof value === "string") {
     if (value.startsWith("$$")) {
       const name = value.split(".")[0] ?? value
-      if (!ALLOWED_SYSTEM_VARIABLES.has(name)) fail(`The system variable ${name} is not allowed`)
+      if (!ALLOWED_SYSTEM_VARIABLES.has(name) && !(state.expressions && USER_VARIABLE.test(name)))
+        fail(`The system variable ${name} is not allowed`)
     }
     return
   }

@@ -11,6 +11,7 @@ import {
   type PolicyEngine,
   projectReadable,
   Role,
+  securePipeline,
   toFilter,
 } from "@canopy/policy"
 import {
@@ -56,6 +57,10 @@ export interface ReadLimits {
   readonly maxSkip: number
   /** The most values a `distinct` may return. */
   readonly maxDistinct: number
+  /** The most documents an aggregation may return. */
+  readonly maxAggregateResults: number
+  /** The most stages an aggregation may have, counting nested ones. */
+  readonly maxPipelineStages: number
   /** Time limit of each read. */
   readonly maxTimeMS: number
 }
@@ -66,6 +71,8 @@ export const DEFAULT_READ_LIMITS: ReadLimits = {
   maxLimit: 1000,
   maxSkip: 10_000,
   maxDistinct: 1000,
+  maxAggregateResults: 1000,
+  maxPipelineStages: 20,
   maxTimeMS: 5000,
 }
 
@@ -364,6 +371,44 @@ export class ReadPath {
           `The field has more than ${this.limits.maxDistinct} distinct values; narrow the filter`,
         )
       return { values }
+    })
+  }
+
+  /**
+   * Runs a caller's aggregation pipeline after {@link securePipeline} has put the DLS prefix in front of
+   * it and rewritten its `$lookup` and `$unionWith` stages. Throws {@link InvalidQueryError} for rejected
+   * stages and expressions, and when the result has more than `maxAggregateResults` documents.
+   */
+  async aggregate(
+    caller: Caller,
+    collection: string,
+    pipeline: unknown,
+    options: ReadOptions = {},
+  ): Promise<{ readonly docs: readonly Record<string, unknown>[]; readonly ct: ClusterTime }> {
+    abortCheck(options.signal)
+    const planned = this.plan(caller, collection)
+    const max = this.limits.maxAggregateResults
+    const secured = securePipeline(planned.engine, planned.name, pipeline, caller.context, {
+      maxStages: this.limits.maxPipelineStages,
+      maxSample: max,
+      query: this.queryLimits,
+    })
+    return this.inSnapshot(planned.service, async (session) => {
+      const docs = (await this.db
+        .collection(planned.name)
+        .aggregate(toDriver([...secured, { $limit: max + 1 }]) as unknown as Document[], {
+          session,
+          maxTimeMS: this.limits.maxTimeMS,
+          allowDiskUse: planned.service,
+          ...EXACT_BSON,
+        })
+        .toArray()) as Record<string, unknown>[]
+      abortCheck(options.signal)
+      if (docs.length > max)
+        throw new InvalidQueryError(
+          `The aggregation returned more than ${max} documents; add a $limit stage`,
+        )
+      return { docs }
     })
   }
 

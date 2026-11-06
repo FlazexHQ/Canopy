@@ -1,3 +1,4 @@
+export { DEFAULT_PIPELINE_LIMITS, type PipelineLimits, securePipeline } from "./aggregate.ts"
 export {
   type AuthVariable,
   allow,
