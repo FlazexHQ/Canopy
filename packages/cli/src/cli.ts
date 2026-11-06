@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { doctor, type Output, policiesLint, policiesTest } from "./commands.ts"
+import { genTypes } from "./gen-types.ts"
 
 const USAGE = `Usage: canopy <command> [options]
 
@@ -7,11 +8,17 @@ Commands:
   doctor                 Check MongoDB, change streams, policies and indexes
   policies lint          Validate and lint the policy directory
   policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB
+  gen types              Generate the Database types from validators, config and sampled documents
 
 Options:
   --dir <path>           Policy directory (default ./canopy/policies)
   --mongodb-uri <uri>    MongoDB connection string (default $MONGODB_URI)
-  --database <name>      App database for doctor (default $CANOPY_DB or the URI path)
+  --database <name>      App database (default $CANOPY_DB or the URI path)
+  --out <file>           gen types: the file to write (default src/canopy.gen.ts)
+  --role <role>          gen types: make fields this role cannot read optional
+  --check                gen types: fail when the file is out of date instead of writing it
+  --infer-enums          gen types: turn low cardinality string fields into literal unions
+  --sample <n>           gen types: documents sampled per collection (default 1000)
   --help                 Show this help`
 
 /** Parses `--name value` flags. */
@@ -60,9 +67,10 @@ export async function run(
   if (command === "policies" && sub === "lint") return policiesLint({ dir }, out)
   if (command === "policies" && sub === "test")
     return policiesTest({ dir, ...(uri === undefined ? {} : { mongodbUri: uri }) }, out)
-  if (command === "doctor") {
+  const name = command === "gen" && sub === "types" ? "gen types" : command
+  if (command === "doctor" || name === "gen types") {
     if (uri === undefined) {
-      out.error("doctor needs --mongodb-uri or MONGODB_URI")
+      out.error(`${name} needs --mongodb-uri or MONGODB_URI`)
       return 1
     }
     const database =
@@ -70,10 +78,30 @@ export async function run(
       env["CANOPY_DB"] ??
       new URL(uri.replace(/^mongodb(\+srv)?:/, "http:")).pathname.slice(1)
     if (database === "") {
-      out.error("doctor needs --database, CANOPY_DB or a database in the URI path")
+      out.error(`${name} needs --database, CANOPY_DB or a database in the URI path`)
       return 1
     }
-    return doctor({ mongodbUri: uri, database, ...(flags.has("dir") ? { dir } : {}) }, out)
+    if (command === "doctor")
+      return doctor({ mongodbUri: uri, database, ...(flags.has("dir") ? { dir } : {}) }, out)
+    const sample = text(flags, "sample")
+    const role = text(flags, "role")
+    if (sample !== undefined && !/^[1-9]\d*$/.test(sample)) {
+      out.error("--sample needs a positive integer")
+      return 1
+    }
+    return genTypes(
+      {
+        mongodbUri: uri,
+        database,
+        out: text(flags, "out") ?? "src/canopy.gen.ts",
+        check: flags.has("check"),
+        inferEnums: flags.has("infer-enums"),
+        ...(flags.has("dir") ? { dir } : {}),
+        ...(role === undefined ? {} : { role }),
+        ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
+      },
+      out,
+    )
   }
   out.error(`Unknown command: ${positional.join(" ")}\n\n${USAGE}`)
   return 1

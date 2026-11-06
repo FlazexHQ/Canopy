@@ -26,6 +26,7 @@ export {
 export { type IdType, parseId } from "./ids.ts"
 export { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"
 export { toNodeListener } from "./node.ts"
+export { buildOpenApi, type OpenApiOptions } from "./openapi.ts"
 export {
   type CountMode,
   type FindParams,
@@ -58,6 +59,12 @@ export {
   ReadPath,
   type ReadPathOptions,
 } from "./read-path.ts"
+export {
+  loadSchema,
+  SchemaCache,
+  type SchemaCacheOptions,
+  type SchemaSourceOptions,
+} from "./schema-source.ts"
 export {
   type BatchOperationResult,
   type BatchResult,

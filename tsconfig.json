@@ -21,6 +21,8 @@
     { "path": "packages/query/test" },
     { "path": "packages/policy" },
     { "path": "packages/policy/test" },
+    { "path": "packages/schema" },
+    { "path": "packages/schema/test" },
     { "path": "packages/auth" },
     { "path": "packages/auth/test" },
     { "path": "packages/realtime" },

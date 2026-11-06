@@ -24,6 +24,7 @@ import {
   withCors,
 } from "./http.ts"
 import { type IdType, parseId } from "./ids.ts"
+import { buildOpenApi } from "./openapi.ts"
 import {
   type FindParams,
   findParamsFromBody,
@@ -32,6 +33,7 @@ import {
 } from "./params.ts"
 import { DEFAULT_PROBLEM_TYPE_BASE, toProblem } from "./problem.ts"
 import { type FindRequest, type FindResult, type ReadLimits, ReadPath } from "./read-path.ts"
+import { SchemaCache } from "./schema-source.ts"
 import { type WriteLimits, WritePath } from "./write-path.ts"
 import { writeRoutes } from "./write-routes.ts"
 
@@ -61,6 +63,13 @@ export interface RestHandlerOptions {
   readonly problemTypeBase?: string
   /** Cross origin settings. Without them no CORS headers are sent. */
   readonly cors?: CorsOptions
+  /**
+   * The schemas the OpenAPI document describes. Defaults to a cache that reads validators and samples
+   * documents of the app database.
+   */
+  readonly schemas?: SchemaCache
+  /** The `info` of the OpenAPI document. */
+  readonly openapi?: { readonly title?: string; readonly version?: string }
   /** Called with every error that becomes a `5xx` response, for logging. */
   readonly onError?: (error: unknown, request: Request) => void
 }
@@ -102,6 +111,12 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
       ? {}
       : { mutationTtlSeconds: options.mutationTtlSeconds }),
   })
+  const engine =
+    typeof options.policies === "function"
+      ? options.policies
+      : () => options.policies as PolicyEngine
+  const schemaCache = options.schemas ?? new SchemaCache(options.client.db(options.database))
+  const documents = new Map<string, Record<string, unknown>>()
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
   const typeBase = options.problemTypeBase ?? DEFAULT_PROBLEM_TYPE_BASE
   const idTypes = options.idTypes ?? {}
@@ -234,6 +249,32 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     return jsonResponse({ data: result.docs, ct: result.ct }, exchange.encoding)
   }
 
+  const openapi: Route = async ({ caller, request, url, encoding }) => {
+    if ([...url.searchParams.keys()].length > 0)
+      throw new InvalidQueryError("openapi.json takes no parameters")
+    const current = engine()
+    const names = (await reads.collections(caller, { signal: request.signal })).map(
+      (info) => info.name,
+    )
+    const schemas = await schemaCache.all(names)
+    const key = `${current.version}\u0000${schemaCache.version}\u0000${[...caller.context.roles].sort().join(",")}\u0000${names.join(",")}`
+    let document = documents.get(key)
+    if (document === undefined) {
+      document = buildOpenApi({
+        engine: current,
+        ctx: caller.context,
+        schemas,
+        collections: names,
+        basePath,
+        ...(options.openapi?.title === undefined ? {} : { title: options.openapi.title }),
+        ...(options.openapi?.version === undefined ? {} : { version: options.openapi.version }),
+      })
+      if (documents.size >= 64) documents.clear()
+      documents.set(key, document)
+    }
+    return jsonResponse(document, encoding)
+  }
+
   const actions: Readonly<Record<string, Route>> = {
     _query: query,
     _count: count,
@@ -254,13 +295,15 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
         ? { GET: listCollections }
         : segments.length === 1 && first === "_batch"
           ? { POST: write.batch }
-          : segments.length === 1
-            ? { GET: find, POST: write.insert, PATCH: write.updateMany, DELETE: write.deleteMany }
-            : segments.length === 2 && action !== undefined
-              ? { POST: action }
-              : segments.length === 2
-                ? { GET: findOne, PATCH: write.update, PUT: write.replace, DELETE: write.remove }
-                : {}
+          : segments.length === 1 && first === "openapi.json"
+            ? { GET: openapi }
+            : segments.length === 1
+              ? { GET: find, POST: write.insert, PATCH: write.updateMany, DELETE: write.deleteMany }
+              : segments.length === 2 && action !== undefined
+                ? { POST: action }
+                : segments.length === 2
+                  ? { GET: findOne, PATCH: write.update, PUT: write.replace, DELETE: write.remove }
+                  : {}
     const route = Object.hasOwn(table, method) ? table[method] : undefined
     return { ...(route === undefined ? {} : { route }), allow: Object.keys(table) }
   }

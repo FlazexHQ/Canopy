@@ -18,6 +18,8 @@ import { directoryPolicies } from "@canopy/realtime"
 import { MongoClient } from "mongodb"
 import { mongoBackend } from "./mongo-backend.ts"
 
+export { type GenTypesOptions, genTypes } from "./gen-types.ts"
+
 /** Where command output goes. */
 export interface Output {
   log(line: string): void

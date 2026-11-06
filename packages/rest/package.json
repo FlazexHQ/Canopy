@@ -29,13 +29,15 @@
     "@canopy/matcher": "workspace:*",
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
-    "@canopy/query": "workspace:*"
+    "@canopy/query": "workspace:*",
+    "@canopy/schema": "workspace:*"
   },
   "peerDependencies": {
     "mongodb": "^7.0.0"
   },
   "devDependencies": {
     "@canopy/testing": "workspace:*",
+    "@seriousme/openapi-schema-validator": "catalog:",
     "@types/node": "catalog:",
     "fast-check": "catalog:",
     "jose": "catalog:",

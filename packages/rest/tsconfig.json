@@ -12,6 +12,7 @@
     { "path": "../matcher" },
     { "path": "../query" },
     { "path": "../policy" },
-    { "path": "../auth" }
+    { "path": "../auth" },
+    { "path": "../schema" }
   ]
 }
