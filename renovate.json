@@ -1,0 +1,28 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
+  "minimumReleaseAge": "7 days",
+  "rangeStrategy": "pin",
+  "packageRules": [
+    {
+      "description": "TypeScript 6 is the compiler of record until the TS 7 switch criteria are met.",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<7"
+    },
+    {
+      "description": "Node.js 24 is the minimum supported runtime, so its types must not move ahead of it.",
+      "matchPackageNames": ["@types/node"],
+      "allowedVersions": "<25"
+    },
+    {
+      "description": "Pin the certified MongoDB images and update them as a group.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["mongo"],
+      "groupName": "MongoDB images"
+    },
+    {
+      "groupName": "repository tooling",
+      "matchPackageNames": ["@biomejs/biome", "@changesets/cli", "lefthook", "turbo", "vitest"]
+    }
+  ]
+}

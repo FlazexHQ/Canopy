@@ -1,0 +1,6 @@
+# Personal hooks belong in lefthook-local.yml, which is not committed.
+pre-commit:
+  commands:
+    biome:
+      glob: "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,json,jsonc,css}"
+      run: bunx biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}

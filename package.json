@@ -1,0 +1,51 @@
+{
+  "name": "canopy-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.3",
+  "engines": {
+    "bun": ">=1.4.0",
+    "node": ">=24.0.0"
+  },
+  "workspaces": {
+    "packages": [
+      "packages/*",
+      "apps/*"
+    ],
+    "catalog": {
+      "@biomejs/biome": "2.6.3",
+      "@changesets/cli": "3.0.3",
+      "@types/bun": "1.4.4",
+      "@types/node": "24.19.2",
+      "lefthook": "2.2.2",
+      "turbo": "2.11.10",
+      "typescript": "6.0.3",
+      "vitest": "5.0.5"
+    }
+  },
+  "trustedDependencies": [],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "clean": "tsc -b --clean",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "turbo run test",
+    "test:all": "vitest run",
+    "db:up": "docker compose -f deploy/compose/dev.yaml up -d --wait",
+    "db:down": "docker compose -f deploy/compose/dev.yaml down",
+    "db:smoke": "docker compose -f deploy/compose/dev.yaml exec -T mongo mongosh --quiet --file /canopy/mongo-smoke.js",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "prepare": "lefthook install"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:",
+    "@changesets/cli": "catalog:",
+    "@types/node": "catalog:",
+    "lefthook": "catalog:",
+    "turbo": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

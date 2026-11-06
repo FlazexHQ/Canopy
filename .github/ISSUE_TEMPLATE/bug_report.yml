@@ -1,0 +1,28 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: If the bug lets a caller read or write data that a policy should deny, stop and report it through GitHub private vulnerability reporting instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the expected and the actual behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: A minimal policy, request or repository helps most.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Canopy version or commit, runtime (Bun, Node.js or Deno) and version, MongoDB version and topology.
+    validations:
+      required: true
