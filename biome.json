@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!!**/dist", "!!**/*.tsbuildinfo", "!!docs"]
+    "includes": ["**", "!!**/dist", "!!**/*.tsbuildinfo", "!!docs", "!!.changeset/*.md"]
   },
   "formatter": {
     "enabled": true,
