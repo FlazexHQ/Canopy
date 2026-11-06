@@ -3,7 +3,7 @@
 # Mount policy files at /app/policies. The isolated linker keeps workspace packages out of the root
 # node_modules, so @canopy/policy is linked there for policy files to import.
 
-FROM oven/bun:1.4.3 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /src
 COPY package.json bun.lock bunfig.toml tsconfig*.json ./
 COPY packages ./packages
@@ -12,7 +12,7 @@ RUN bunx tsc -b packages/realtime
 RUN bun install --frozen-lockfile --production --ignore-scripts
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy
 
-FROM oven/bun:1.4.3-distroless
+FROM oven/bun:1.4.4-distroless
 WORKDIR /app
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/packages ./packages
