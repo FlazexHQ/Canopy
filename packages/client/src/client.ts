@@ -11,7 +11,7 @@ import {
   type SubQuery,
   unbatch,
 } from '@canopy/protocol'
-import { type QueryState, Store } from './store.ts'
+import { LOADING_STATE, type QueryState, Store } from './store.ts'
 
 /** The connection status an application sees. */
 export type ConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'offline' | 'closed'
@@ -160,11 +160,7 @@ export class CanopyClient {
     return {
       getState: () => {
         const sub = this.byQuery.get(key)
-        return (
-          sub === undefined
-            ? { data: [], status: 'loading', error: undefined }
-            : this.store.state(sub.id)
-        ) as QueryState<T>
+        return (sub === undefined ? LOADING_STATE : this.store.state(sub.id)) as QueryState<T>
       },
       subscribe: (listener) => {
         let sub = this.byQuery.get(key)

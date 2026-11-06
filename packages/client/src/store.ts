@@ -40,6 +40,13 @@ interface QueryEntry {
  * The normalized document cache. Server state only moves forward: a message older than the
  * cached state is ignored, ties are applied because `set` values are absolute.
  */
+/** The state of a query that has no data yet. One shared frozen value, so snapshots stay referentially stable. */
+export const LOADING_STATE: QueryState<never> = Object.freeze({
+  data: Object.freeze([]),
+  status: 'loading',
+  error: undefined,
+})
+
 export class Store {
   private readonly docs = new Map<string, DocEntry>()
   private readonly queries = new Map<string, QueryEntry>()
@@ -83,7 +90,7 @@ export class Store {
   /** The current state of a query. */
   state(id: string): QueryState {
     const query = this.queries.get(id)
-    if (query === undefined) return { data: [], status: 'loading', error: undefined }
+    if (query === undefined) return LOADING_STATE
     if (query.dirty) {
       query.dirty = false
       const members: Document[] = []

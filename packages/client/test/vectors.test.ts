@@ -99,6 +99,27 @@ describe('protocol vectors', () => {
     client.close()
   })
 
+  it('returns one stable loading snapshot until data arrives', async () => {
+    const client = new CanopyClient({
+      url: 'http://canopy.test',
+      publishableKey: 'pk',
+      WebSocket: FakeSocket,
+    })
+    await flush()
+    const query = client.live('t', { done: false })
+    const before = query.getState()
+    expect(before.status).toBe('loading')
+    expect(query.getState()).toBe(before)
+    const other = client.live('u', {})
+    expect(other.getState()).toBe(before)
+    const stop = query.subscribe(() => {})
+    const subscribed = query.getState()
+    expect(subscribed.status).toBe('loading')
+    expect(query.getState()).toBe(subscribed)
+    stop()
+    client.close()
+  })
+
   it('keeps document identity for unchanged rows (structural sharing)', async () => {
     const client = new CanopyClient({
       url: 'http://canopy.test',
