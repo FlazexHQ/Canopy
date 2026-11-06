@@ -120,6 +120,52 @@ describe('protocol vectors', () => {
     client.close()
   })
 
+  it('keeps reconnecting when the server drains, even after its own close event arrives', async () => {
+    const client = new CanopyClient({
+      url: 'http://canopy.test',
+      publishableKey: 'pk',
+      WebSocket: FakeSocket,
+    })
+    await flush()
+    const socket = FakeSocket.last as FakeSocket
+    const statuses: string[] = []
+    client.onStatus((status) => statuses.push(status))
+    let state: QueryState | undefined
+    client.live('t', {}).subscribe((next) => {
+      state = next
+    })
+    const send = (frame: Record<string, unknown>): void =>
+      socket.onmessage?.({ data: encodeMessage(decode(frame) as never) })
+    send({
+      t: 'welcome',
+      seq: 0,
+      sid: 'n',
+      v: 1,
+      resumed: false,
+      hb: 25000,
+      pv: '',
+      ct: '1',
+      caps: [],
+      limits: { subs: 1 },
+    })
+    send({ t: 'ready', seq: 1, s: 's1', ct: '1' })
+    await flush()
+    expect(client.connectionStatus).toBe('live')
+    send({ t: 'reconnect', seq: 2, retryAfterMs: 0, reason: 'shutdown' })
+    expect(socket.readyState).toBe(3)
+    socket.onclose?.({ code: 1000, reason: 'server asked to reconnect' })
+    expect(client.connectionStatus).toBe('reconnecting')
+    await flush()
+    expect(state?.status).toBe('stale')
+    const started = Date.now()
+    while (FakeSocket.last === socket && Date.now() - started < 2000) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(FakeSocket.last).not.toBe(socket)
+    expect(statuses).not.toContain('closed')
+    client.close()
+  })
+
   it('keeps document identity for unchanged rows (structural sharing)', async () => {
     const client = new CanopyClient({
       url: 'http://canopy.test',

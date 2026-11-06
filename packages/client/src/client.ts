@@ -314,10 +314,13 @@ export class CanopyClient {
         }
         return
       }
-      case 'reconnect':
-        this.socket?.close(1000, 'server asked to reconnect')
+      case 'reconnect': {
+        const socket = this.socket
+        this.detach()
+        socket?.close(1000, 'server asked to reconnect')
         this.scheduleReconnect(message.retryAfterMs)
         return
+      }
       default:
         return
     }
@@ -335,16 +338,21 @@ export class CanopyClient {
     }, this.heartbeatMs)
   }
 
-  private onClose(socket: WebSocketLike, code: number): void {
-    if (this.socket !== socket) return
+  private detach(): void {
     this.socket = undefined
     this.welcomed = false
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
+    this.heartbeatTimer = undefined
+    if (!this.closed) this.store.markStale()
+  }
+
+  private onClose(socket: WebSocketLike, code: number): void {
+    if (this.socket !== socket) return
+    this.detach()
     if (this.closed) {
       this.setStatus('closed')
       return
     }
-    this.store.markStale()
     const reaction = closeReaction(code)
     if (!reaction.reconnect) {
       this.setStatus('closed')
