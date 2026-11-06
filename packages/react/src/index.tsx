@@ -4,7 +4,9 @@ import type {
   Document,
   LiveQuery,
   LiveQueryOptions,
+  MutationHandle,
   QueryState,
+  WriteOptions,
 } from "@canopy/client"
 import {
   createContext,
@@ -54,9 +56,20 @@ function stableKey(value: unknown): string {
   return JSON.stringify(value) ?? ""
 }
 
-/** Hooks for one collection. */
+/** Hooks and optimistic mutations for one collection. */
 export interface CollectionHooks<T extends Document> {
   useQuery(filter?: Document, options?: LiveQueryOptions): QueryState<T>
+  insert(doc: Document): MutationHandle
+  insertMany(docs: readonly Document[]): MutationHandle
+  update(id: unknown, update: Document, options?: WriteOptions): MutationHandle
+  replace(
+    id: unknown,
+    doc: Document,
+    options?: WriteOptions & { readonly upsert?: boolean },
+  ): MutationHandle
+  delete(id: unknown, options?: WriteOptions): MutationHandle
+  updateMany(filter: Document, update: Document): MutationHandle
+  deleteMany(filter: Document): MutationHandle
 }
 
 /** Collection hooks keyed by collection name. */
@@ -88,6 +101,13 @@ export function createReactDb<DB extends Record<string, Document> = Record<strin
             }
             return useQuery(query)
           },
+          insert: (doc) => client.insert(name, doc),
+          insertMany: (docs) => client.insertMany(name, docs),
+          update: (id, update, options) => client.update(name, id, update, options),
+          replace: (id, doc, options) => client.replace(name, id, doc, options),
+          delete: (id, options) => client.delete(name, id, options),
+          updateMany: (filter, update) => client.updateMany(name, filter, update),
+          deleteMany: (filter) => client.deleteMany(name, filter),
         }
         cache.set(name, hooks)
       }

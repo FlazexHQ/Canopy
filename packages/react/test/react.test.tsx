@@ -153,6 +153,54 @@ describe("@canopy/react", () => {
     client.close()
   })
 
+  it("sends collection mutations through the client and shows them optimistically", async () => {
+    FakeSocket.all = []
+    const client = new CanopyClient({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: FakeSocket,
+    })
+    const db = createReactDb<{ todos: Todo }>(client)
+    const live = client.live("todos", {})
+    const states: number[] = []
+    const stop = live.subscribe((state) => states.push(state.data.length))
+    const handle = db.todos.insert({ _id: 7, title: "t" })
+    expect(handle.id).toBe(7)
+    expect(client.store.view("todos", 7)).toEqual({ _id: 7, title: "t" })
+    db.todos.update(7, { $set: { title: "u" } })
+    expect(client.store.view("todos", 7)).toEqual({ _id: 7, title: "u" })
+    db.todos.delete(7)
+    expect(client.store.view("todos", 7)).toBeUndefined()
+    expect(client.pendingMutations).toBe(3)
+    const socket = FakeSocket.all[0]
+    await tick()
+    socket?.push({
+      t: "welcome",
+      seq: 1,
+      sid: "n1.a",
+      v: 1,
+      resumed: false,
+      hb: 25000,
+      pv: "p",
+      ct: "1",
+      caps: [],
+      limits: { subs: 100 },
+    })
+    await tick()
+    const sent = (socket?.sent ?? []).filter((message) => message.t === "mut") as unknown as {
+      c: string
+      op: string
+    }[]
+    expect(sent.map((message) => [message.c, message.op])).toEqual([
+      ["todos", "insert"],
+      ["todos", "update"],
+      ["todos", "delete"],
+    ])
+    stop()
+    client.close()
+    await expect(handle).rejects.toMatchObject({ code: "CANOPY_UNAVAILABLE" })
+  })
+
   it("requires a provider for the status hook", async () => {
     const container = document.createElement("div")
     containers.push(container)

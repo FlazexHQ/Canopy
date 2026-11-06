@@ -22,8 +22,18 @@ export {
   createClient,
   type LiveQuery,
   type LiveQueryOptions,
+  type MutationHandle,
+  type MutationResult,
   QueryBuilder,
   type WebSocketConstructor,
   type WebSocketLike,
+  type WriteOptions,
 } from "./client.ts"
-export { cacheKey, type QueryState, type QueryStatus, Store } from "./store.ts"
+export {
+  cacheKey,
+  type Layer,
+  type QuerySpec,
+  type QueryState,
+  type QueryStatus,
+  Store,
+} from "./store.ts"

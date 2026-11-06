@@ -1,17 +1,27 @@
+import { compileProjection } from "@canopy/matcher"
 import {
+  type AckMessage,
+  CanopyError,
   type ClientMessage,
+  type ClusterTime,
   closeReaction,
   type Document,
+  decode,
   decodeServerMessage,
+  ErrorCode,
   encodeMessage,
   errorFromWire,
+  type MutationOp,
+  type MutMessage,
+  ObjectId,
   PROTOCOL_VERSION,
   type SequencedMessage,
   SUBPROTOCOL,
   type SubQuery,
   unbatch,
+  uuidv7,
 } from "@canopy/protocol"
-import { LOADING_STATE, type QueryState, Store } from "./store.ts"
+import { type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
 
 /** The connection status an application sees. */
 export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline" | "closed"
@@ -46,6 +56,50 @@ export interface ClientOptions {
   readonly maxBackoffMs?: number
   /** The SDK identifier sent in `hello`. */
   readonly sdk?: string
+  /**
+   * How optimistic inserts without `_id` get one, per collection: an ObjectId (the default), a UUIDv7, or
+   * `string` when the caller always supplies it.
+   */
+  readonly idTypes?: Readonly<Record<string, "objectId" | "uuid" | "string">>
+  /** Mutations sent before their acks arrive. Defaults to 32. */
+  readonly maxInFlight?: number
+}
+
+/** The confirmed outcome of a mutation. */
+export interface MutationResult {
+  readonly ct: ClusterTime
+  /** Whether the change events had already been delivered when the ack arrived. */
+  readonly echo: boolean
+  readonly replayed: boolean
+  readonly matched: number
+  readonly modified: number
+  readonly insertedIds: readonly unknown[]
+}
+
+/**
+ * A mutation in flight. The optimistic change is already visible; the handle settles when the server
+ * acknowledges it, and rejects with a typed error (`PolicyViolationError`, `ConflictError`,
+ * `ForbiddenError`, `ValidationError`, `RateLimitError` or another `CanopyError`) when it is rolled back.
+ */
+export interface MutationHandle extends Promise<MutationResult> {
+  /** The mutation ID, which is also the idempotency key. */
+  readonly mutationId: string
+  /** For inserts: the `_id` of the (first) document, usable right away. */
+  readonly id: unknown
+}
+
+/** Options of single document writes. */
+export interface WriteOptions {
+  /** A compare and set precondition: the write is rolled back with `ConflictError` when it fails. */
+  readonly where?: Document
+}
+
+interface PendingMutation {
+  readonly message: MutMessage
+  readonly ids: readonly unknown[]
+  sent: boolean
+  readonly resolve: (result: MutationResult) => void
+  readonly reject: (error: Error) => void
 }
 
 /** A live query description. */
@@ -111,6 +165,9 @@ export class CanopyClient {
   private heartbeatMs = 25_000
   private closed = false
   private nextId = 1
+  private readonly outbox: PendingMutation[] = []
+  private inFlight = 0
+  private readonly mutationErrorListeners = new Set<(error: Error, mutationId: string) => void>()
 
   constructor(options: ClientOptions) {
     this.options = options
@@ -119,7 +176,233 @@ export class CanopyClient {
       base.protocol === "https:" ? "wss:" : base.protocol === "http:" ? "ws:" : base.protocol
     base.pathname = `${base.pathname.replace(/\/$/, "")}/realtime/v1`
     this.socketUrl = base.toString()
+    this.store.onRefetch = (coll) => this.refetch(coll)
     this.connect()
+  }
+
+  /** Calls `listener` whenever a mutation is rolled back. */
+  onMutationError(listener: (error: Error, mutationId: string) => void): () => void {
+    this.mutationErrorListeners.add(listener)
+    return () => this.mutationErrorListeners.delete(listener)
+  }
+
+  /** The number of mutations not yet acknowledged. */
+  get pendingMutations(): number {
+    return this.outbox.length
+  }
+
+  private newId(collection: string): unknown {
+    const type = this.options.idTypes?.[collection] ?? "objectId"
+    if (type === "uuid") return decode({ $uuid: uuidv7() })
+    if (type === "string")
+      throw new TypeError(`Documents of ${collection} need an _id; its id type is string`)
+    return new ObjectId()
+  }
+
+  /** Inserts a document. The optimistic copy, with a client generated `_id`, is visible at once. */
+  insert(collection: string, doc: Document): MutationHandle {
+    const id = doc["_id"] ?? this.newId(collection)
+    const full = { ...doc, _id: id }
+    return this.mutate(
+      collection,
+      "insert",
+      { doc: full },
+      [{ kind: "insert", coll: collection, id, doc: full }],
+      [id],
+    )
+  }
+
+  /** Inserts several documents in one mutation. */
+  insertMany(collection: string, docs: readonly Document[]): MutationHandle {
+    const full = docs.map((doc) => ({ ...doc, _id: doc["_id"] ?? this.newId(collection) }))
+    return this.mutate(
+      collection,
+      "insertMany",
+      { docs: full },
+      full.map((doc): Layer => ({ kind: "insert", coll: collection, id: doc["_id"], doc })),
+      full.map((doc) => doc["_id"]),
+    )
+  }
+
+  /** Updates one document with update operators. */
+  update(
+    collection: string,
+    id: unknown,
+    update: Document,
+    options: WriteOptions = {},
+  ): MutationHandle {
+    return this.mutate(
+      collection,
+      "update",
+      { id, update, ...(options.where === undefined ? {} : { where: options.where }) },
+      [{ kind: "update", coll: collection, id, update }],
+      [id],
+    )
+  }
+
+  /** Replaces one document. With `upsert`, a missing document is inserted. */
+  replace(
+    collection: string,
+    id: unknown,
+    doc: Document,
+    options: WriteOptions & { readonly upsert?: boolean } = {},
+  ): MutationHandle {
+    return this.mutate(
+      collection,
+      "replace",
+      {
+        id,
+        doc,
+        ...(options.where === undefined ? {} : { where: options.where }),
+        ...(options.upsert === undefined ? {} : { upsert: options.upsert }),
+      },
+      [{ kind: "replace", coll: collection, id, doc, upsert: options.upsert === true }],
+      [id],
+    )
+  }
+
+  /** Deletes one document. */
+  delete(collection: string, id: unknown, options: WriteOptions = {}): MutationHandle {
+    return this.mutate(
+      collection,
+      "delete",
+      { id, ...(options.where === undefined ? {} : { where: options.where }) },
+      [{ kind: "delete", coll: collection, id }],
+      [id],
+    )
+  }
+
+  /** Updates every visible document matching `filter`. The optimistic change covers cached documents. */
+  updateMany(collection: string, filter: Document, update: Document): MutationHandle {
+    return this.mutate(
+      collection,
+      "updateMany",
+      { filter, update, bulk: true },
+      [{ kind: "updateMany", coll: collection, filter, update }],
+      [],
+    )
+  }
+
+  /** Deletes every visible document matching `filter`. */
+  deleteMany(collection: string, filter: Document): MutationHandle {
+    return this.mutate(
+      collection,
+      "deleteMany",
+      { filter, bulk: true },
+      [{ kind: "deleteMany", coll: collection, filter }],
+      [],
+    )
+  }
+
+  private mutate(
+    collection: string,
+    op: MutationOp,
+    args: Document,
+    layers: readonly Layer[],
+    ids: readonly unknown[],
+  ): MutationHandle {
+    const mutationId = uuidv7()
+    let resolve: (result: MutationResult) => void = () => {}
+    let reject: (error: Error) => void = () => {}
+    const promise = new Promise<MutationResult>((ok, fail) => {
+      resolve = ok
+      reject = fail
+    })
+    promise.catch(() => {})
+    if (this.closed) {
+      reject(new CanopyError(ErrorCode.Unavailable, "The client is closed"))
+    } else {
+      for (const layer of layers) this.store.addLayer(mutationId, layer)
+      this.outbox.push({
+        message: { t: "mut", id: mutationId, c: collection, op, args },
+        ids,
+        sent: false,
+        resolve,
+        reject,
+      })
+      this.pump()
+    }
+    return Object.assign(promise, { mutationId, id: ids[0] })
+  }
+
+  /** Sends queued mutations in order, keeping at most `maxInFlight` unacknowledged. */
+  private pump(): void {
+    if (this.socket === undefined || !this.welcomed || this.socket.readyState !== 1) return
+    const max = this.options.maxInFlight ?? 32
+    for (const pending of this.outbox) {
+      if (this.inFlight >= max) break
+      if (pending.sent) continue
+      pending.sent = true
+      this.inFlight += 1
+      this.socket.send(encodeMessage(pending.message))
+    }
+  }
+
+  private acknowledge(ack: AckMessage): void {
+    const index = this.outbox.findIndex((pending) => pending.message.id === ack.m)
+    if (index < 0) return
+    const [pending] = this.outbox.splice(index, 1)
+    if (pending === undefined) return
+    if (pending.sent) this.inFlight = Math.max(0, this.inFlight - 1)
+    const { message } = pending
+    if (!ack.ok) {
+      this.store.dropLayer(message.id)
+      const error = errorFromWire(
+        ack.err ?? { code: ErrorCode.Internal, msg: "The mutation failed" },
+      )
+      for (const listener of this.mutationErrorListeners) listener(error, message.id)
+      pending.reject(error)
+      this.pump()
+      return
+    }
+    const ct = ack.ct ?? "0"
+    if (ack.echo === true) this.store.dropLayer(message.id)
+    else this.settleWithoutEcho(pending, ct, ack.res?.docs)
+    pending.resolve({
+      ct,
+      echo: ack.echo === true,
+      replayed: ack.replayed === true,
+      matched: ack.res?.matched ?? 0,
+      modified: ack.res?.modified ?? 0,
+      insertedIds: ack.res?.insertedIds ?? [],
+    })
+    this.pump()
+  }
+
+  /**
+   * Without an echo, post images in the ack become server state and the layer is dropped. Without them
+   * (bulk writes, unreadable results) the layer stays until the server state catches up with the ack.
+   */
+  private settleWithoutEcho(
+    pending: PendingMutation,
+    ct: ClusterTime,
+    docs: readonly Document[] | undefined,
+  ): void {
+    const { message } = pending
+    const single = message.op !== "updateMany" && message.op !== "deleteMany"
+    if (message.op === "delete") {
+      for (const id of pending.ids) this.store.confirm(message.c, id, null, ct)
+      this.store.dropLayer(message.id)
+      return
+    }
+    const confirmed = new Set<unknown>()
+    for (const doc of docs ?? []) {
+      this.store.confirm(message.c, doc["_id"], doc, ct)
+      confirmed.add(doc["_id"])
+    }
+    if (single && docs !== undefined && docs.length >= pending.ids.length) {
+      this.store.dropLayer(message.id)
+      return
+    }
+    this.store.awaitServer(message.id, ct)
+  }
+
+  private refetch(coll: string): void {
+    for (const sub of this.subscriptions.values()) {
+      if (sub.coll !== coll) continue
+      this.store.beginResync(sub.id)
+      this.send({ t: "sub", id: sub.id, c: sub.coll, q: sub.query })
+    }
   }
 
   /** The current connection status. */
@@ -169,7 +452,14 @@ export class CanopyClient {
           this.nextId += 1
           this.byQuery.set(key, sub)
           this.subscriptions.set(sub.id, sub)
-          this.store.addQuery(sub.id, collection, options.sort)
+          this.store.addQuery(sub.id, collection, {
+            filter,
+            ...(options.sort === undefined ? {} : { sort: options.sort }),
+            ...(options.limit === undefined ? {} : { limit: options.limit }),
+            ...(options.fields === undefined
+              ? {}
+              : { project: (doc: Document) => compileProjection(options.fields).apply(doc) }),
+          })
           this.send({ t: "sub", id: sub.id, c: collection, q: query })
         }
         sub.refs += 1
@@ -278,7 +568,10 @@ export class CanopyClient {
           this.send({ t: "sub", id: sub.id, c: sub.coll, q: sub.query })
         }
       }
+      this.inFlight = 0
+      for (const pending of this.outbox) pending.sent = false
       this.setStatus("live")
+      this.pump()
       return
     }
     if (message.seq <= this.lastSeq) return
@@ -299,6 +592,9 @@ export class CanopyClient {
         return
       case "ready":
         this.store.ready(message.s)
+        return
+      case "ack":
+        this.acknowledge(message)
         return
       case "nosub": {
         if (message.err !== undefined) this.store.fail(message.s, errorFromWire(message.err))
@@ -390,6 +686,16 @@ export class CanopyClient {
     if (this.socket !== undefined && this.socket.readyState === 1)
       this.socket.send(encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")
+    this.store.dispose()
+    for (const pending of this.outbox.splice(0)) {
+      this.store.dropLayer(pending.message.id)
+      pending.reject(
+        new CanopyError(
+          ErrorCode.Unavailable,
+          "The client was closed before the server confirmed the mutation",
+        ),
+      )
+    }
     this.setStatus("closed")
   }
 }
@@ -427,6 +733,45 @@ export class QueryBuilder<T extends Document = Document> implements LiveQuery<T>
       ...this.options,
       limit,
     })
+  }
+
+  /** Inserts a document into this collection. */
+  insert(doc: Document): MutationHandle {
+    return this.client.insert(this.collection, doc)
+  }
+
+  /** Inserts several documents into this collection. */
+  insertMany(docs: readonly Document[]): MutationHandle {
+    return this.client.insertMany(this.collection, docs)
+  }
+
+  /** Updates one document of this collection. */
+  update(id: unknown, update: Document, options?: WriteOptions): MutationHandle {
+    return this.client.update(this.collection, id, update, options)
+  }
+
+  /** Replaces one document of this collection. */
+  replace(
+    id: unknown,
+    doc: Document,
+    options?: WriteOptions & { readonly upsert?: boolean },
+  ): MutationHandle {
+    return this.client.replace(this.collection, id, doc, options)
+  }
+
+  /** Deletes one document of this collection. */
+  delete(id: unknown, options?: WriteOptions): MutationHandle {
+    return this.client.delete(this.collection, id, options)
+  }
+
+  /** Updates every visible document of this collection matching `filter`. */
+  updateMany(filter: Document, update: Document): MutationHandle {
+    return this.client.updateMany(this.collection, filter, update)
+  }
+
+  /** Deletes every visible document of this collection matching `filter`. */
+  deleteMany(filter: Document): MutationHandle {
+    return this.client.deleteMany(this.collection, filter)
   }
 
   fields(fields: Readonly<Record<string, 0 | 1>>): QueryBuilder<T> {
