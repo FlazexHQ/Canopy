@@ -10,7 +10,7 @@ export const sharedConfig = defineProject({
   },
   ssr: {
     resolve: {
-      conditions: ['@canopy/source', 'node', 'import', 'module', 'development|production'],
+      conditions: ['@canopy/source', 'node', 'module', 'development|production'],
     },
   },
 })
