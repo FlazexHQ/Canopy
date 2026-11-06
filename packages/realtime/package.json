@@ -1,0 +1,49 @@
+{
+  "name": "@canopy/realtime",
+  "version": "0.0.0",
+  "description": "Canopy Realtime: one change stream, DLS enforced on every event, live queries over WebSockets for Bun and Node.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "canopy-realtime": "./dist/bin/canopy-realtime.js"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/matcher": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/query": "workspace:*",
+    "jose": "catalog:",
+    "ws": "catalog:"
+  },
+  "peerDependencies": {
+    "mongodb": "^7.0.0"
+  },
+  "devDependencies": {
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "fast-check": "catalog:",
+    "mongodb": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
