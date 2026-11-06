@@ -1,0 +1,41 @@
+{
+  "name": "@canopy/client",
+  "version": "0.0.0",
+  "description": "The Canopy client SDK: a document cache with live queries, reconnection, resume and resync over canopy.v1.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/matcher": "workspace:*",
+    "@canopy/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@canopy/policy": "workspace:*",
+    "@canopy/realtime": "workspace:*",
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "fast-check": "catalog:",
+    "jose": "catalog:",
+    "mongodb": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
