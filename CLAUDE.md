@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 Canopy (working name) is an open source, self hostable backend platform for MongoDB, "Supabase for MongoDB".
-The repository is in **Phase 0 (foundations)**: the hand built monorepo toolchain, CI and the dev MongoDB replica
-set exist, but no `@canopy/*` package does yet. Phase 1 (plan 12 §3.1) starts the packages. The only branch is
+The repository is in **Phase 1 (DLS core and Canopy Realtime, v0.1)**. Packages: `protocol`, `matcher`, `query`,
+`policy` (universal), `realtime` (engine plus the `canopy-realtime` sidecar), `client`, `react`, `cli` and the private
+`testing` harness. Not built yet: the `express-dropin` example and the sidecar quickstart. The only branch is
 **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers and Changesets.
 `docs/` is the source of truth for the design:
 start at `docs/README.md` (reading order, one page summary, glossary), then `docs/plan/00` to `13`, then the ADRs in
@@ -14,8 +15,8 @@ start at `docs/README.md` (reading order, one page summary, glossary), then `doc
 
 **Never commit `docs/` or `tools/`.** Both are local only and listed in `.gitignore` (as is `lefthook-local.yml`).
 Do not stage, commit or push anything under them (no `git add -f`, no removing the ignore rules), and do not
-move their content into tracked files to get around this. Committed files may name a plan section (for example
-"plan 11 §3") but must not link into `docs/`, because those links would be broken in the repository.
+move their content into tracked files to get around this. Committed files must not link into `docs/`, because
+those links would be broken in the repository.
 
 The governance drafts `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md` and `SECURITY.md` are also ignored
 **for now** (until the user says to publish them). Keep them up to date locally, but do not commit them or link to
@@ -44,6 +45,8 @@ Fixed decisions (do not change without the user saying so):
 - **Comments:** do not write unnecessary comments. Write doc comments (TSDoc) only where they serve as
   documentation: interfaces, classes, exported functions and types, public APIs. A comment on a single line is
   allowed only when it is temporary or the line is genuinely complex. Never narrate what the code does.
+  Do not cite the planning docs in comments (no "(plan 05 §5)", "plan 02 §8", "ADR 0005" and the like) unless
+  the comment is temporary; explain the behavior itself instead, since `docs/` is not in the repository.
 - **No dashes:** do not use dashes as punctuation anywhere in the codebase: no em dash (U+2014), en dash
   (U+2013), or a hyphen standing in for one (a hyphen with a space on each side) in comments, docs, strings,
   error messages, commit messages or PR text.
@@ -80,15 +83,22 @@ bun run test                               # turbo run test (per package, cached
 bun run db:up                              # single node replica set from deploy/compose/dev.yaml on localhost:27017
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
-bun --filter @canopy/matcher test          # one package (once packages exist)
-bunx vitest run packages/matcher/src/compare.test.ts -t "orders mixed types"   # one file / one test
+bun --filter @canopy/matcher test          # one package
+bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
+CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test:all   # include MongoDB suites
 ```
 
 `bun run dev` (replica set plus server watch plus Studio) arrives with the server. Integration and differential
-tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server); they
-use Testcontainers or `mongodb-memory-server`. CI (`.github/workflows/ci.yml`) runs Biome, `tsc -b` and Vitest on
-Bun and on Node 24 and 26, and the replica set smoke test on MongoDB 7.0 and 8.0. Actions are pinned to commit
-SHAs.
+tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
+by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS` and
+`CANOPY_SIM_SEEDS` scale the differential and simulation runs. CI (`.github/workflows/ci.yml`) runs Biome,
+`tsc -b` and Vitest on Bun and on Node 24 and 26, and the full suite against replica sets on MongoDB 7.0 and 8.0;
+`nightly.yml` runs the long differential and simulation runs. Actions are pinned to commit SHAs.
+
+Package layout: library code in `src/` (built by the package `tsconfig.json`), tests in `test/` with their own
+`tsconfig.json` on the server variant (so tests may use `node:` modules and the driver). Workspace packages export
+their sources under the `@canopy/source` condition, which `vitest.shared.ts` enables, so tests run without a
+build. Protocol conformance vectors live in `packages/protocol/vectors/` and run through the client.
 
 Adding a package: create `packages/<name>/` by hand with `package.json` (`@canopy/<name>`, `"type": "module"`),
 a `tsconfig.json` that extends one of the root `tsconfig.{server,universal,web,edge}.json` and sets `rootDir`,
