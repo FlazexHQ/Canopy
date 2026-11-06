@@ -9,7 +9,7 @@ import {
   Role,
   toFilter,
   toProjection,
-} from '@canopy/policy'
+} from "@canopy/policy"
 import {
   CanopyError,
   type ClusterTime,
@@ -22,7 +22,7 @@ import {
   PolicyViolationError,
   toBsonLibrary,
   toCt,
-} from '@canopy/protocol'
+} from "@canopy/protocol"
 import {
   DEFAULT_LIMITS,
   type ParsedFilter,
@@ -30,7 +30,7 @@ import {
   parseUpdate,
   type QueryLimits,
   validateStoredDocument,
-} from '@canopy/query'
+} from "@canopy/query"
 import {
   BSON,
   type ClientSession,
@@ -39,16 +39,17 @@ import {
   type Document,
   type MongoClient,
   MongoServerError,
-} from 'mongodb'
-import { fromDriverError } from './errors.ts'
-import { immutableViolations, leafPaths } from './paths.ts'
+} from "mongodb"
+import { fromDriverError } from "./errors.ts"
+import { immutableViolations, leafPaths } from "./paths.ts"
+import { validateCollectionName, validateId } from "./validation.ts"
 
 /** A write requested by a caller. Values may hold protocol BSON classes decoded from EJSON. */
 export type WriteRequest =
-  | { readonly op: 'insert'; readonly collection: string; readonly doc: unknown }
-  | { readonly op: 'insertMany'; readonly collection: string; readonly docs: unknown }
+  | { readonly op: "insert"; readonly collection: string; readonly doc: unknown }
+  | { readonly op: "insertMany"; readonly collection: string; readonly docs: unknown }
   | {
-      readonly op: 'update'
+      readonly op: "update"
       readonly collection: string
       readonly id: unknown
       readonly update: unknown
@@ -56,7 +57,7 @@ export type WriteRequest =
       readonly where?: unknown
     }
   | {
-      readonly op: 'updateMany'
+      readonly op: "updateMany"
       readonly collection: string
       readonly filter: unknown
       readonly update: unknown
@@ -64,7 +65,7 @@ export type WriteRequest =
       readonly bulk: true
     }
   | {
-      readonly op: 'replace'
+      readonly op: "replace"
       readonly collection: string
       readonly id: unknown
       readonly doc: unknown
@@ -73,13 +74,13 @@ export type WriteRequest =
       readonly upsert?: boolean
     }
   | {
-      readonly op: 'delete'
+      readonly op: "delete"
       readonly collection: string
       readonly id: unknown
       readonly where?: unknown
     }
   | {
-      readonly op: 'deleteMany'
+      readonly op: "deleteMany"
       readonly collection: string
       readonly filter: unknown
       readonly bulk: true
@@ -199,7 +200,7 @@ interface Plan {
   readonly fast: boolean
 }
 
-const MAJORITY = { w: 'majority' } as const
+const MAJORITY = { w: "majority" } as const
 
 /**
  * The transactional write path shared by REST and realtime mutations. A write runs in a multi document
@@ -225,11 +226,11 @@ export class WritePath {
   constructor(options: WritePathOptions) {
     this.client = options.client
     this.db = options.client.db(options.database)
-    this.meta = options.client.db(options.metaDatabase ?? 'canopy')
+    this.meta = options.client.db(options.metaDatabase ?? "canopy")
     if (this.meta.databaseName === this.db.databaseName)
-      throw new TypeError('The meta database must differ from the app database')
+      throw new TypeError("The meta database must differ from the app database")
     const policies = options.policies
-    this.engine = typeof policies === 'function' ? policies : () => policies
+    this.engine = typeof policies === "function" ? policies : () => policies
     this.limits = { ...DEFAULT_WRITE_LIMITS, ...options.limits }
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
     this.ttlSeconds = options.mutationTtlSeconds ?? 86_400
@@ -245,18 +246,18 @@ export class WritePath {
   }
 
   private async createIndexes(): Promise<void> {
-    const mutations = this.meta.collection('mutations')
+    const mutations = this.meta.collection("mutations")
     try {
       await mutations.createIndex(
         { at: 1 },
-        { name: 'ttl_at', expireAfterSeconds: this.ttlSeconds },
+        { name: "ttl_at", expireAfterSeconds: this.ttlSeconds },
       )
     } catch (error: unknown) {
       if (!(error instanceof MongoServerError) || !INDEX_OPTIONS_CONFLICT.has(Number(error.code)))
         throw error
       await this.meta.command({
-        collMod: 'mutations',
-        index: { name: 'ttl_at', expireAfterSeconds: this.ttlSeconds },
+        collMod: "mutations",
+        index: { name: "ttl_at", expireAfterSeconds: this.ttlSeconds },
       })
     }
   }
@@ -278,7 +279,7 @@ export class WritePath {
     const { mutationId } = options
     if (mutationId !== undefined && !MUTATION_ID.test(mutationId))
       throw new InvalidQueryError(
-        'A mutation ID must be 8 to 128 letters, digits, hyphens or underscores',
+        "A mutation ID must be 8 to 128 letters, digits, hyphens or underscores",
       )
     const plan = this.plan(this.engine(), ctx, request)
     if (plan.fast && mutationId === undefined) return this.executeFast(plan.run, service)
@@ -293,15 +294,15 @@ export class WritePath {
           async (s) => {
             abortCheck(options.signal)
             if (Date.now() > deadline)
-              throw new CanopyError(ErrorCode.Timeout, 'The write could not commit in time')
+              throw new CanopyError(ErrorCode.Timeout, "The write could not commit in time")
             const result = await run(s)
             if (mutationId !== undefined) await this.record(s, mutationId, caller, request, result)
             return result
           },
           {
-            readConcern: { level: 'snapshot' },
-            writeConcern: { w: 'majority' },
-            readPreference: 'primary',
+            readConcern: { level: "snapshot" },
+            writeConcern: { w: "majority" },
+            readPreference: "primary",
             maxCommitTimeMS: this.limits.maxTimeMS,
           },
         )
@@ -312,14 +313,14 @@ export class WritePath {
           if (error instanceof Replay)
             throw new CanopyError(
               ErrorCode.Unavailable,
-              'The mutation is being retried; send it again',
+              "The mutation is being retried; send it again",
             )
         }
         throw fromDriverError(error, service)
       }
       const ct = toCt(session.operationTime)
       if (ct === undefined)
-        throw new CanopyError(ErrorCode.Internal, 'The commit has no cluster time')
+        throw new CanopyError(ErrorCode.Internal, "The commit has no cluster time")
       return { ...outcome, ct, replayed: false }
     } finally {
       await session.endSession()
@@ -338,7 +339,7 @@ export class WritePath {
       const { ct: written, ...rest } = outcome
       const ct = written ?? toCt(session.operationTime)
       if (ct === undefined)
-        throw new CanopyError(ErrorCode.Internal, 'The write has no cluster time')
+        throw new CanopyError(ErrorCode.Internal, "The write has no cluster time")
       return { ...rest, ct, replayed: false }
     } finally {
       await session.endSession()
@@ -363,7 +364,7 @@ export class WritePath {
       result,
     }
     try {
-      await this.meta.collection<MutationRecord>('mutations').insertOne(record, { session })
+      await this.meta.collection<MutationRecord>("mutations").insertOne(record, { session })
     } catch (error: unknown) {
       if (error instanceof MongoServerError && error.code === DUPLICATE_KEY) throw new Replay()
       throw error
@@ -379,18 +380,18 @@ export class WritePath {
     const session = this.client.startSession({ causalConsistency: true })
     try {
       const record = await this.meta
-        .collection<MutationRecord>('mutations')
-        .findOne({ _id: id }, { session, readConcern: { level: 'majority' }, ...EXACT_BSON })
+        .collection<MutationRecord>("mutations")
+        .findOne({ _id: id }, { session, readConcern: { level: "majority" }, ...EXACT_BSON })
       if (record === null) return undefined
       if (record.sub !== caller.subject)
-        throw new ConflictError('The mutation ID was used by another caller')
+        throw new ConflictError("The mutation ID was used by another caller")
       if (record.c !== request.collection || record.op !== request.op)
-        throw new ConflictError('The mutation ID was used for a different write')
+        throw new ConflictError("The mutation ID was used for a different write")
       if (record.result === undefined)
-        throw new CanopyError(ErrorCode.Internal, 'The idempotency record has no result')
+        throw new CanopyError(ErrorCode.Internal, "The idempotency record has no result")
       const ct = toCt(session.operationTime)
       if (ct === undefined)
-        throw new CanopyError(ErrorCode.Internal, 'The read has no cluster time')
+        throw new CanopyError(ErrorCode.Internal, "The read has no cluster time")
       return { ...normalizeOutcome(record.result), ct, replayed: true }
     } finally {
       await session.endSession()
@@ -408,57 +409,57 @@ export class WritePath {
       filterLimits: this.queryLimits,
     })
     switch (request.op) {
-      case 'insert':
+      case "insert":
         return this.planInsert(scope, [request.doc], true)
-      case 'insertMany': {
-        if (!Array.isArray(request.docs)) throw new InvalidQueryError('docs must be an array')
+      case "insertMany": {
+        if (!Array.isArray(request.docs)) throw new InvalidQueryError("docs must be an array")
         return this.planInsert(scope, request.docs, false)
       }
-      case 'update':
+      case "update":
         return this.planUpdate(scope, { id: request.id }, request.update, request.where)
-      case 'updateMany':
+      case "updateMany":
         requireBulk(request.bulk)
         return this.planUpdate(scope, { filter: request.filter }, request.update, undefined)
-      case 'replace':
+      case "replace":
         return this.planReplace(scope, request)
-      case 'delete':
+      case "delete":
         return this.planDelete(scope, { id: request.id }, request.where)
-      case 'deleteMany':
+      case "deleteMany":
         requireBulk(request.bulk)
         return this.planDelete(scope, { filter: request.filter }, undefined)
       default:
-        throw new InvalidQueryError('Unknown write operation')
+        throw new InvalidQueryError("Unknown write operation")
     }
   }
 
   private planInsert(scope: Scope, docs: readonly unknown[], single: boolean): Plan {
-    if (docs.length === 0) throw new InvalidQueryError('There is nothing to insert')
+    if (docs.length === 0) throw new InvalidQueryError("There is nothing to insert")
     if (docs.length > this.limits.maxInsertMany)
       throw new CanopyError(
         ErrorCode.BulkLimit,
         `An insert may not have more than ${this.limits.maxInsertMany} documents`,
       )
-    scope.requireGrant('insert')
-    const writable = scope.writable('insert')
+    scope.requireGrant("insert")
+    const writable = scope.writable("insert")
     const prepared: Document[] = docs.map((doc) => {
       validateStoredDocument(doc, this.queryLimits)
       const record = doc as Record<string, unknown>
       if (!scope.service) assertWritable(writable, leafPaths(record), scope.name)
-      validateId(record['_id'])
+      validateId(record["_id"])
       const out = toDriver(record) as Document
-      if (out['_id'] === undefined) out['_id'] = new BSON.ObjectId()
+      if (out["_id"] === undefined) out["_id"] = new BSON.ObjectId()
       return out
     })
-    const check = scope.engine.check(scope.name, 'insert', scope.ctx)
-    if (check.kind === 'deny') throw violation('insert', scope.name)
+    const check = scope.engine.check(scope.name, "insert", scope.ctx)
+    if (check.kind === "deny") throw violation("insert", scope.name)
     const run: Run = async (session) => {
       const [first] = prepared
       if (single && first !== undefined)
         await scope.coll.insertOne(first, scope.writeOptions(session))
       else await scope.coll.insertMany(prepared, { ...scope.writeOptions(session), ordered: true })
       const ct = scope.fastTime(session)
-      const ids = prepared.map((doc) => doc['_id'])
-      const documents = await scope.verify(session, ids, check, 'insert', single)
+      const ids = prepared.map((doc) => doc["_id"])
+      const documents = await scope.verify(session, ids, check, "insert", single)
       return {
         matched: 0,
         modified: 0,
@@ -469,7 +470,7 @@ export class WritePath {
         ...(ct === undefined ? {} : { ct }),
       }
     }
-    return { run, fast: single && check.kind === 'all' }
+    return { run, fast: single && check.kind === "all" }
   }
 
   private planUpdate(
@@ -478,26 +479,26 @@ export class WritePath {
     rawUpdate: unknown,
     rawWhere: unknown,
   ): Plan {
-    scope.requireGrant('update')
+    scope.requireGrant("update")
     const parsed = parseUpdate(rawUpdate, {
       allowPipeline: scope.service,
       limits: this.queryLimits,
     })
-    if (parsed.kind === 'replacement')
+    if (parsed.kind === "replacement")
       throw new InvalidQueryError(
-        'An update needs update operators; use replace for whole documents',
+        "An update needs update operators; use replace for whole documents",
       )
     if (!scope.service) {
-      assertWritable(scope.writable('update'), parsed.writtenPaths, scope.name)
+      assertWritable(scope.writable("update"), parsed.writtenPaths, scope.name)
       assertMutable(parsed.writtenPaths, scope.engine.immutable(scope.name))
     }
     const base = scope.selector(selector)
     const where = scope.precondition(rawWhere)
-    const target = and(base, where, scope.engine.target(scope.name, 'update', scope.ctx))
-    const visible = and(base, scope.engine.target(scope.name, 'update', scope.ctx))
-    const check = scope.engine.check(scope.name, 'update', scope.ctx)
+    const target = and(base, where, scope.engine.target(scope.name, "update", scope.ctx))
+    const visible = and(base, scope.engine.target(scope.name, "update", scope.ctx))
+    const check = scope.engine.check(scope.name, "update", scope.ctx)
     const update = toDriver(parsed.update) as Document
-    if ('id' in selector) {
+    if ("id" in selector) {
       const id = toDriver(selector.id)
       const run: Run = async (session) => {
         const result = await scope.coll.updateOne(
@@ -507,7 +508,7 @@ export class WritePath {
         )
         const ct = scope.fastTime(session)
         if (result.matchedCount === 0) {
-          if (where.kind !== 'all') await scope.assertNoConflict(session, visible)
+          if (where.kind !== "all") await scope.assertNoConflict(session, visible)
           return withCt(empty(), ct)
         }
         const modified = result.modifiedCount > 0
@@ -515,7 +516,7 @@ export class WritePath {
           session,
           [id],
           modified ? check : undefined,
-          'update',
+          "update",
           true,
         )
         return withCt(
@@ -530,7 +531,7 @@ export class WritePath {
           ct,
         )
       }
-      return { run, fast: check.kind === 'all' }
+      return { run, fast: check.kind === "all" }
     }
     const run: Run = async (session) => {
       const ids = await scope.findIds(session, target, this.limits.maxBulk + 1)
@@ -540,7 +541,7 @@ export class WritePath {
         session,
         maxTimeMS: this.limits.maxTimeMS,
       })
-      if (result.modifiedCount > 0) await scope.verify(session, ids, check, 'update', false)
+      if (result.modifiedCount > 0) await scope.verify(session, ids, check, "update", false)
       return {
         matched: result.matchedCount,
         modified: result.modifiedCount,
@@ -554,32 +555,32 @@ export class WritePath {
 
   private planReplace(
     scope: Scope,
-    request: Extract<WriteRequest, { readonly op: 'replace' }>,
+    request: Extract<WriteRequest, { readonly op: "replace" }>,
   ): Plan {
     const upsert = request.upsert === true
-    scope.requireGrant('update')
-    if (upsert) scope.requireGrant('insert')
+    scope.requireGrant("update")
+    if (upsert) scope.requireGrant("insert")
     if (upsert && request.where !== undefined)
-      throw new InvalidQueryError('A replacement cannot combine where with upsert')
+      throw new InvalidQueryError("A replacement cannot combine where with upsert")
     validateStoredDocument(request.doc, this.queryLimits)
     const doc = request.doc as Record<string, unknown>
     validateId(request.id)
-    if (doc['_id'] !== undefined && canonicalString(doc['_id']) !== canonicalString(request.id))
-      throw new InvalidQueryError('The replacement _id must match the target _id')
+    if (doc["_id"] !== undefined && canonicalString(doc["_id"]) !== canonicalString(request.id))
+      throw new InvalidQueryError("The replacement _id must match the target _id")
     if (!scope.service) {
-      if (scope.writable('update').kind !== 'all' || scope.engine.immutable(scope.name).length > 0)
+      if (scope.writable("update").kind !== "all" || scope.engine.immutable(scope.name).length > 0)
         throw new ForbiddenError(
           `The field rules of '${scope.name}' do not allow replacing whole documents; send an update`,
         )
-      if (upsert) assertWritable(scope.writable('insert'), leafPaths(doc), scope.name)
+      if (upsert) assertWritable(scope.writable("insert"), leafPaths(doc), scope.name)
     }
     const base = scope.selector({ id: request.id })
     const where = scope.precondition(request.where)
-    const target = and(base, where, scope.engine.target(scope.name, 'update', scope.ctx))
-    const visible = and(base, scope.engine.target(scope.name, 'update', scope.ctx))
-    const updateCheck = scope.engine.check(scope.name, 'update', scope.ctx)
-    const insertCheck = upsert ? scope.engine.check(scope.name, 'insert', scope.ctx) : undefined
-    const atomicUpsert = insertCheck?.kind === 'all'
+    const target = and(base, where, scope.engine.target(scope.name, "update", scope.ctx))
+    const visible = and(base, scope.engine.target(scope.name, "update", scope.ctx))
+    const updateCheck = scope.engine.check(scope.name, "update", scope.ctx)
+    const insertCheck = upsert ? scope.engine.check(scope.name, "insert", scope.ctx) : undefined
+    const atomicUpsert = insertCheck?.kind === "all"
     const id = toDriver(request.id)
     const replacement = toDriver({ ...doc, _id: request.id }) as Document
     const run: Run = async (session) => {
@@ -589,16 +590,16 @@ export class WritePath {
       })
       let ct = scope.fastTime(session)
       if (result.upsertedCount > 0) {
-        const documents = await scope.verify(session, [id], undefined, 'insert', true)
+        const documents = await scope.verify(session, [id], undefined, "insert", true)
         return withCt(upserted(id, documents), ct)
       }
       if (result.matchedCount === 0) {
-        if (where.kind !== 'all') await scope.assertNoConflict(session, visible)
+        if (where.kind !== "all") await scope.assertNoConflict(session, visible)
         if (insertCheck === undefined) return withCt(empty(), ct)
-        if (insertCheck.kind === 'deny') throw violation('insert', scope.name)
+        if (insertCheck.kind === "deny") throw violation("insert", scope.name)
         await scope.coll.insertOne(replacement, scope.writeOptions(session))
         ct = scope.fastTime(session)
-        const documents = await scope.verify(session, [id], insertCheck, 'insert', true)
+        const documents = await scope.verify(session, [id], insertCheck, "insert", true)
         return withCt(upserted(id, documents), ct)
       }
       const modified = result.modifiedCount > 0
@@ -606,7 +607,7 @@ export class WritePath {
         session,
         [id],
         modified ? updateCheck : undefined,
-        'update',
+        "update",
         true,
       )
       return withCt(
@@ -621,7 +622,7 @@ export class WritePath {
         ct,
       )
     }
-    return { run, fast: updateCheck.kind === 'all' && (insertCheck === undefined || atomicUpsert) }
+    return { run, fast: updateCheck.kind === "all" && (insertCheck === undefined || atomicUpsert) }
   }
 
   private planDelete(
@@ -629,12 +630,12 @@ export class WritePath {
     selector: { readonly id: unknown } | { readonly filter: unknown },
     rawWhere: unknown,
   ): Plan {
-    scope.requireGrant('delete')
+    scope.requireGrant("delete")
     const base = scope.selector(selector)
     const where = scope.precondition(rawWhere)
-    const target = and(base, where, scope.engine.target(scope.name, 'delete', scope.ctx))
-    const visible = and(base, scope.engine.target(scope.name, 'delete', scope.ctx))
-    if ('id' in selector) {
+    const target = and(base, where, scope.engine.target(scope.name, "delete", scope.ctx))
+    const visible = and(base, scope.engine.target(scope.name, "delete", scope.ctx))
+    if ("id" in selector) {
       const run: Run = async (session) => {
         const projection = toProjection(scope.readable())
         const deleted = await scope.coll.findOneAndDelete(scope.filter(target), {
@@ -644,7 +645,7 @@ export class WritePath {
         })
         const ct = scope.fastTime(session)
         if (deleted === null) {
-          if (where.kind !== 'all') await scope.assertNoConflict(session, visible)
+          if (where.kind !== "all") await scope.assertNoConflict(session, visible)
           return withCt(empty(), ct)
         }
         return withCt(
@@ -653,7 +654,7 @@ export class WritePath {
             modified: 0,
             deleted: 1,
             insertedIds: [],
-            changedIds: [deleted['_id']],
+            changedIds: [deleted["_id"]],
             documents: [projectReadable(scope.readable(), deleted)],
           },
           ct,
@@ -726,16 +727,16 @@ class Scope {
   fastTime(session: ClientSession): ClusterTime | undefined {
     if (session.inTransaction()) return undefined
     const ct = toCt(session.operationTime)
-    if (ct === undefined) throw new CanopyError(ErrorCode.Internal, 'The write has no cluster time')
+    if (ct === undefined) throw new CanopyError(ErrorCode.Internal, "The write has no cluster time")
     return ct
   }
 
-  requireGrant(op: 'insert' | 'update' | 'delete'): void {
+  requireGrant(op: "insert" | "update" | "delete"): void {
     if (!this.engine.hasGrant(this.name, op, this.ctx))
       throw new ForbiddenError(`No policy grants ${op} on '${this.name}'`)
   }
 
-  writable(op: 'insert' | 'update'): FieldAccess {
+  writable(op: "insert" | "update"): FieldAccess {
     return this.engine.writable(this.name, op, this.ctx)
   }
 
@@ -747,29 +748,29 @@ class Scope {
   /** Parses a caller filter and rejects references to unreadable fields, which would leak them. */
   private parseCallerFilter(input: unknown, what: string): ParsedFilter {
     if (!isDocument(input)) throw new InvalidQueryError(`${what} must be a document`)
-    const parsed = parseFilter(input, { context: 'filter', limits: this.filterLimits })
+    const parsed = parseFilter(input, { context: "filter", limits: this.filterLimits })
     const denied = deniedPaths(this.readable(), parsed.paths)
     if (denied.length > 0)
       throw new InvalidQueryError(
-        `${what} may not reference unreadable fields: ${denied.join(', ')}`,
+        `${what} may not reference unreadable fields: ${denied.join(", ")}`,
       )
     return parsed
   }
 
   selector(selector: { readonly id: unknown } | { readonly filter: unknown }): Compiled {
-    if ('id' in selector) {
+    if ("id" in selector) {
       validateId(selector.id)
-      return { kind: 'filter', filter: { _id: selector.id } }
+      return { kind: "filter", filter: { _id: selector.id } }
     }
-    return { kind: 'filter', filter: this.parseCallerFilter(selector.filter, 'The filter').filter }
+    return { kind: "filter", filter: this.parseCallerFilter(selector.filter, "The filter").filter }
   }
 
   precondition(where: unknown): Compiled {
-    if (where === undefined) return { kind: 'all' }
-    const parsed = this.parseCallerFilter(where, 'where')
+    if (where === undefined) return { kind: "all" }
+    const parsed = this.parseCallerFilter(where, "where")
     return Object.keys(parsed.filter).length === 0
-      ? { kind: 'all' }
-      : { kind: 'filter', filter: parsed.filter }
+      ? { kind: "all" }
+      : { kind: "filter", filter: parsed.filter }
   }
 
   /** The driver filter of a compiled target. A denied target becomes a filter that matches nothing. */
@@ -791,13 +792,13 @@ class Scope {
         ...EXACT_BSON,
       })
       .toArray()
-    return docs.map((doc) => doc['_id'])
+    return docs.map((doc) => doc["_id"])
   }
 
   /** A failed precondition on a document the caller can see is a conflict; an invisible one is not found. */
   async assertNoConflict(session: ClientSession, visible: Compiled): Promise<void> {
     const ids = await this.findIds(session, visible, 1)
-    if (ids.length > 0) throw new ConflictError('The where precondition did not match')
+    if (ids.length > 0) throw new ConflictError("The where precondition did not match")
   }
 
   /**
@@ -809,20 +810,20 @@ class Scope {
     session: ClientSession,
     ids: readonly unknown[],
     check: Compiled | undefined,
-    op: 'insert' | 'update',
+    op: "insert" | "update",
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
-    if (check?.kind === 'deny') throw violation(op, this.name)
+    if (check?.kind === "deny") throw violation(op, this.name)
     const facet: Document = {}
-    if (check?.kind === 'filter' && ids.length > 0)
-      facet['bad'] = [{ $match: { $nor: [toDriver(check.filter)] } }, { $count: 'n' }]
+    if (check?.kind === "filter" && ids.length > 0)
+      facet["bad"] = [{ $match: { $nor: [toDriver(check.filter)] } }, { $count: "n" }]
     const access = this.readable()
     const readFilter = read
       ? this.engine.effectiveRead(this.name, { _id: { $in: [...ids] } }, this.ctx)
       : undefined
-    if (readFilter !== undefined && readFilter.kind !== 'deny') {
+    if (readFilter !== undefined && readFilter.kind !== "deny") {
       const projection = toProjection(access)
-      facet['docs'] = [
+      facet["docs"] = [
         { $match: this.filter(readFilter) },
         ...(projection === undefined ? [] : [{ $project: projection }]),
       ]
@@ -835,11 +836,11 @@ class Scope {
         ...EXACT_BSON,
       })
       .toArray()
-    const bad = (out?.['bad'] as Document[] | undefined)?.[0]?.['n']
+    const bad = (out?.["bad"] as Document[] | undefined)?.[0]?.["n"]
     if (bad !== undefined && Number(bad) > 0) throw violation(op, this.name)
     if (!read) return undefined
-    const docs = (out?.['docs'] as Document[] | undefined) ?? []
-    const byId = new Map(docs.map((doc) => [canonicalString(doc['_id']), doc]))
+    const docs = (out?.["docs"] as Document[] | undefined) ?? []
+    const byId = new Map(docs.map((doc) => [canonicalString(doc["_id"]), doc]))
     return ids.map((id) => {
       const doc = byId.get(canonicalString(id))
       return doc === undefined ? null : projectReadable(access, doc)
@@ -853,12 +854,12 @@ function toDriver(value: unknown): unknown {
 
 function abortCheck(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true)
-    throw new CanopyError(ErrorCode.Timeout, 'The write was aborted', { cause: signal.reason })
+    throw new CanopyError(ErrorCode.Timeout, "The write was aborted", { cause: signal.reason })
 }
 
 function requireBulk(flag: unknown): void {
   if (flag !== true)
-    throw new InvalidQueryError('Writes to many documents must be requested with bulk: true')
+    throw new InvalidQueryError("Writes to many documents must be requested with bulk: true")
 }
 
 function bulkLimit(max: number): CanopyError {
@@ -868,7 +869,7 @@ function bulkLimit(max: number): CanopyError {
   )
 }
 
-function violation(op: 'insert' | 'update', collection: string): PolicyViolationError {
+function violation(op: "insert" | "update", collection: string): PolicyViolationError {
   return new PolicyViolationError(
     `The resulting document does not satisfy the ${op} check for collection '${collection}'`,
   )
@@ -877,41 +878,18 @@ function violation(op: 'insert' | 'update', collection: string): PolicyViolation
 function assertWritable(access: FieldAccess, paths: readonly string[], collection: string): void {
   const denied = deniedPaths(
     access,
-    paths.filter((path) => path !== '_id'),
+    paths.filter((path) => path !== "_id"),
   )
   if (denied.length > 0)
     throw new PolicyViolationError(
-      `The caller may not write ${denied.join(', ')} in collection '${collection}'`,
+      `The caller may not write ${denied.join(", ")} in collection '${collection}'`,
     )
 }
 
 function assertMutable(written: readonly string[], immutable: readonly string[]): void {
   const frozen = immutableViolations(written, immutable)
   if (frozen.length > 0)
-    throw new PolicyViolationError(`Immutable fields cannot be changed: ${frozen.join(', ')}`)
-}
-
-function validateId(id: unknown): void {
-  if (id === undefined) return
-  if (Array.isArray(id)) throw new InvalidQueryError('An _id may not be an array')
-  if (
-    id instanceof RegExp ||
-    (isDocument(id) && Object.keys(id).some((key) => key.startsWith('$')))
-  )
-    throw new InvalidQueryError('An _id may not be a regular expression or an operator document')
-}
-
-function validateCollectionName(name: unknown): void {
-  if (
-    typeof name !== 'string' ||
-    name === '' ||
-    name.length > 255 ||
-    name.includes('$') ||
-    name.includes('\0') ||
-    name.startsWith('system.')
-  ) {
-    throw new InvalidQueryError('Invalid collection name')
-  }
+    throw new PolicyViolationError(`Immutable fields cannot be changed: ${frozen.join(", ")}`)
 }
 
 function empty(): Outcome {

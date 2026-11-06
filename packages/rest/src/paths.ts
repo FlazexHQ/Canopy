@@ -1,5 +1,5 @@
-import { isDocument } from '@canopy/protocol'
-import { pathsOverlap } from '@canopy/query'
+import { isDocument } from "@canopy/protocol"
+import { pathsOverlap } from "@canopy/query"
 
 /**
  * Lists the paths a stored document writes, down to its leaves. Subdocuments, including those inside
