@@ -11,6 +11,7 @@
     { "path": "../auth" },
     { "path": "../config" },
     { "path": "../policy" },
+    { "path": "../protocol" },
     { "path": "../realtime" },
     { "path": "../rest" }
   ]

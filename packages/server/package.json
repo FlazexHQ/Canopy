@@ -27,6 +27,7 @@
     "@canopy/auth": "workspace:*",
     "@canopy/config": "workspace:*",
     "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
     "mongodb": "catalog:"

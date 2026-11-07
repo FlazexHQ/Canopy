@@ -29,6 +29,7 @@ import {
 import { createRestHandler, type RestHandler, toNodeListener } from "@canopy/rest"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
+import { migrateMeta } from "./migrations.ts"
 
 /** Options of {@link createCanopy}. */
 export interface CreateCanopyOptions {
@@ -41,6 +42,8 @@ export interface CreateCanopyOptions {
   /** Policies given in code instead of the configured source, for tests and embedding. */
   readonly policies?: PolicySet
   readonly logger?: Logger
+  /** Bring the meta database up to date on start. @default true */
+  readonly migrate?: boolean
 }
 
 /** A request handler in the Web standard `fetch` shape. */
@@ -130,6 +133,8 @@ export async function createCanopy(
   const mongo = options.mongo ?? new MongoClient(config.mongodb.uri, { appName: "canopy" })
   await mongo.connect()
   const db = mongo.db(config.mongodb.database)
+  const meta = mongo.db(config.mongodb.metaDatabase)
+  if (options.migrate !== false) await migrateMeta(meta, { logger })
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const auth = jwtOptions(config)
   const keys = { publishable: config.keys.publishable, secret: config.keys.secret }
