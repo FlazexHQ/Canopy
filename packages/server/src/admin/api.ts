@@ -4,7 +4,9 @@ import type { ResolvedConfig } from "@canopy/config"
 import {
   type ContextDefinitions,
   type ContextResolver,
+  explainAccess,
   fieldAccess,
+  formatAccessReport,
   OPERATIONS,
   type Operation,
   PolicyEngine,
@@ -872,6 +874,28 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
           : {}),
       },
       ...result,
+    })
+  })
+
+  route("POST", "policies/:collection/explain", "policies.simulate", async (context) => {
+    const collection = collectionName(context.params["collection"] ?? "")
+    const body = object({
+      as: unknownValue(),
+      op: optional(oneOf(...OPERATIONS)),
+      filter: optional(document()),
+    }).parse(await context.body())
+    const engine = options.engine()
+    const as = await impersonate(body.as, collection, engine)
+    const report = explainAccess(engine, {
+      collection,
+      op: body.op ?? "read",
+      context: as.context,
+      ...(body.filter === undefined ? {} : { filter: body.filter }),
+    })
+    return json({
+      ...report,
+      effectiveFilter: toFilter(report.effective),
+      text: formatAccessReport(report),
     })
   })
 

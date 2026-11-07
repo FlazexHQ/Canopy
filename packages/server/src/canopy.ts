@@ -8,8 +8,14 @@ import {
   type ResolvedConfig,
   resolveConfig,
 } from "@canopy/config"
-import { ContextResolver, PolicyEngine, type PolicySet } from "@canopy/policy"
-import { CloseCode } from "@canopy/protocol"
+import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
+import {
+  CloseCode,
+  DiagnosticError,
+  diagnoseMongoError,
+  formatDiagnostic,
+  mongoTarget,
+} from "@canopy/protocol"
 import {
   type Attachment,
   attach,
@@ -181,10 +187,44 @@ export async function createCanopy(
   const logger = options.logger ?? silentLogger
   const ownsMongo = options.mongo === undefined
   const mongo = options.mongo ?? new MongoClient(config.mongodb.uri, { appName: "canopy" })
-  await mongo.connect()
+  const report = (message: string): void => {
+    if (options.logger === undefined) process.stderr.write(`${message}\n`)
+    else logger.error({}, message)
+  }
+  const diagnosed = async <T>(step: () => Promise<T>): Promise<T> => {
+    try {
+      return await step()
+    } catch (error: unknown) {
+      const diagnostic = diagnoseMongoError(
+        error,
+        mongoTarget(config.mongodb.uri, config.mongodb.database),
+      )
+      if (diagnostic === undefined) throw error
+      report(formatDiagnostic(diagnostic))
+      if (ownsMongo) await mongo.close().catch(() => {})
+      throw new DiagnosticError(diagnostic, { cause: error })
+    }
+  }
+  await diagnosed(() => mongo.connect())
   const db = mongo.db(config.mongodb.database)
   const meta = mongo.db(config.mongodb.metaDatabase)
-  if (options.migrate !== false) await migrateMeta(meta, { logger })
+  if (options.migrate !== false) await diagnosed(() => migrateMeta(meta, { logger }))
+  const development = config.environment === "development"
+  const variableHooks = development
+    ? {
+        onVariableIssue: onceVariableIssue((message, issue) =>
+          logger.warn(
+            {
+              collection: issue.collection,
+              policy: issue.policy,
+              variable: issue.variable,
+              kind: issue.kind,
+            },
+            message,
+          ),
+        ),
+      }
+    : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const builtinAuth =
     config.auth?.kind === "builtin"
@@ -236,28 +276,31 @@ export async function createCanopy(
 
   const realtimeConfig = config.realtime
   if (realtimeConfig !== false) {
-    realtime = await createRealtime({
-      mongo,
-      database: config.mongodb.database,
-      metaDatabase: config.mongodb.metaDatabase,
-      authenticator,
-      policies: watch ? source : { load: () => source.load() },
-      fullDocument: realtimeConfig.fullDocument,
-      checkpoints: realtimeConfig.checkpoints,
-      resumeWindowMs: realtimeConfig.resumeWindowMs,
-      nodeId: config.server.nodeId,
-      contexts,
-      logger,
-      traceCapacity: 256,
-      ...(rest === undefined ? {} : { mutations: rest.writes }),
-    })
+    realtime = await diagnosed(() =>
+      createRealtime({
+        mongo,
+        database: config.mongodb.database,
+        metaDatabase: config.mongodb.metaDatabase,
+        authenticator,
+        policies: watch ? source : { load: () => source.load() },
+        fullDocument: realtimeConfig.fullDocument,
+        checkpoints: realtimeConfig.checkpoints,
+        resumeWindowMs: realtimeConfig.resumeWindowMs,
+        nodeId: config.server.nodeId,
+        contexts,
+        logger,
+        traceCapacity: 256,
+        logVariableIssues: development,
+        ...(rest === undefined ? {} : { mutations: rest.writes }),
+      }),
+    )
   } else {
-    let current = new PolicyEngine(await source.load())
+    let current = new PolicyEngine(await source.load(), variableHooks)
     standalone = current
     if (watch && source.watch !== undefined) {
       stopWatching = source.watch(
         (set) => {
-          current = new PolicyEngine(set)
+          current = new PolicyEngine(set, variableHooks)
           standalone = current
         },
         (error) =>

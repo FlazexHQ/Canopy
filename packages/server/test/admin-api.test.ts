@@ -494,6 +494,39 @@ suite("admin API", () => {
     })
   })
 
+  it("explains access with the shared report, for admin sessions only, without failing values", async () => {
+    const explained = (await (
+      await owner.call("POST", "/policies/notes/explain", {
+        as: { claims: { sub: "alice", email: "secret-email@example.com" } },
+        op: "read",
+      })
+    ).json()) as { granted: boolean; effectiveFilter: unknown; text: string }
+    expect(explained.granted).toBe(true)
+    expect(JSON.stringify(explained.effectiveFilter)).toContain("alice")
+    expect(explained.text).toContain("read own")
+    const failing = (await (
+      await owner.call("POST", "/policies/notes/explain", {
+        as: { claims: { sub: { leaked: "do-not-echo" } }, roles: ["auditor"] },
+      })
+    ).json()) as { using: { policies: { applies: boolean; reason: string }[] } }
+    expect(failing.using.policies[0]).toMatchObject({ applies: false })
+    expect(failing.using.policies[0]?.reason).toContain("sub")
+    expect(JSON.stringify(failing)).not.toContain("do-not-echo")
+    expect(
+      (await clients.viewer?.call("POST", "/policies/notes/explain", { as: { user: "a" } }))
+        ?.status,
+    ).toBe(403)
+    expect(
+      (
+        await fetch(`${base}/admin/v1/policies/notes/explain`, {
+          method: "POST",
+          headers: { apikey: "pk_admin_test", "content-type": "application/json" },
+          body: JSON.stringify({ as: { user: "a" } }),
+        })
+      ).status,
+    ).toBe(401)
+  })
+
   it("creates keys shown once and revokes them", async () => {
     const created = (await (
       await owner.call("POST", "/api-keys", { kind: "secret", name: "ci" })
