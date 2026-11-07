@@ -7,6 +7,7 @@ import {
   type Shape,
 } from "@canopy/schema"
 import type { Db, Document } from "mongodb"
+import { EXACT_BSON } from "./driver.ts"
 import { fromDriverError } from "./errors.ts"
 
 /** Options for reading collection schemas from MongoDB. */
@@ -19,7 +20,6 @@ export interface SchemaSourceOptions {
   readonly maxTimeMS?: number
 }
 
-const EXACT_BSON = { promoteValues: false, bsonRegExp: true } as const
 const EMPTY: ObjectShape = { kind: "object", fields: {}, open: true }
 
 function asObject(shape: Shape): ObjectShape | undefined {

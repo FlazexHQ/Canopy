@@ -11,7 +11,6 @@ import {
   type LintFinding,
   lintPolicies,
   type PolicySet,
-  type StoredCollectionPolicies,
   toStored,
 } from "@canopy/policy"
 import { CanopyError, ErrorCode, isDocument } from "@canopy/protocol"

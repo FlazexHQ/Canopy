@@ -1,4 +1,9 @@
-import type { EmailKind, EmailTemplate, EmailTemplateData } from "@canopy/auth-builtin"
+import {
+  type EmailKind,
+  type EmailTemplate,
+  type EmailTemplateData,
+  escapeHtml,
+} from "@canopy/auth-builtin"
 import { ConflictError, NotFoundError, ValidationError } from "@canopy/protocol"
 import type { Collection, Db } from "mongodb"
 import type { Actor, AuditLog, RequestOrigin } from "../audit.ts"
@@ -78,15 +83,6 @@ export const PREVIEW_DATA: Omit<EmailTemplateData, "appName"> = {
 
 const LIMITS = { subject: 200, text: 20_000, html: 100_000 }
 const MARKER = /\{\{\s*([A-Za-z]+)\s*\}\}/g
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;")
-}
 
 function isDuplicateKey(error: unknown): boolean {
   return typeof error === "object" && error !== null && (error as { code?: unknown }).code === 11000

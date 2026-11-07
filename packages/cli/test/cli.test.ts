@@ -136,7 +136,10 @@ describe("canopy cli", () => {
   it("shows usage for unknown commands", async () => {
     const { errors, out } = capture()
     expect(await run(["frobnicate"], {}, out)).toBe(1)
-    expect(errors[0]).toContain("Unknown command")
+    expect(errors[0]).toContain("Unknown command: frobnicate\n")
+    const typo = capture()
+    expect(await run(["doctr"], {}, typo.out)).toBe(1)
+    expect(typo.errors[0]).toContain("Unknown command: doctr. Did you mean canopy doctor?")
   })
 
   const withMongo = MONGODB_URI === undefined ? it.skip : it

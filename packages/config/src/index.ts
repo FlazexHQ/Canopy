@@ -10,6 +10,7 @@ export {
 export {
   ConfigError,
   type ConfigProblem,
+  databaseFromUri,
   formatConfig,
   isResolvedConfig,
   joinPath,

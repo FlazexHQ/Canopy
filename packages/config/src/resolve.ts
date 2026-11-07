@@ -720,7 +720,8 @@ function expandAuth(resolver: Resolver, tree: Record<string, unknown>): void {
   }
 }
 
-function databaseFromUri(uri: string): string | undefined {
+/** The database in the path of a MongoDB connection string, if there is one. */
+export function databaseFromUri(uri: string): string | undefined {
   try {
     const path = new URL(uri.replace(/^mongodb(\+srv)?:/, "http:")).pathname.replace(/^\//, "")
     return path === "" ? undefined : decodeURIComponent(path)

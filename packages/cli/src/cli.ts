@@ -2,7 +2,13 @@
 import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { Writable } from "node:stream"
-import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
+import {
+  ConfigError,
+  databaseFromUri,
+  formatConfig,
+  type ResolvedConfig,
+  suggest,
+} from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
 import { adminCreate, adminList, adminResetTotp } from "./admin.ts"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
@@ -239,13 +245,6 @@ function text(flags: Map<string, string | true>, name: string): string | undefin
   return typeof value === "string" ? value : undefined
 }
 
-function closest(input: string, candidates: readonly string[]): string | undefined {
-  return candidates.find(
-    (candidate) =>
-      candidate.startsWith(input.slice(0, 3)) && Math.abs(candidate.length - input.length) <= 2,
-  )
-}
-
 function port(value: string | undefined, flag: string, out: Output): number | undefined | false {
   if (value === undefined) return undefined
   if (!/^\d+$/.test(value) || Number(value) > 65535) {
@@ -256,7 +255,7 @@ function port(value: string | undefined, flag: string, out: Output): number | un
 }
 
 function databaseOf(uri: string): string {
-  return decodeURIComponent(new URL(uri.replace(/^mongodb(\+srv)?:/, "http:")).pathname.slice(1))
+  return databaseFromUri(uri) ?? ""
 }
 
 /**
@@ -284,13 +283,16 @@ export async function run(
   const rest = positional.slice(name.split(" ").length)
   const spec = COMMANDS[name]
   if (spec === undefined) {
-    out.error(`Unknown command: ${positional.join(" ")}\n\n${USAGE}`)
+    const near = suggest(name, Object.keys(COMMANDS))
+    out.error(
+      `Unknown command: ${positional.join(" ")}${near === undefined ? "" : `. Did you mean canopy ${near}?`}\n\n${USAGE}`,
+    )
     return 1
   }
   const allowed = spec.flags
   for (const flag of flags.keys()) {
     if (GLOBAL_FLAGS.includes(flag) || allowed.includes(flag)) continue
-    const near = closest(flag, [...GLOBAL_FLAGS, ...allowed])
+    const near = suggest(flag, [...GLOBAL_FLAGS, ...allowed])
     out.error(
       `Unknown option --${flag} for ${name}.${near === undefined ? "" : ` Did you mean --${near}?`}`,
     )

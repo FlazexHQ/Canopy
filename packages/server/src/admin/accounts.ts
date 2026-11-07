@@ -134,7 +134,8 @@ const EMAIL = /^[^\s@]+@[^\s@]+$/
 const TOUCH_INTERVAL_MS = 60_000
 const INVALID_LOGIN = "Invalid email or password"
 
-function sha256(value: string): string {
+/** The hex SHA-256 of a token, which is all the meta database stores of session and API tokens. */
+export function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex")
 }
 

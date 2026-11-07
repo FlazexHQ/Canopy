@@ -1,8 +1,8 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
 import { ForbiddenError, NotFoundError, ValidationError } from "@canopy/protocol"
 import type { Collection, Db } from "mongodb"
 import type { Actor, AuditLog, RequestOrigin } from "../audit.ts"
-import { type AdminAccounts, type AdminSession, actorOf } from "./accounts.ts"
+import { type AdminAccounts, type AdminSession, actorOf, sha256 } from "./accounts.ts"
 import { ADMIN_ROLES, type AdminRole } from "./rbac.ts"
 
 /** The prefix of every admin API token, so leaked tokens are easy to recognize and scan for. */
@@ -62,10 +62,6 @@ export interface AdminTokensOptions {
 
 const DISPLAY_LENGTH = ADMIN_TOKEN_PREFIX.length + 6
 const MAX_LIFETIME_DAYS = 3650
-
-function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex")
-}
 
 /** How much a role may do, higher is more. */
 function rank(role: AdminRole): number {

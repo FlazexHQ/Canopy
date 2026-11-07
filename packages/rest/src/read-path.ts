@@ -20,7 +20,6 @@ import {
   ErrorCode,
   InvalidQueryError,
   isDocument,
-  toBsonLibrary,
   toCt,
 } from "@canopy/protocol"
 import {
@@ -32,7 +31,7 @@ import {
   type QueryLimits,
   validatePath,
 } from "@canopy/query"
-import { BSON, type ClientSession, type Db, type Document, type MongoClient } from "mongodb"
+import type { ClientSession, Db, Document, MongoClient } from "mongodb"
 import {
   type CursorKey,
   cursorKeys,
@@ -42,6 +41,7 @@ import {
   keysetFilter,
   positionOf,
 } from "./cursor.ts"
+import { abortCheck, EXACT_BSON, toDriver } from "./driver.ts"
 import { fromDriverError } from "./errors.ts"
 import type { CountMode } from "./params.ts"
 import { validateCollectionName, validateId } from "./validation.ts"
@@ -126,8 +126,6 @@ export interface ReadOptions {
   readonly signal?: AbortSignal
 }
 
-const EXACT_BSON = { promoteValues: false, bsonRegExp: true } as const
-
 interface Planned {
   readonly name: string
   readonly engine: PolicyEngine
@@ -167,7 +165,7 @@ export class ReadPath {
    * grant their roles at least one operation; `service` also sees every collection of the database.
    */
   async collections(caller: Caller, options: ReadOptions = {}): Promise<CollectionInfo[]> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     const engine = this.engine()
     const ctx = caller.context
     const names = new Set<string>()
@@ -198,7 +196,7 @@ export class ReadPath {
    * fields and cursors of another query, and `CANOPY_NOT_FOUND` for unknown collections.
    */
   async find(caller: Caller, request: FindRequest, options: ReadOptions = {}): Promise<FindResult> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     const planned = this.plan(caller, request.collection)
     const parsed = this.parse(planned, {
       filter: request.filter ?? {},
@@ -243,7 +241,7 @@ export class ReadPath {
           ...EXACT_BSON,
         })
         .toArray()) as Record<string, unknown>[]
-      abortCheck(options.signal)
+      abortCheck(options.signal, "read")
       const more = raw.length > limit
       const page = more ? raw.slice(0, limit) : raw
       const last = page.at(-1)
@@ -267,7 +265,7 @@ export class ReadPath {
     fields?: unknown,
     options: ReadOptions = {},
   ): Promise<{ readonly doc: ReturnedDocument | null; readonly ct: ClusterTime }> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     if (id === undefined) throw new InvalidQueryError("The id is missing")
     validateId(id)
     const planned = this.plan(caller, collection)
@@ -305,7 +303,7 @@ export class ReadPath {
     mode: CountMode = "exact",
     options: ReadOptions = {},
   ): Promise<{ readonly count: number; readonly exact: boolean; readonly ct: ClusterTime }> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     const planned = this.plan(caller, collection)
     const parsed = this.parse(planned, { filter: filter ?? {} })
     const effective = planned.engine.effectiveRead(
@@ -346,7 +344,7 @@ export class ReadPath {
     filter: unknown,
     options: ReadOptions = {},
   ): Promise<{ readonly values: readonly unknown[]; readonly ct: ClusterTime }> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     if (typeof field !== "string") throw new InvalidQueryError("field must be a string")
     validatePath(field, { maxLength: this.queryLimits.maxPathLength })
     const planned = this.plan(caller, collection)
@@ -385,7 +383,7 @@ export class ReadPath {
     pipeline: unknown,
     options: ReadOptions = {},
   ): Promise<{ readonly docs: readonly Record<string, unknown>[]; readonly ct: ClusterTime }> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "read")
     const planned = this.plan(caller, collection)
     const max = this.limits.maxAggregateResults
     const secured = securePipeline(planned.engine, planned.name, pipeline, caller.context, {
@@ -403,7 +401,7 @@ export class ReadPath {
           ...EXACT_BSON,
         })
         .toArray()) as Record<string, unknown>[]
-      abortCheck(options.signal)
+      abortCheck(options.signal, "read")
       if (docs.length > max)
         throw new InvalidQueryError(
           `The aggregation returned more than ${max} documents; add a $limit stage`,
@@ -543,13 +541,4 @@ function pruneDescendants(projection: Record<string, 0 | 1>): Record<string, 0 |
 
 function estimable(effective: Compiled, parsed: ParsedQuery): boolean {
   return effective.kind === "all" && Object.keys(parsed.filter.filter).length === 0
-}
-
-function toDriver(value: unknown): Document {
-  return toBsonLibrary(value, BSON) as Document
-}
-
-function abortCheck(signal: AbortSignal | undefined): void {
-  if (signal?.aborted === true)
-    throw new CanopyError(ErrorCode.Timeout, "The read was aborted", { cause: signal.reason })
 }

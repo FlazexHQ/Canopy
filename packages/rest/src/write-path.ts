@@ -20,7 +20,6 @@ import {
   InvalidQueryError,
   isDocument,
   PolicyViolationError,
-  toBsonLibrary,
   toCanopyError,
   toCt,
 } from "@canopy/protocol"
@@ -41,6 +40,7 @@ import {
   type MongoClient,
   MongoServerError,
 } from "mongodb"
+import { abortCheck, EXACT_BSON, toDriver } from "./driver.ts"
 import { fromDriverError } from "./errors.ts"
 import { immutableViolations, leafPaths } from "./paths.ts"
 import { validateCollectionName, validateId } from "./validation.ts"
@@ -173,7 +173,6 @@ export interface WritePathOptions {
   readonly mutationTtlSeconds?: number
 }
 
-const EXACT_BSON = { promoteValues: false, bsonRegExp: true } as const
 const MUTATION_ID = /^[A-Za-z0-9_-]{8,128}$/
 const INDEX_OPTIONS_CONFLICT = new Set([85, 86])
 const DUPLICATE_KEY = 11000
@@ -300,7 +299,7 @@ export class WritePath {
     options: WriteOptions = {},
   ): Promise<WriteResult> {
     const service = caller.context.roles.has(Role.Service)
-    abortCheck(options.signal)
+    abortCheck(options.signal, "write")
     validateMutationId(options.mutationId)
     const plan = this.plan(this.engine(), caller.context, request)
     if (plan.fast && options.mutationId === undefined) return this.executeFast(plan.run, service)
@@ -326,7 +325,7 @@ export class WritePath {
     requests: readonly WriteRequest[],
     options: WriteOptions = {},
   ): Promise<BatchResult> {
-    abortCheck(options.signal)
+    abortCheck(options.signal, "write")
     validateMutationId(options.mutationId)
     if (requests.length === 0) throw new InvalidQueryError("A batch needs at least one operation")
     if (requests.length > this.limits.maxBatch)
@@ -367,7 +366,7 @@ export class WritePath {
       try {
         outcomes = await session.withTransaction(
           async (s) => {
-            abortCheck(options.signal)
+            abortCheck(options.signal, "write")
             if (Date.now() > deadline)
               throw new CanopyError(ErrorCode.Timeout, "The write could not commit in time")
             const results: Outcome[] = []
@@ -937,10 +936,6 @@ class Scope {
   }
 }
 
-function toDriver(value: unknown): unknown {
-  return toBsonLibrary(value, BSON)
-}
-
 function validateMutationId(mutationId: string | undefined): void {
   if (mutationId !== undefined && !MUTATION_ID.test(mutationId))
     throw new InvalidQueryError(
@@ -954,11 +949,6 @@ function atIndex(error: CanopyError, index: number): CanopyError {
     cause: error,
     details: { ...error.details, index },
   })
-}
-
-function abortCheck(signal: AbortSignal | undefined): void {
-  if (signal?.aborted === true)
-    throw new CanopyError(ErrorCode.Timeout, "The write was aborted", { cause: signal.reason })
 }
 
 function requireBulk(flag: unknown): void {
