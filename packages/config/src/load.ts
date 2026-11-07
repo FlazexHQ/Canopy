@@ -64,8 +64,18 @@ export function parseEnvFile(text: string): Map<string, string> {
     if (match === null) continue
     let value = match[2] ?? ""
     const quote = value[0]
-    if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) {
-      value = value.slice(1, -1)
+    let close = -1
+    if (quote === '"' || quote === "'") {
+      for (let index = 1; index < value.length; index += 1) {
+        if (quote === '"' && value[index] === "\\") index += 1
+        else if (value[index] === quote) {
+          close = index
+          break
+        }
+      }
+    }
+    if (close > 0) {
+      value = value.slice(1, close)
       if (quote === '"') value = value.replaceAll("\\n", "\n").replaceAll('\\"', '"')
     } else {
       const comment = value.search(/\s#/)
