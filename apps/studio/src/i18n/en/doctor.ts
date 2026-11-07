@@ -23,5 +23,6 @@ export const doctor = {
     "admin-listener": "Private admin listener",
     policies: "Policies",
     realtime: "Realtime",
+    revocations: "Revocations across nodes",
   },
 } as const

@@ -125,6 +125,8 @@ export interface AdminAuth {
     rotate(): Promise<readonly unknown[]>
     revoke(kid: string): Promise<boolean>
   }
+  /** Whether revocations written by other nodes reach this one right now. */
+  readonly revocationsFollowing?: boolean
 }
 
 /** The admin API: a Web standard handler for `/admin/v1/*`. */
@@ -1659,6 +1661,14 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       const stats = realtime.stats()
       add("realtime", "ok", `${stats.connections} connection(s), stream at ${stats.streamPosition}`)
     }
+    if (options.auth?.revocationsFollowing !== undefined)
+      add(
+        "revocations",
+        options.auth.revocationsFollowing ? "ok" : "fail",
+        options.auth.revocationsFollowing
+          ? "Sign outs and bans on other nodes apply here at once"
+          : "Not following other nodes' revocations: their sign outs and bans apply here only once following resumes",
+      )
     const status = checks.some((c) => c.status === "fail")
       ? "fail"
       : checks.some((c) => c.status === "warn")

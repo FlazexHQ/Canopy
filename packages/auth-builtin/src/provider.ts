@@ -218,7 +218,7 @@ class BetterAuthProvider implements BuiltinAuth {
           details: { method: signInMethod(path) },
         }),
       sessionEnded: (session) => {
-        this.revoke({ kind: "session", sub: session.userId, sid: session.id })
+        void this.revoke({ kind: "session", sub: session.userId, sid: session.id })
         this.audit.record({
           action: "auth.session_ended",
           actor: { type: "user", id: session.userId },
@@ -324,14 +324,19 @@ class BetterAuthProvider implements BuiltinAuth {
     readonly kind: "session" | "user"
     readonly sub: string
     readonly sid?: string
-  }): void {
+  }): Promise<boolean> {
     const at = new Date()
     const revocation: Revocation = {
       ...input,
       at,
       expiresAt: new Date(at.getTime() + (this.ttl + 120) * 1000),
     }
-    void this.revocations.revoke(revocation)
+    return this.revocations.revoke(revocation)
+  }
+
+  /** Whether revocations written by other nodes reach this one right now. */
+  get revocationsFollowing(): boolean {
+    return this.revocations.isFollowing
   }
 
   onRevocation(listener: (revocation: Revocation) => void): () => void {

@@ -8,7 +8,13 @@ import type {
   UserAdmin,
   UserPage,
 } from "@canopy/auth"
-import { ConflictError, NotFoundError, ValidationError } from "@canopy/protocol"
+import {
+  CanopyError,
+  ConflictError,
+  ErrorCode,
+  NotFoundError,
+  ValidationError,
+} from "@canopy/protocol"
 import { MongoServerError } from "mongodb"
 import type { EngineApi, EngineSession, EngineUser } from "./engine.ts"
 
@@ -101,8 +107,11 @@ function checkEmail(email: string): string {
 export interface UserAdminHooks {
   readonly engine: EngineApi
   readonly minPasswordLength: number
-  /** Revokes every access token of the user issued until now. */
-  revokeUser(sub: string): void
+  /**
+   * Revokes every access token of the user issued until now. Resolves to `false` when the revocation could
+   * not be written, so other nodes keep accepting those tokens until they expire.
+   */
+  revokeUser(sub: string): Promise<boolean>
   /** Sends an invite link to `email`, landing on `redirectTo`. */
   sendInvite(email: string, redirectTo: string): Promise<void>
 }
@@ -262,7 +271,7 @@ export class EngineUserAdmin implements UserAdmin {
       await context.internalAdapter.deleteUserSessions(id)
       return banned
     })
-    this.hooks.revokeUser(id)
+    await this.revokeEverywhere(id, "banned")
     return toAuthUser(user)
   }
 
@@ -285,8 +294,17 @@ export class EngineUserAdmin implements UserAdmin {
       await context.internalAdapter.deleteAccounts(id)
       await context.internalAdapter.deleteUser(id)
     })
-    this.hooks.revokeUser(id)
+    await this.revokeEverywhere(id, "deleted")
     return true
+  }
+
+  private async revokeEverywhere(id: string, done: string): Promise<void> {
+    if (await this.hooks.revokeUser(id)) return
+    throw new CanopyError(
+      ErrorCode.Unavailable,
+      `The user was ${done}, but the revocation could not be written; other nodes accept the user's access tokens until they expire`,
+      { details: { userId: id } },
+    )
   }
 
   async listSessions(id: string): Promise<readonly AuthSession[]> {
