@@ -128,6 +128,7 @@ describe("ContextResolver", () => {
     const result = await resolver.resolve(contexts, ["projectIds"], user("alice"))
     expect(Object.hasOwn(result.ctx, "projectIds")).toBe(false)
     expect(issues).toEqual([{ name: "projectIds", kind: "max" }])
+    expect(result.failed.size).toBe(0)
     await resolver.resolve(contexts, ["projectIds"], user("alice"))
     expect(source.reads).toBe(1)
   })
@@ -145,10 +146,12 @@ describe("ContextResolver", () => {
     source.failWith = new Error("boom")
     const failed = await resolver.resolve(contexts, ["projectIds"], user("alice"))
     expect(failed.ctx).toEqual({})
+    expect([...failed.failed]).toEqual(["projectIds"])
     expect(issues[0]?.kind).toBe("error")
     source.failWith = undefined
     const ok = await resolver.resolve(contexts, ["projectIds"], user("alice"))
     expect(ok.ctx["projectIds"]).toEqual(["p1"])
+    expect(ok.failed.size).toBe(0)
   })
 
   it("fails closed on timeouts and aborts the read", async () => {

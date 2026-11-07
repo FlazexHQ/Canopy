@@ -7,6 +7,7 @@ import {
 } from "@canopy/matcher"
 import {
   type Compiled,
+  ContextResolver,
   deniedPaths,
   type FieldAccess,
   PolicyEngine,
@@ -34,6 +35,7 @@ import {
 } from "@canopy/protocol"
 import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
 import type { MongoClient } from "mongodb"
+import { mongoContextReader } from "./context-reader.ts"
 import { EchoWaiter } from "./echo.ts"
 import type { ControlEvent, Doc, NormalizedEvent } from "./event.ts"
 import {
@@ -132,6 +134,13 @@ export interface RealtimeOptions {
   readonly mutations?: MutationExecutor
   /** How long an `ack` waits for its echo before it is sent with post images instead. Defaults to 2 s. */
   readonly echoTimeoutMs?: number
+  /**
+   * Resolves context lookups (`$ctx`). Pass a shared resolver so the REST handler sees the same cache and
+   * its invalidations. Defaults to one that reads the app database with a 1 s timeout.
+   */
+  readonly contexts?: ContextResolver
+  /** How long to wait before retrying a context lookup that failed with an error or a timeout. Defaults to 5 s. */
+  readonly contextRetryMs?: number
 }
 
 /** A connection from any transport. */
@@ -158,6 +167,16 @@ interface SessionState {
   socket: RealtimeSocket | undefined
   mutations: Promise<void>
   pendingMutations: number
+  /** Resolved context lookups (`$ctx`) of this session. */
+  ctx: Record<string, unknown>
+  /** The resolver cache entry behind each resolved lookup, held while the session lives. */
+  readonly ctxKeys: Map<string, string>
+  /** Context work runs one at a time per session, so lookups and their retains never interleave. */
+  ctxWork: Promise<void>
+  /** Subscriptions waiting for their context lookups. */
+  readonly pendingSubs: Map<string, SubMessage>
+  ctxRetry: ReturnType<typeof setTimeout> | undefined
+  readonly ctxFailed: Set<string>
 }
 
 function randomId(): string {
@@ -206,6 +225,10 @@ export class Realtime {
   private readonly ingestor: Ingestor
   private readonly echoes = new EchoWaiter()
   private readonly source: PolicySource
+  /** The context lookup resolver, shared with REST when the server composes both. */
+  readonly contexts: ContextResolver
+  private readonly ownsContexts: boolean
+  private readonly stopContexts: () => void
   private stopWatching: (() => void) | undefined
   private timeTimer: ReturnType<typeof setInterval> | undefined
   private watched: string[] = []
@@ -227,6 +250,15 @@ export class Realtime {
     this.source = source
     this.engine = this.createEngine(set)
     const db = options.mongo.db(options.database)
+    this.ownsContexts = options.contexts === undefined
+    this.contexts =
+      options.contexts ??
+      new ContextResolver({
+        reader: mongoContextReader(db),
+        onIssue: (issue) =>
+          this.metrics.contextFailures.inc({ name: issue.name, kind: issue.kind }),
+      })
+    this.stopContexts = this.contexts.onInvalidate((keys) => this.contextsInvalidated(keys))
     this.reader = new MongoSnapshotReader(options.mongo, db, {
       concurrency: this.limits.snapshotConcurrency,
       metrics: this.metrics,
@@ -253,7 +285,10 @@ export class Realtime {
       handlers: {
         onEvents: (events) => this.processEvents(events),
         onControl: (event) => this.processControl(event),
-        onRestart: (reason) => this.resyncAll(reason),
+        onRestart: (reason) => {
+          this.contexts.invalidateAll()
+          this.resyncAll(reason)
+        },
         onProgress: (ct) => {
           for (const observer of this.registry.all()) observer.advance(ct)
           this.echoes.advance(ct)
@@ -283,11 +318,126 @@ export class Realtime {
     })
   }
 
+  /** The collections the change stream covers: realtime ones and the sources of context lookups. */
   private realtimeCollections(): string[] {
-    return [...this.engine.set.collections.values()]
-      .filter((def) => def.exposed && def.realtime)
-      .map((def) => def.collection)
-      .sort()
+    const names = new Set(
+      [...this.engine.set.collections.values()]
+        .filter((def) => def.exposed && def.realtime)
+        .map((def) => def.collection),
+    )
+    for (const lookup of Object.values(this.engine.set.contexts)) names.add(lookup.from)
+    return [...names].sort()
+  }
+
+  private contextOf(state: SessionState): RequestContext {
+    return { ...state.principal.context, ctx: state.ctx }
+  }
+
+  /**
+   * Resolves the named lookups the session does not hold yet (and every name in `force`), through the
+   * session's work queue. Transient failures are retried after `contextRetryMs`.
+   */
+  private loadContext(
+    state: SessionState,
+    names: readonly string[],
+    force: ReadonlySet<string> = new Set(),
+  ): Promise<void> {
+    const work = state.ctxWork.then(async () => {
+      if (!this.sessions.has(state.session.sid)) return
+      const wanted = names.filter(
+        (name) => force.has(name) || !state.ctxKeys.has(name) || state.ctxFailed.has(name),
+      )
+      if (wanted.length === 0) return
+      const resolved = await this.contexts.resolve(
+        this.engine.set.contexts,
+        wanted,
+        state.principal.context,
+      )
+      if (!this.sessions.has(state.session.sid)) return
+      const released: string[] = []
+      const ctx = { ...state.ctx }
+      for (const name of wanted) {
+        const key = state.ctxKeys.get(name)
+        if (key !== undefined) released.push(key)
+        state.ctxKeys.delete(name)
+        state.ctxFailed.delete(name)
+        delete ctx[name]
+      }
+      Object.assign(ctx, resolved.ctx)
+      for (const [name, key] of resolved.keys) {
+        if (resolved.failed.has(name)) continue
+        state.ctxKeys.set(name, key)
+      }
+      this.contexts.retain(
+        [...resolved.keys].filter(([name]) => !resolved.failed.has(name)).map(([, key]) => key),
+      )
+      this.contexts.release(released)
+      state.ctx = ctx
+      if (resolved.failed.size > 0) {
+        for (const name of resolved.failed) state.ctxFailed.add(name)
+        if (state.ctxRetry === undefined) {
+          state.ctxRetry = setTimeout(() => {
+            state.ctxRetry = undefined
+            this.refreshContext(state, [...state.ctxFailed], "ctx_retry")
+          }, this.options.contextRetryMs ?? 5000)
+        }
+      }
+    })
+    state.ctxWork = work.catch((error: unknown) =>
+      this.logger.error({ err: error }, "context lookup failed"),
+    )
+    return work
+  }
+
+  private clearContext(state: SessionState): void {
+    this.contexts.release(state.ctxKeys.values())
+    state.ctxKeys.clear()
+    state.ctxFailed.clear()
+    state.ctx = {}
+    if (state.ctxRetry !== undefined) clearTimeout(state.ctxRetry)
+    state.ctxRetry = undefined
+  }
+
+  private contextsInvalidated(keys: ReadonlySet<string>): void {
+    this.metrics.contextInvalidations.inc({}, keys.size)
+    for (const state of this.sessions.values()) {
+      const names = [...state.ctxKeys].filter(([, key]) => keys.has(key)).map(([name]) => name)
+      if (names.length > 0) this.refreshContext(state, names, "ctx")
+    }
+  }
+
+  /** Re-resolves lookups and moves the subscriptions whose effective query changed to new observers. */
+  private refreshContext(state: SessionState, names: readonly string[], reason: string): void {
+    this.loadContext(state, names, new Set(names)).then(
+      () => {
+        if (this.sessions.has(state.session.sid)) this.rebindChanged(state, reason)
+      },
+      () => {},
+    )
+  }
+
+  private rebindChanged(state: SessionState, reason: string): void {
+    for (const sub of [...state.subs.values()]) {
+      const stored = this.queries.get(sub)
+      if (stored === undefined) continue
+      let plan: ReturnType<Realtime["plan"]>
+      try {
+        plan = this.plan(this.contextOf(state), stored.msg)
+      } catch (error: unknown) {
+        this.dropSubscription(state, sub.id)
+        state.session.send({ t: "nosub", s: sub.id, err: toCanopyError(error).toWire() })
+        continue
+      }
+      if (plan.key === sub.observer.key) continue
+      if (sub.observer.detach(sub.listener)) this.lingerObserver(sub.observer)
+      const observer = this.observerFor(plan)
+      const next: SubscriptionState = { ...sub, observer }
+      this.queries.set(next, stored)
+      state.subs.set(sub.id, next)
+      state.session.rebind(sub.id)
+      this.metrics.rebinds.inc({ reason })
+      observer.attach(sub.listener)
+    }
   }
 
   /** Opens the change stream and starts hot reload. */
@@ -317,8 +467,11 @@ export class Realtime {
   /** Replaces the policies; subscriptions whose effective query changed are resynced. */
   reloadPolicies(set: PolicySet): void {
     if (set.version === this.engine.version) return
+    const contextsChanged =
+      canonicalString(set.contexts) !== canonicalString(this.engine.set.contexts)
     this.engine = this.createEngine(set)
     for (const state of this.sessions.values()) {
+      if (contextsChanged) this.clearContext(state)
       const affected: string[] = []
       for (const sub of state.subs.values()) {
         if (
@@ -343,7 +496,7 @@ export class Realtime {
     const stored = this.queries.get(sub)
     if (stored === undefined) return undefined
     try {
-      return this.plan(state.principal.context, stored.msg).key
+      return this.plan(this.contextOf(state), stored.msg).key
     } catch {
       return undefined
     }
@@ -552,6 +705,12 @@ export class Realtime {
       socket,
       mutations: Promise.resolve(),
       pendingMutations: 0,
+      ctx: {},
+      ctxKeys: new Map(),
+      ctxWork: Promise.resolve(),
+      pendingSubs: new Map(),
+      ctxRetry: undefined,
+      ctxFailed: new Set(),
     }
     session.onSlowConsumer = () => {
       this.metrics.slowConsumers.inc()
@@ -607,7 +766,9 @@ export class Realtime {
         this.subscribe(state, message)
         return
       case "unsub":
-        if (state.subs.has(message.id)) {
+        if (state.pendingSubs.delete(message.id)) {
+          state.session.send({ t: "nosub", s: message.id })
+        } else if (state.subs.has(message.id)) {
           this.dropSubscription(state, message.id)
           state.session.send({ t: "nosub", s: message.id })
         }
@@ -667,9 +828,13 @@ export class Realtime {
   ): Promise<void> {
     const started = performance.now()
     try {
+      await this.loadContext(
+        state,
+        this.engine.contextNames([message.c], state.principal.context.roles),
+      )
       const principal = state.principal
       const result = await executor.execute(
-        { context: principal.context, subject: principal.subject },
+        { context: this.contextOf(state), subject: principal.subject },
         mutationRequest(message),
         { mutationId: message.id },
       )
@@ -756,10 +921,23 @@ export class Realtime {
         state.principal = principal
         this.armExpiry(state)
         if (contextKey(principal.context) !== before) {
-          const affected = [...state.subs.values()]
-            .filter((sub) => this.observerKeyFor(state, sub) !== sub.observer.key)
-            .map((sub) => sub.id)
-          this.resyncSubscriptions(state, affected, "auth")
+          const resyncChanged = (): void => {
+            if (!this.sessions.has(state.session.sid)) return
+            const affected = [...state.subs.values()]
+              .filter((sub) => this.observerKeyFor(state, sub) !== sub.observer.key)
+              .map((sub) => sub.id)
+            this.resyncSubscriptions(state, affected, "auth")
+          }
+          const names = this.engine.contextNames(
+            new Set([...state.subs.values()].map((sub) => sub.coll)),
+            principal.context.roles,
+          )
+          if (state.ctxKeys.size === 0 && names.length === 0) {
+            resyncChanged()
+            return
+          }
+          this.clearContext(state)
+          this.loadContext(state, names).then(resyncChanged, () => {})
         }
       },
       (error: unknown) => {
@@ -835,7 +1013,8 @@ export class Realtime {
 
   private subscribe(state: SessionState, message: SubMessage): void {
     if (state.subs.has(message.id)) this.dropSubscription(state, message.id)
-    if (state.subs.size >= this.limits.maxSubscriptionsPerConnection) {
+    state.pendingSubs.delete(message.id)
+    if (state.subs.size + state.pendingSubs.size >= this.limits.maxSubscriptionsPerConnection) {
       state.session.send({
         t: "nosub",
         s: message.id,
@@ -846,9 +1025,28 @@ export class Realtime {
       })
       return
     }
+    const names = this.engine.isRealtime(message.c)
+      ? this.engine.contextNames([message.c], state.principal.context.roles)
+      : []
+    if (names.every((name) => state.ctxKeys.has(name) && !state.ctxFailed.has(name))) {
+      this.subscribeNow(state, message)
+      return
+    }
+    state.pendingSubs.set(message.id, message)
+    this.loadContext(state, names).then(
+      () => {
+        if (state.pendingSubs.get(message.id) !== message) return
+        state.pendingSubs.delete(message.id)
+        if (this.sessions.has(state.session.sid)) this.subscribeNow(state, message)
+      },
+      () => {},
+    )
+  }
+
+  private subscribeNow(state: SessionState, message: SubMessage): void {
     let plan: ReturnType<Realtime["plan"]>
     try {
-      plan = this.plan(state.principal.context, message)
+      plan = this.plan(this.contextOf(state), message)
     } catch (error: unknown) {
       state.session.send({ t: "nosub", s: message.id, err: toCanopyError(error).toWire() })
       return
@@ -979,6 +1177,8 @@ export class Realtime {
   private destroySession(state: SessionState): void {
     if (!this.sessions.has(state.session.sid)) return
     for (const id of [...state.subs.keys()]) this.dropSubscription(state, id)
+    state.pendingSubs.clear()
+    this.clearContext(state)
     for (const timer of [state.expiryTimer, state.graceTimer, state.dropTimer])
       if (timer !== undefined) clearTimeout(timer)
     this.sessions.delete(state.session.sid)
@@ -991,7 +1191,7 @@ export class Realtime {
     const lookups = new Map<string, NormalizedEvent[]>()
     for (const event of events) {
       if (event.op !== "update" || event.post !== undefined) continue
-      if (this.registry.candidates(event).size === 0) continue
+      if (this.registry.candidates(event).size === 0 && !this.contexts.watches(event.coll)) continue
       const list = lookups.get(event.coll) ?? []
       list.push(event)
       lookups.set(event.coll, list)
@@ -1002,6 +1202,15 @@ export class Realtime {
         list.map((event) => event.id),
       )
       for (const event of list) event.post = found.get(event.key) ?? null
+    }
+    for (const event of events) {
+      if (this.contexts.watches(event.coll))
+        this.contexts.invalidate({
+          coll: event.coll,
+          id: event.id,
+          pre: event.pre,
+          post: event.post,
+        })
     }
     let last: ClusterTime = "0"
     for (const event of events) {
@@ -1020,6 +1229,7 @@ export class Realtime {
   }
 
   private processControl(event: ControlEvent): void {
+    this.contexts.invalidateAll()
     if ((event.kind === "drop" || event.kind === "rename") && event.coll !== undefined) {
       const error = new CanopyError(
         ErrorCode.CollectionDropped,
@@ -1059,6 +1269,8 @@ export class Realtime {
     }
     for (const observer of [...this.registry.all()]) this.destroyObserver(observer)
     this.stopWatching?.()
+    this.stopContexts()
+    if (this.ownsContexts) this.contexts.close()
     if (this.timeTimer !== undefined) clearInterval(this.timeTimer)
     this.echoes.close()
     await this.ingestor.stop()

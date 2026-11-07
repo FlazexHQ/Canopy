@@ -218,6 +218,19 @@ export class RealtimeMetrics {
     "Policy variables that failed to resolve",
   )
 
+  readonly contextFailures: Counter = new Counter(
+    "canopy_ctx_lookup_failures_total",
+    "Context lookups that failed closed, by lookup and reason",
+  )
+  readonly contextInvalidations: Counter = new Counter(
+    "canopy_ctx_invalidations_total",
+    "Cached context lookups dropped by source changes or expiry",
+  )
+  readonly rebinds: Counter = new Counter(
+    "canopy_realtime_rebinds_total",
+    "Subscriptions moved to another observer without a resync",
+  )
+
   /** Renders every metric in the Prometheus text exposition format. */
   render(): string {
     return `${[
@@ -241,6 +254,9 @@ export class RealtimeMetrics {
       this.resyncs,
       this.denials,
       this.variableErrors,
+      this.contextFailures,
+      this.contextInvalidations,
+      this.rebinds,
     ]
       .map((metric) => metric.render())
       .join("\n")}\n`

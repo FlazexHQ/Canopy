@@ -64,6 +64,11 @@ export interface ResolvedContext {
   readonly ctx: Readonly<Record<string, unknown>>
   /** The cache entry of each name, for {@link ContextResolver.retain} and invalidation. */
   readonly keys: ReadonlyMap<string, string>
+  /**
+   * Names whose lookup failed for a transient reason (an error or a timeout). Their results are not cached,
+   * so nothing invalidates them: callers that hold a context for long, such as realtime, retry them later.
+   */
+  readonly failed: ReadonlySet<string>
 }
 
 interface Entry {
@@ -234,6 +239,7 @@ export class ContextResolver {
   ): Promise<ResolvedContext> {
     const ctx: Record<string, unknown> = {}
     const keys = new Map<string, string>()
+    const failed = new Set<string>()
     await Promise.all(
       [...new Set(names)].map(async (name) => {
         const lookup = Object.hasOwn(contexts, name) ? contexts[name] : undefined
@@ -246,16 +252,19 @@ export class ContextResolver {
         const key = canonicalString({ lookup, where: where.filter })
         keys.set(name, key)
         const outcome = await this.lookup(key, lookup, where.filter)
-        if (outcome.kind === "value") ctx[name] = outcome.value
-        else
-          this.onIssue?.({
-            name,
-            kind: outcome.issue,
-            ...(outcome.error === undefined ? {} : { error: outcome.error }),
-          })
+        if (outcome.kind === "value") {
+          ctx[name] = outcome.value
+          return
+        }
+        if (outcome.issue === "error" || outcome.issue === "timeout") failed.add(name)
+        this.onIssue?.({
+          name,
+          kind: outcome.issue,
+          ...(outcome.error === undefined ? {} : { error: outcome.error }),
+        })
       }),
     )
-    return { ctx, keys }
+    return { ctx, keys, failed }
   }
 
   private async lookup(
