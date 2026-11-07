@@ -13,6 +13,7 @@
     { "path": "../query" },
     { "path": "../policy" },
     { "path": "../schema" },
-    { "path": "../rest" }
+    { "path": "../rest" },
+    { "path": "../config" }
   ]
 }

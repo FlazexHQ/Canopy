@@ -124,6 +124,6 @@ suite("canopy gen types", () => {
     expect((await gen(join(dir, "x.ts"), "--sample", "0")).code).toBe(1)
     const io = capture()
     expect(await run(["gen", "types"], {}, io.out)).toBe(1)
-    expect(io.errors[0]).toContain("gen types needs --mongodb-uri")
+    expect(io.errors[0]).toContain("No MongoDB connection string")
   })
 })
