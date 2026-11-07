@@ -27,7 +27,7 @@ function scrypt(
       KEY_LENGTH,
       { N: 2 ** logN, r, p, maxmem: MAX_MEMORY },
       (error, key) => {
-        if (error !== null) reject(error)
+        if (error !== null && error !== undefined) reject(error)
         else resolve(key)
       },
     )

@@ -1,0 +1,719 @@
+import { createServer, type Server } from "node:http"
+import type { AddressInfo } from "node:net"
+import { MONGODB_URI } from "@canopy/testing"
+import { type Db, MongoClient } from "mongodb"
+import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { base32Decode, totp } from "../src/admin/totp.ts"
+import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
+
+const suite = MONGODB_URI === undefined ? describe.skip : describe
+const PASSWORD = "owner password long enough"
+
+interface Client {
+  readonly token: string
+  call(
+    method: string,
+    path: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<Response>
+}
+
+const notesPolicy = {
+  exposed: true,
+  realtime: true,
+  policies: [
+    {
+      name: "read own",
+      kind: "permissive",
+      ops: ["read"],
+      roles: ["authenticated"],
+      using: { ownerId: { $auth: "sub" } },
+    },
+  ],
+  fields: { read: { default: { omit: ["secret"] } } },
+}
+
+async function start(
+  dbName: string,
+  environment: "development" | "production",
+  extra: Record<string, unknown> = {},
+): Promise<{ canopy: Canopy; server: Server; base: string; setupToken: string | undefined }> {
+  let setupToken: string | undefined
+  const canopy = await createCanopy(
+    defineConfig({
+      mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: `${dbName}_meta` },
+      keys: { publishable: ["pk_admin_test"] },
+      realtime: { checkpoints: "off" },
+      environment,
+      ...(environment === "production"
+        ? { masterKey: "k".repeat(44), publicUrl: "https://canopy.example.com" }
+        : {}),
+      ...extra,
+    }),
+    { env: {}, onSetupToken: (value) => (setupToken = value) },
+  )
+  const server = createServer(canopy.node())
+  await canopy.attach(server)
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  return {
+    canopy,
+    server,
+    base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    setupToken,
+  }
+}
+
+function bearer(base: string, token: string): Client {
+  return {
+    token,
+    call: (method, path, body, headers = {}) =>
+      fetch(`${base}/admin/v1${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(body === undefined ? {} : { "content-type": "application/json" }),
+          ...headers,
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+  }
+}
+
+suite("admin API", () => {
+  const dbName = `canopy_admin_api_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+  let mongo: MongoClient
+  let meta: Db
+  let canopy: Canopy
+  let server: Server
+  let base: string
+  let setupToken: string | undefined
+  let secret: Uint8Array
+  let owner: Client
+  const clients: Partial<Record<"admin" | "developer" | "viewer", Client>> = {}
+  let now = Date.now()
+
+  const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(`${base}/admin/v1${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    })
+
+  const loginBearer = async (email: string, password: string, code?: string): Promise<Client> => {
+    const response = await post("/login", {
+      email,
+      password,
+      transport: "bearer",
+      ...(code === undefined ? {} : { totp: code }),
+    })
+    expect(response.status).toBe(200)
+    return bearer(base, ((await response.json()) as { token: string }).token)
+  }
+
+  const nextCode = (): string => {
+    now += 30_000
+    return totp(secret, now)
+  }
+
+  beforeAll(async () => {
+    mongo = new MongoClient(MONGODB_URI ?? "")
+    await mongo.connect()
+    meta = mongo.db(`${dbName}_meta`)
+    ;({ canopy, server, base, setupToken } = await start(dbName, "development"))
+    await mongo
+      .db(dbName)
+      .collection("notes")
+      .insertMany([
+        { _id: "a" as never, ownerId: "alice", secret: "s1", body: "hi" },
+        { _id: "b" as never, ownerId: "bob", secret: "s2", body: "yo" },
+      ])
+  })
+
+  afterAll(async () => {
+    await canopy.close()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await mongo.db(dbName).dropDatabase()
+    await meta.dropDatabase()
+    await mongo.close()
+  })
+
+  it("is claimed only with the printed setup token, then needs a session everywhere", async () => {
+    expect(setupToken).toMatch(/^canopy_setup_/)
+    expect(await (await fetch(`${base}/admin/v1/setup`)).json()).toEqual({ claimed: false })
+    expect((await fetch(`${base}/admin/v1/me`)).status).toBe(401)
+    expect(
+      (
+        await post("/setup", {
+          token: "canopy_setup_nope",
+          email: "o@example.com",
+          password: PASSWORD,
+        })
+      ).status,
+    ).toBe(401)
+    const claimed = await post("/setup", {
+      token: setupToken,
+      email: "owner@example.com",
+      password: PASSWORD,
+    })
+    expect(claimed.status).toBe(201)
+    secret = base32Decode(((await claimed.json()) as { totp: { secret: string } }).totp.secret)
+    expect(
+      (await post("/setup", { token: setupToken, email: "x@example.com", password: PASSWORD }))
+        .status,
+    ).toBe(401)
+    expect(await (await fetch(`${base}/admin/v1/setup`)).json()).toEqual({ claimed: true })
+
+    const noCode = await post("/login", { email: "owner@example.com", password: PASSWORD })
+    expect(noCode.status).toBe(401)
+    expect(
+      ((await noCode.json()) as { details: Record<string, unknown> }).details["totpRequired"],
+    ).toBe(true)
+    owner = await loginBearer("owner@example.com", PASSWORD, totp(secret, now))
+    const me = await (await owner.call("GET", "/me")).json()
+    expect(me).toMatchObject({
+      user: { role: "owner", totpEnabled: true },
+      environment: "development",
+    })
+    for (const path of [
+      "/collections",
+      "/policies",
+      "/api-keys",
+      "/audit",
+      "/doctor",
+      "/realtime/stats",
+    ])
+      expect((await fetch(`${base}/admin/v1${path}`)).status).toBe(401)
+    expect(
+      (await fetch(`${base}/admin/v1/me`, { headers: { authorization: "Bearer canopy_admin_x" } }))
+        .status,
+    ).toBe(401)
+  })
+
+  it("sets strict security headers on every admin response", async () => {
+    for (const response of [await fetch(`${base}/admin/v1/me`), await owner.call("GET", "/me")]) {
+      expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+      expect(response.headers.get("content-security-policy")).toContain("default-src 'none'")
+      expect(response.headers.get("x-frame-options")).toBe("DENY")
+      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff")
+    }
+  })
+
+  it("forces a password change for created admins before anything else", async () => {
+    for (const role of ["admin", "developer", "viewer"] as const) {
+      const created = await owner.call("POST", "/admins", { email: `${role}@example.com`, role })
+      expect(created.status).toBe(201)
+      const { password } = (await created.json()) as { password: string }
+      const client = await loginBearer(`${role}@example.com`, password)
+      expect((await client.call("GET", "/collections")).status).toBe(403)
+      expect((await client.call("GET", "/me")).status).toBe(200)
+      expect(
+        (
+          await client.call("POST", "/me/password", {
+            current: password,
+            next: `${role} password long`,
+          })
+        ).status,
+      ).toBe(204)
+      expect((await client.call("GET", "/collections")).status).toBe(200)
+      clients[role] = client
+    }
+  })
+
+  it("protects cookie sessions with a CSRF token and an Origin check", async () => {
+    const login = await post("/login", {
+      email: "admin@example.com",
+      password: "admin password long",
+    })
+    expect(login.status).toBe(200)
+    const cookies = login.headers.getSetCookie()
+    expect(cookies.find((c) => c.startsWith("__Host-canopy_admin="))).toMatch(
+      /Path=\/; Secure; SameSite=Strict; HttpOnly; Max-Age=43\d{3}/,
+    )
+    const csrfCookie = cookies.find((c) => c.startsWith("__Host-canopy_csrf=")) ?? ""
+    expect(csrfCookie).not.toContain("HttpOnly")
+    const { csrfToken } = (await login.json()) as { csrfToken: string }
+    const jar = cookies.map((c) => c.split(";")[0]).join("; ")
+    const send = (headers: Record<string, string>) =>
+      fetch(`${base}/admin/v1/api-keys`, {
+        method: "POST",
+        headers: { cookie: jar, "content-type": "application/json", ...headers },
+        body: JSON.stringify({ kind: "publishable", name: "csrf" }),
+      })
+    expect((await fetch(`${base}/admin/v1/me`, { headers: { cookie: jar } })).status).toBe(200)
+    expect((await send({ origin: base })).status).toBe(403)
+    expect((await send({ origin: base, "x-canopy-csrf": "forged" })).status).toBe(403)
+    expect((await send({ "x-canopy-csrf": csrfToken })).status).toBe(403)
+    expect(
+      (await send({ origin: "https://evil.example", "x-canopy-csrf": csrfToken })).status,
+    ).toBe(403)
+    expect(
+      (await send({ origin: base, "x-canopy-csrf": csrfToken, "sec-fetch-site": "cross-site" }))
+        .status,
+    ).toBe(403)
+    const other = await post("/login", {
+      email: "developer@example.com",
+      password: "developer password long",
+    })
+    const otherCsrf = ((await other.json()) as { csrfToken: string }).csrfToken
+    expect(
+      (
+        await send({
+          origin: base,
+          "x-canopy-csrf": otherCsrf,
+          cookie: jar.replace(/__Host-canopy_csrf=[^;]+/, `__Host-canopy_csrf=${otherCsrf}`),
+        })
+      ).status,
+    ).toBe(403)
+    expect((await send({ origin: base, "x-canopy-csrf": csrfToken })).status).toBe(201)
+    expect(
+      (
+        await post(
+          "/login",
+          { email: "admin@example.com", password: "x" },
+          { origin: "https://evil.example" },
+        )
+      ).status,
+    ).toBe(403)
+    const bearerOnCookie = await fetch(`${base}/admin/v1/me`, {
+      headers: {
+        authorization: `Bearer ${decodeURIComponent(jar.split("=")[1]?.split(";")[0] ?? "")}`,
+      },
+    })
+    expect(bearerOnCookie.status).toBe(401)
+  })
+
+  it("enforces the RBAC matrix and audits refused mutations", async () => {
+    const matrix: [string, string, unknown, Record<"admin" | "developer" | "viewer", number>][] = [
+      ["GET", "/collections", undefined, { admin: 200, developer: 200, viewer: 200 }],
+      ["GET", "/policies/notes", undefined, { admin: 200, developer: 200, viewer: 200 }],
+      ["GET", "/api-keys", undefined, { admin: 200, developer: 200, viewer: 403 }],
+      ["GET", "/audit", undefined, { admin: 200, developer: 403, viewer: 403 }],
+      ["GET", "/settings", undefined, { admin: 200, developer: 403, viewer: 403 }],
+      ["GET", "/admins", undefined, { admin: 200, developer: 403, viewer: 403 }],
+      ["GET", "/realtime/stats", undefined, { admin: 200, developer: 200, viewer: 200 }],
+      ["GET", "/realtime/connections", undefined, { admin: 200, developer: 200, viewer: 403 }],
+      ["GET", "/doctor", undefined, { admin: 200, developer: 200, viewer: 200 }],
+      [
+        "POST",
+        "/api-keys",
+        { kind: "secret", name: "s" },
+        { admin: 201, developer: 403, viewer: 403 },
+      ],
+      [
+        "POST",
+        "/api-keys",
+        { kind: "publishable", name: "p" },
+        { admin: 201, developer: 201, viewer: 403 },
+      ],
+      [
+        "POST",
+        "/policies/notes/simulate",
+        { as: { user: "alice" }, op: "read" },
+        { admin: 200, developer: 200, viewer: 403 },
+      ],
+      [
+        "PATCH",
+        "/settings",
+        { auditRetentionDays: 30 },
+        { admin: 200, developer: 403, viewer: 403 },
+      ],
+      [
+        "POST",
+        "/admins",
+        { email: "o3@example.com", role: "owner" },
+        { admin: 403, developer: 403, viewer: 403 },
+      ],
+      [
+        "POST",
+        "/collections/notes/documents",
+        { _id: "m", ownerId: "x" },
+        { admin: 201, developer: 403, viewer: 403 },
+      ],
+    ]
+    for (const [method, path, body, expected] of matrix) {
+      for (const role of ["admin", "developer", "viewer"] as const) {
+        const adjusted =
+          path === "/collections/notes/documents" && role === "developer"
+            ? { ...(body as object), _id: "dev" }
+            : body
+        const status = (await clients[role]?.call(method, path, adjusted))?.status
+        const want =
+          path === "/collections/notes/documents" && role === "developer" ? 201 : expected[role]
+        expect([method, path, role, status]).toEqual([method, path, role, want])
+      }
+    }
+    const denied = (await (await owner.call("GET", "/audit?limit=200")).json()) as {
+      data: { outcome: string; actor: { role?: string }; action: string }[]
+    }
+    const refusals = denied.data.filter((entry) => entry.outcome === "denied")
+    expect(refusals.some((e) => e.actor.role === "viewer" && e.action === "apikey.create")).toBe(
+      true,
+    )
+    expect(
+      refusals.some((e) => e.actor.role === "developer" && e.action === "settings.update"),
+    ).toBe(true)
+    expect(refusals.some((e) => e.actor.role === "admin" && e.action === "admin.create")).toBe(true)
+  })
+
+  it("publishes with expectedVersion, audits it and hot reloads REST", async () => {
+    const dev = clients.developer as Client
+    const first = await dev.call("POST", "/policies/notes/publish", {
+      definition: notesPolicy,
+      expectedVersion: 0,
+      comment: "first",
+    })
+    expect(first.status).toBe(200)
+    const conflict = await dev.call("POST", "/policies/notes/publish", {
+      definition: notesPolicy,
+      expectedVersion: 0,
+    })
+    expect(conflict.status).toBe(409)
+    expect(((await conflict.json()) as { code: string }).code).toBe("CANOPY_CONFLICT")
+    const invalid = await dev.call("POST", "/policies/notes/validate", {
+      definition: {
+        ...notesPolicy,
+        policies: [{ ...notesPolicy.policies[0], using: { $where: "x" } }],
+      },
+    })
+    expect(invalid.status).toBe(422)
+    const history = (await (await dev.call("GET", "/policies/notes/history")).json()) as {
+      data: { version: number }[]
+    }
+    expect(history.data.map((h) => h.version)).toEqual([1])
+    const [entry] = (
+      (await (await owner.call("GET", "/audit?action=policy.publish")).json()) as {
+        data: { actor: { email: string }; comment: string; target: { version: number } }[]
+      }
+    ).data
+    expect(entry).toMatchObject({
+      actor: { email: "developer@example.com" },
+      comment: "first",
+      target: { version: 1 },
+    })
+    const started = Date.now()
+    for (;;) {
+      const response = await fetch(`${base}/rest/v1/notes`, {
+        headers: { apikey: "pk_admin_test" },
+      })
+      if (response.status === 200) break
+      if (Date.now() - started > 3000) throw new Error(`REST still answers ${response.status}`)
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+  })
+
+  it("reads documents as service, as an impersonated user through DLS, and masks for viewers", async () => {
+    const asService = (await (
+      await owner.call("GET", "/collections/notes/documents?sort=_id")
+    ).json()) as {
+      data: Record<string, unknown>[]
+    }
+    expect(asService.data.map((d) => d["_id"])).toContain("b")
+    expect(asService.data.find((d) => d["_id"] === "a")?.["secret"]).toBe("s1")
+    const as = encodeURIComponent(JSON.stringify({ user: "alice" }))
+    const asAlice = (await (
+      await owner.call("GET", `/collections/notes/documents?as=${as}`)
+    ).json()) as {
+      data: Record<string, unknown>[]
+    }
+    expect(asAlice.data).toEqual([{ _id: "a", ownerId: "alice", body: "hi" }])
+    const viewer = (await (
+      await clients.viewer?.call("GET", "/collections/notes/documents?sort=_id")
+    )?.json()) as {
+      data: Record<string, unknown>[]
+      masked: boolean
+    }
+    expect(viewer.masked).toBe(true)
+    expect(viewer.data.find((d) => d["_id"] === "a")).toEqual({
+      _id: "a",
+      ownerId: "alice",
+      secret: "[masked]",
+      body: "hi",
+    })
+    expect(
+      (await clients.viewer?.call("GET", `/collections/notes/documents?as=${as}`))?.status,
+    ).toBe(403)
+    const service = encodeURIComponent(JSON.stringify({ role: "service" }))
+    expect((await owner.call("GET", `/collections/notes/documents?as=${service}`)).status).toBe(422)
+    const audit = (await (await owner.call("GET", "/audit?action=documents.viewAs")).json()) as {
+      data: { details: { as: unknown } }[]
+    }
+    expect(audit.data[0]?.details.as).toEqual({ user: "alice" })
+  })
+
+  it("writes as an impersonated user only with a reason, through the policies", async () => {
+    const as = encodeURIComponent(JSON.stringify({ user: "alice" }))
+    expect(
+      (
+        await owner.call("PATCH", `/collections/notes/documents/a?as=${as}`, {
+          $set: { body: "x" },
+        })
+      ).status,
+    ).toBe(422)
+    const refused = await owner.call(
+      "PATCH",
+      `/collections/notes/documents/a?as=${as}&reason=support`,
+      {
+        $set: { body: "x" },
+      },
+    )
+    expect(refused.status).toBe(403)
+    const asService = await owner.call("PATCH", "/collections/notes/documents/a", {
+      $set: { body: "edited" },
+    })
+    expect(asService.status).toBe(200)
+    const [entry] = (
+      (await (await owner.call("GET", "/audit?action=documents.update")).json()) as {
+        data: { diff: { before: { body: string } } }[]
+      }
+    ).data
+    expect(entry?.diff.before.body).toBe("hi")
+  })
+
+  it("simulates a draft against real data without publishing it", async () => {
+    const draft = {
+      ...notesPolicy,
+      policies: [{ ...notesPolicy.policies[0], using: { body: "yo" } }],
+    }
+    const result = (await (
+      await owner.call("POST", "/policies/notes/simulate", {
+        definition: draft,
+        as: { user: "zed" },
+        op: "read",
+      })
+    ).json()) as {
+      allowed: boolean
+      count: number
+      sample: { _id: string }[]
+      explain: { policies: unknown[] }
+    }
+    expect(result).toMatchObject({ allowed: true, count: 1 })
+    expect(result.sample.map((d) => d._id)).toEqual(["b"])
+    expect(result.explain.policies).toHaveLength(1)
+    expect(canopy.policies.collection("notes")?.policies[0]?.using).toEqual({
+      ownerId: { $auth: "sub" },
+    })
+  })
+
+  it("creates keys shown once and revokes them", async () => {
+    const created = (await (
+      await owner.call("POST", "/api-keys", { kind: "secret", name: "ci" })
+    ).json()) as {
+      key: string
+      info: { id: string }
+    }
+    expect(created.key).toMatch(/^canopy_sk_/)
+    const list = await (await owner.call("GET", "/api-keys")).text()
+    expect(list).not.toContain(created.key)
+    expect(
+      (await fetch(`${base}/rest/v1/notes`, { headers: { apikey: created.key } })).status,
+    ).toBe(200)
+    expect((await clients.developer?.call("DELETE", `/api-keys/${created.info.id}`))?.status).toBe(
+      403,
+    )
+    expect((await owner.call("DELETE", `/api-keys/${created.info.id}`)).status).toBe(200)
+    expect(
+      (await fetch(`${base}/rest/v1/notes`, { headers: { apikey: created.key } })).status,
+    ).toBe(403)
+  })
+
+  it("streams the realtime tail and serves traces to inspectors", async () => {
+    const response = await owner.call("GET", "/realtime/tail")
+    expect(response.headers.get("content-type")).toBe("text/event-stream")
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
+    await mongo
+      .db(dbName)
+      .collection("notes")
+      .insertOne({ _id: "t1" as never, ownerId: "x" })
+    let text = ""
+    const started = Date.now()
+    while (!text.includes("event: change")) {
+      const chunk = await reader?.read()
+      text += decoder.decode(chunk?.value)
+      if (Date.now() - started > 5000) throw new Error(`no event: ${text}`)
+    }
+    await reader?.cancel()
+    const id = /id: (\S+)/.exec(text)?.[1] ?? ""
+    expect(text).toContain('"docId":"t1"')
+    const trace = await owner.call("GET", `/realtime/trace/${id}`)
+    expect(trace.status).toBe(200)
+    expect((await clients.viewer?.call("GET", `/realtime/trace/${id}`))?.status).toBe(403)
+  })
+
+  it("rolls back, changes collection flags and reports the doctor", async () => {
+    const rolled = await owner.call("PATCH", "/collections/notes", {
+      realtime: false,
+      expectedVersion: 1,
+    })
+    expect(rolled.status).toBe(200)
+    expect(
+      ((await rolled.json()) as { stored: { version: number; realtime: boolean } }).stored,
+    ).toMatchObject({
+      version: 2,
+      realtime: false,
+    })
+    const back = await owner.call("POST", "/policies/notes/rollback", {
+      version: 1,
+      expectedVersion: 2,
+    })
+    expect(back.status).toBe(200)
+    const doctor = (await (await owner.call("GET", "/doctor")).json()) as {
+      checks: { name: string; status: string }[]
+    }
+    expect(doctor.checks.find((c) => c.name === "replica-set")?.status).toBe("ok")
+    expect(doctor.checks.find((c) => c.name === "meta-migrations")?.status).toBe("ok")
+  })
+
+  it("ends sessions at logout and when an admin is disabled", async () => {
+    const viewer = clients.viewer as Client
+    const users = (await (await owner.call("GET", "/admins")).json()) as {
+      data: { id: string; email: string }[]
+    }
+    const id = users.data.find((u) => u.email === "viewer@example.com")?.id
+    expect((await owner.call("PATCH", `/admins/${id}`, { disabled: true })).status).toBe(200)
+    expect((await viewer.call("GET", "/me")).status).toBe(401)
+    const second = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    expect((await second.call("POST", "/logout")).status).toBe(204)
+    expect((await second.call("GET", "/me")).status).toBe(401)
+  })
+
+  describe("in production with a private admin listener", () => {
+    const prodDb = `${dbName}_prod`
+    let prod: Awaited<ReturnType<typeof start>>
+    let admin: { address: string; close(): Promise<void> } | undefined
+
+    beforeAll(async () => {
+      prod = await start(prodDb, "production", { server: { adminListen: "127.0.0.1:0" } })
+      admin = await prod.canopy.admin.listen()
+    })
+
+    afterAll(async () => {
+      await admin?.close()
+      await prod.canopy.close()
+      await new Promise<void>((resolve) => prod.server.close(() => resolve()))
+      await mongo.db(prodDb).dropDatabase()
+      await mongo.db(`${prodDb}_meta`).dropDatabase()
+    })
+
+    it("serves /admin only on the private listener and refuses foreign Host headers", async () => {
+      expect((await fetch(`${prod.base}/admin/v1/setup`)).status).toBe(404)
+      expect((await fetch(`${prod.base}/studio`)).status).toBe(404)
+      const url = `http://${admin?.address}`
+      const answer = await fetch(`${url}/admin/v1/setup`)
+      expect(answer.status).toBe(200)
+      expect(answer.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+      expect((await fetch(`${url}/rest/v1/notes`)).status).toBe(404)
+      const rebound = await new Promise<number>((resolve, reject) => {
+        import("node:http").then(({ request }) => {
+          const req = request(
+            {
+              host: "127.0.0.1",
+              port: Number(admin?.address.split(":")[1]),
+              path: "/admin/v1/setup",
+              headers: { host: "evil.example:80" },
+            },
+            (res) => resolve(res.statusCode ?? 0),
+          )
+          req.on("error", reject)
+          req.end()
+        }, reject)
+      })
+      expect(rebound).toBe(421)
+    })
+
+    it("requires a comment for production publishes and keeps developers from publishing", async () => {
+      const url = `http://${admin?.address}`
+      const claimed = await fetch(`${url}/admin/v1/setup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: prod.setupToken,
+          email: "p@example.com",
+          password: PASSWORD,
+        }),
+      })
+      const prodSecret = base32Decode(
+        ((await claimed.json()) as { totp: { secret: string } }).totp.secret,
+      )
+      const login = await fetch(`${url}/admin/v1/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "p@example.com",
+          password: PASSWORD,
+          totp: totp(prodSecret, Date.now()),
+          transport: "bearer",
+        }),
+      })
+      const prodOwner = bearer(url, ((await login.json()) as { token: string }).token)
+      const noComment = await prodOwner.call("POST", "/policies/notes/publish", {
+        definition: notesPolicy,
+        expectedVersion: 0,
+      })
+      expect(noComment.status).toBe(422)
+      expect(
+        (
+          await prodOwner.call("POST", "/policies/notes/publish", {
+            definition: notesPolicy,
+            expectedVersion: 0,
+            comment: "launch",
+          })
+        ).status,
+      ).toBe(200)
+      expect(
+        (await prodOwner.call("POST", "/collections/notes/documents", { _id: "p1" })).status,
+      ).toBe(403)
+      expect(
+        (
+          await prodOwner.call(
+            "POST",
+            "/collections/notes/documents",
+            { _id: "p1" },
+            { "x-canopy-confirm": "notes" },
+          )
+        ).status,
+      ).toBe(201)
+      const dev = await prodOwner.call("POST", "/admins", {
+        email: "d@example.com",
+        role: "developer",
+      })
+      const devPassword = ((await dev.json()) as { password: string }).password
+      const devLogin = await fetch(`${url}/admin/v1/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "d@example.com",
+          password: devPassword,
+          transport: "bearer",
+        }),
+      })
+      const developer = bearer(url, ((await devLogin.json()) as { token: string }).token)
+      await developer.call("POST", "/me/password", {
+        current: devPassword,
+        next: "developer prod password",
+      })
+      expect(
+        (
+          await developer.call("POST", "/policies/notes/publish", {
+            definition: notesPolicy,
+            expectedVersion: 1,
+            comment: "nope",
+          })
+        ).status,
+      ).toBe(403)
+      expect(
+        (
+          await developer.call(
+            "POST",
+            "/collections/notes/documents",
+            { _id: "p2" },
+            { "x-canopy-confirm": "notes" },
+          )
+        ).status,
+      ).toBe(403)
+      expect((await developer.call("GET", "/collections/notes/documents")).status).toBe(200)
+    })
+  })
+})

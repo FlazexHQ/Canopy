@@ -7,6 +7,19 @@ export {
   type ResolvedConfig,
 } from "@canopy/config"
 export {
+  AdminAccounts,
+  type AdminAccountsOptions,
+  type AdminSession,
+  type AdminUser,
+  type LoginResult,
+  type TotpEnrollment,
+} from "./admin/accounts.ts"
+export { type AdminApi, type AdminApiOptions, createAdminApi } from "./admin/api.ts"
+export { API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, STUDIO_CSP } from "./admin/http.ts"
+export { ADMIN_ROLES, type AdminRole, can, isAdminRole, type Permission } from "./admin/rbac.ts"
+export { type Settings, SettingsStore } from "./admin/settings.ts"
+export { generateTotpSecret, hotp, totp, totpUri, verifyTotp } from "./admin/totp.ts"
+export {
   type ApiKeyDocument,
   type ApiKeyInfo,
   ApiKeys,
@@ -21,6 +34,7 @@ export {
   type RequestOrigin,
 } from "./audit.ts"
 export {
+  type AdminSurface,
   type Canopy,
   type CreateCanopyOptions,
   createCanopy,

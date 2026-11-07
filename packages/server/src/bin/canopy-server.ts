@@ -150,6 +150,8 @@ async function main(): Promise<void> {
   const canopy = await createCanopy(config, { logger })
   const http = await listen(canopy, config.server.port)
   const metrics = await metricsServer(canopy, config.server.metricsPort, runtime)
+  const admin = await canopy.admin.listen()
+  if (admin !== undefined) logger.info({ address: admin.address }, "admin listening")
   const realtime = config.realtime
   logger.info(
     {
@@ -173,6 +175,7 @@ async function main(): Promise<void> {
     logger.info({ signal, drainMs }, "draining")
     canopy
       .close({ drainMs })
+      .then(() => admin?.close())
       .then(() => http.stop())
       .then(() => new Promise<void>((resolve) => metrics.close(() => resolve())))
       .then(

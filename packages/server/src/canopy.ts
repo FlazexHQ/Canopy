@@ -27,11 +27,19 @@ import {
   staticPolicies,
   toNodeHandler,
 } from "@canopy/realtime"
-import { createRestHandler, type RestHandler, toNodeListener } from "@canopy/rest"
+import { createRestHandler, type RestHandler, toNodeListener, WritePath } from "@canopy/rest"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
+import { AdminAccounts } from "./admin/accounts.ts"
+import { type AdminApi, createAdminApi } from "./admin/api.ts"
+import { STUDIO_CSP, secure } from "./admin/http.ts"
+import { SecretBox } from "./admin/secrets.ts"
+import { SettingsStore } from "./admin/settings.ts"
 import { ApiKeys } from "./api-keys.ts"
+import { AuditLog } from "./audit.ts"
 import { migrateMeta } from "./migrations.ts"
+import { nodeBridge } from "./node-bridge.ts"
+import { PolicyStore } from "./policy-store.ts"
 
 /** Options of {@link createCanopy}. */
 export interface CreateCanopyOptions {
@@ -46,6 +54,32 @@ export interface CreateCanopyOptions {
   readonly logger?: Logger
   /** Bring the meta database up to date on start. @default true */
   readonly migrate?: boolean
+  /** Serve the admin API under `/admin/v1`. @default true */
+  readonly admin?: boolean
+  /** Serves Studio under `/studio`, on the same listener as the admin API. */
+  readonly studio?: FetchHandler
+  /**
+   * Receives the one time setup token of an unclaimed server. Defaults to a warning in the log (or on
+   * standard error when no logger is given).
+   */
+  readonly onSetupToken?: (token: string) => void
+}
+
+/** The admin surface: `/admin/v1` and `/studio`. */
+export interface AdminSurface {
+  readonly api: AdminApi | undefined
+  readonly accounts: AdminAccounts
+  readonly policies: PolicyStore
+  readonly audit: AuditLog
+  /** Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address. */
+  fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
+  /** The same as a `node:http` listener. */
+  node(): (request: IncomingMessage, response: ServerResponse) => void
+  /**
+   * Starts the private admin listener on `server.adminListen` (`CANOPY_ADMIN_LISTEN`). Returns `undefined`
+   * when none is configured, in which case the public listener serves the admin surface.
+   */
+  listen(): Promise<{ readonly address: string; close(): Promise<void> } | undefined>
 }
 
 /** A request handler in the Web standard `fetch` shape. */
@@ -62,6 +96,8 @@ export interface Canopy extends AsyncDisposable {
   readonly policies: PolicyEngine
   /** The API keys stored in the meta database. Keys from the config work next to them. */
   readonly keys: ApiKeys
+  /** The admin API, Studio and the stores behind them. */
+  readonly admin: AdminSurface
   /**
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
@@ -198,6 +234,7 @@ export async function createCanopy(
       nodeId: config.server.nodeId,
       contexts,
       logger,
+      traceCapacity: 256,
       ...(rest === undefined ? {} : { mutations: rest.writes }),
     })
   } else {
@@ -238,6 +275,131 @@ export async function createCanopy(
     },
   )
 
+  const audit = new AuditLog(meta)
+  const policyStore = new PolicyStore({
+    client: mongo,
+    metaDatabase: config.mongodb.metaDatabase,
+    audit,
+    writable: options.policies === undefined && "source" in config.policies,
+    lintEnvironment: async (collection) => {
+      try {
+        const indexes = await db.collection(collection).indexes()
+        return { indexes: { [collection]: indexes.map((index) => Object.keys(index.key)) } }
+      } catch {
+        return {}
+      }
+    },
+  })
+  const accounts = new AdminAccounts({
+    client: mongo,
+    meta,
+    audit,
+    secrets: new SecretBox(config.masterKey),
+    environment: config.environment,
+  })
+  const adminApi =
+    options.admin === false
+      ? undefined
+      : createAdminApi({
+          config,
+          client: mongo,
+          accounts,
+          audit,
+          policies: policyStore,
+          keys: apiKeys,
+          settings: new SettingsStore(meta, audit),
+          engine,
+          contexts,
+          writes:
+            rest?.writes ??
+            new WritePath({
+              client: mongo,
+              database: config.mongodb.database,
+              metaDatabase: config.mongodb.metaDatabase,
+              policies: engine,
+            }),
+          realtime,
+          logger,
+        })
+  if (adminApi !== undefined) {
+    const token = await accounts.createSetupToken()
+    if (token !== undefined) {
+      const announce =
+        options.onSetupToken ??
+        ((value: string) => {
+          const message = `This server has no owner yet. Claim it in Studio or with POST /admin/v1/setup using the one time setup token ${value}`
+          if (options.logger === undefined) process.stderr.write(`${message}\n`)
+          else logger.warn({}, message)
+        })
+      announce(token)
+    }
+  }
+  const isAdmin = (path: string): boolean =>
+    path === "/admin" ||
+    path.startsWith("/admin/") ||
+    path === "/studio" ||
+    path.startsWith("/studio/")
+  const privateAdmin = config.server.adminListen !== undefined
+  const adminFetch = async (
+    request: Request,
+    info: { readonly ip?: string } = {},
+  ): Promise<Response> => {
+    const path = new URL(request.url).pathname
+    if (adminApi !== undefined && (path === "/admin/v1" || path.startsWith("/admin/v1/")))
+      return adminApi.fetch(request, info)
+    if (options.studio !== undefined && (path === "/studio" || path.startsWith("/studio/")))
+      return secure(await options.studio(request), STUDIO_CSP)
+    return secure(plain(404, "Not found"))
+  }
+  const adminSurface: AdminSurface = {
+    api: adminApi,
+    accounts,
+    policies: policyStore,
+    audit,
+    fetch: adminFetch,
+    node: () => nodeBridge(adminFetch),
+    async listen() {
+      const listen = config.server.adminListen
+      if (listen === undefined) return undefined
+      const { createServer } = await import("node:http")
+      const separator = listen.lastIndexOf(":")
+      const host = separator < 0 ? "127.0.0.1" : listen.slice(0, separator).replace(/^\[|\]$/g, "")
+      const port = Number(separator < 0 ? listen : listen.slice(separator + 1))
+      const bridge = nodeBridge(adminFetch)
+      const server = createServer((request, response) => {
+        const hostHeader = (request.headers.host ?? "").toLowerCase()
+        const name = hostHeader.replace(/:\d+$/, "").replace(/^\[|\]$/g, "")
+        const allowed = new Set([host.toLowerCase(), "localhost", "127.0.0.1", "::1"])
+        if (config.publicUrl !== undefined) allowed.add(new URL(config.publicUrl).hostname)
+        if (!allowed.has(name)) {
+          response.statusCode = 421
+          response.end("Misdirected request")
+          return
+        }
+        bridge(request, response)
+      })
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject)
+        server.listen(port, host, () => resolve())
+      })
+      const address = server.address()
+      const bound =
+        typeof address === "object" && address !== null
+          ? `${address.address}:${address.port}`
+          : listen
+      adminServers.push(server)
+      return {
+        address: bound,
+        close: () =>
+          new Promise<void>((resolve) => {
+            server.closeAllConnections()
+            server.close(() => resolve())
+          }),
+      }
+    },
+  }
+  const adminServers: Server[] = []
+
   const transports =
     realtimeConfig === false ? new Set<string>() : new Set(realtimeConfig.transports)
   const http: HttpTransport | undefined =
@@ -257,8 +419,13 @@ export async function createCanopy(
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
 
-  const fetch = async (request: Request, fallback?: FetchHandler): Promise<Response> => {
+  const fetch = async (
+    request: Request,
+    fallback?: FetchHandler,
+    info: { readonly ip?: string } = {},
+  ): Promise<Response> => {
     const path = new URL(request.url).pathname
+    if (isAdmin(path)) return privateAdmin ? plain(404, "Not found") : adminFetch(request, info)
     if (rest !== undefined && isRest(path)) return rest.fetch(request)
     if (http?.matches(request) === true) return http.fetch(request)
     return health(path) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
@@ -269,15 +436,23 @@ export async function createCanopy(
     rest,
     realtime,
     keys: apiKeys,
+    admin: adminSurface,
     get policies() {
       return engine()
     },
-    fetch,
+    fetch: (request, fallback) => fetch(request, fallback),
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
+      const admin = nodeBridge(adminFetch)
       return (request, response) => {
         const path = new URL(request.url ?? "/", "http://localhost").pathname
+        if (isAdmin(path)) {
+          if (!privateAdmin) return admin(request, response)
+          response.statusCode = 404
+          response.end("Not found")
+          return
+        }
         if (restListener !== undefined && isRest(path)) return restListener(request, response)
         const notRealtime = (): void => {
           const answer = health(path)
@@ -303,8 +478,17 @@ export async function createCanopy(
       attachments.push(await attach(realtime, server))
     },
     bun(bunOptions = {}) {
+      const peer = (request: Request, server: unknown): { readonly ip?: string } => {
+        const address = (
+          server as { requestIP?: (request: Request) => { address: string } | null } | undefined
+        )?.requestIP?.(request)?.address
+        return address === undefined ? {} : { ip: address }
+      }
       if (realtime === undefined) {
-        return { fetch: (request: Request) => fetch(request, bunOptions.fallback) }
+        return {
+          fetch: (request: Request, server: BunServerLike<never>) =>
+            fetch(request, bunOptions.fallback, peer(request, server)),
+        }
       }
       const handlers = bunHandlers(realtime, {
         ...(http === undefined ? {} : { http }),
@@ -312,8 +496,9 @@ export async function createCanopy(
       })
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
-          if (rest !== undefined && isRest(new URL(request.url).pathname))
-            return rest.fetch(request)
+          const path = new URL(request.url).pathname
+          if (isAdmin(path)) return fetch(request, bunOptions.fallback, peer(request, server))
+          if (rest !== undefined && isRest(path)) return rest.fetch(request)
           if (!transports.has("websocket") && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)
           return handlers.fetch(request, server as never)
@@ -325,6 +510,10 @@ export async function createCanopy(
       if (closing) return
       closing = true
       stopWatching?.()
+      for (const server of adminServers.splice(0)) {
+        server.closeAllConnections()
+        await new Promise<void>((resolve) => server.close(() => resolve()))
+      }
       await realtime?.close({
         drainMs:
           closeOptions.drainMs ?? (realtimeConfig === false ? 0 : realtimeConfig.drainWindowMs),
