@@ -223,6 +223,7 @@ const stop = canopy
 | `CANOPY_RESUME_WINDOW`          | `120s`                | How long a dropped client can resume without a full resync.           |
 | `CANOPY_DRAIN_WINDOW`           | `30s`                 | How long SIGTERM waits for clients to move before closing.            |
 | `CANOPY_NODE_ID`                | `n1`                  | Identifies this instance in logs and metrics.                         |
+| `CANOPY_CORS_ORIGINS`           | unset                 | Browser origins (or `*`) allowed on the SSE and long-poll endpoints.  |
 | `CANOPY_LOG_LEVEL`              | `info`                | `debug`, `info`, `warn` or `error`. Logs are JSON lines on stderr.    |
 | `PORT`                          | `8080`                | WebSocket and health endpoints (`/healthz`, `/readyz`).               |
 | `METRICS_PORT`                  | `9464`                | Prometheus metrics at `/metrics`.                                     |

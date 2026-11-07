@@ -23,8 +23,17 @@ import {
 } from "@canopy/protocol"
 import { type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
 
-/** The connection status an application sees. */
-export type ConnectionStatus = "connecting" | "live" | "reconnecting" | "offline" | "closed"
+/**
+ * The connection status an application sees. `fallback` means connected through a transport below
+ * WebSocket (SSE, long-polling or REST polling).
+ */
+export type ConnectionStatus =
+  | "connecting"
+  | "live"
+  | "fallback"
+  | "reconnecting"
+  | "offline"
+  | "closed"
 
 /** The minimal WebSocket surface the client needs; the global `WebSocket` satisfies it. */
 export interface WebSocketLike {
@@ -40,6 +49,22 @@ export interface WebSocketLike {
 
 /** A WebSocket constructor. */
 export type WebSocketConstructor = new (url: string, protocols?: string | string[]) => WebSocketLike
+
+/**
+ * A transport below WebSocket on the fallback ladder. It behaves like a WebSocket that speaks
+ * `canopy.v1`, so the client treats every rung the same way.
+ */
+export interface FallbackTransport {
+  /** Opens a connection; `url` is the HTTP(S) base URL of Canopy. */
+  connect(url: string, fetchImpl: typeof fetch): WebSocketLike
+  /** Whether data is polled, so queries stay `stale` while it is in use. */
+  readonly polling?: boolean
+}
+
+/** The fallback ladder, usually `() => import("@canopy/client/fallback")` so it loads only when needed. */
+export type FallbackSource =
+  | { readonly transports: readonly FallbackTransport[] }
+  | (() => Promise<{ readonly transports: readonly FallbackTransport[] }>)
 
 /** Options for {@link createClient}. */
 export interface ClientOptions {
@@ -63,6 +88,15 @@ export interface ClientOptions {
   readonly idTypes?: Readonly<Record<string, "objectId" | "uuid" | "string">>
   /** Mutations sent before their acks arrive. Defaults to 32. */
   readonly maxInFlight?: number
+  /**
+   * Transports to fall back to when WebSockets fail: after two failed handshakes within 10 s the client
+   * moves one rung down, and while below WebSocket it probes WebSocket again every `probeIntervalMs`.
+   */
+  readonly fallback?: FallbackSource
+  /** Overrides the global `fetch` for the fallback transports. */
+  readonly fetch?: typeof fetch
+  /** Interval of WebSocket probes while on a fallback transport. Defaults to 60 s. */
+  readonly probeIntervalMs?: number
 }
 
 /** The confirmed outcome of a mutation. */
@@ -149,6 +183,11 @@ export class CanopyClient {
   readonly store: Store = new Store()
   private readonly options: ClientOptions
   private readonly socketUrl: string
+  private readonly httpUrl: string
+  private rung = 0
+  private ladder: readonly FallbackTransport[] | undefined
+  private failures: number[] = []
+  private probeTimer: ReturnType<typeof setInterval> | undefined
   private socket: WebSocketLike | undefined
   private status: ConnectionStatus = "connecting"
   private readonly statusListeners = new Set<(status: ConnectionStatus) => void>()
@@ -171,6 +210,7 @@ export class CanopyClient {
 
   constructor(options: ClientOptions) {
     this.options = options
+    this.httpUrl = options.url.replace(/\/$/, "")
     const base = new URL(options.url)
     base.protocol =
       base.protocol === "https:" ? "wss:" : base.protocol === "http:" ? "ws:" : base.protocol
@@ -486,14 +526,29 @@ export class CanopyClient {
       this.socket.send(encodeMessage(message))
   }
 
+  private webSocket(): WebSocketConstructor | undefined {
+    return this.options.WebSocket ?? (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket
+  }
+
   private connect(): void {
     if (this.closed) return
-    const WebSocketImpl =
-      this.options.WebSocket ?? (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket
-    if (WebSocketImpl === undefined)
-      throw new TypeError("No WebSocket implementation is available; pass one in options")
+    const WebSocketImpl = this.webSocket()
+    if (this.rung === 0 && WebSocketImpl === undefined) {
+      if (this.options.fallback === undefined)
+        throw new TypeError("No WebSocket implementation is available; pass one in options")
+      void this.descend()
+      return
+    }
     this.setStatus(this.attempt === 0 ? "connecting" : "reconnecting")
-    const socket = new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
+    const transport = this.ladder?.[this.rung - 1]
+    let socket: WebSocketLike
+    if (transport !== undefined)
+      socket = transport.connect(
+        this.httpUrl,
+        this.options.fetch ?? globalThis.fetch.bind(globalThis),
+      )
+    else if (WebSocketImpl !== undefined) socket = new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
+    else return
     this.socket = socket
     this.welcomed = false
     socket.onopen = () => {
@@ -567,10 +622,10 @@ export class CanopyClient {
           this.store.beginResync(sub.id)
           this.send({ t: "sub", id: sub.id, c: sub.coll, q: sub.query })
         }
-      }
+      } else this.store.resumed()
       this.inFlight = 0
       for (const pending of this.outbox) pending.sent = false
-      this.setStatus("live")
+      this.setStatus(this.rung === 0 ? "live" : "fallback")
       this.pump()
       return
     }
@@ -592,6 +647,7 @@ export class CanopyClient {
         return
       case "ready":
         this.store.ready(message.s)
+        if (this.ladder?.[this.rung - 1]?.polling === true) this.store.markStale()
         return
       case "ack":
         this.acknowledge(message)
@@ -642,8 +698,59 @@ export class CanopyClient {
     if (!this.closed) this.store.markStale()
   }
 
+  /** Moves one rung down the transport ladder, loading the fallback transports on first use. */
+  private async descend(): Promise<void> {
+    const source = this.options.fallback
+    if (source === undefined) return
+    try {
+      this.ladder ??= (typeof source === "function" ? await source() : source).transports
+    } catch {
+      this.ladder = []
+    }
+    if (this.rung < this.ladder.length) {
+      this.rung += 1
+      this.attempt = 0
+    }
+    this.failures = []
+    this.startProbe()
+    this.scheduleReconnect(0)
+  }
+
+  private startProbe(): void {
+    const WebSocketImpl = this.webSocket()
+    if (this.probeTimer !== undefined || WebSocketImpl === undefined || this.rung === 0) return
+    this.probeTimer = setInterval(() => {
+      if (this.closed || this.rung === 0) return
+      const probe = new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
+      probe.onopen = () => {
+        probe.close(1000, "probe")
+        this.ascend()
+      }
+      probe.onmessage = null
+      probe.onerror = () => {}
+      probe.onclose = null
+    }, this.options.probeIntervalMs ?? 60_000)
+  }
+
+  /** Moves back to WebSocket after a successful probe; the session resumes there. */
+  private ascend(): void {
+    if (this.closed || this.rung === 0) return
+    this.rung = 0
+    this.failures = []
+    if (this.probeTimer !== undefined) clearInterval(this.probeTimer)
+    this.probeTimer = undefined
+    const socket = this.socket
+    this.detach()
+    socket?.close(1000, "moving to WebSocket")
+    if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.attempt = 0
+    this.connect()
+  }
+
   private onClose(socket: WebSocketLike, code: number): void {
     if (this.socket !== socket) return
+    const welcomed = this.welcomed
     this.detach()
     if (this.closed) {
       this.setStatus("closed")
@@ -655,6 +762,14 @@ export class CanopyClient {
       return
     }
     if (!reaction.resume) this.sid = undefined
+    if (!welcomed && code === 1006 && this.options.fallback !== undefined) {
+      const now = Date.now()
+      this.failures = [...this.failures.filter((at) => now - at < 10_000), now]
+      if (this.failures.length >= 2) {
+        void this.descend()
+        return
+      }
+    }
     this.scheduleReconnect(reaction.minDelayMs)
   }
 
@@ -682,7 +797,8 @@ export class CanopyClient {
     this.closed = true
     for (const timer of [this.reconnectTimer, this.refreshTimer])
       if (timer !== undefined) clearTimeout(timer)
-    if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
+    for (const timer of [this.heartbeatTimer, this.probeTimer])
+      if (timer !== undefined) clearInterval(timer)
     if (this.socket !== undefined && this.socket.readyState === 1)
       this.socket.send(encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")

@@ -2,9 +2,11 @@ import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
 import type { PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
+  canonicalString,
   ErrorCode,
   InvalidQueryError,
   isDocument,
+  sha256Hex,
   toCanopyError,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
@@ -137,33 +139,46 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   const body = async (exchange: Exchange): Promise<unknown> =>
     (await readBody(exchange.request, maxBodyBytes))?.value
 
+  const pageBody = (result: FindResult) => ({
+    data: result.docs,
+    page: {
+      limit: result.limit,
+      next: result.next,
+      ...(result.total === undefined ? {} : { total: result.total }),
+    },
+  })
+
   const page = (result: FindResult, encoding: Encoding): Response =>
-    jsonResponse(
-      {
-        data: result.docs,
-        page: {
-          limit: result.limit,
-          next: result.next,
-          ...(result.total === undefined ? {} : { total: result.total }),
-        },
-        ct: result.ct,
-      },
-      encoding,
-    )
+    jsonResponse({ ...pageBody(result), ct: result.ct }, encoding)
+
+  /**
+   * A page with a validator over its content (not its cluster time), so a poller that sends
+   * `If-None-Match` gets `304` while the result is unchanged.
+   */
+  const conditionalPage = (result: FindResult, exchange: Exchange): Response => {
+    const body = pageBody(result)
+    const tag = `W/"${sha256Hex(`${exchange.encoding}:${canonicalString(body)}`).slice(0, 32)}"`
+    const headers = { etag: tag, "x-canopy-ct": result.ct }
+    const match = exchange.request.headers.get("if-none-match")
+    if (match?.split(",").some((value) => value.trim() === tag) === true)
+      return new Response(null, { status: 304, headers })
+    return jsonResponse({ ...body, ct: result.ct }, exchange.encoding, 200, headers)
+  }
 
   const listCollections: Route = async ({ caller, request, encoding }) =>
     jsonResponse({ data: await reads.collections(caller, { signal: request.signal }) }, encoding)
 
-  const find: Route = async ({ caller, request, url, segments, encoding, prefer }) => {
+  const find: Route = async (exchange) => {
+    const { caller, request, url, segments, prefer } = exchange
     const params = findParamsFromQuery(url.searchParams, pageLimits, prefer.count)
     for (const name of ["where", "upsert"]) {
       if (url.searchParams.has(name)) throw new InvalidQueryError(`${name} only applies to writes`)
     }
-    return page(
+    return conditionalPage(
       await reads.find(caller, findRequest(segments[0] ?? "", params), {
         signal: request.signal,
       }),
-      encoding,
+      exchange,
     )
   }
 

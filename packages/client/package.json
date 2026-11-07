@@ -11,6 +11,16 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./fallback": {
+      "types": "./dist/fallback.d.ts",
+      "@canopy/source": "./src/fallback.ts",
+      "default": "./dist/fallback.js"
+    },
+    "./rest-polling": {
+      "types": "./dist/rest-polling.d.ts",
+      "@canopy/source": "./src/rest-polling.ts",
+      "default": "./dist/rest-polling.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

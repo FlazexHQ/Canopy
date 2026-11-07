@@ -210,6 +210,31 @@ suite("REST read endpoints against MongoDB", () => {
       expect(typeof body["ct"]).toBe("string")
     })
 
+    it("validates pages by content, so an unchanged result answers 304 to If-None-Match", async () => {
+      const first = await call("/todos?sort=_id")
+      const tag = first.headers.get("etag")
+      expect(tag).toMatch(/^W\/"[0-9a-f]{32}"$/)
+      const same = await call("/todos?sort=_id", { headers: { "if-none-match": `"x", ${tag}` } })
+      expect(same.status).toBe(304)
+      expect(same.headers.get("etag")).toBe(tag)
+      expect(await same.text()).toBe("")
+      expect((await call("/todos?sort=-_id")).headers.get("etag")).not.toBe(tag)
+      expect((await call("/todos?sort=_id", { as: "bob" })).headers.get("etag")).not.toBe(tag)
+      const canonical = await call("/todos?sort=_id", {
+        headers: { accept: "application/ejson", "if-none-match": tag ?? "" },
+      })
+      expect(canonical.status).toBe(200)
+      const target = aliceDocs[0]?.["_id"]
+      await db.collection("todos").updateOne({ _id: target }, { $set: { etagProbe: 1 } })
+      try {
+        const changed = await call("/todos?sort=_id", { headers: { "if-none-match": tag ?? "" } })
+        expect(changed.status).toBe(200)
+        expect(changed.headers.get("etag")).not.toBe(tag)
+      } finally {
+        await db.collection("todos").updateOne({ _id: target }, { $unset: { etagProbe: "" } })
+      }
+    })
+
     it("reports a snapshot that includes earlier writes", async () => {
       const session = client.startSession()
       try {

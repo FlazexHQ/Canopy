@@ -117,10 +117,12 @@ suite("client against the realtime engine", () => {
 
     sockets.at(-1)?.close(4500, "simulated failure")
     await until(() => client.connectionStatus === "reconnecting")
+    expect(state?.status).toBe("stale")
     await rows.updateOne({ _id: 1 }, { $set: { rank: -1 } })
     await rows.deleteOne({ _id: 3 })
     await until(() => client.connectionStatus === "live" && state?.data.length === 2, 15_000)
     expect(state?.data.map((doc) => doc["_id"])).toEqual([1, 4])
+    expect(state?.status).toBe("ready")
     expect(sockets.length).toBeGreaterThanOrEqual(2)
 
     stopQuery()

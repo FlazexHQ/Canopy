@@ -3,6 +3,11 @@ export { toCt } from "@canopy/protocol"
 export { EchoWaiter } from "./echo.ts"
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from "./event.ts"
 export {
+  createHttpTransport,
+  type HttpTransport,
+  type HttpTransportOptions,
+} from "./http-transport.ts"
+export {
   type CheckpointStore,
   type FullDocumentMode,
   Ingestor,
@@ -55,4 +60,5 @@ export {
   type BunServerLike,
   type BunSocket,
   bunHandlers,
+  toNodeHandler,
 } from "./transports.ts"

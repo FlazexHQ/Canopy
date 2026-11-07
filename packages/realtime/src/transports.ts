@@ -1,6 +1,7 @@
-import type { IncomingMessage, Server } from "node:http"
-import type { Duplex } from "node:stream"
+import type { IncomingMessage, Server, ServerResponse } from "node:http"
+import { type Duplex, Readable } from "node:stream"
 import { CloseCode, SUBPROTOCOL } from "@canopy/protocol"
+import type { HttpTransport } from "./http-transport.ts"
 import type { Realtime } from "./realtime.ts"
 import type { RealtimeSocket } from "./session.ts"
 
@@ -122,6 +123,8 @@ export function bunHandlers(
   realtime: Realtime,
   options: {
     readonly path?: string
+    /** The SSE and long-poll endpoints, served for their paths. */
+    readonly http?: HttpTransport
     readonly fallback?: (request: Request) => Response | Promise<Response>
   } = {},
 ): {
@@ -136,6 +139,7 @@ export function bunHandlers(
   const path = options.path ?? "/realtime/v1"
   return {
     fetch(request, server) {
+      if (options.http?.matches(request) === true) return options.http.fetch(request)
       if (new URL(request.url).pathname !== path) {
         return options.fallback === undefined
           ? new Response("Not found", { status: 404 })
@@ -176,5 +180,74 @@ export function bunHandlers(
         ws.data.connection?.close()
       },
     },
+  }
+}
+
+/**
+ * Adapts the HTTP fallback transport to `node:http` and Express (`app.use(toNodeHandler(http))`). Requests
+ * outside its paths go to `next`, or get `404` without one. Responses are streamed, so SSE works. Mount it
+ * before any body parser.
+ */
+export function toNodeHandler(
+  transport: HttpTransport,
+): (request: IncomingMessage, response: ServerResponse, next?: () => void) => void {
+  return (request, response, next) => {
+    const original = (request as IncomingMessage & { originalUrl?: unknown }).originalUrl
+    const url = new URL(
+      typeof original === "string" ? original : (request.url ?? "/"),
+      `http://${request.headers.host ?? "localhost"}`,
+    )
+    if (!transport.matches(new Request(url))) {
+      if (next !== undefined) next()
+      else {
+        response.statusCode = 404
+        response.end()
+      }
+      return
+    }
+    const headers = new Headers()
+    for (const [name, value] of Object.entries(request.headers)) {
+      if (value === undefined) continue
+      if (Array.isArray(value)) for (const item of value) headers.append(name, item)
+      else headers.set(name, value)
+    }
+    const controller = new AbortController()
+    response.once("close", () => controller.abort())
+    const method = request.method ?? "GET"
+    const init: RequestInit & { duplex?: "half" } = {
+      method,
+      headers,
+      signal: controller.signal,
+      ...(method === "POST"
+        ? {
+            body: Readable.toWeb(request) as unknown as ReadableStream<Uint8Array>,
+            duplex: "half",
+          }
+        : {}),
+    }
+    void transport
+      .fetch(new Request(url, init))
+      .then(async (result) => {
+        response.statusCode = result.status
+        result.headers.forEach((value, name) => {
+          response.setHeader(name, value)
+        })
+        if (result.body === null) {
+          response.end()
+          return
+        }
+        response.flushHeaders()
+        const reader = result.body.getReader()
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          response.write(value)
+        }
+        response.end()
+      })
+      .catch(() => {
+        if (!response.headersSent) response.statusCode = 500
+        response.end()
+      })
   }
 }

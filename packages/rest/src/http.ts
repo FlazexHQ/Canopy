@@ -162,8 +162,8 @@ export interface CorsOptions {
 }
 
 const ALLOWED_HEADERS =
-  "apikey, authorization, content-type, accept, prefer, idempotency-key, x-request-id"
-const EXPOSED_HEADERS = "x-request-id, x-canopy-ct, retry-after, location"
+  "apikey, authorization, content-type, accept, prefer, idempotency-key, x-request-id, if-none-match"
+const EXPOSED_HEADERS = "x-request-id, x-canopy-ct, retry-after, location, etag"
 
 /** Returns the origin to echo, or `undefined` when the origin is not allowed. */
 export function allowedOrigin(cors: CorsOptions, origin: string | null): string | undefined {

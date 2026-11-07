@@ -513,10 +513,15 @@ export class Realtime {
       const existing = this.sessions.get(resume.sid)
       if (
         existing !== undefined &&
-        existing.socket === undefined &&
         existing.principal.subject === principal.subject &&
         contextKey(existing.principal.context) === contextKey(principal.context)
       ) {
+        const previous = existing.socket
+        if (previous !== undefined) {
+          existing.socket = undefined
+          existing.session.disconnect()
+          previous.close(CloseCode.Normal, "resumed on another connection")
+        }
         if (existing.session.canReplay(resume.seq)) {
           if (existing.dropTimer !== undefined) clearTimeout(existing.dropTimer)
           existing.dropTimer = undefined

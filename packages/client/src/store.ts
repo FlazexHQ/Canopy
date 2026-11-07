@@ -633,6 +633,17 @@ export class Store {
     this.touch([id])
   }
 
+  /** Marks queries that went stale with the connection ready again, after a resume replayed what was missed. */
+  resumed(): void {
+    for (const query of this.queries.values()) {
+      if (query.status === "stale" && query.unconfirmed === undefined) {
+        query.status = "ready"
+        query.dirty = true
+      }
+    }
+    this.schedule()
+  }
+
   /** Marks every query stale, for example while the connection is down. */
   markStale(): void {
     for (const query of this.queries.values()) {

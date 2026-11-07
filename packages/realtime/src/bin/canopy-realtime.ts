@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { createServer } from "node:http"
 import { MongoClient } from "mongodb"
+import { createHttpTransport } from "../http-transport.ts"
 import type { FullDocumentMode } from "../ingestor.ts"
 import type { Logger } from "../logger.ts"
 import { createRealtime, type RealtimeOptions } from "../realtime.ts"
-import { attach, type BunServerLike, bunHandlers } from "../transports.ts"
+import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../transports.ts"
 
 /**
  * The `canopy-realtime` sidecar, which runs next to an existing app. Configured through environment
@@ -101,6 +102,13 @@ async function main(): Promise<void> {
     logger,
   }
   const realtime = await createRealtime(options)
+  const origins = list(env["CANOPY_CORS_ORIGINS"])
+  const http = createHttpTransport(realtime, {
+    nodeId: options.nodeId ?? "n1",
+    ...(origins === undefined
+      ? {}
+      : { cors: { origins: origins.includes("*") ? ("*" as const) : origins } }),
+  })
   const port = Number(env["PORT"] ?? "8080")
   const metricsPort = Number(env["METRICS_PORT"] ?? "9464")
   const health = (path: string): { status: number; body: string } | undefined =>
@@ -123,6 +131,7 @@ async function main(): Promise<void> {
   let stopServer: () => Promise<void>
   if (bun !== undefined) {
     const handlers = bunHandlers(realtime, {
+      http,
       fallback: (request) => {
         const result = health(new URL(request.url).pathname)
         return new Response(result?.body ?? "Not found", { status: result?.status ?? 404 })
@@ -134,16 +143,23 @@ async function main(): Promise<void> {
         handlers.fetch(request, srv as never),
       websocket: handlers.websocket,
     })
-    stopServer = async () => server.stop()
+    stopServer = async () => {
+      http.close()
+      server.stop()
+    }
   } else {
+    const fallbackTransports = toNodeHandler(http)
     const server = createServer((request, response) => {
-      const result = health(new URL(request.url ?? "/", "http://localhost").pathname)
-      response.statusCode = result?.status ?? 404
-      response.end(result?.body ?? "Not found")
+      fallbackTransports(request, response, () => {
+        const result = health(new URL(request.url ?? "/", "http://localhost").pathname)
+        response.statusCode = result?.status ?? 404
+        response.end(result?.body ?? "Not found")
+      })
     })
     const attachment = await attach(realtime, server)
     await new Promise<void>((resolve) => server.listen(port, resolve))
     stopServer = async () => {
+      http.close()
       await attachment.close()
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
