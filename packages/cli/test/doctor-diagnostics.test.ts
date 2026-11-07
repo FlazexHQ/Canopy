@@ -1,14 +1,21 @@
+import { fileURLToPath } from "node:url"
 import { MONGODB_URI } from "@canopy/testing"
+import { MongoClient, ObjectId } from "mongodb"
 import { describe, expect, it } from "vitest"
-import { doctor } from "../src/commands.ts"
+import { doctor, sampledPaths } from "../src/commands.ts"
 
 async function runDoctor(
   mongodbUri: string,
+  extra: { database?: string; dir?: string } = {},
 ): Promise<{ code: number; lines: string[]; errors: string[] }> {
   const lines: string[] = []
   const errors: string[] = []
   const code = await doctor(
-    { mongodbUri, database: "canopy_doctor_diagnostics" },
+    {
+      mongodbUri,
+      database: extra.database ?? "canopy_doctor_diagnostics",
+      ...(extra.dir === undefined ? {} : { dir: extra.dir }),
+    },
     {
       log: (line) => lines.push(...line.split("\n")),
       error: (line) => errors.push(...line.split("\n")),
@@ -50,5 +57,38 @@ describe("canopy doctor diagnostics", () => {
     expect(
       result.lines.some((line) => /^ok {4}featureCompatibilityVersion [78]\.\d$/.test(line)),
     ).toBe(true)
+  })
+
+  withMongo("warns about policy fields no sampled document has", async () => {
+    const database = `canopy_doctor_fields_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+    const client = new MongoClient(MONGODB_URI ?? "")
+    await client.connect()
+    try {
+      await client
+        .db(database)
+        .collection("todos")
+        .insertOne({ ownerId: "u1", title: "t", done: false, archived: false, tags: ["a"] })
+      const result = await runDoctor(MONGODB_URI ?? "", {
+        database,
+        dir: fileURLToPath(new URL("./fixtures/good", import.meta.url)),
+      })
+      expect(result.lines.filter((line) => line.includes("unknown-field"))).toEqual([
+        "warn  warn   unknown-field  todos: fields.read.default.omit names the field internalNotes, which no sampled document of todos has",
+      ])
+    } finally {
+      await client.db(database).dropDatabase()
+      await client.close()
+    }
+  })
+})
+
+describe("sampledPaths", () => {
+  it("lists nested and array paths and treats BSON values as leaves", () => {
+    expect(
+      sampledPaths([
+        { _id: new ObjectId(), a: { b: 1, c: [{ d: 2 }, 3] } },
+        { e: [[{ f: 1 }]], g: new Date(0) },
+      ]),
+    ).toEqual(["_id", "a", "a.b", "a.c", "a.c.d", "e", "e.f", "g"])
   })
 })

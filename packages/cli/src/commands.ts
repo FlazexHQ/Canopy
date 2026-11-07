@@ -126,6 +126,36 @@ export async function policiesTest(options: PolicyTestOptions, out: Output): Pro
   }
 }
 
+const SAMPLE_SIZE = 200
+
+function isPlainDocument(value: unknown): value is Record<string, unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  )
+}
+
+/** Every dotted path of the sampled documents, looking through arrays, for the `unknown-field` lint rule. */
+export function sampledPaths(docs: readonly Record<string, unknown>[]): string[] {
+  const out = new Set<string>()
+  const visit = (value: unknown, prefix: string): void => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item, prefix)
+      return
+    }
+    if (!isPlainDocument(value)) return
+    for (const [key, child] of Object.entries(value)) {
+      const path = prefix === "" ? key : `${prefix}.${key}`
+      out.add(path)
+      visit(child, path)
+    }
+  }
+  for (const doc of docs) visit(doc, "")
+  return [...out].sort()
+}
+
 /** Options of `canopy doctor`. */
 export interface DoctorOptions {
   readonly mongodbUri: string
@@ -231,6 +261,7 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
     }
     const collections = new Map((await db.listCollections().toArray()).map((c) => [c.name, c]))
     const indexes: Record<string, string[][]> = {}
+    const fields: Record<string, string[]> = {}
     for (const def of set.collections.values()) {
       const existing = collections.get(def.collection)
       if (existing === undefined) {
@@ -239,6 +270,12 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
       }
       indexes[def.collection] = (await db.collection(def.collection).indexes()).map((index) =>
         Object.keys(index.key),
+      )
+      fields[def.collection] = sampledPaths(
+        await db
+          .collection(def.collection)
+          .aggregate([{ $sample: { size: SAMPLE_SIZE } }])
+          .toArray(),
       )
       if (def.realtime) {
         const options = (existing as { options?: Record<string, unknown> }).options ?? {}
@@ -251,7 +288,10 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
         })
       }
     }
-    for (const finding of lintPolicies([...set.collections.values()], set.contexts, { indexes })) {
+    for (const finding of lintPolicies([...set.collections.values()], set.contexts, {
+      indexes,
+      fields,
+    })) {
       if (finding.severity === "info") continue
       report({
         status: finding.severity === "error" ? "fail" : "warn",

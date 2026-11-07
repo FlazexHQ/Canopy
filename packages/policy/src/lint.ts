@@ -1,5 +1,6 @@
 import { isLinearRegex } from "@canopy/matcher"
 import { isDocument, regexParts } from "@canopy/protocol"
+import { stripIndexes } from "@canopy/query"
 import type { CollectionPolicies, ContextDefinitions, PolicyDefinition } from "./model.ts"
 import { Role } from "./model.ts"
 import { claimPaths } from "./variables.ts"
@@ -22,6 +23,11 @@ export interface LintEnvironment {
   readonly knownRoles?: readonly string[]
   /** Indexed field prefixes per collection, for `missing-index`. Each entry lists the fields of one index. */
   readonly indexes?: Readonly<Record<string, readonly (readonly string[])[]>>
+  /**
+   * Dotted field paths seen in sampled documents per collection, for `unknown-field`. Collections without an
+   * entry, or with an empty one, are not checked.
+   */
+  readonly fields?: Readonly<Record<string, readonly string[]>>
 }
 
 const WRITE_OPS = new Set(["insert", "update", "delete"])
@@ -86,6 +92,8 @@ export function lintPolicies(
       })
     }
     for (const policy of def.policies) lintPolicy(def, policy, env, add)
+    const known = env.fields?.[collection]
+    if (known !== undefined && known.length > 0) lintFields(def, known, add)
     for (const kind of ["read", "write", "update"] as const) {
       const rules = def.fields?.[kind]
       if (
@@ -113,6 +121,59 @@ export function lintPolicies(
     }
   }
   return findings
+}
+
+function clausePaths(clause: unknown, out: string[] = []): string[] {
+  if (!isDocument(clause)) return out
+  for (const key of Object.keys(clause)) {
+    const value = clause[key]
+    if (key === "$and" || key === "$or" || key === "$nor") {
+      if (Array.isArray(value)) for (const item of value) clausePaths(item, out)
+    } else if (!key.startsWith("$")) out.push(key)
+  }
+  return out
+}
+
+/**
+ * Warns about paths no sampled document has. Documents may vary, so this is a warning: a typo in a clause
+ * never matches (and fails closed), but a typo in an `omit` list leaves the field readable.
+ */
+function lintFields(
+  def: CollectionPolicies,
+  known: readonly string[],
+  add: (finding: LintFinding) => void,
+): void {
+  const paths = known.map(stripIndexes)
+  const isKnown = (path: string): boolean => {
+    const p = stripIndexes(path)
+    return (
+      p === "_id" ||
+      p.startsWith("_id.") ||
+      paths.some((k) => k === p || k.startsWith(`${p}.`) || p.startsWith(`${k}.`))
+    )
+  }
+  const report = (path: string, where: string, policy?: string): void => {
+    if (isKnown(path)) return
+    add({
+      rule: "unknown-field",
+      severity: "warn",
+      collection: def.collection,
+      ...(policy === undefined ? {} : { policy }),
+      message: `${where} names the field ${path}, which no sampled document of ${def.collection} has`,
+    })
+  }
+  for (const policy of def.policies) {
+    for (const path of new Set(clausePaths(policy.using))) report(path, "where", policy.name)
+    for (const path of new Set(clausePaths(policy.check))) report(path, "check", policy.name)
+  }
+  for (const kind of ["read", "write", "update"] as const) {
+    for (const [role, rule] of Object.entries(def.fields?.[kind] ?? {})) {
+      const listed = "only" in rule ? rule.only : rule.omit
+      for (const path of listed)
+        if (path !== "*") report(path, `fields.${kind}.${role}.${"only" in rule ? "only" : "omit"}`)
+    }
+  }
+  for (const path of def.immutable ?? []) report(path, "immutable")
 }
 
 function lintPolicy(
