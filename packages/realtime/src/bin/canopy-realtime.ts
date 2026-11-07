@@ -2,10 +2,11 @@
 import { createServer } from "node:http"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
+import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
-import type { Logger } from "../logger.ts"
+import { type Logger, redacting } from "../logger.ts"
 import { createRealtime, type RealtimeOptions } from "../realtime.ts"
 import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../transports.ts"
 
@@ -16,35 +17,11 @@ import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../trans
  * `CANOPY_PUBLISHABLE_KEYS`, `PORT`, `METRICS_PORT` and the others of the configuration reference.
  */
 
-const LEVELS = ["debug", "info", "warn", "error"] as const
+const USAGE = `Usage: canopy-realtime [--config <file>]
 
-function jsonLogger(level: string): Logger {
-  const threshold = Math.max(0, LEVELS.indexOf(level as (typeof LEVELS)[number]))
-  const write =
-    (name: (typeof LEVELS)[number]) => (object: Record<string, unknown>, message?: string) => {
-      if (LEVELS.indexOf(name) < threshold) return
-      const err = object["err"]
-      const record = {
-        level: name,
-        time: new Date().toISOString(),
-        msg: message,
-        ...object,
-        ...(err instanceof Error ? { err: { message: err.message, name: err.name } } : {}),
-      }
-      process.stderr.write(`${JSON.stringify(record)}\n`)
-    }
-  return { debug: write("debug"), info: write("info"), warn: write("warn"), error: write("error") }
-}
-
-function configFlag(argv: readonly string[]): string | undefined {
-  const index = argv.findIndex((arg) => arg === "--config" || arg.startsWith("--config="))
-  if (index < 0) return undefined
-  const arg = argv[index] ?? ""
-  const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : argv[index + 1]
-  if (value === undefined || value === "" || value.startsWith("--"))
-    throw new TypeError("--config needs a file")
-  return value
-}
+Runs Canopy Realtime next to an existing app. Without --config, canopy.config.ts or
+canopy/canopy.config.ts is found from the working directory, and the CANOPY_* variables apply.
+`
 
 /** Maps a resolved config to the options of the realtime engine. */
 export function realtimeOptions(config: ResolvedConfig, logger: Logger): RealtimeOptions {
@@ -92,23 +69,36 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
   }
 }
 
+function fail(message: string): never {
+  process.stderr.write(`${message}\n`)
+  process.exit(1)
+}
+
 async function load(): Promise<ResolvedConfig> {
+  let file: string | undefined
   try {
-    const file = configFlag(process.argv.slice(2))
+    const args = parseBinaryArgs(process.argv.slice(2))
+    if (args.help) {
+      process.stdout.write(USAGE)
+      process.exit(0)
+    }
+    file = args.file
+  } catch (error: unknown) {
+    if (error instanceof UsageError) fail(`canopy-realtime: ${error.message}\n\n${USAGE}`)
+    throw error
+  }
+  try {
     return (await loadConfig({ command: "realtime", ...(file === undefined ? {} : { file }) }))
       .config
   } catch (error: unknown) {
-    if (error instanceof ConfigError) {
-      process.stderr.write(`${error.message}\n`)
-      process.exit(1)
-    }
+    if (error instanceof ConfigError) fail(error.message)
     throw error
   }
 }
 
 async function main(): Promise<void> {
   const config = await load()
-  const logger = jsonLogger(config.log.level)
+  const logger = redacting(jsonLogger(config.log.level))
   const options = realtimeOptions(config, logger)
   const settings = config.realtime
   if (settings === false) return
@@ -195,10 +185,10 @@ async function main(): Promise<void> {
   )
 
   let stopping = false
-  const shutdown = (): void => {
+  const shutdown = (signal: string): void => {
     if (stopping) return
     stopping = true
-    logger.info({}, "draining")
+    logger.info({ signal, drainMs: settings.drainWindowMs }, "draining")
     realtime
       .close({ drainMs: settings.drainWindowMs })
       .then(stopServer)
@@ -207,7 +197,10 @@ async function main(): Promise<void> {
         return options.mongo.close()
       })
       .then(
-        () => process.exit(0),
+        () => {
+          logger.info({}, "stopped")
+          process.exit(0)
+        },
         (error: unknown) => {
           logger.error({ err: error }, "shutdown failed")
           process.exit(1)
@@ -217,22 +210,7 @@ async function main(): Promise<void> {
   onShutdown(shutdown)
 }
 
-/**
- * Calls `stop` on SIGTERM, SIGINT, SIGBREAK (Ctrl+Break on Windows) or a `"shutdown"` IPC message. Windows
- * has no SIGTERM, so process managers there (PM2, for one) ask a child to stop with that message instead.
- */
-function onShutdown(stop: () => void): void {
-  const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"]
-  if (process.platform === "win32") signals.push("SIGBREAK")
-  for (const signal of signals) process.on(signal, stop)
-  process.on("message", (message: unknown) => {
-    if (message === "shutdown") stop()
-  })
-}
-
 main().catch((error: unknown) => {
-  process.stderr.write(
-    `${JSON.stringify({ level: "error", msg: "canopy-realtime failed to start", err: error instanceof Error ? error.message : String(error) })}\n`,
-  )
+  jsonLogger("error").error({ err: error }, "canopy-realtime failed to start")
   process.exit(1)
 })

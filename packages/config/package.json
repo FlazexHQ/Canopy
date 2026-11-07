@@ -16,6 +16,11 @@
       "@canopy/source": "./src/load.ts",
       "default": "./dist/load.js"
     },
+    "./process": {
+      "types": "./dist/process.d.ts",
+      "@canopy/source": "./src/process.ts",
+      "default": "./dist/process.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

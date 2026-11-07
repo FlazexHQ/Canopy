@@ -3,7 +3,14 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
-import { type Logger, redacting } from "@canopy/realtime"
+import {
+  type BinaryArgs,
+  jsonLogger,
+  onShutdown,
+  parseBinaryArgs,
+  UsageError,
+} from "@canopy/config/process"
+import { redacting } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
 
 const USAGE = `Usage: canopy-server [--config <file>]
@@ -16,53 +23,15 @@ Options:
   --help           Prints this message.
 `
 
-const LEVELS = ["debug", "info", "warn", "error"] as const
-type Level = (typeof LEVELS)[number]
-
-function jsonLogger(level: string): Logger {
-  const threshold = Math.max(0, LEVELS.indexOf(level as Level))
-  const write = (name: Level) => (object: Record<string, unknown>, message?: string) => {
-    if (LEVELS.indexOf(name) < threshold) return
-    const err = object["err"]
-    const record = {
-      level: name,
-      time: new Date().toISOString(),
-      msg: message,
-      ...object,
-      ...(err instanceof Error ? { err: { message: err.message, name: err.name } } : {}),
-    }
-    process.stderr.write(`${JSON.stringify(record)}\n`)
-  }
-  return { debug: write("debug"), info: write("info"), warn: write("warn"), error: write("error") }
-}
-
-class UsageError extends TypeError {}
-
-function parseArgs(argv: readonly string[]): { readonly file?: string; readonly help: boolean } {
-  let file: string | undefined
-  let help = false
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index] ?? ""
-    if (arg === "--help" || arg === "-h") help = true
-    else if (arg === "--config" || arg.startsWith("--config=")) {
-      const value = arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : argv[++index]
-      if (value === undefined || value === "" || value.startsWith("-"))
-        throw new UsageError("--config needs a file")
-      file = value
-    } else throw new UsageError(`Unknown option ${arg}`)
-  }
-  return file === undefined ? { help } : { file, help }
-}
-
 function fail(message: string): never {
   process.stderr.write(`${message}\n`)
   process.exit(1)
 }
 
 async function load(): Promise<ResolvedConfig> {
-  let args: ReturnType<typeof parseArgs>
+  let args: BinaryArgs
   try {
-    args = parseArgs(process.argv.slice(2))
+    args = parseBinaryArgs(process.argv.slice(2))
   } catch (error: unknown) {
     if (error instanceof UsageError) fail(`canopy-server: ${error.message}\n\n${USAGE}`)
     throw error
@@ -192,27 +161,7 @@ async function main(): Promise<void> {
   onShutdown(shutdown)
 }
 
-/**
- * Calls `stop` on SIGTERM, SIGINT, SIGBREAK (Ctrl+Break on Windows) or a `"shutdown"` IPC message. Windows
- * has no SIGTERM, so process managers there (PM2, for one) ask a child to stop with that message instead.
- */
-function onShutdown(stop: (reason: string) => void): void {
-  const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"]
-  if (process.platform === "win32") signals.push("SIGBREAK")
-  for (const signal of signals) process.on(signal, () => stop(signal))
-  process.on("message", (message: unknown) => {
-    if (message === "shutdown") stop("shutdown")
-  })
-}
-
 main().catch((error: unknown) => {
-  process.stderr.write(
-    `${JSON.stringify({
-      level: "error",
-      time: new Date().toISOString(),
-      msg: "canopy failed to start",
-      err: error instanceof Error ? error.message : String(error),
-    })}\n`,
-  )
+  jsonLogger("error").error({ err: error }, "canopy failed to start")
   process.exit(1)
 })
