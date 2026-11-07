@@ -6,6 +6,7 @@ import {
   compareCt,
   ErrorCode,
   maxCt,
+  ZERO_CT,
 } from "@canopy/protocol"
 import { type Doc, docKey, type NormalizedEvent } from "./event.ts"
 
@@ -86,7 +87,7 @@ export abstract class Observer {
   protected readonly listeners = new Set<ObserverListener>()
   private readonly waiting = new Set<ObserverListener>()
   protected state: "idle" | "loading" | "live" | "failed" = "idle"
-  protected ct: ClusterTime = "0"
+  protected ct: ClusterTime = ZERO_CT
   private buffered: NormalizedEvent[] = []
   private failure: CanopyError | undefined
   private refreshing = false

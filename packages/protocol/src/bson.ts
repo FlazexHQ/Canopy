@@ -241,22 +241,6 @@ function isUint32(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && value <= 0xffffffff
 }
 
-/** The type tags this package understands, from either this package or the `bson` package. */
-export type BsonTypeTag =
-  | "ObjectId"
-  | "Long"
-  | "Int32"
-  | "Double"
-  | "Decimal128"
-  | "Binary"
-  | "Timestamp"
-  | "BSONRegExp"
-  | "MinKey"
-  | "MaxKey"
-  | "BSONSymbol"
-  | "Code"
-  | "DBRef"
-
 /** Returns the `_bsontype` tag of a value, or `undefined` for plain values. */
 export function bsonTypeTag(value: unknown): string | undefined {
   if (typeof value !== "object" || value === null) return undefined

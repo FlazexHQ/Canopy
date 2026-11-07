@@ -1,4 +1,4 @@
-import { type ClusterTime, canonicalString, isDocument, toCt } from "@canopy/protocol"
+import { type ClusterTime, canonicalString, isDocument, toCt, ZERO_CT } from "@canopy/protocol"
 
 /** A document as read from MongoDB. */
 export type Doc = Record<string, unknown>
@@ -49,7 +49,7 @@ export function normalize(
   raw: Record<string, unknown>,
 ): NormalizedEvent | ControlEvent | undefined {
   const op = raw["operationType"]
-  const ct = toCt(raw["clusterTime"]) ?? "0"
+  const ct = toCt(raw["clusterTime"]) ?? ZERO_CT
   const token = raw["_id"]
   const ns = isDocument(raw["ns"]) ? raw["ns"] : undefined
   const coll = typeof ns?.["coll"] === "string" ? ns["coll"] : undefined

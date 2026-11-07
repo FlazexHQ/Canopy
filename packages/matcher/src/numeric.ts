@@ -1,8 +1,5 @@
 import { bsonTypeTag, decimalString, longValue, wrappedNumber } from "@canopy/protocol"
 
-/** The numeric kinds MongoDB compares by value across types. */
-export type NumericKind = "int" | "double" | "long" | "decimal"
-
 /** A number read from any supported representation. */
 export type NumericValue =
   | { readonly kind: "int" | "double"; readonly value: number }

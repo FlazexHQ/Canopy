@@ -5,7 +5,13 @@ import {
   type DocComparator,
   UnsupportedQueryError,
 } from "@canopy/matcher/lite"
-import { type ClusterTime, canonicalString, compareCt, type Document } from "@canopy/protocol"
+import {
+  type ClusterTime,
+  canonicalString,
+  compareCt,
+  type Document,
+  ZERO_CT,
+} from "@canopy/protocol"
 
 /** The cache key of a document: `collection/canonical(_id)`. */
 export function cacheKey(coll: string, id: unknown): string {
@@ -397,7 +403,7 @@ export class Store {
         id,
         key,
         server: undefined,
-        ct: "0",
+        ct: ZERO_CT,
         tombstone: false,
         subs: new Set(),
         provisional: undefined,

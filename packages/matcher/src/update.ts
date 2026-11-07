@@ -1,7 +1,7 @@
 import { isDocument, Long, longValue, regexParts, Timestamp } from "@canopy/protocol"
 import { bsonTypeOf, compareValues, valuesEqual } from "./compare.ts"
 import { UnsupportedQueryError, UpdateError } from "./errors.ts"
-import { compileFilter, type DocTest } from "./filter.ts"
+import { compileFilterWith, type DocTest, type RegexEngine } from "./filter.ts"
 import { readNumeric, toDouble } from "./numeric.ts"
 import { isArrayIndex, splitPath } from "./path.ts"
 import { compileSort } from "./sort.ts"
@@ -77,15 +77,21 @@ export function isOperatorUpdate(update: Record<string, unknown>): boolean {
   return keys.length > 0 && keys.every((key) => key.startsWith("$"))
 }
 
+interface Settings extends UpdateOptions {
+  readonly regex: RegexEngine | undefined
+}
+
 /**
  * Applies a MongoDB update (operators or a replacement document) to a copy of `doc`, following MongoDB 5.0 and
- * later semantics, including lexicographic processing of new fields. The input is never modified. Throws
- * {@link UpdateError} where MongoDB would reject the update.
+ * later semantics, including lexicographic processing of new fields. The input is never modified. `regex`
+ * compiles the regular expressions of `$pull` conditions and array filters; without one they throw
+ * {@link UnsupportedQueryError}. Throws {@link UpdateError} where MongoDB would reject the update.
  */
-export function applyUpdate(
+export function applyUpdateWith(
   doc: Record<string, unknown>,
   update: unknown,
-  options: UpdateOptions = {},
+  options: UpdateOptions,
+  regex: RegexEngine | undefined,
 ): Record<string, unknown> {
   if (Array.isArray(update))
     throw new UnsupportedQueryError("Pipeline updates are not evaluated in process")
@@ -93,7 +99,7 @@ export function applyUpdate(
   const keys = Object.keys(update)
   if (keys.some((key) => key.startsWith("$"))) {
     if (!keys.every((key) => key.startsWith("$"))) fail("An update cannot mix operators and fields")
-    return applyOperators(doc, update, options)
+    return applyOperators(doc, update, { ...options, regex })
   }
   return applyReplacement(doc, update)
 }
@@ -141,10 +147,10 @@ function validateStorage(value: unknown, path: string): void {
 function applyOperators(
   doc: Record<string, unknown>,
   update: Record<string, unknown>,
-  options: UpdateOptions,
+  options: Settings,
 ): Record<string, unknown> {
   const root = newNode()
-  const identifiers = parseArrayFilters(options.arrayFilters ?? [])
+  const identifiers = parseArrayFilters(options.arrayFilters ?? [], options.regex)
   const used = new Set<string>()
   for (const op of Object.keys(update)) {
     if (!OPERATORS.has(op)) fail(`Unknown modifier: ${op}`)
@@ -174,7 +180,10 @@ function applyOperators(
   return out
 }
 
-function parseArrayFilters(filters: readonly Record<string, unknown>[]): Map<string, DocTest> {
+function parseArrayFilters(
+  filters: readonly Record<string, unknown>[],
+  regex: RegexEngine | undefined,
+): Map<string, DocTest> {
   const out = new Map<string, DocTest>()
   for (const filter of filters) {
     if (!isDocument(filter)) fail("Each array filter must be a document")
@@ -194,7 +203,7 @@ function parseArrayFilters(filters: readonly Record<string, unknown>[]): Map<str
     if (identifier === undefined) fail("Cannot use an expression without a top level field name")
     if (out.has(identifier))
       fail(`Found multiple array filters with the same top level field name ${identifier}`)
-    const test = compileFilter(filter).matches
+    const test = compileFilterWith(filter, regex).matches
     out.set(identifier, test)
   }
   return out
@@ -446,7 +455,7 @@ function applyChildren(
   container: Record<string, unknown> | unknown[],
   node: Node,
   prefix: string,
-  options: UpdateOptions,
+  options: Settings,
   identifiers: Map<string, DocTest>,
 ): void {
   const touched = new Set<number>()
@@ -513,7 +522,7 @@ function applyAt(
   key: string,
   node: Node,
   path: string,
-  options: UpdateOptions,
+  options: Settings,
   identifiers: Map<string, DocTest>,
 ): void {
   if (Array.isArray(container) && !isArrayIndex(key)) {
@@ -574,7 +583,7 @@ function applyLeaf(
   slot: { exists: boolean; value: unknown },
   leaf: Leaf,
   path: string,
-  options: UpdateOptions,
+  options: Settings,
 ): void {
   const { op, operand } = leaf
   const set = (value: unknown): void => writeSlot(container, key, value, path)
@@ -652,7 +661,8 @@ function applyLeaf(
     case "$pullAll": {
       if (!present) return
       if (!Array.isArray(slot.value)) fail("Cannot apply $pull to a non-array value")
-      const remove = op === "$pullAll" ? pullAllTest(operand as unknown[]) : pullTest(operand)
+      const remove =
+        op === "$pullAll" ? pullAllTest(operand as unknown[]) : pullTest(operand, options.regex)
       set(slot.value.filter((element) => !remove(element)))
       return
     }
@@ -816,19 +826,22 @@ function isExpressionKey(key: string): boolean {
   return key.startsWith("$") && !["$and", "$or", "$nor"].includes(key)
 }
 
-function pullTest(condition: unknown): (element: unknown) => boolean {
+function pullTest(
+  condition: unknown,
+  regex: RegexEngine | undefined,
+): (element: unknown) => boolean {
   if (isDocument(condition)) {
     const first = Object.keys(condition)[0]
     const isExpression = first !== undefined && isExpressionKey(first)
     if (isExpression) {
-      const test = compileFilter({ v: condition }).matches
+      const test = compileFilterWith({ v: condition }, regex).matches
       return (element) => test({ v: element })
     }
-    const test = compileFilter(condition).matches
+    const test = compileFilterWith(condition, regex).matches
     return (element) => isDocument(element) && test(element)
   }
   if (regexParts(condition) !== undefined) {
-    const test = compileFilter({ v: condition }).matches
+    const test = compileFilterWith({ v: condition }, regex).matches
     return (element) => !Array.isArray(element) && test({ v: element })
   }
   return (element) => valuesEqual(element, condition)

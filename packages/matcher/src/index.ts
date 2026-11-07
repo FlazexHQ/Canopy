@@ -1,11 +1,6 @@
-import {
-  type CompiledFilter,
-  compileFilter as compileWith,
-  isMatcherSafe as safeWith,
-  withRegexEngine,
-} from "./filter.ts"
+import { type CompiledFilter, compileFilterWith, isMatcherSafeWith } from "./filter.ts"
 import { compileRegex } from "./regex.ts"
-import { applyUpdate as applyWith, type UpdateOptions } from "./update.ts"
+import { applyUpdateWith, type UpdateOptions } from "./update.ts"
 
 export {
   Bracket,
@@ -18,11 +13,10 @@ export {
 } from "./compare.ts"
 export { equalityKey } from "./equality-key.ts"
 export { UnsupportedQueryError, UpdateError } from "./errors.ts"
-export { type CompiledFilter, type DocTest, type RegexEngine, withRegexEngine } from "./filter.ts"
+export type { CompiledFilter, DocTest } from "./filter.ts"
 export {
   compareNumeric,
   isInt32,
-  type NumericKind,
   type NumericValue,
   readNumeric,
 } from "./numeric.ts"
@@ -58,12 +52,12 @@ export { isOperatorUpdate, UPDATE_OPERATORS, type UpdateOptions } from "./update
  * `InvalidQueryError` for filters MongoDB would reject.
  */
 export function compileFilter(filter: unknown): CompiledFilter {
-  return withRegexEngine(compileRegex, () => compileWith(filter))
+  return compileFilterWith(filter, compileRegex)
 }
 
 /** Returns true when every operator in `filter` can be evaluated in process. */
 export function isMatcherSafe(filter: unknown): boolean {
-  return withRegexEngine(compileRegex, () => safeWith(filter))
+  return isMatcherSafeWith(filter, compileRegex)
 }
 
 /**
@@ -76,5 +70,5 @@ export function applyUpdate(
   update: unknown,
   options: UpdateOptions = {},
 ): Record<string, unknown> {
-  return withRegexEngine(compileRegex, () => applyWith(doc, update, options))
+  return applyUpdateWith(doc, update, options, compileRegex)
 }

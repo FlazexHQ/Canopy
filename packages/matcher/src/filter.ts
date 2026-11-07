@@ -99,39 +99,24 @@ function isRegexValue(value: unknown): boolean {
 /** Compiles a `$regex` pattern into a linear time test. */
 export type RegexEngine = (pattern: string, options: string) => LinearRegex
 
-let regexEngine: RegexEngine | undefined
-
-/**
- * Runs `fn` with `engine` compiling regular expressions. The `@canopy/matcher` entry point wraps every
- * call in the full engine; `@canopy/matcher/lite` runs without one, so `$regex` is unsupported there and
- * the regex translator stays out of browser bundles.
- */
-export function withRegexEngine<T>(engine: RegexEngine | undefined, fn: () => T): T {
-  const previous = regexEngine
-  regexEngine = engine
-  try {
-    return fn()
-  } finally {
-    regexEngine = previous
-  }
-}
-
 /**
  * Compiles a MongoDB query filter into a document test. Supports the matcher safe operators: comparisons, `$in`/`$nin`,
  * `$exists`, `$type`, logical operators, `$all`, `$elemMatch`, `$size`, `$mod` and linear time `$regex`.
- * Throws {@link UnsupportedQueryError} for valid constructs the matcher does not evaluate, and
+ * `regex` compiles regular expressions; without one, `$regex` throws {@link UnsupportedQueryError}, which is
+ * how `@canopy/matcher/lite` keeps the regex translator out of browser bundles. Throws
+ * {@link UnsupportedQueryError} for valid constructs the matcher does not evaluate, and
  * {@link InvalidQueryError} for filters MongoDB would reject.
  */
-export function compileFilter(filter: unknown): CompiledFilter {
+export function compileFilterWith(filter: unknown, regex: RegexEngine | undefined): CompiledFilter {
   if (!isDocument(filter)) invalid("A filter must be a document")
-  const test = compileDocument(filter)
+  const test = compileDocument(filter, regex)
   return { matches: test }
 }
 
 /** Returns true when every operator in `filter` can be evaluated in process. */
-export function isMatcherSafe(filter: unknown): boolean {
+export function isMatcherSafeWith(filter: unknown, regex: RegexEngine | undefined): boolean {
   try {
-    compileFilter(filter)
+    compileFilterWith(filter, regex)
     return true
   } catch (error: unknown) {
     if (error instanceof UnsupportedQueryError) return false
@@ -148,26 +133,26 @@ function and(tests: readonly DocTest[]): DocTest {
   }
 }
 
-function compileDocument(filter: Record<string, unknown>): DocTest {
+function compileDocument(filter: Record<string, unknown>, regex: RegexEngine | undefined): DocTest {
   const tests: DocTest[] = []
   for (const key of Object.keys(filter)) {
     const value = filter[key]
     if (key.startsWith("$")) {
-      tests.push(compileTopOperator(key, value))
+      tests.push(compileTopOperator(key, value, regex))
     } else {
       if (key === "") invalid("A field path may not be empty")
-      tests.push(compileFieldCondition(key, value))
+      tests.push(compileFieldCondition(key, value, regex))
     }
   }
   return and(tests)
 }
 
-function compileTopOperator(key: string, value: unknown): DocTest {
+function compileTopOperator(key: string, value: unknown, regex: RegexEngine | undefined): DocTest {
   if (LOGICAL.has(key)) {
     if (!Array.isArray(value) || value.length === 0) invalid(`${key} must be a nonempty array`)
     const branches = value.map((branch) => {
       if (!isDocument(branch)) invalid(`${key} argument entries must be objects`)
-      return compileDocument(branch)
+      return compileDocument(branch, regex)
     })
     if (key === "$and") return and(branches)
     const any: DocTest = (doc) => {
@@ -181,19 +166,27 @@ function compileTopOperator(key: string, value: unknown): DocTest {
   return invalid(`unknown top level operator: ${key}`)
 }
 
-function compileFieldCondition(path: string, value: unknown): DocTest {
+function compileFieldCondition(
+  path: string,
+  value: unknown,
+  regex: RegexEngine | undefined,
+): DocTest {
   const parts = splitPath(path)
   if (parts.some((part) => part === "")) invalid(`Invalid field path: ${path}`)
   if (isRegexValue(value)) {
-    const leaf = regexLeaf(value)
+    const leaf = regexLeaf(value, regex)
     return (doc) => anyPathValue(doc, parts, true, leaf)
   }
-  if (isOperatorObject(value)) return compileOperators(parts, value)
+  if (isOperatorObject(value)) return compileOperators(parts, value, regex)
   const leaf = eqLeaf(value)
   return (doc) => anyPathValue(doc, parts, true, leaf)
 }
 
-function compileOperators(parts: readonly string[], ops: Record<string, unknown>): DocTest {
+function compileOperators(
+  parts: readonly string[],
+  ops: Record<string, unknown>,
+  regex: RegexEngine | undefined,
+): DocTest {
   const keys = Object.keys(ops)
   const tests: DocTest[] = []
   const hasRegex = keys.includes("$regex")
@@ -202,16 +195,21 @@ function compileOperators(parts: readonly string[], ops: Record<string, unknown>
     if (!key.startsWith("$")) invalid(`unknown operator: ${key}`)
     if (key === "$options") continue
     if (key === "$regex") {
-      const leaf = regexLeaf(regexFromOperator(ops["$regex"], ops["$options"]))
+      const leaf = regexLeaf(regexFromOperator(ops["$regex"], ops["$options"]), regex)
       tests.push((doc) => anyPathValue(doc, parts, true, leaf))
       continue
     }
-    tests.push(compileOperator(parts, key, ops[key]))
+    tests.push(compileOperator(parts, key, ops[key], regex))
   }
   return and(tests)
 }
 
-function compileOperator(parts: readonly string[], op: string, operand: unknown): DocTest {
+function compileOperator(
+  parts: readonly string[],
+  op: string,
+  operand: unknown,
+  regex: RegexEngine | undefined,
+): DocTest {
   const expand =
     (leaf: LeafTest): DocTest =>
     (doc) =>
@@ -230,9 +228,9 @@ function compileOperator(parts: readonly string[], op: string, operand: unknown)
     case "$lte":
       return expand(comparisonLeaf(op, operand))
     case "$in":
-      return expand(inLeaf(operand, "$in"))
+      return expand(inLeaf(operand, "$in", regex))
     case "$nin": {
-      const test = expand(inLeaf(operand, "$nin"))
+      const test = expand(inLeaf(operand, "$nin", regex))
       return (doc) => !test(doc)
     }
     case "$exists": {
@@ -250,11 +248,11 @@ function compileOperator(parts: readonly string[], op: string, operand: unknown)
     case "$mod":
       return expand(modLeaf(operand))
     case "$all":
-      return compileAll(parts, operand)
+      return compileAll(parts, operand, regex)
     case "$elemMatch":
-      return compileElemMatch(parts, operand)
+      return compileElemMatch(parts, operand, regex)
     case "$not":
-      return compileNot(parts, operand)
+      return compileNot(parts, operand, regex)
     default:
       if (UNSUPPORTED_FIELD.has(op))
         throw new UnsupportedQueryError(`${op} is not evaluated in process`)
@@ -328,7 +326,7 @@ function comparisonLeaf(op: "$gt" | "$gte" | "$lt" | "$lte", operand: unknown): 
   }
 }
 
-function inLeaf(operand: unknown, op: string): LeafTest {
+function inLeaf(operand: unknown, op: string, regex: RegexEngine | undefined): LeafTest {
   if (!Array.isArray(operand)) invalid(`${op} needs an array`)
   const keyed = new Set<string>()
   const keyedNumbers: LeafTest[] = []
@@ -338,7 +336,7 @@ function inLeaf(operand: unknown, op: string): LeafTest {
   for (const item of operand) {
     if (isOperatorObject(item)) invalid(`cannot nest $ under ${op}`)
     if (isRegexValue(item)) {
-      regexes.push(regexLeaf(item))
+      regexes.push(regexLeaf(item, regex))
       continue
     }
     if (item === null) {
@@ -455,12 +453,12 @@ function regexFromOperator(pattern: unknown, options: unknown): unknown {
   return { _bsontype: "BSONRegExp", pattern: parts.pattern, options: options ?? parts.options }
 }
 
-function regexLeaf(value: unknown): LeafTest {
+function regexLeaf(value: unknown, regex: RegexEngine | undefined): LeafTest {
   const parts = regexParts(value)
   if (parts === undefined) return invalid("expected a regular expression")
-  if (regexEngine === undefined)
+  if (regex === undefined)
     throw new UnsupportedQueryError("$regex needs the full matcher, not @canopy/matcher/lite")
-  const compiled: LinearRegex = regexEngine(parts.pattern, parts.options)
+  const compiled: LinearRegex = regex(parts.pattern, parts.options)
   const sortedOptions = [...parts.options].sort().join("")
   return (candidate) => {
     if (typeof candidate === "string") return compiled.test(candidate)
@@ -476,7 +474,11 @@ function regexLeaf(value: unknown): LeafTest {
   }
 }
 
-function compileAll(parts: readonly string[], operand: unknown): DocTest {
+function compileAll(
+  parts: readonly string[],
+  operand: unknown,
+  regex: RegexEngine | undefined,
+): DocTest {
   if (!Array.isArray(operand)) invalid("$all needs an array")
   if (operand.length === 0) return () => false
   const elemMatches = operand.filter(
@@ -487,10 +489,10 @@ function compileAll(parts: readonly string[], operand: unknown): DocTest {
   }
   const tests = operand.map((item) => {
     if (elemMatches.length > 0) {
-      return compileElemMatch(parts, (item as Record<string, unknown>)["$elemMatch"])
+      return compileElemMatch(parts, (item as Record<string, unknown>)["$elemMatch"], regex)
     }
     if (isOperatorObject(item)) invalid("no $ expressions in $all")
-    const leaf = isRegexValue(item) ? regexLeaf(item) : eqLeaf(item)
+    const leaf = isRegexValue(item) ? regexLeaf(item, regex) : eqLeaf(item)
     return (doc: unknown) => anyPathValue(doc, parts, true, leaf)
   })
   return and(tests)
@@ -500,7 +502,11 @@ function isValueOperator(key: string): boolean {
   return key.startsWith("$") && !LOGICAL.has(key) && key !== "$expr"
 }
 
-function compileElemMatch(parts: readonly string[], operand: unknown): DocTest {
+function compileElemMatch(
+  parts: readonly string[],
+  operand: unknown,
+  regex: RegexEngine | undefined,
+): DocTest {
   if (!isDocument(operand)) invalid("$elemMatch needs an Object")
   const first = Object.keys(operand)[0]
   const valueForm = first !== undefined && isValueOperator(first)
@@ -509,14 +515,14 @@ function compileElemMatch(parts: readonly string[], operand: unknown): DocTest {
     const tests = Object.keys(operand).map((key) => {
       if (key === "$options") return undefined
       if (key === "$regex") {
-        return regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]))
+        return regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]), regex)
       }
-      return valueOperatorLeaf(key, operand[key])
+      return valueOperatorLeaf(key, operand[key], regex)
     })
     const leaves = tests.filter((test): test is LeafTest => test !== undefined)
     element = (value) => leaves.every((leaf) => leaf(value))
   } else {
-    const test = compileDocument(operand)
+    const test = compileDocument(operand, regex)
     element = (value) => {
       if (isDocument(value)) return test(value)
       return Array.isArray(value) && test(arrayAsDocument(value))
@@ -539,7 +545,7 @@ function arrayAsDocument(value: readonly unknown[]): Record<string, unknown> {
   return out
 }
 
-function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
+function valueOperatorLeaf(op: string, operand: unknown, regex: RegexEngine | undefined): LeafTest {
   switch (op) {
     case "$eq":
       return eqLeaf(operand)
@@ -554,9 +560,9 @@ function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
     case "$lte":
       return comparisonLeaf(op, operand)
     case "$in":
-      return inLeaf(operand, op)
+      return inLeaf(operand, op, regex)
     case "$nin": {
-      const test = inLeaf(operand, op)
+      const test = inLeaf(operand, op, regex)
       return (value) => !test(value)
     }
     case "$exists": {
@@ -572,13 +578,13 @@ function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
     case "$mod":
       return modLeaf(operand)
     case "$elemMatch": {
-      const test = compileElemMatch([], operand)
+      const test = compileElemMatch([], operand, regex)
       return (value) => test(value)
     }
     case "$all":
-      return singleAllLeaf(operand)
+      return singleAllLeaf(operand, regex)
     case "$not":
-      return singleNotLeaf(operand)
+      return singleNotLeaf(operand, regex)
     default:
       if (UNSUPPORTED_FIELD.has(op))
         throw new UnsupportedQueryError(`${op} is not evaluated in process`)
@@ -586,23 +592,23 @@ function valueOperatorLeaf(op: string, operand: unknown): LeafTest {
   }
 }
 
-function singleAllLeaf(operand: unknown): LeafTest {
+function singleAllLeaf(operand: unknown, regex: RegexEngine | undefined): LeafTest {
   if (!Array.isArray(operand)) invalid("$all needs an array")
   if (operand.length === 0) return () => false
   const leaves = operand.map((item) => {
     if (isDocument(item) && Object.keys(item)[0] === "$elemMatch") {
-      const test = compileElemMatch([], item["$elemMatch"])
+      const test = compileElemMatch([], item["$elemMatch"], regex)
       return (value: unknown) => test(value)
     }
     if (isOperatorObject(item)) invalid("no $ expressions in $all")
-    return isRegexValue(item) ? regexLeaf(item) : eqLeaf(item)
+    return isRegexValue(item) ? regexLeaf(item, regex) : eqLeaf(item)
   })
   return (value) => leaves.every((leaf) => leaf(value))
 }
 
-function singleNotLeaf(operand: unknown): LeafTest {
+function singleNotLeaf(operand: unknown, regex: RegexEngine | undefined): LeafTest {
   if (isRegexValue(operand)) {
-    const leaf = regexLeaf(operand)
+    const leaf = regexLeaf(operand, regex)
     return (value) => !leaf(value)
   }
   if (!isDocument(operand) || Object.keys(operand).length === 0)
@@ -614,15 +620,19 @@ function singleNotLeaf(operand: unknown): LeafTest {
     .filter((key) => key !== "$options")
     .map((key) =>
       key === "$regex"
-        ? regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]))
-        : valueOperatorLeaf(key, operand[key]),
+        ? regexLeaf(regexFromOperator(operand["$regex"], operand["$options"]), regex)
+        : valueOperatorLeaf(key, operand[key], regex),
     )
   return (value) => !leaves.every((leaf) => leaf(value))
 }
 
-function compileNot(parts: readonly string[], operand: unknown): DocTest {
+function compileNot(
+  parts: readonly string[],
+  operand: unknown,
+  regex: RegexEngine | undefined,
+): DocTest {
   if (isRegexValue(operand)) {
-    const leaf = regexLeaf(operand)
+    const leaf = regexLeaf(operand, regex)
     return (doc) => !anyPathValue(doc, parts, true, leaf)
   }
   if (!isDocument(operand)) invalid("$not needs a regex or a document")
@@ -632,6 +642,6 @@ function compileNot(parts: readonly string[], operand: unknown): DocTest {
     invalid("$not needs a regex or a document of operators")
   if (keys.includes("$regex") === false && keys.includes("$options"))
     invalid("$options needs a $regex")
-  const inner = compileOperators(parts, operand)
+  const inner = compileOperators(parts, operand, regex)
   return (doc) => !inner(doc)
 }

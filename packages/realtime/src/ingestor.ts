@@ -1,4 +1,4 @@
-import { type ClusterTime, isDocument } from "@canopy/protocol"
+import { type ClusterTime, isDocument, ZERO_CT } from "@canopy/protocol"
 import type { ChangeStream, ChangeStreamOptions, Db, Document, MongoClient } from "mongodb"
 import {
   type ControlEvent,
@@ -94,7 +94,7 @@ export class Ingestor {
   private stream: ChangeStream | undefined
   private running = false
   private token: unknown
-  private lastCt: ClusterTime = "0"
+  private lastCt: ClusterTime = ZERO_CT
   private sinceCheckpoint = 0
   private lastCheckpoint = Date.now()
   private timer: ReturnType<typeof setInterval> | undefined

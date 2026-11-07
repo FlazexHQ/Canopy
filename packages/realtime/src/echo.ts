@@ -1,4 +1,4 @@
-import { type ClusterTime, compareCt } from "@canopy/protocol"
+import { type ClusterTime, compareCt, ZERO_CT } from "@canopy/protocol"
 import { docKey } from "./event.ts"
 
 interface Waiter {
@@ -19,7 +19,7 @@ interface Waiter {
  * the events were already enqueued on every connection.
  */
 export class EchoWaiter {
-  private position: ClusterTime = "0"
+  private position: ClusterTime = ZERO_CT
   private seenAtPosition = new Set<string>()
   private readonly waiters = new Set<Waiter>()
 

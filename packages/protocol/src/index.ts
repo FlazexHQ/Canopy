@@ -1,7 +1,6 @@
 export {
   Binary,
   BSONRegExp,
-  type BsonTypeTag,
   bsonTypeTag,
   Decimal128,
   Long,

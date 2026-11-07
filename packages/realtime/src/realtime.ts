@@ -40,6 +40,7 @@ import {
   type SubMessage,
   toCanopyError,
   type WireError,
+  ZERO_CT,
 } from "@canopy/protocol"
 import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
 import { BSON, type MongoClient } from "mongodb"
@@ -1490,7 +1491,7 @@ export class Realtime {
           post: event.post,
         })
     }
-    let last: ClusterTime = "0"
+    let last: ClusterTime = ZERO_CT
     const tracing = (this.options.traceCapacity ?? 0) > 0
     const observed = tracing || this.tails.size > 0
     let subscribers: Map<Observer, ObserverOutcome["subscribers"][number][]> | undefined

@@ -21,6 +21,7 @@ import {
   type SubQuery,
   unbatch,
   uuidv7,
+  ZERO_CT,
 } from "@canopy/protocol"
 import { type CachedDocument, type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
 import type {
@@ -687,7 +688,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       this.pump()
       return
     }
-    const ct = ack.ct ?? "0"
+    const ct = ack.ct ?? ZERO_CT
     if (ack.echo === true) this.store.dropLayer(message.id)
     else this.settleWithoutEcho(pending, ct, ack.res?.docs)
     pending.resolve({
