@@ -529,7 +529,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
           target: { name: body.name, role },
         })
         throw new ForbiddenError(
-          `A ${context.session.user.role} may not create a token for the ${role} role`,
+          `Your role (${context.session.user.role}) may not create a token for the ${role} role`,
         )
       }
       const created = await tokens.create(context.session, body, context.origin)

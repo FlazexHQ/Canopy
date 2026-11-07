@@ -38,6 +38,7 @@ These print the exact command first and ask before running it. Without a termina
 | `canopy policies rollback <collection> <version>`                                       | Republishes an earlier version as a new one, after confirmation.                                                                                                                                                                                                                                                                                         |
 | `canopy keys list \| create --kind publishable\|secret --name <name> \| revoke <id>`    | API keys. A secret key is shown once, at creation.                                                                                                                                                                                                                                                                                                       |
 | `canopy admin list \| create --email <email> --role <role> \| reset-totp <id or email>` | Admin accounts, straight in the meta database for bootstrapping. `create` prints a generated password that must be changed at first login; creating an owner also claims the server. `reset-totp` asks first.                                                                                                                                            |
+| `canopy admin tokens create \| list \| revoke <id> --env <name>`                        | Long lived admin API tokens for CI on a remote project. `create --name <name> [--role <role>] [--expires <days>]` prints the token once; `list [--all]` shows expiry, last use and state; `revoke` asks first.                                                                                                                                           |
 
 A GitOps setup runs `canopy policies lint && canopy policies test && canopy gen types --check` on pull
 requests,
@@ -54,9 +55,9 @@ server that does not answer, or an address without a Canopy admin API stores not
 private admin listener (`CANOPY_ADMIN_LISTEN`), log in to that address. Tokens are sent only over HTTPS,
 except to localhost. `canopy logout <url>` removes the token.
 
-Admin tokens are bearer sessions from `POST /admin/v1/login` with `"transport": "bearer"`. They end like
-Studio sessions do, so CI is better served by a dedicated admin account whose token is kept in the CI
-secret store.
+Two kinds of admin token work here. Bearer sessions from `POST /admin/v1/login` with
+`"transport": "bearer"` end like Studio sessions do (12 hours, 1 hour idle). Admin API tokens
+(`canopy_pat_...`) are long lived, for CI: see [Admin API tokens for CI](#admin-api-tokens-for-ci).
 
 Where the token is kept:
 
@@ -75,10 +76,10 @@ the same user.
 
 ## Environments
 
-`--env <name>` points `canopy policies push` and `canopy policies diff` at a remote project, through its
-admin API instead of a MongoDB connection. Publishing then runs as the admin the token belongs to, with that
-admin's role and the server's production rules (a comment is required, developers may not publish), and
-the history and audit log name that admin.
+`--env <name>` points `canopy policies push`, `diff`, `pull`, `history` and `rollback` (and `canopy admin
+tokens`) at a remote project, through its admin API instead of a MongoDB connection. Publishing and rolling
+back then run as the admin the token belongs to, with that admin's role and the server's production rules
+(a comment is required, developers may not publish), and the history and audit log name that admin.
 
 | Setting                  | Where it comes from                                                                                                                                 |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -97,3 +98,31 @@ canopy policies push --env production --expect-version "$(cat .canopy/production
 
 The last line of a push (`versions: notes=5,todos=4`) is the content of `.canopy/production.version` for
 the next run; add `_context=<n>` to it when the project has context lookups.
+
+## Admin API tokens for CI
+
+A CI job should not depend on a login that expires. Create a long lived admin API token once, from a
+machine where you are logged in with a session:
+
+```sh
+canopy login https://canopy.example.com --env production
+canopy admin tokens create --env production --name "github deploy" --role admin --expires 365
+```
+
+The token is printed once; store it in the CI secret store. Its role may not be higher than yours (it
+defaults to yours), and it never does more than your account currently may: demoting or disabling you
+demotes or stops your tokens. In production developers may not publish, so a token that pushes policies
+needs the `admin` role. `canopy admin tokens list [--all]` shows the tokens with their expiry, last use and
+state, and `canopy admin tokens revoke <id>` ends one at once. Tokens cannot create or revoke tokens,
+manage admins or change credentials, so these commands need a session login.
+
+In the job, set the URL and the token from secrets; no `canopy login` is needed:
+
+```yaml
+- run: bunx canopy policies push --env production --expect-version "$(cat .canopy/production.version)" --comment "$GITHUB_SHA"
+  env:
+    CANOPY_ADMIN_URL: https://canopy.example.com
+    CANOPY_ADMIN_TOKEN: ${{ secrets.CANOPY_ADMIN_TOKEN }}
+```
+
+Every use of a token is in the audit log as `admin_token.use`, and changes made with it carry the token id.

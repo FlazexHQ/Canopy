@@ -86,7 +86,27 @@ export interface PublishedPolicies {
   readonly contextVersion: number
 }
 
-/** Where `policies push` and `diff` publish: the meta database directly, or a remote admin API. */
+/** Everything published, as `policies pull` writes it. */
+export interface PolicySnapshot {
+  readonly definitions: ReadonlyMap<string, CollectionPolicies>
+  readonly stored: ReadonlyMap<string, { readonly version: number; readonly hash: string }>
+  readonly contexts: ContextDefinitions
+}
+
+/** One published version, as `policies history` prints it. */
+export interface PolicyVersionEntry {
+  readonly version: number
+  readonly publishedAt: Date
+  readonly publishedBy: string
+  readonly hash: string
+  readonly comment?: string
+  readonly rollbackOf?: number
+}
+
+/**
+ * Where the `policies` commands that touch published policies work: the meta database directly, or a
+ * remote admin API.
+ */
 export interface PolicyTarget {
   published(): Promise<PublishedPolicies>
   definition(collection: string): Promise<CollectionPolicies | undefined>
@@ -100,6 +120,17 @@ export interface PolicyTarget {
     expectedVersion: number,
     comment: string | undefined,
   ): Promise<{ readonly version: number }>
+  snapshot(): Promise<PolicySnapshot>
+  /** The published version of a collection, or of the context lookups for `_context`; 0 when none. */
+  version(collection: string): Promise<number>
+  history(collection: string, limit: number | undefined): Promise<PolicyVersionEntry[]>
+  /** Republishes `version` as a new version and returns it. */
+  rollback(
+    collection: string,
+    version: number,
+    expectedVersion: number,
+    comment: string | undefined,
+  ): Promise<number>
 }
 
 function metaTarget(client: MongoClient, metaDatabase: string): PolicyTarget {
@@ -136,6 +167,26 @@ function metaTarget(client: MongoClient, metaDatabase: string): PolicyTarget {
       })
       return { version: result.stored.version }
     },
+    async snapshot() {
+      const all = await policies.all()
+      return { definitions: all.definitions, stored: all.stored, contexts: all.contexts }
+    },
+    async version(collection) {
+      return collection === CONTEXT_DOCUMENT_ID
+        ? ((await policies.getContexts())?.version ?? 0)
+        : ((await policies.get(collection))?.version ?? 0)
+    },
+    async history(collection, limit) {
+      return policies.versions(collection, limit === undefined ? {} : { limit })
+    },
+    async rollback(collection, version, expectedVersion, comment) {
+      const input = { version, expectedVersion, actor, ...withComment(comment) }
+      const result =
+        collection === CONTEXT_DOCUMENT_ID
+          ? await policies.rollbackContexts(input)
+          : await policies.rollback({ ...input, collection })
+      return result.stored.version
+    },
   }
 }
 
@@ -152,7 +203,7 @@ function storedVersion(result: unknown): number {
 /** Publishes through `/admin/v1/policies` and `/admin/v1/contexts`, as the admin the token belongs to. */
 export function remoteTarget(admin: AdminClient): PolicyTarget {
   const withComment = (comment: string | undefined) => (comment === undefined ? {} : { comment })
-  return {
+  const target: PolicyTarget = {
     async published() {
       const list = await admin.get("/policies")
       const contexts = await admin.get("/contexts")
@@ -207,7 +258,61 @@ export function remoteTarget(admin: AdminClient): PolicyTarget {
       })
       return { version: storedVersion(result) }
     },
+    async snapshot() {
+      const published = await target.published()
+      const definitions = new Map<string, CollectionPolicies>()
+      for (const name of published.collections.keys()) {
+        const definition = await target.definition(name)
+        if (definition !== undefined) definitions.set(name, definition)
+      }
+      return {
+        definitions,
+        stored: published.collections,
+        contexts: published.contexts,
+      }
+    },
+    async version(collection) {
+      const body = await admin.get(
+        collection === CONTEXT_DOCUMENT_ID
+          ? "/contexts"
+          : `/policies/${encodeURIComponent(collection)}`,
+      )
+      return isDocument(body) ? versionOf(body["version"]) : 0
+    },
+    async history(collection, limit) {
+      const query = limit === undefined ? "" : `?limit=${limit}`
+      const body = await admin.get(
+        collection === CONTEXT_DOCUMENT_ID
+          ? `/contexts/history${query}`
+          : `/policies/${encodeURIComponent(collection)}/history${query}`,
+      )
+      const data = isDocument(body) && Array.isArray(body["data"]) ? body["data"] : []
+      return data.filter(isDocument).map((entry) => ({
+        version: versionOf(entry["version"]),
+        publishedAt: dateOf(entry["publishedAt"]),
+        publishedBy: String(entry["publishedBy"] ?? ""),
+        hash: String(entry["hash"] ?? ""),
+        ...(typeof entry["comment"] === "string" ? { comment: entry["comment"] } : {}),
+        ...(typeof entry["rollbackOf"] === "number" ? { rollbackOf: entry["rollbackOf"] } : {}),
+      }))
+    },
+    async rollback(collection, version, expectedVersion, comment) {
+      const result = await admin.post(
+        collection === CONTEXT_DOCUMENT_ID
+          ? "/contexts/rollback"
+          : `/policies/${encodeURIComponent(collection)}/rollback`,
+        { version, expectedVersion, ...withComment(comment) },
+      )
+      return storedVersion(result)
+    },
   }
+  return target
+}
+
+function dateOf(value: unknown): Date {
+  if (value instanceof Date) return value
+  const date = new Date(typeof value === "string" || typeof value === "number" ? value : Number.NaN)
+  return Number.isNaN(date.getTime()) ? new Date(0) : date
 }
 
 /** Runs `body` against the remote admin API when one is given, else against the meta database. */
@@ -488,6 +593,8 @@ export interface PullOptions extends MetaOptions {
   readonly collections: readonly string[]
   /** Replace existing files. */
   readonly force: boolean
+  /** Pull from a remote project through its admin API (`--env`) instead of the meta database. */
+  readonly remote?: AdminClient
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -506,8 +613,8 @@ async function exists(path: string): Promise<boolean> {
  * every pulled collection must hash to its published version.
  */
 export async function policiesPull(options: PullOptions, out: Output): Promise<number> {
-  return withMeta(options, out, async (client) => {
-    const remote = await store(client, options.metaDatabase).all()
+  return withTarget(options, out, async (target) => {
+    const remote = await target.snapshot()
     const names = select(options.collections, remote.definitions).sort()
     const files = new Map<string, string>()
     for (const name of names) {
@@ -543,7 +650,7 @@ export async function policiesPull(options: PullOptions, out: Output): Promise<n
     let mismatched = 0
     for (const name of names) {
       const def = reloaded.collections.get(name)
-      const stored: StoredCollectionPolicies | undefined = remote.stored.get(name)
+      const stored = remote.stored.get(name)
       if (def === undefined || stored === undefined || hashCollection(def) !== stored.hash) {
         out.error(`${name}: the pulled module does not reproduce version ${stored?.version ?? 0}`)
         mismatched += 1
@@ -561,24 +668,22 @@ export async function policiesPull(options: PullOptions, out: Output): Promise<n
 export interface HistoryOptions extends MetaOptions {
   readonly collection: string
   readonly limit?: number
+  /** Read the history of a remote project through its admin API (`--env`). */
+  readonly remote?: AdminClient
 }
 
 /** `canopy policies history <collection>`: the published versions, newest first. */
 export async function policiesHistory(options: HistoryOptions, out: Output): Promise<number> {
-  return withMeta(options, out, async (client) => {
-    const policies = store(client, options.metaDatabase)
-    const current = await policies.get(options.collection)
-    const entries = await policies.versions(
-      options.collection,
-      options.limit === undefined ? {} : { limit: options.limit },
-    )
+  return withTarget(options, out, async (target) => {
+    const current = await target.version(options.collection)
+    const entries = await target.history(options.collection, options.limit)
     if (entries.length === 0) {
       out.error(`${options.collection} has no published versions`)
       return 1
     }
     for (const entry of entries) {
       const notes = [
-        entry.version === current?.version ? "current" : undefined,
+        entry.version === current ? "current" : undefined,
         entry.rollbackOf === undefined ? undefined : `rollback of v${entry.rollbackOf}`,
         entry.comment === undefined ? undefined : JSON.stringify(entry.comment),
       ].filter((note) => note !== undefined)
@@ -597,6 +702,8 @@ export interface RollbackOptions extends MetaOptions {
   readonly expectVersion?: number
   readonly comment?: string
   readonly yes: boolean
+  /** Roll back on a remote project through its admin API (`--env`). */
+  readonly remote?: AdminClient
 }
 
 /**
@@ -604,25 +711,18 @@ export interface RollbackOptions extends MetaOptions {
  * confirmation. The rollback is itself versioned and audited.
  */
 export async function policiesRollback(options: RollbackOptions, out: Output): Promise<number> {
-  return withMeta(options, out, async (client) => {
-    const policies = store(client, options.metaDatabase)
-    const current = (await policies.get(options.collection))?.version ?? 0
+  return withTarget(options, out, async (target) => {
+    const current = await target.version(options.collection)
     const expected = options.expectVersion ?? current
     const question = `Republish ${options.collection} v${options.version} as v${current + 1}?`
     if (!(await confirmed(out, question, options.yes))) return 1
-    const input = {
-      version: options.version,
-      expectedVersion: expected,
-      actor: cliActor(),
-      ...(options.comment === undefined ? {} : { comment: options.comment }),
-    }
-    const result =
-      options.collection === CONTEXT_DOCUMENT_ID
-        ? await policies.rollbackContexts(input)
-        : await policies.rollback({ ...input, collection: options.collection })
-    out.log(
-      `published  ${options.collection}  v${result.stored.version}  (rollback of v${options.version})`,
+    const version = await target.rollback(
+      options.collection,
+      options.version,
+      expected,
+      options.comment,
     )
+    out.log(`published  ${options.collection}  v${version}  (rollback of v${options.version})`)
     return 0
   })
 }

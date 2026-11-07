@@ -15,7 +15,7 @@ export interface LoginOptions {
   readonly url: string
   /** The token; otherwise `CANOPY_ADMIN_TOKEN`, otherwise read from the terminal or standard input. */
   readonly token?: string
-  /** Also remember the project under this environment name, for `--env` on `policies push` and `diff`. */
+  /** Also remember the project under this environment name, for `--env` on `policies` and `admin tokens`. */
   readonly environment?: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly platform?: NodeJS.Platform
@@ -29,7 +29,7 @@ function refusal(error: unknown, url: string): string {
   if (!(error instanceof CanopyError)) return `Could not verify the token: ${messageOf(error)}`
   switch (error.code) {
     case ErrorCode.Unauthorized:
-      return `${url} refused the token: it is unknown, expired or ended. Log in to Studio or POST /admin/v1/login with "transport": "bearer" for a new one.`
+      return `${url} refused the token: it is unknown, expired, revoked or ended. Create an admin API token with canopy admin tokens create, or POST /admin/v1/login with "transport": "bearer" for a session token.`
     case ErrorCode.Forbidden:
       return error.details?.["reason"] === "password_change_required"
         ? `${url} accepted the token, but the admin must change their password first.`
@@ -96,7 +96,9 @@ export async function login(options: LoginOptions, out: Output): Promise<number>
       : `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); no keychain was available, so the token is in the credentials file (mode 0600).`,
   )
   if (options.environment !== undefined)
-    out.log(`--env ${options.environment} now selects ${url} for canopy policies push and diff.`)
+    out.log(
+      `--env ${options.environment} now selects ${url} for canopy policies and canopy admin tokens.`,
+    )
   return 0
 }
 

@@ -25,6 +25,7 @@ import {
 } from "./policies.ts"
 import { realtimeImages } from "./realtime-images.ts"
 import { AdminClient } from "./remote.ts"
+import { tokensCreate, tokensList, tokensRevoke } from "./tokens.ts"
 
 const USAGE = `Usage: canopy <command> [options]
 
@@ -53,6 +54,11 @@ Commands:
   admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]
   admin reset-totp <id|email>
                          Clear an admin's TOTP and end their sessions (asks first)
+  admin tokens create    Create a long lived admin API token for CI on the project behind --env:
+                         --name <name> [--role <role>] [--expires <days>]
+  admin tokens list      List your admin API tokens (--all: every admin's)
+  admin tokens revoke <id>
+                         Revoke an admin API token at once (asks first)
   migrate                Bring the meta database up to date (--status lists the migrations)
   login <url>            Verify an admin token and store it for a remote project in the OS keychain
   logout <url>           Remove the stored admin token of a project
@@ -91,16 +97,21 @@ Options:
   --force                policies pull: replace existing files
   --limit <n>            policies history: how many versions (default 50)
   --kind <kind>          keys create: publishable or secret
-  --name <name>          keys create: a label for the key; admin create: the admin's name
+  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens
+                         create: the token's name
   --email <email>        admin create: the admin's email
-  --role <role>          gen types: make fields this role cannot read optional; admin create: the role
+  --role <role>          gen types: make fields this role cannot read optional; admin create, admin
+                         tokens create: the role (a token's defaults to yours and may not be higher)
+  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)
+  --all                  admin tokens list: every admin's tokens (owners and admins)
   --status               migrate: list the migrations instead of running them
   --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)
-  --env <name>           login: remember the project under this name; policies push, diff: work on
-                         that project through its admin API ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN
-                         override the stored login). production and development also set CANOPY_ENV
-  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp:
-                         apply without asking
+  --env <name>           login: remember the project under this name; policies push, diff, pull,
+                         history, rollback and admin tokens: work on that project through its admin API
+                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).
+                         production and development also set CANOPY_ENV
+  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,
+                         admin tokens revoke: apply without asking
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
   --roles <a,b>          policies explain: custom roles of the caller
   --op <op>              policies explain: read, insert, update or delete (default read)
@@ -122,6 +133,7 @@ const BOOLEAN_FLAGS = new Set([
   "fail-on-drift",
   "force",
   "status",
+  "all",
 ])
 
 interface CommandSpec {
@@ -145,10 +157,10 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   },
   "policies diff": { flags: ["fail-on-drift", "env"], args: ANY },
   "policies push": { flags: ["expect-version", "comment", "dry-run", "env"], args: ANY },
-  "policies pull": { flags: ["force"], args: ANY },
-  "policies history": { flags: ["limit"], args: [1, 1], needs: "exactly one collection" },
+  "policies pull": { flags: ["force", "env"], args: ANY },
+  "policies history": { flags: ["limit", "env"], args: [1, 1], needs: "exactly one collection" },
   "policies rollback": {
-    flags: ["expect-version", "comment", "yes"],
+    flags: ["expect-version", "comment", "yes", "env"],
     args: [2, 2],
     needs: "a collection and a version",
   },
@@ -166,12 +178,18 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   "admin list": { flags: [] },
   "admin create": { flags: ["email", "role", "name"] },
   "admin reset-totp": { flags: ["yes"], args: [1, 1], needs: "the id or email of one admin" },
+  "admin tokens create": { flags: ["name", "role", "expires", "env"] },
+  "admin tokens list": { flags: ["all", "env"] },
+  "admin tokens revoke": { flags: ["yes", "env"], args: [1, 1], needs: "the id of one token" },
   migrate: { flags: ["status"] },
   login: { flags: ["token", "env"], args: [1, 1], needs: "the project URL" },
   logout: { flags: [], args: [1, 1], needs: "the project URL" },
 }
 
 const SINGLE = new Set(["doctor", "init", "dev", "migrate", "login", "logout"])
+
+/** Command groups whose commands have three words, such as `admin tokens create`. */
+const GROUPS = new Set(["admin tokens"])
 
 /** Commands that only use the meta database, not the app database. */
 const META_ONLY = new Set([
@@ -258,7 +276,11 @@ export async function run(
     return positional.length === 0 && !flags.has("help") ? 1 : 0
   }
   const first = positional[0] ?? ""
-  const name = SINGLE.has(first) ? first : positional.slice(0, 2).join(" ")
+  const name = SINGLE.has(first)
+    ? first
+    : GROUPS.has(positional.slice(0, 2).join(" "))
+      ? positional.slice(0, 3).join(" ")
+      : positional.slice(0, 2).join(" ")
   const rest = positional.slice(name.split(" ").length)
   const spec = COMMANDS[name]
   if (spec === undefined) {
@@ -313,6 +335,15 @@ export async function run(
       ...(environment === undefined ? {} : { environment }),
     }
     return name === "login" ? login(options, out) : logout(options, out)
+  }
+  if (name.startsWith("admin tokens ")) {
+    if (environment === undefined) {
+      out.error(
+        `${name} works on a project through its admin API: pass --env <name> (with canopy login <url> --env <name>, or CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN).`,
+      )
+      return 1
+    }
+    return adminTokens(name, rest, flags, environment, env, out)
   }
   const configEnv =
     environment === "production" || environment === "development"
@@ -508,6 +539,49 @@ async function remoteFor(
     out.error(`--env ${environment}: ${messageOf(error)}`)
     return undefined
   }
+}
+
+async function adminTokens(
+  name: string,
+  args: readonly string[],
+  flags: Map<string, string | true>,
+  environment: string,
+  env: Readonly<Record<string, string | undefined>>,
+  out: Output,
+): Promise<number> {
+  if (name === "admin tokens create") {
+    const tokenName = text(flags, "name")
+    if (tokenName === undefined) {
+      out.error("admin tokens create needs --name <name>")
+      return 1
+    }
+    const role = text(flags, "role")
+    if (role !== undefined && !["owner", "admin", "developer", "viewer"].includes(role)) {
+      out.error("--role must be owner, admin, developer or viewer")
+      return 1
+    }
+    const expires = text(flags, "expires")
+    const days = expires === undefined ? undefined : /^([1-9]\d{0,3})d?$/.exec(expires)?.[1]
+    if (expires !== undefined && days === undefined) {
+      out.error("--expires needs a number of days, such as 90 or 90d")
+      return 1
+    }
+    const remote = await remoteFor(environment, env, out)
+    if (remote === undefined) return 1
+    return tokensCreate(
+      {
+        remote,
+        name: tokenName,
+        ...(role === undefined ? {} : { role }),
+        ...(days === undefined ? {} : { expiresInDays: Number(days) }),
+      },
+      out,
+    )
+  }
+  const remote = await remoteFor(environment, env, out)
+  if (remote === undefined) return 1
+  if (name === "admin tokens list") return tokensList({ remote, all: flags.has("all") }, out)
+  return tokensRevoke({ remote, id: args[0] ?? "", yes: flags.has("yes") }, out)
 }
 
 async function runMeta(

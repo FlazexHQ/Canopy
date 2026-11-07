@@ -140,7 +140,7 @@ export class AdminTokens {
     const own = session.user.role
     const role = input.role ?? own
     if (!roleAtMost(role, own))
-      throw new ForbiddenError(`A ${own} may not create a token for the ${role} role`)
+      throw new ForbiddenError(`Your role (${own}) may not create a token for the ${role} role`)
     const days = input.expiresInDays
     if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > MAX_LIFETIME_DAYS))
       throw new ValidationError(

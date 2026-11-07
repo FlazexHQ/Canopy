@@ -283,7 +283,7 @@ describe("canopy login", () => {
       ),
     ).toBe(0)
     expect(done.lines.at(-1)).toBe(
-      "--env production now selects https://prod.example for canopy policies push and diff.",
+      "--env production now selects https://prod.example for canopy policies and canopy admin tokens.",
     )
     expect(environmentsFile(env)).toBe(join(config, "canopy", "environments.json"))
     expect(await readEnvironment("production", env)).toBe("https://prod.example")

@@ -239,4 +239,101 @@ export default context({
     expect(badToken.errors[0]).toMatch(/^--env staging: /)
     expect((await canopy.admin.policies.get("todos"))?.version).toBe(3)
   })
+
+  it("creates an admin API token with the session login and pulls, lists history and rolls back with it", async () => {
+    const noEnv = capture()
+    expect(await cli(["admin", "tokens", "create", "--name", "ci"], noEnv.out)).toBe(1)
+    expect(noEnv.errors[0]).toContain("pass --env <name>")
+    const tooHigh = capture()
+    expect(
+      await cli(
+        ["admin", "tokens", "create", "--env", "development", "--name", "ci", "--role", "owner"],
+        tooHigh.out,
+      ),
+    ).toBe(1)
+    expect(tooHigh.errors[0]).toBe("Your role (admin) may not create a token for the owner role")
+    const badExpiry = capture()
+    expect(
+      await cli(
+        ["admin", "tokens", "create", "--env", "development", "--name", "ci", "--expires", "soon"],
+        badExpiry.out,
+      ),
+    ).toBe(1)
+    expect(badExpiry.errors[0]).toBe("--expires needs a number of days, such as 90 or 90d")
+
+    const created = capture()
+    expect(
+      await cli(
+        ["admin", "tokens", "create", "--env", "development", "--name", "ci", "--expires", "30d"],
+        created.out,
+      ),
+    ).toBe(0)
+    const [id, role] = (created.lines[1] ?? "").split("  ")
+    expect(role).toBe("admin")
+    const pat = created.lines[2] ?? ""
+    expect(pat).toMatch(/^canopy_pat_/)
+    const stored = await mongo
+      .db(`${dbName}_meta`)
+      .collection("admin_tokens")
+      .findOne({ _id: id as never })
+    expect(stored).toMatchObject({ name: "ci", role: "admin" })
+    expect(JSON.stringify(stored)).not.toContain(pat)
+
+    const ci = { CANOPY_ADMIN_URL: base, CANOPY_ADMIN_TOKEN: pat, HOME: home }
+    const mint = capture()
+    expect(
+      await cli(["admin", "tokens", "create", "--env", "ci", "--name", "more"], mint.out, ci),
+    ).toBe(1)
+    expect(mint.errors[0]).toContain("Admin API tokens cannot manage tokens")
+
+    const pulledDir = join(project, "pulled")
+    const pulled = capture()
+    expect(await cli(["policies", "pull", "--env", "ci", "--dir", pulledDir], pulled.out, ci)).toBe(
+      0,
+    )
+    expect(pulled.errors).toEqual([])
+    expect(pulled.lines.at(-1)).toBe("Pulled 1 collection: todos=3")
+    expect(pulled.lines).toContain(`wrote  ${join(pulledDir, "todos.ts")}`)
+    expect(pulled.lines).toContain(`wrote  ${join(pulledDir, "_context.ts")}`)
+
+    const history = capture()
+    expect(await cli(["policies", "history", "todos", "--env", "ci"], history.out, ci)).toBe(0)
+    expect(history.lines.slice(1).map((line) => line.split("  ")[0])).toEqual(["v3", "v2", "v1"])
+    expect(history.lines[1]).toContain("current")
+    expect(history.lines[1]).toContain("admin:deploy@example.com")
+
+    const rolled = capture()
+    expect(
+      await cli(
+        ["policies", "rollback", "todos", "1", "--env", "ci", "--yes", "--comment", "undo"],
+        rolled.out,
+        ci,
+      ),
+    ).toBe(0)
+    expect(rolled.lines.at(-1)).toBe("published  todos  v4  (rollback of v1)")
+    const current = await canopy.admin.policies.get("todos")
+    expect(current?.version).toBe(4)
+    const audit = await canopy.admin.audit.list({ action: "policy.rollback" })
+    expect(audit[0]?.actor).toMatchObject({ email: "deploy@example.com", tokenId: id })
+
+    const listed = capture()
+    expect(await cli(["admin", "tokens", "list", "--env", "development"], listed.out)).toBe(0)
+    const line = listed.lines.find((entry) => entry.startsWith(`${id}  `)) ?? ""
+    expect(line).toContain('"ci"')
+    expect(line).toMatch(/last used \d{4}-/)
+    expect(line).toMatch(/active$/)
+
+    const revoked = capture()
+    expect(
+      await cli(
+        ["admin", "tokens", "revoke", id ?? "", "--env", "development", "--yes"],
+        revoked.out,
+      ),
+    ).toBe(0)
+    expect(revoked.lines.at(-1)).toBe(`revoked  ${id}  "ci"`)
+    const after = capture()
+    expect(await cli(["policies", "history", "todos", "--env", "ci"], after.out, ci)).toBe(1)
+    expect(after.errors[0]).toMatch(/^--env ci: /)
+    expect((await canopy.admin.policies.get("todos"))?.version).toBe(4)
+  })
 })

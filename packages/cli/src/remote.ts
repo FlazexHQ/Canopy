@@ -34,6 +34,11 @@ export class AdminClient {
     return this.call("POST", path, body)
   }
 
+  /** `DELETE` a path under `/admin/v1`, decoding the EJSON answer. */
+  delete(path: string): Promise<unknown> {
+    return this.call("DELETE", path)
+  }
+
   /** Checks the token and returns who it belongs to. */
   async me(): Promise<AdminIdentity> {
     const body = await this.get("/me")
