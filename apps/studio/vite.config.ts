@@ -3,6 +3,7 @@ import tailwindcss from "@tailwindcss/vite"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"
 import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
+import { cspStyles } from "./csp-styles.ts"
 
 const SOURCE_CONDITIONS = ["@canopy/source", "module", "browser", "development|production"]
 
@@ -45,6 +46,7 @@ export default defineConfig(({ mode }) => {
         routesDirectory: "./src/routes",
         generatedRouteTree: "./src/routeTree.gen.ts",
       }),
+      cspStyles(),
       react(),
       tailwindcss(),
       ...(mode === "mock" ? [mockAdmin()] : []),

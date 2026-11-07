@@ -122,7 +122,15 @@ const highlight = HighlightStyle.define([
 ])
 
 const theme = EditorView.theme({
-  "&": { backgroundColor: "var(--background)", color: "var(--foreground)" },
+  "&": {
+    backgroundColor: "var(--background)",
+    color: "var(--foreground)",
+    border: "1px solid var(--input)",
+    borderRadius: "0.375rem",
+    fontSize: "0.875rem",
+  },
+  "&.cm-focused": { outline: "2px solid var(--ring)", outlineOffset: "2px" },
+  ".cm-scroller": { fontFamily: "var(--font-mono, monospace)" },
   ".cm-content": { caretColor: "var(--foreground)", padding: "8px 0" },
   ".cm-gutters": {
     backgroundColor: "var(--muted)",

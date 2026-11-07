@@ -10,6 +10,6 @@
     "outDir": "node_modules/.cache/node-types",
     "tsBuildInfoFile": "node_modules/.cache/node-types/.tsbuildinfo"
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "e2e", "dev"],
+  "include": ["vite.config.ts", "csp-styles.ts", "playwright.config.ts", "e2e", "dev"],
   "references": [{ "path": "src" }, { "path": "../../packages/studio" }]
 }

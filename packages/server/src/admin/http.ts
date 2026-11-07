@@ -12,9 +12,8 @@ export const CSRF_HEADER = "x-canopy-csrf"
 export const API_CSP =
   "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; sandbox"
 
-/** Studio pages: same origin assets only, no inline scripts, never framed. */
-export const STUDIO_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+/** Studio pages: same origin assets only, no inline scripts or styles, never framed. */
+export { STUDIO_CSP } from "@canopy/studio"
 
 /** Adds the headers every admin response carries. */
 export function secure(response: Response, csp = API_CSP): Response {

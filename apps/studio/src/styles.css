@@ -111,13 +111,3 @@
     }
   }
 }
-
-.cm-editor {
-  @apply rounded-md border border-input bg-background text-sm;
-}
-.cm-editor.cm-focused {
-  @apply outline-2 outline-offset-2 outline-ring;
-}
-.cm-scroller {
-  font-family: var(--font-mono);
-}

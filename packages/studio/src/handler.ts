@@ -6,14 +6,14 @@ import { fileURLToPath } from "node:url"
 export const STUDIO_BASE_PATH = "/studio"
 
 /**
- * The Content Security Policy of every Studio response. Scripts load only from the same origin (no inline
- * scripts, no `eval`), the page cannot be framed, and requests go only to the same origin. Inline styles are
- * allowed because the component libraries set them at runtime; they cannot run code.
+ * The Content Security Policy of every Studio response. Scripts and styles load only from the same origin
+ * (no inline scripts or styles, no `eval`), the page cannot be framed, and requests go only to the same
+ * origin. Libraries that add CSS at runtime are built to use constructed stylesheets, which this allows.
  */
 export const STUDIO_CSP = [
   "default-src 'none'",
   "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
+  "style-src 'self'",
   "img-src 'self' data:",
   "font-src 'self' data:",
   "connect-src 'self'",

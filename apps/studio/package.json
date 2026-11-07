@@ -37,6 +37,7 @@
     "radix-ui": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "style-mod": "catalog:",
     "tailwind-merge": "catalog:",
     "uplot": "catalog:"
   },
@@ -54,6 +55,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "happy-dom": "catalog:",
+    "mongodb": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
