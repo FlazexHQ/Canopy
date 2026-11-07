@@ -137,6 +137,7 @@ const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
   builtin: {
     kind: str,
     secret: str,
+    appName: str,
     accessTokenTtl: duration,
     algorithm: oneOf("EdDSA", "ES256"),
     keyRotation: obj({ interval: duration, grace: duration }),
@@ -1174,8 +1175,12 @@ function normalizeBuiltin(
   }
 
   const claims = raw["claims"]
+  const appName = defaulted("auth.appName", "Canopy")
+  if (typeof appName !== "string" || appName.trim() === "" || appName.length > 100)
+    resolver.problem("auth.appName", "Use 1 to 100 characters.")
   return {
     kind: "builtin",
+    appName: typeof appName === "string" ? appName : "Canopy",
     secret,
     accessTokenTtlSeconds: Math.round(ttl / 1000),
     algorithm: defaulted("auth.algorithm", "EdDSA") as "EdDSA" | "ES256",

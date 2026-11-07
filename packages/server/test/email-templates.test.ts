@@ -173,7 +173,11 @@ suite("email templates through the admin API", () => {
         mongodb: { uri: MONGODB_URI ?? "", ...names },
         publicUrl: base,
         masterKey: "m".repeat(48),
-        auth: builtin({ redirectUrls: [APP], trustedProxies: ["127.0.0.1", "::1"] }),
+        auth: builtin({
+          appName: "Acme Notes",
+          redirectUrls: [APP],
+          trustedProxies: ["127.0.0.1", "::1"],
+        }),
         keys: { publishable: ["pk_templates_test"] },
         realtime: false,
       }),
@@ -239,7 +243,7 @@ suite("email templates through the admin API", () => {
     const preview = (await (
       await admin("POST", "/auth/templates/verification/preview", { template: draft })
     ).json()) as { rendered: { subject: string; text: string } }
-    expect(preview.rendered.subject).toBe("Welcome to Canopy, confirm ada@example.com")
+    expect(preview.rendered.subject).toBe("Welcome to Acme Notes, confirm ada@example.com")
     expect(preview.rendered.text).toContain("https://app.example.com/auth/v1/verify?token=preview")
     const invalidPreview = await admin("POST", "/auth/templates/verification/preview", {
       template: { subject: "S", text: "no link" },
@@ -278,7 +282,7 @@ suite("email templates through the admin API", () => {
 
     expect((await signUp("grace@example.com")).status).toBe(200)
     const edited = await mailTo("grace@example.com")
-    expect(edited.subject).toBe("Welcome to Canopy, confirm grace@example.com")
+    expect(edited.subject).toBe("Welcome to Acme Notes, confirm grace@example.com")
     expect(edited.body).toMatch(/^Hello grace@example\.com, confirm here: https?:\/\/\S+/)
     expect(await settings.findOne({ _id: "email_templates@1" })).toMatchObject({
       version: 1,
@@ -291,7 +295,7 @@ suite("email templates through the admin API", () => {
     expect(reset.status).toBe(200)
     expect(await reset.json()).toMatchObject({ version: 2, data: { source: "default" } })
     expect((await signUp("hopper@example.com")).status).toBe(200)
-    expect((await mailTo("hopper@example.com")).subject).toBe("Confirm your email for Canopy")
+    expect((await mailTo("hopper@example.com")).subject).toBe("Confirm your email for Acme Notes")
 
     const history = (await (await admin("GET", "/auth/templates/history")).json()) as {
       data: { version: number; change: string; kind: string }[]

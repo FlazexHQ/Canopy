@@ -50,6 +50,7 @@ describe("builtin()", () => {
     }).config.auth
     expect(auth).toEqual({
       kind: "builtin",
+      appName: "Canopy",
       secret: undefined,
       accessTokenTtlSeconds: 600,
       algorithm: "EdDSA",
@@ -67,6 +68,14 @@ describe("builtin()", () => {
       identifierLimit: { max: 10, windowSeconds: 60 },
       session: { expiresInSeconds: 7 * 86_400, updateAgeSeconds: 86_400 },
     })
+  })
+
+  it("takes the app name emails use and refuses an empty one", () => {
+    const named = resolve({ mongodb: { uri: URI }, auth: builtin({ appName: "Acme Notes" }) })
+    expect(named.config.auth).toMatchObject({ kind: "builtin", appName: "Acme Notes" })
+    expect(() => resolve({ mongodb: { uri: URI }, auth: builtin({ appName: " " }) })).toThrow(
+      /auth\.appName/,
+    )
   })
 
   it("resolves every setting, with env markers and durations", () => {

@@ -49,7 +49,7 @@ import { DEFAULT_SETTINGS, SettingsStore } from "./admin/settings.ts"
 import { AdminTokens } from "./admin/tokens.ts"
 import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
-import { BUILTIN_APP_NAME, revokes, startBuiltinAuth } from "./builtin-auth.ts"
+import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
@@ -437,7 +437,12 @@ export async function createCanopy(
           ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),
           ...(builtinAuth === undefined || emailTemplates === undefined
             ? {}
-            : { emailTemplates: { store: emailTemplates, appName: BUILTIN_APP_NAME } }),
+            : {
+                emailTemplates: {
+                  store: emailTemplates,
+                  appName: config.auth?.kind === "builtin" ? config.auth.appName : "Canopy",
+                },
+              }),
         })
   if (adminApi !== undefined && options.onSetupToken !== false) {
     const token = await accounts.createSetupToken()

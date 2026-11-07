@@ -21,9 +21,6 @@ export function builtin(
   return configBuiltin<ClaimsHook>(options)
 }
 
-/** The app name built in auth writes in emails; the server does not set another one. */
-export const BUILTIN_APP_NAME = "Canopy"
-
 function logTransport(logger: Logger): EmailTransport {
   return {
     name: "log",
@@ -91,6 +88,7 @@ export async function startBuiltinAuth(
   }
   return engine.createBuiltinAuth({
     mongo,
+    appName: auth.appName,
     publicUrl: config.publicUrl ?? `http://localhost:${config.server.port}`,
     secret,
     appDatabase: config.mongodb.database,

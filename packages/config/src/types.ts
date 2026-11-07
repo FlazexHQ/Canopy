@@ -156,6 +156,8 @@ export type ClaimsHookFunction = (input: never) => unknown
 /** Canopy issues the user tokens itself (users live in the `canopy_auth` database). */
 export interface BuiltinAuthInput<Hook extends ClaimsHookFunction = ClaimsHookFunction> {
   readonly kind: "builtin"
+  /** The app name emails and email template previews use. @default "Canopy" */
+  readonly appName?: Value<string>
   /** Signs cookies and encrypts signing keys, at least 32 characters. @default the master key */
   readonly secret?: Value<string>
   /** 5 to 60 minutes. @default "10m" */
@@ -362,6 +364,7 @@ export type ResolvedEmailTransport =
 /** Built in auth with every default applied. */
 export interface ResolvedBuiltinAuth {
   readonly kind: "builtin"
+  readonly appName: string
   /** `undefined` in development without a secret or master key; the server then makes one per process. */
   readonly secret: string | undefined
   readonly accessTokenTtlSeconds: number
