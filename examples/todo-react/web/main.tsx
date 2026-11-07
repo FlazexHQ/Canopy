@@ -3,9 +3,10 @@ import { indexedDbPersister } from "@canopy/client/persist"
 import { CanopyProvider } from "@canopy/react"
 import { createRoot } from "react-dom/client"
 import { App } from "./app.tsx"
+import type { Database } from "./canopy.gen.ts"
 import { token, user } from "./session.ts"
 
-const client = createClient({
+const client = createClient<Database>({
   url: location.origin,
   publishableKey: document.querySelector<HTMLMetaElement>('meta[name="canopy-key"]')?.content ?? "",
   auth: { getToken: token },

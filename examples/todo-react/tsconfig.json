@@ -12,6 +12,7 @@
   },
   "include": ["src", "test", "e2e", "playwright.config.ts"],
   "references": [
+    { "path": "../../packages/cli" },
     { "path": "../../packages/policy" },
     { "path": "../../packages/realtime" },
     { "path": "../../packages/rest" },

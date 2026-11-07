@@ -1,5 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import type { AddressInfo } from "node:net"
+import { fileURLToPath } from "node:url"
+import { genTypes } from "@canopy/cli"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -91,18 +93,28 @@ suite("todo-react server", () => {
   })
 
   it("shares shared todos, hides private ones and lets only owners delete", async () => {
+    const ids = {
+      t1: "6728f0c2a1b2c3d4e5f60001",
+      t2: "6728f0c2a1b2c3d4e5f60002",
+      t3: "6728f0c2a1b2c3d4e5f60003",
+    }
+    const todo = (id: string, title: string, shared: boolean, ownerId: string) => ({
+      _id: { $oid: id },
+      title,
+      done: false,
+      shared,
+      ownerId,
+      v: 0,
+      createdAt: { $date: "2026-11-07T00:00:00Z" },
+    })
     const insert = (user: string, doc: Record<string, unknown>) =>
       rest(user, "/todos", { method: "POST", body: JSON.stringify(doc) })
-    expect(
-      (await insert("alice", { _id: "t1", title: "milk", shared: true, ownerId: "alice" })).status,
-    ).toBe(201)
-    expect(
-      (await insert("alice", { _id: "t2", title: "diary", shared: false, ownerId: "alice" }))
-        .status,
-    ).toBe(201)
-    expect(
-      (await insert("bob", { _id: "t3", title: "forged", shared: true, ownerId: "alice" })).status,
-    ).toBe(403)
+    expect((await insert("alice", todo(ids.t1, "milk", true, "alice"))).status).toBe(201)
+    expect((await insert("alice", todo(ids.t2, "diary", false, "alice"))).status).toBe(201)
+    expect((await insert("bob", todo(ids.t3, "forged", true, "alice"))).status).toBe(403)
+    const incomplete = await insert("alice", { title: "no fields", ownerId: "alice" })
+    expect(incomplete.status).toBe(422)
+    expect(((await incomplete.json()) as { code: string }).code).toBe("CANOPY_VALIDATION_FAILED")
     const seen = async (user: string) =>
       (
         (await (await rest(user, "/todos?sort=_id")).json()) as { data: { title: string }[] }
@@ -110,14 +122,37 @@ suite("todo-react server", () => {
     expect(await seen("alice")).toEqual(["milk", "diary"])
     expect(await seen("bob")).toEqual(["milk"])
     expect(
-      (await rest("bob", "/todos/t1", { method: "PATCH", body: '{"$set":{"done":true}}' })).status,
+      (await rest("bob", `/todos/${ids.t1}`, { method: "PATCH", body: '{"$set":{"done":true}}' }))
+        .status,
     ).toBe(200)
     expect(
-      (await rest("bob", "/todos/t2", { method: "PATCH", body: '{"$set":{"done":true}}' })).status,
+      (await rest("bob", `/todos/${ids.t2}`, { method: "PATCH", body: '{"$set":{"done":true}}' }))
+        .status,
     ).toBe(404)
-    expect((await rest("bob", "/todos/t1", { method: "DELETE" })).status).toBe(404)
-    expect((await rest("alice", "/todos/t1", { method: "DELETE" })).status).toBe(200)
+    expect((await rest("bob", `/todos/${ids.t1}`, { method: "DELETE" })).status).toBe(404)
+    expect((await rest("alice", `/todos/${ids.t1}`, { method: "DELETE" })).status).toBe(200)
     expect(await seen("bob")).toEqual([])
+  })
+
+  it("keeps web/canopy.gen.ts in sync with the collection's validator", async () => {
+    const lines: string[] = []
+    const out = {
+      log: (line: string) => lines.push(line),
+      error: (line: string) => lines.push(line),
+    }
+    const code = await genTypes(
+      {
+        mongodbUri: MONGODB_URI ?? "",
+        database,
+        out: fileURLToPath(new URL("../web/canopy.gen.ts", import.meta.url)),
+        check: true,
+      },
+      out,
+    )
+    expect(code).toBe(0)
+    expect(lines).toEqual([
+      expect.stringMatching(/canopy\.gen\.ts is up to date \(1 collections\)$/),
+    ])
   })
 
   it("refuses WebSockets on the blocked server but still serves the SSE transport", async () => {

@@ -1,31 +1,24 @@
+import { isCanopyError } from "@canopy/client"
 import {
-  ConflictError,
-  type ObjectId,
-  PolicyViolationError,
-  type StaleMutation,
-} from "@canopy/client"
-import { createReactDb, useCanopy, useCanopyStatus } from "@canopy/react"
-import { type FormEvent, useEffect, useMemo, useState } from "react"
+  createReactDb,
+  type ReactDb,
+  useCanopy,
+  useCanopyStatus,
+  useMutationError,
+  useStaleMutations,
+} from "@canopy/react"
+import { type FormEvent, useMemo, useState } from "react"
+import type { Database, Todos } from "./canopy.gen.ts"
 
-/** A todo as stored in MongoDB. */
-export interface Todo {
-  readonly [key: string]: unknown
-  readonly _id: ObjectId
-  readonly title: string
-  readonly done: boolean
-  readonly shared: boolean
-  readonly ownerId: string
-  /** Bumped by every rename, so concurrent renames are detected with a `where` precondition. */
-  readonly v: number
-  readonly createdAt: Date
-}
+/** A todo as stored in MongoDB, generated from the collection's validator. */
+export type Todo = Todos
 
 function explain(error: Error): string {
-  if (error instanceof ConflictError)
+  if (isCanopyError(error, "CANOPY_CONFLICT"))
     return "Someone else changed that todo first, so your edit was undone."
-  if (error instanceof PolicyViolationError || error.name === "ForbiddenError")
+  if (isCanopyError(error, "CANOPY_POLICY_VIOLATION") || isCanopyError(error, "CANOPY_FORBIDDEN"))
     return "You are not allowed to do that, so the change was undone."
-  if ((error as { code?: unknown }).code === "CANOPY_NOT_FOUND")
+  if (isCanopyError(error, "CANOPY_NOT_FOUND"))
     return "That todo is gone or not yours to change, so the change was undone."
   return error.message
 }
@@ -37,9 +30,11 @@ function TodoRow({ todo, user, db }: { todo: Todo; user: string; db: TodoDb }) {
     event.preventDefault()
     setEditing(false)
     if (title.trim() === "" || title === todo.title) return
-    void db.todos
-      .update(todo._id, { $set: { title: title.trim() }, $inc: { v: 1 } }, { where: { v: todo.v } })
-      .catch(() => {})
+    void db.todos.update(
+      todo._id,
+      { $set: { title: title.trim() }, $inc: { v: 1 } },
+      { where: { v: todo.v } },
+    )
   }
   return (
     <li data-testid="todo" data-title={todo.title} className={todo.done ? "done" : ""}>
@@ -47,9 +42,7 @@ function TodoRow({ todo, user, db }: { todo: Todo; user: string; db: TodoDb }) {
         type="checkbox"
         aria-label={`Done: ${todo.title}`}
         checked={todo.done}
-        onChange={() =>
-          void db.todos.update(todo._id, { $set: { done: !todo.done } }).catch(() => {})
-        }
+        onChange={() => void db.todos.update(todo._id, { $set: { done: !todo.done } })}
       />
       {editing ? (
         <form onSubmit={rename}>
@@ -77,52 +70,37 @@ function TodoRow({ todo, user, db }: { todo: Todo; user: string; db: TodoDb }) {
           Rename {todo.title}
         </button>
       )}
-      <button type="button" onClick={() => void db.todos.delete(todo._id).catch(() => {})}>
+      <button type="button" onClick={() => void db.todos.delete(todo._id)}>
         Delete {todo.title}
       </button>
     </li>
   )
 }
 
-type TodoDb = ReturnType<typeof createReactDb<{ todos: Todo }>>
+type TodoDb = ReactDb<Database>
 
 /** The todo list: optimistic, live across tabs and users, and usable offline. */
 export function App({ user }: { user: string }) {
-  const client = useCanopy()
+  const client = useCanopy<Database>()
   const status = useCanopyStatus()
-  const db = useMemo(() => createReactDb<{ todos: Todo }>(client), [client])
+  const db = useMemo(() => createReactDb(client), [client])
   const list = db.todos.useQuery({}, { sort: { createdAt: 1 } })
-  const [error, setError] = useState<string | undefined>()
-  const [stale, setStale] = useState<readonly StaleMutation[]>([])
+  const failure = useMutationError()
+  const stale = useStaleMutations()
   const [title, setTitle] = useState("")
   const [shared, setShared] = useState(true)
-
-  useEffect(() => {
-    const stop = client.onMutationError((failure) => setError(explain(failure)))
-    return () => {
-      stop()
-    }
-  }, [client])
-  useEffect(() => {
-    const stop = client.onStaleMutations((mutations) => setStale([...mutations]))
-    return () => {
-      stop()
-    }
-  }, [client])
 
   const add = (event: FormEvent): void => {
     event.preventDefault()
     if (title.trim() === "") return
-    void db.todos
-      .insert({
-        title: title.trim(),
-        done: false,
-        shared,
-        ownerId: user,
-        v: 0,
-        createdAt: new Date(),
-      })
-      .catch(() => {})
+    void db.todos.insert({
+      title: title.trim(),
+      done: false,
+      shared,
+      ownerId: user,
+      v: 0,
+      createdAt: new Date(),
+    })
     setTitle("")
   }
 
@@ -134,10 +112,10 @@ export function App({ user }: { user: string }) {
           {status}
         </span>
       </header>
-      {error !== undefined && (
+      {failure.error !== undefined && (
         <p role="alert" data-testid="error">
-          {error}{" "}
-          <button type="button" onClick={() => setError(undefined)}>
+          {explain(failure.error)}{" "}
+          <button type="button" onClick={failure.clear}>
             Dismiss
           </button>
         </p>
@@ -148,8 +126,7 @@ export function App({ user }: { user: string }) {
           <button
             type="button"
             onClick={() => {
-              for (const mutation of stale) void mutation.retry().catch(() => {})
-              setStale([])
+              for (const mutation of stale) void mutation.retry()
             }}
           >
             Send them
@@ -158,7 +135,6 @@ export function App({ user }: { user: string }) {
             type="button"
             onClick={() => {
               for (const mutation of stale) mutation.discard()
-              setStale([])
             }}
           >
             Discard them

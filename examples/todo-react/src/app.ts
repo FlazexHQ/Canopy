@@ -14,6 +14,7 @@ import { build } from "esbuild"
 import { exportJWK, generateKeyPair, importJWK, type JWK, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { todos } from "./policies.ts"
+import { ensureTodos } from "./schema.ts"
 
 /** Settings of the todo server. */
 export interface TodoServerOptions {
@@ -114,6 +115,7 @@ async function json(request: IncomingMessage): Promise<unknown> {
 export async function createTodoServer(options: TodoServerOptions): Promise<TodoServer> {
   const mongo = new MongoClient(options.mongoUri, { appName: "todo-react" })
   await mongo.connect()
+  await ensureTodos(mongo.db(options.database))
   const { privateKey, publicJwk } = await issuerKeys(options.devIssuerKey)
   const jwk = { ...publicJwk, kid: "dev", alg: "EdDSA", use: "sig" }
   const jwt = { jwks: { keys: [jwk] }, issuer: ISSUER, audience: AUDIENCE }
