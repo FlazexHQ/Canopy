@@ -708,6 +708,28 @@ suite("admin API", () => {
     expect((await canopy.fetch(me(), undefined, { ip: "198.51.100.7" })).status).toBe(200)
   })
 
+  it("serves Studio at /studio by default, and not at all with studio: false", async () => {
+    const studio = await fetch(`${base}/studio?from=test`, { redirect: "manual" })
+    expect(studio.status).toBe(308)
+    expect(studio.headers.get("location")).toBe("/studio/?from=test")
+    expect(studio.headers.get("content-security-policy")).toContain("script-src 'self';")
+    expect(studio.headers.get("x-frame-options")).toBe("DENY")
+    const off = await createCanopy(
+      defineConfig({
+        mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: `${dbName}_meta` },
+        keys: { publishable: ["pk_admin_test"] },
+        realtime: false,
+      }),
+      { env: {}, onSetupToken: false, studio: false, migrate: false },
+    )
+    try {
+      expect((await off.fetch(new Request(`${base}/studio`))).status).toBe(404)
+      expect((await off.fetch(new Request(`${base}/admin/v1/setup`))).status).toBe(200)
+    } finally {
+      await off.close()
+    }
+  })
+
   it("ends sessions at logout and when an admin is disabled", async () => {
     const viewer = clients.viewer as Client
     const users = (await (await owner.call("GET", "/admins")).json()) as {
@@ -768,6 +790,10 @@ suite("admin API", () => {
       expect(answer.status).toBe(200)
       expect(answer.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
       expect((await fetch(`${url}/rest/v1/notes`)).status).toBe(404)
+      const studio = await fetch(`${url}/studio`, { redirect: "manual" })
+      expect(studio.status).toBe(308)
+      expect(studio.headers.get("location")).toBe("/studio/")
+      expect(studio.headers.get("content-security-policy")).toContain("style-src 'self';")
       const rebound = await new Promise<number>((resolve, reject) => {
         import("node:http").then(({ request }) => {
           const req = request(

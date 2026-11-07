@@ -36,6 +36,7 @@ import {
   toNodeHandler,
 } from "@canopy/realtime"
 import { createRestHandler, type RestHandler, toNodeListener, WritePath } from "@canopy/rest"
+import { createStudioHandler } from "@canopy/studio"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
@@ -72,8 +73,12 @@ export interface CreateCanopyOptions {
   readonly migrate?: boolean
   /** Serve the admin API under `/admin/v1`. @default true */
   readonly admin?: boolean
-  /** Serves Studio under `/studio`, on the same listener as the admin API. */
-  readonly studio?: FetchHandler
+  /**
+   * Serves Studio under `/studio`, on the same listener as the admin API (only the private admin listener
+   * when `server.adminListen` is set). Defaults to the built Studio of `@canopy/studio` while the admin API
+   * is on; `false` turns it off.
+   */
+  readonly studio?: FetchHandler | false
   /**
    * Receives the one time setup token of an unclaimed server. Defaults to a warning in the log (or on
    * standard error when no logger is given). `false` keeps it quiet, for tests and embedders that claim
@@ -447,6 +452,10 @@ export async function createCanopy(
       announce(token)
     }
   }
+  const studio =
+    options.studio === false
+      ? undefined
+      : (options.studio ?? (adminApi === undefined ? undefined : createStudioHandler().fetch))
   const isAdmin = (path: string): boolean =>
     path === "/admin" ||
     path.startsWith("/admin/") ||
@@ -476,8 +485,8 @@ export async function createCanopy(
       )
     if (adminApi !== undefined && (path === "/admin/v1" || path.startsWith("/admin/v1/")))
       return adminApi.fetch(request, info)
-    if (options.studio !== undefined && (path === "/studio" || path.startsWith("/studio/")))
-      return secure(await options.studio(request), STUDIO_CSP)
+    if (studio !== undefined && (path === "/studio" || path.startsWith("/studio/")))
+      return secure(await studio(request), STUDIO_CSP)
     return secure(plain(404, "Not found"))
   }
   const adminSurface: AdminSurface = {

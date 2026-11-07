@@ -374,6 +374,7 @@
         "@canopy/protocol": "workspace:*",
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",
+        "@canopy/studio": "workspace:*",
         "mongodb": "catalog:",
       },
       "devDependencies": {
