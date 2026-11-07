@@ -1,6 +1,8 @@
 name: Nightly
 
 on:
+  push:
+    branches: [ci/cross-platform]
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
@@ -18,7 +20,9 @@ env:
 jobs:
   differential:
     name: Long differential and simulation runs (MongoDB ${{ matrix.mongo }})
-    runs-on: ubuntu-24.04
+    if: github.event_name != 'push'
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 240
     strategy:
       fail-fast: false
@@ -46,3 +50,116 @@ jobs:
           CANOPY_ECHO_MUTATIONS: "100000"
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
+
+  platform-e2e:
+    name: Browser end to end tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    env:
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Start a MongoDB 8.0 replica set from the official binaries
+        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - name: Install Chromium
+        working-directory: examples/todo-react
+        run: node node_modules/@playwright/test/cli.js install chromium
+      - name: todo-react multi tab, multi user and offline tests
+        working-directory: examples/todo-react
+        run: node node_modules/@playwright/test/cli.js test
+      - name: Build Studio
+        run: bun --filter @canopy/studio-app build
+      - name: Studio critical flows and CSP checks
+        working-directory: apps/studio
+        run: node node_modules/@playwright/test/cli.js test
+      - if: failure()
+        shell: bash
+        run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
+
+  linux-arm64:
+    name: Linux arm64 (Bun and Node.js 24, MongoDB 7.0)
+    # MongoDB 8 does not start on the 7.0.0 kernel of the arm64 runners yet (SERVER-121912), 7.0 does.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    env:
+      CANOPY_MONGO_IMAGE: mongo:7.0.45
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - run: bun --bun vitest run
+      - run: node node_modules/vitest/vitest.mjs run
+      - if: always()
+        run: docker compose -f deploy/compose/dev.yaml down --volumes
+
+  alpine:
+    name: Alpine Linux (musl, Bun and Node.js 24)
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+      - name: Install and test with Bun on musl
+        run: >-
+          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          oven/bun:${{ env.BUN_VERSION }}-alpine
+          sh -c "bun install --frozen-lockfile --ignore-scripts && bun --bun vitest run"
+      - name: Test with Node.js 24 on musl
+        run: >-
+          docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
+          node:24-alpine node node_modules/vitest/vitest.mjs run
+      - if: always()
+        run: docker compose -f deploy/compose/dev.yaml down --volumes
+
+  deno:
+    name: Deno (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04 is temporary: MongoDB 8 refuses to start on the kernel of ubuntu-24.04 (SERVER-121912).
+        os: [ubuntu-22.04, windows-2025, macos-15]
+    env:
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - run: bun install --frozen-lockfile
+      - if: runner.os == 'Linux'
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+      - if: runner.os != 'Linux'
+        name: Start a MongoDB 8.0 replica set from the official binaries
+        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - run: deno --version
+      # Vitest needs the thread pool on Deno. Studio is a browser app, tested in browsers instead.
+      - name: Full suite on Deno
+        run: >-
+          deno run -A --node-modules-dir=manual node_modules/vitest/vitest.mjs run --pool=threads
+          --project "!studio-app"

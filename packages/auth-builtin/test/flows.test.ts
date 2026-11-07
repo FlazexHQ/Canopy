@@ -435,11 +435,13 @@ describeMongo("built in auth flows", () => {
     await expect(h.auth.verifyAccessToken(webToken)).rejects.toMatchObject({
       code: "CANOPY_UNAUTHORIZED",
     })
-    const stored = await h.side
-      .db(h.names.meta)
-      .collection("revocations")
-      .find({ sub: decodeJwt(webToken).sub })
-      .toArray()
+    // Revocations apply in memory at once and are written in the background.
+    const revocations = h.side.db(h.names.meta).collection("revocations")
+    const filter = { sub: decodeJwt(webToken).sub }
+    for (const started = Date.now(); Date.now() - started < 5_000; )
+      if ((await revocations.countDocuments(filter)) >= 2) break
+      else await new Promise((resolve) => setTimeout(resolve, 50))
+    const stored = await revocations.find(filter).toArray()
     expect(stored.map((doc) => doc["sid"]).sort()).toEqual(
       [appSid, decodeJwt(webToken)["sid"]].sort(),
     )

@@ -45,7 +45,8 @@ function refusal(error: unknown, url: string): string {
 
 /**
  * `canopy login <url>`: verifies an admin token with `GET /admin/v1/me`, then stores it for the project in
- * the OS keychain (macOS Keychain or the Linux Secret Service), falling back to a 0600 credentials file. A
+ * the OS keychain (macOS Keychain or the Linux Secret Service), falling back to a credentials file that only
+ * the user can read (mode 0600, or the user profile on Windows). A
  * token the server refuses, or a server that does not answer, stores nothing. The token is never taken
  * from a prompt that echoes it. With `environment`, the project is also remembered under that name.
  */
@@ -89,11 +90,11 @@ export async function login(options: LoginOptions, out: Output): Promise<number>
     ...(options.run === undefined ? {} : { run: options.run }),
   })
   if (options.environment !== undefined)
-    await saveEnvironment(options.environment, url, options.env)
+    await saveEnvironment(options.environment, url, options.env, options.platform)
   out.log(
     where === "keychain"
       ? `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); the token is in the OS keychain.`
-      : `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); no keychain was available, so the token is in the credentials file (mode 0600).`,
+      : `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); no keychain was available, so the token is in the credentials file (${(options.platform ?? process.platform) === "win32" ? "in your Windows user profile" : "mode 0600"}).`,
   )
   if (options.environment !== undefined)
     out.log(

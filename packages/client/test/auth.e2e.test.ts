@@ -103,6 +103,8 @@ suite("@canopy/client/auth against built in auth", () => {
 
   afterAll(async () => {
     await canopy?.close({ drainMs: 0 })
+    // Node closes idle keep-alive connections on close(), Deno does not.
+    server.closeAllConnections()
     await new Promise<void>((resolve) => server.close(() => resolve()))
     for (const db of Object.values(names)) await mongo.db(db).dropDatabase()
     await mongo.close()

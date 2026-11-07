@@ -126,6 +126,25 @@ describe("diagnoseMongoError", () => {
     expect(diagnoseMongoError(nameOnly)?.docs).toBe("no-primary")
   })
 
+  it("calls a deployment unreachable when no listed server ever answered, even without a network error", () => {
+    const selection = (servers: [string, Record<string, unknown>][]) =>
+      Object.assign(new Error("Server selection timed out after 1500 ms"), {
+        name: "MongoServerSelectionError",
+        reason: { servers: new Map(servers) },
+      })
+    expect(
+      diagnoseMongoError(selection([["127.0.0.1:1", { type: "Unknown" }]]), target)?.docs,
+    ).toBe("mongodb-unreachable")
+    const answeredOnce = selection([
+      ["a:27017", { type: "Unknown" }],
+      ["b:27017", { type: "RSSecondary" }],
+    ])
+    expect(diagnoseMongoError(answeredOnce, target)?.docs).toBe("no-primary")
+    expect(diagnoseMongoError(selection([["a:27017", { type: "RSGhost" }]]), target)?.docs).toBe(
+      "no-primary",
+    )
+  })
+
   it("recognizes TLS mismatches", () => {
     const tls = Object.assign(
       new Error("Client network socket disconnected before secure TLS connection was established"),

@@ -161,6 +161,42 @@ describe("connection lifecycle", () => {
     client.close()
   })
 
+  it("refreshes a long lived token at 80 % of its lifetime, not in a tight loop", async () => {
+    vi.useFakeTimers()
+    const day = 86_400_000
+    const token = (lifetimeMs: number) =>
+      `${btoa(JSON.stringify({ alg: "none" }))}.${btoa(
+        JSON.stringify({ sub: "u1", exp: Math.floor((Date.now() + lifetimeMs) / 1000) }),
+      )}.`
+    let current = token(60 * day)
+    const client = createClient({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: Fake,
+      auth: { getToken: () => current },
+    })
+    const socket = FakeSocket.all[0]
+    if (socket === undefined) throw new Error("no socket")
+    const record = socket.send.bind(socket)
+    socket.send = (data: string) => {
+      record(data)
+      const message = JSON.parse(data) as Record<string, unknown>
+      if (message["t"] === "ping")
+        socket.onmessage?.({ data: JSON.stringify({ t: "pong", ts: message["ts"] }) })
+    }
+    await socket.accept()
+    const auths = () => socket.sent.filter((m) => m["t"] === "auth")
+    await vi.advanceTimersByTimeAsync(day)
+    expect(auths()).toEqual([])
+    await vi.advanceTimersByTimeAsync(46 * day)
+    expect(auths()).toEqual([])
+    current = token(60 * day)
+    await vi.advanceTimersByTimeAsync(2 * day)
+    expect(auths()).toEqual([{ t: "auth", token: current }])
+    expect(FakeSocket.all).toHaveLength(1)
+    client.close()
+  })
+
   it("removes its listeners when closed", () => {
     const client = createClient({
       url: "http://canopy.test",

@@ -52,9 +52,74 @@ jobs:
       - run: node --version
       - run: node node_modules/vitest/vitest.mjs run
 
+  platforms:
+    name: Test (${{ matrix.os }}, ${{ matrix.runtime == 'bun' && 'Bun' || format('Node.js {0}', matrix.runtime) }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+        runtime: [bun, "24", "26"]
+    env:
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - if: matrix.runtime != 'bun'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.runtime }}
+      - run: bun install --frozen-lockfile
+      - name: Start a MongoDB 8.0 replica set from the official binaries
+        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: matrix.runtime == 'bun'
+        run: bunx biome ci .
+      - if: matrix.runtime == 'bun'
+        run: bun run typecheck
+      - if: matrix.runtime == 'bun'
+        name: Unit, integration and differential tests (Bun)
+        run: bun --bun vitest run
+      - if: matrix.runtime != 'bun'
+        name: Unit, integration and differential tests (Node.js)
+        run: node node_modules/vitest/vitest.mjs run
+      - if: matrix.runtime == 'bun'
+        name: The standalone executables run without node_modules
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --out "$RUNNER_TEMP/binaries"
+          exe=""
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
+          mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          "binaries/canopy$exe" policies lint --dir policies
+          MONGODB_URI="$CANOPY_TEST_MONGODB_URI" CANOPY_DB=binary CANOPY_POLICIES=policies \
+            CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
+            "binaries/canopy-server$exe" > server.log 2>&1 &
+          server=$!
+          for attempt in $(seq 60); do
+            if curl -fsS 127.0.0.1:18090/readyz; then break; fi
+            sleep 1
+          done
+          curl -fsS -X POST 127.0.0.1:18090/rest/v1/notes -H "apikey: sk_ci" \
+            -H "content-type: application/json" -d '{"ownerId":"user_1"}' || { cat server.log; exit 1; }
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            kill "$server"
+          else
+            kill -TERM "$server"
+            wait "$server"
+            grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
+          fi
+      - if: failure()
+        shell: bash
+        run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
+
   mongo:
     name: MongoDB ${{ matrix.mongo }} replica set
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -88,7 +153,8 @@ jobs:
 
   e2e:
     name: Browser end to end tests (todo-react, Playwright)
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,7 +179,8 @@ jobs:
 
   studio-e2e:
     name: Studio end to end tests (canopy-server, Playwright)
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,7 +213,8 @@ jobs:
 
   images:
     name: Docker images and compose stack
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -1,6 +1,6 @@
 import { canonicalString } from "@canopy/protocol"
 import { EditorView } from "@codemirror/view"
-import { waitFor, within } from "@testing-library/react"
+import { act, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import type { StoredPolicyInput } from "../mock/admin.ts"
 import { conditionsToFilter, filterToConditions, parseValue } from "../src/features/data/filter.ts"
@@ -39,7 +39,7 @@ function editorIn(container: HTMLElement, label: string): EditorView {
 }
 
 function setEditor(view: EditorView, text: string): void {
-  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
+  act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } }))
 }
 
 async function grid(): Promise<HTMLElement> {

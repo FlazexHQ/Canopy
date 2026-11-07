@@ -1,5 +1,5 @@
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises"
-import { join, relative } from "node:path"
+import { join, relative, sep } from "node:path"
 import { MongoClient } from "mongodb"
 import type { Output } from "./output.ts"
 import {
@@ -164,7 +164,7 @@ export async function init(options: InitOptions, out: Output): Promise<number> {
   }
 
   for (const [path, content] of files) {
-    const shown = relative(root, path)
+    const shown = relative(root, path).split(sep).join("/")
     if (await exists(path)) {
       out.log(`  exists  ${shown}  (kept)`)
       continue

@@ -1,7 +1,8 @@
 import { fileURLToPath } from "node:url"
-import type { Plugin } from "vite"
+import { normalizePath, type Plugin } from "vite"
 
-const shim = (path: string): string => fileURLToPath(new URL(path, import.meta.url))
+/** A shim's module id as Vite writes it: with `/` separators on Windows too, so importers compare equal. */
+const shim = (path: string): string => normalizePath(fileURLToPath(new URL(path, import.meta.url)))
 
 const SHIMS: Readonly<Record<string, string>> = {
   "react-style-singleton": shim("./src/lib/style-singleton.ts"),

@@ -41,6 +41,25 @@ describe("Session merge box", () => {
     expect(sent.at(-1)).toMatchObject({ t: "changed", id: "t1", set: { title: "new" } })
   })
 
+  it("still sends the first ready when the subscription moves before its snapshot is ready", () => {
+    const { session, sent } = open()
+    const listener = session.listener("tasks", "s", (doc) => doc, FULL_COVERAGE)
+    listener.added("tasks/t9", "t9", { _id: "t9" }, "1")
+    session.rebind("s")
+    listener.added("tasks/t1", "t1", { _id: "t1" }, "2")
+    listener.ready("2")
+    session.rebind("s")
+    listener.added("tasks/t1", "t1", { _id: "t1" }, "3")
+    listener.ready("3")
+    session.flush()
+    expect(sent.slice(1).map((m) => [m["t"], m["id"] ?? m["s"]])).toEqual([
+      ["added", "t9"],
+      ["added", "t1"],
+      ["removed", "t9"],
+      ["ready", "s"],
+    ])
+  })
+
   it("sends nothing when the same document is added again unchanged", () => {
     const { session, sent } = open()
     const listener = session.listener("tasks", "s", (doc) => doc, FULL_COVERAGE)

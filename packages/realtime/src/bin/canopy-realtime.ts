@@ -214,8 +214,20 @@ async function main(): Promise<void> {
         },
       )
   }
-  process.on("SIGTERM", shutdown)
-  process.on("SIGINT", shutdown)
+  onShutdown(shutdown)
+}
+
+/**
+ * Calls `stop` on SIGTERM, SIGINT, SIGBREAK (Ctrl+Break on Windows) or a `"shutdown"` IPC message. Windows
+ * has no SIGTERM, so process managers there (PM2, for one) ask a child to stop with that message instead.
+ */
+function onShutdown(stop: () => void): void {
+  const signals: NodeJS.Signals[] = ["SIGTERM", "SIGINT"]
+  if (process.platform === "win32") signals.push("SIGBREAK")
+  for (const signal of signals) process.on(signal, stop)
+  process.on("message", (message: unknown) => {
+    if (message === "shutdown") stop()
+  })
 }
 
 main().catch((error: unknown) => {
