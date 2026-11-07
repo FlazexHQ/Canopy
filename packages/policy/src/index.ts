@@ -43,6 +43,7 @@ export {
   type PolicySet,
   toFilter,
 } from "./engine.ts"
+export { equalityFields } from "./equality.ts"
 export {
   type AccessReport,
   describeIssue,

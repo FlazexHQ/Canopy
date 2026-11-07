@@ -1,12 +1,20 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { allow, auth, collection, context, createPolicySet, ctx } from "@canopy/policy"
+import {
+  allow,
+  auth,
+  collection,
+  context,
+  createPolicySet,
+  ctx,
+  equalityFields,
+} from "@canopy/policy"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { run } from "../src/cli.ts"
-import { adviseIndexes, covers, equalityFields } from "../src/indexes.ts"
+import { adviseIndexes, covers } from "../src/indexes.ts"
 import type { Output } from "../src/output.ts"
 
 describe("index advice", () => {

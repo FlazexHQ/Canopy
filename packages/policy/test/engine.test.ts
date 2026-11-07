@@ -518,4 +518,24 @@ describe("lint", () => {
     )
     expect(rules.filter((rule) => rule === "error:public-allow-all")).toHaveLength(2)
   })
+
+  it("asks for an index on the equality fields inside $and, and never on _id", () => {
+    const scoped = collection("scoped", {
+      exposed: true,
+      policies: [
+        allow
+          .read("authenticated")
+          .where({ _id: auth("sub"), $and: [{ tenantId: auth("tenant") }] })
+          .named("tenant"),
+      ],
+    })
+    const missing = (indexes: string[][]) =>
+      lintPolicies([scoped], {}, { indexes: { scoped: indexes } })
+        .filter((finding) => finding.rule === "missing-index")
+        .map((finding) => finding.message)
+    expect(missing([["other"]])).toEqual([
+      "No index starts with tenantId, which this policy filters on for every query",
+    ])
+    expect(missing([["tenantId", "createdAt"]])).toEqual([])
+  })
 })

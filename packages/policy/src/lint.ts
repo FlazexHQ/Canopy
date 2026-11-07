@@ -1,6 +1,7 @@
 import { isLinearRegex } from "@canopy/matcher"
 import { isDocument, regexParts } from "@canopy/protocol"
 import { stripIndexes } from "@canopy/query"
+import { equalityFields } from "./equality.ts"
 import type { CollectionPolicies, ContextDefinitions, PolicyDefinition } from "./model.ts"
 import { Role } from "./model.ts"
 import { claimPaths } from "./variables.ts"
@@ -53,19 +54,6 @@ function regexesIn(
     })
   }
   for (const key of Object.keys(value)) regexesIn(value[key], out)
-  return out
-}
-
-function equalityFields(filter: unknown): string[] {
-  if (!isDocument(filter)) return []
-  const out: string[] = []
-  for (const key of Object.keys(filter)) {
-    if (key.startsWith("$")) continue
-    const value = filter[key]
-    if (!isDocument(value) || Object.hasOwn(value, "$auth") || Object.hasOwn(value, "$ctx"))
-      out.push(key)
-    else if (Object.hasOwn(value, "$eq") || Object.hasOwn(value, "$in")) out.push(key)
-  }
   return out
 }
 
