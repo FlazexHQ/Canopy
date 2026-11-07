@@ -401,6 +401,22 @@ suite("admin API", () => {
     }
   })
 
+  it("serves the OpenAPI document of the Data API as a chosen role to any admin", async () => {
+    const viewer = clients.viewer as Client
+    const paths = async (query: string) => {
+      const response = await viewer.call("GET", `/openapi${query}`)
+      expect(response.status).toBe(200)
+      const document = (await response.json()) as { paths: Record<string, unknown> }
+      return Object.keys(document.paths)
+    }
+    expect(await paths("")).toContain("/rest/v1/notes")
+    expect(await paths("?role=authenticated")).toContain("/rest/v1/notes")
+    expect(await paths("?role=anon")).not.toContain("/rest/v1/notes")
+    expect(await paths("?role=service")).toContain("/rest/v1/notes")
+    expect((await viewer.call("GET", "/openapi?role=a%20b")).status).toBe(422)
+    expect((await fetch(`${base}/admin/v1/openapi`)).status).toBe(401)
+  })
+
   it("reads documents as service, as an impersonated user through DLS, and masks for viewers", async () => {
     const asService = (await (
       await owner.call("GET", "/collections/notes/documents?sort=_id")

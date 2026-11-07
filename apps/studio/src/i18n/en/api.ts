@@ -45,6 +45,12 @@ export const api = {
     feature: "the OpenAPI document",
     loading: "Loading the API reference…",
     note: "The reference shows what each role can call. Policy filters stay on the server.",
+    role: "As role",
+    roles: {
+      anon: "anon (publishable key, signed out)",
+      authenticated: "authenticated (signed in user)",
+      service: "service (secret key)",
+    },
   },
   graphql: {
     title: "GraphQL explorer",

@@ -1,4 +1,3 @@
-import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { useQuery } from "@tanstack/react-query"
 import { useEffect, useId, useRef, useState } from "react"
 import { ADMIN_BASE_PATH, type AdminApi } from "../../api/client.ts"
@@ -23,6 +22,7 @@ import {
 } from "../../components/ui/select.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
+import { NativeSelect } from "../realtime/native-select.tsx"
 import { KeysTab } from "./keys.tsx"
 import {
   insertSnippet,
@@ -38,30 +38,18 @@ export function serverOrigin(api: AdminApi): string {
   return admin.endsWith(ADMIN_BASE_PATH) ? admin.slice(0, -ADMIN_BASE_PATH.length) : ""
 }
 
-async function loadOpenApi(api: AdminApi, signal: AbortSignal): Promise<Record<string, unknown>> {
-  const response = await fetch(`${serverOrigin(api)}/rest/v1/openapi.json`, {
-    credentials: "same-origin",
-    headers: { accept: "application/json" },
-    signal,
-  })
-  if (!response.ok) {
-    throw new CanopyError(
-      response.status === 404 ? ErrorCode.NotFound : ErrorCode.Unavailable,
-      `The OpenAPI document answered ${response.status}`,
-      { details: { status: response.status } },
-    )
-  }
-  return (await response.json()) as Record<string, unknown>
-}
+const REFERENCE_ROLES = ["anon", "authenticated", "service"] as const
 
 function ReferenceTab() {
   const api = useApi()
   const theme = useTheme()
   const host = useRef<HTMLDivElement>(null)
+  const roleId = useId()
+  const [role, setRole] = useState<(typeof REFERENCE_ROLES)[number]>("authenticated")
   const [mounting, setMounting] = useState(true)
   const spec = useQuery({
-    queryKey: keys.openapi,
-    queryFn: ({ signal }) => loadOpenApi(api, signal),
+    queryKey: [...keys.openapi, role],
+    queryFn: ({ signal }) => api.openApi(role, signal),
   })
   const dark =
     theme === "dark" || (theme === "system" && document.documentElement.classList.contains("dark"))
@@ -92,6 +80,23 @@ function ReferenceTab() {
   }
   return (
     <div className="grid gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Label htmlFor={roleId}>{t("api.reference.role")}</Label>
+        <NativeSelect
+          id={roleId}
+          value={role}
+          onChange={(event) => {
+            setMounting(true)
+            setRole(event.target.value as (typeof REFERENCE_ROLES)[number])
+          }}
+        >
+          {REFERENCE_ROLES.map((option) => (
+            <option key={option} value={option}>
+              {t(`api.reference.roles.${option}`)}
+            </option>
+          ))}
+        </NativeSelect>
+      </div>
       <p className="text-sm text-muted-foreground">{t("api.reference.note")}</p>
       {mounting ? <LoadingState rows={1} label={t("api.reference.loading")} /> : null}
       <div ref={host} data-testid="scalar-reference" className="min-h-96 rounded-md border" />

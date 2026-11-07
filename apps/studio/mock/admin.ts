@@ -95,6 +95,8 @@ export interface MockAdminOptions {
    * `/auth/providers`, the danger zone). Off by default, so the mock answers 404 like the server.
    */
   readonly extras?: boolean
+  /** `false` turns the Data API off, so there is no OpenAPI document. */
+  readonly rest?: boolean
   /** Publishes a policy for these collections at start. */
   readonly policies?: readonly StoredPolicyInput[]
   /** Interval of synthetic realtime events in the tail; 0 turns them off. */
@@ -1629,6 +1631,11 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
   const keyView = (key: ApiKeyState) => ({
     ...key,
     key: key.kind === "publishable" ? key.key : undefined,
+  })
+
+  route("GET", "openapi", "collections.read", () => {
+    if (options.rest === false) fail(ErrorCode.NotFound, "The Data API is turned off")
+    return openapi()
   })
 
   route("GET", "api-keys", "keys.read", () => respond({ data: state.apiKeys.map(keyView) }))

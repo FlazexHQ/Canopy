@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { createHmac } from "node:crypto"
 import { test as base, expect, type Page } from "@playwright/test"
+import { type Db, MongoClient } from "mongodb"
 
 export const OWNER = { email: "owner@studio.test", password: "owner password for studio e2e" }
 
@@ -106,3 +107,16 @@ export const test = base.extend<object, { studio: Page }>({
 })
 
 export { expect }
+
+/** Runs `use` on the app database of the run, or with a suffix on its meta (`_meta`) or auth database. */
+export async function withMongo<T>(use: (db: Db) => Promise<T>, suffix = ""): Promise<T> {
+  const uri = process.env["CANOPY_TEST_MONGODB_URI"]
+  const database = process.env["STUDIO_E2E_DATABASE"]
+  if (uri === undefined || database === undefined) throw new Error("The global setup did not run")
+  const client = new MongoClient(uri)
+  try {
+    return await use(client.db(`${database}${suffix}`))
+  } finally {
+    await client.close()
+  }
+}

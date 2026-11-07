@@ -49,7 +49,7 @@ import {
   type ValidationResult,
   type ViewAs,
 } from "./contract.ts"
-import { object, type Schema } from "./schema.ts"
+import { object, record, type Schema, unknown } from "./schema.ts"
 import {
   wireAdminCreated,
   wireAdmins,
@@ -1044,6 +1044,13 @@ export class AdminApi {
 
   async revokeApiKey(id: string): Promise<void> {
     await this.request("DELETE", `/api-keys/${encodeSegment(id)}`, apiKeySchema)
+  }
+
+  /** The OpenAPI document of the Data API as `role` sees it (`anon`, `authenticated`, `service` or custom). */
+  openApi(role: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+    return this.request("GET", `/openapi?role=${encodeURIComponent(role)}`, record(unknown), {
+      signal,
+    })
   }
 
   realtimeStats(signal?: AbortSignal): Promise<RealtimeStats> {

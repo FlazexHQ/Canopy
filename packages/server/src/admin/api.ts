@@ -27,6 +27,7 @@ import {
 } from "@canopy/protocol"
 import type { Logger, Realtime } from "@canopy/realtime"
 import {
+  buildOpenApi,
   type Caller,
   findParamsFromQuery,
   type IdType,
@@ -627,6 +628,28 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     const collection = collectionName(context.params["collection"] ?? "")
     const found = await schemas.all([collection])
     return json({ collection, schema: found.get(collection) ?? null })
+  })
+
+  route("GET", "openapi", "collections.read", async (context) => {
+    if (config.rest === false) throw new NotFoundError("The Data API is turned off")
+    const role = context.url.searchParams.get("role") ?? Role.Authenticated
+    if (!/^[A-Za-z0-9_.:-]{1,200}$/.test(role)) throw new ValidationError("role is not a role name")
+    const roles = new Set<string>(
+      role === Role.Anon || role === Role.Service || role === Role.Authenticated
+        ? [role]
+        : [Role.Authenticated, role],
+    )
+    const listed = await app.listCollections({}, { nameOnly: true }).toArray()
+    const names = listed.map((c) => c.name).filter((name) => !name.startsWith("system."))
+    const engine = options.engine()
+    return json(
+      buildOpenApi({
+        engine,
+        ctx: { roles, claims: null, now: new Date() },
+        schemas: await schemas.all(names),
+        collections: names,
+      }),
+    )
   })
 
   route("GET", "collections/:collection/stats", "collections.read", async (context) => {

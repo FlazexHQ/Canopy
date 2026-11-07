@@ -129,8 +129,7 @@ describe("API reference and snippets", () => {
   })
 
   it("explains when the server has no OpenAPI document", async () => {
-    const { user } = await renderStudio("/api")
-    vi.stubGlobal("fetch", async () => new Response("Not found", { status: 404 }))
+    const { user } = await renderStudio("/api", { rest: false })
     await user.click(await screen.findByRole("tab", { name: "REST reference" }))
     expect(await screen.findByText(/does not provide the OpenAPI document/)).toBeTruthy()
   })
