@@ -7,6 +7,7 @@ import {
   ErrorCode,
   featureCompatibilityDiagnostic,
   formatDiagnostic,
+  mongoTarget,
 } from "../src/index.ts"
 
 /** Builds an error shaped like the driver's, with the messages MongoDB 7 and 8 send. */
@@ -161,5 +162,20 @@ describe("diagnosticOf", () => {
       code: ErrorCode.Internal,
       summary: "boom",
     })
+  })
+})
+
+describe("mongoTarget", () => {
+  it("names the hosts and the database, never the credentials", () => {
+    expect(
+      mongoTarget("mongodb://user:secret@h1:27017,h2:27018/app?replicaSet=rs0", "shop"),
+    ).toEqual({
+      host: "h1:27017,h2:27018",
+      database: "shop",
+    })
+    expect(mongoTarget("mongodb+srv://cluster0.example.net/")).toEqual({
+      host: "cluster0.example.net",
+    })
+    expect(mongoTarget("not a uri")).toEqual({})
   })
 })

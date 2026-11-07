@@ -9,7 +9,7 @@ import {
   type PolicySet,
   toFilter,
 } from "@canopy/policy"
-import { diagnosticOf, formatDiagnostic, isDocument, parse } from "@canopy/protocol"
+import { diagnosticOf, formatDiagnostic, isDocument, mongoTarget, parse } from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
 import { mongoContextReader } from "@canopy/rest"
 import { MongoClient } from "mongodb"
@@ -39,10 +39,6 @@ function document(text: string, flag: string): Record<string, unknown> {
   const value = parse(text)
   if (!isDocument(value)) throw new TypeError(`--${flag} needs a JSON document`)
   return value
-}
-
-function hostOf(uri: string): string | undefined {
-  return /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)/.exec(uri)?.[1]
 }
 
 /**
@@ -128,15 +124,9 @@ export async function policiesExplain(options: PolicyExplainOptions, out: Output
     }
     return 0
   } catch (error: unknown) {
-    const host = options.mongodbUri === undefined ? undefined : hostOf(options.mongodbUri)
-    out.error(
-      formatDiagnostic(
-        diagnosticOf(error, {
-          ...(host === undefined ? {} : { host }),
-          ...(options.database === undefined ? {} : { database: options.database }),
-        }),
-      ),
-    )
+    const target =
+      options.mongodbUri === undefined ? {} : mongoTarget(options.mongodbUri, options.database)
+    out.error(formatDiagnostic(diagnosticOf(error, target)))
     return 1
   } finally {
     await client?.close()

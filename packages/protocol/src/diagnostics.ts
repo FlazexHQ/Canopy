@@ -76,6 +76,15 @@ export interface MongoTarget {
   readonly database?: string
 }
 
+/** The target of a connection string: its hosts (never its credentials) and the database. */
+export function mongoTarget(uri: string, database?: string): MongoTarget {
+  const host = /^mongodb(?:\+srv)?:\/\/(?:[^@/]*@)?([^/?]+)/.exec(uri)?.[1]
+  return {
+    ...(host === undefined ? {} : { host }),
+    ...(database === undefined ? {} : { database }),
+  }
+}
+
 interface DriverError {
   readonly name: string
   readonly message: string

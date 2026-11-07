@@ -32,6 +32,7 @@ export {
   formatDiagnostic,
   MIN_FEATURE_COMPATIBILITY_VERSION,
   type MongoTarget,
+  mongoTarget,
 } from "./diagnostics.ts"
 export {
   canonicalString,

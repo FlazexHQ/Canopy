@@ -14,6 +14,15 @@ import {
   runPolicyTests,
   takeRegisteredSuites,
 } from "@canopy/policy/testing"
+import {
+  type Diagnostic,
+  diagnoseMongoError,
+  diagnosticOf,
+  featureCompatibilityDiagnostic,
+  formatDiagnostic,
+  MIN_FEATURE_COMPATIBILITY_VERSION,
+  mongoTarget,
+} from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
 import { MongoClient } from "mongodb"
 import { mongoBackend } from "./mongo-backend.ts"
@@ -139,15 +148,19 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
     if (check.status === "fail") out.error(line)
     else out.log(line)
   }
+  const target = mongoTarget(options.mongodbUri, options.database)
+  const diagnose = (diagnostic: Diagnostic): void => {
+    checks.push({ status: "fail", message: diagnostic.summary })
+    out.error(formatDiagnostic(diagnostic))
+  }
   const client = new MongoClient(options.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
   try {
     await client.connect()
+    await client.db("admin").command({ ping: 1 })
     report({ status: "ok", message: "connected to MongoDB" })
   } catch (error: unknown) {
-    report({
-      status: "fail",
-      message: `cannot connect: ${error instanceof Error ? error.message : String(error)}`,
-    })
+    diagnose(diagnosticOf(error, target))
+    await client.close()
     return 1
   }
   try {
@@ -172,6 +185,20 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
         ? { status: "ok", message: `MongoDB ${version}` }
         : { status: "fail", message: `MongoDB ${version} is too old; 7.0 or newer is required` },
     )
+    try {
+      const fcv = await admin.command({ getParameter: 1, featureCompatibilityVersion: 1 })
+      const value = (fcv["featureCompatibilityVersion"] as { version?: unknown } | undefined)
+        ?.version
+      const fcvVersion = typeof value === "string" ? value : "unknown"
+      if (Number.parseFloat(fcvVersion) >= Number.parseFloat(MIN_FEATURE_COMPATIBILITY_VERSION))
+        report({ status: "ok", message: `featureCompatibilityVersion ${fcvVersion}` })
+      else diagnose(featureCompatibilityDiagnostic(fcvVersion, target))
+    } catch (error: unknown) {
+      report({
+        status: "warn",
+        message: `featureCompatibilityVersion could not be read: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    }
     const db = client.db(options.database)
     try {
       const stream = db.watch([], { maxAwaitTimeMS: 100 })
@@ -179,10 +206,13 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
       await stream.close()
       report({ status: "ok", message: `change streams can be opened on ${options.database}` })
     } catch (error: unknown) {
-      report({
-        status: "fail",
-        message: `cannot open a change stream on ${options.database}: ${error instanceof Error ? error.message : String(error)}`,
-      })
+      const known = diagnoseMongoError(error, target)
+      if (known !== undefined) diagnose(known)
+      else
+        report({
+          status: "fail",
+          message: `cannot open a change stream on ${options.database}: ${error instanceof Error ? error.message : String(error)}`,
+        })
     }
     let set: PolicySet = createPolicySet([])
     if (options.dir !== undefined) {
