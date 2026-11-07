@@ -1,5 +1,18 @@
 export { DEFAULT_PIPELINE_LIMITS, type PipelineLimits, securePipeline } from "./aggregate.ts"
 export {
+  type ContextChange,
+  type ContextIssue,
+  type ContextIssueKind,
+  type ContextQuery,
+  type ContextReader,
+  ContextResolver,
+  type ContextResolverOptions,
+  contextNames,
+  type ResolvedContext,
+  selectValues,
+  ttlMs,
+} from "./context.ts"
+export {
   type AuthVariable,
   allow,
   auth,

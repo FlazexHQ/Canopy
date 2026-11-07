@@ -1,4 +1,5 @@
 import { CanopyError, canonicalString, ErrorCode, isDocument } from "@canopy/protocol"
+import { contextNames } from "./context.ts"
 import { type FieldAccess, fieldAccess } from "./fields.ts"
 import {
   type CollectionPolicies,
@@ -171,6 +172,7 @@ export class PolicyEngine {
   readonly set: PolicySet
   private readonly hooks: EngineHooks
   private readonly cache = new Map<string, Applicable>()
+  private readonly contextCache = new Map<string, string[]>()
 
   constructor(set: PolicySet, hooks: EngineHooks = {}) {
     this.set = set
@@ -267,6 +269,30 @@ export class PolicyEngine {
     const rules: FieldRules | undefined =
       op === "update" ? (fields?.update ?? fields?.write) : fields?.write
     return fieldAccess(rules, ctx.roles)
+  }
+
+  /**
+   * The context lookups the policies of `collections` may use for a request with these roles, or of every
+   * collection when `collections` is omitted (aggregations and batches). Empty for `service`.
+   */
+  contextNames(collections: Iterable<string> | undefined, roles: ReadonlySet<string>): string[] {
+    if (roles.has(Role.Service) || Object.keys(this.set.contexts).length === 0) return []
+    const names = collections === undefined ? [...this.set.collections.keys()] : [...collections]
+    const key = `${[...roles].sort().join(",")}\u0000${names.sort().join(",")}`
+    const cached = this.contextCache.get(key)
+    if (cached !== undefined) return cached
+    const out = new Set<string>()
+    for (const name of names) {
+      for (const policy of this.set.collections.get(name)?.policies ?? []) {
+        if (!policy.roles.includes(Role.Public) && !policy.roles.some((role) => roles.has(role)))
+          continue
+        for (const ctx of contextNames([policy.using, policy.check])) out.add(ctx)
+      }
+    }
+    const result = [...out].sort()
+    if (this.contextCache.size >= 1024) this.contextCache.clear()
+    this.contextCache.set(key, result)
+    return result
   }
 
   /** The immutable paths of a collection, which only `service` may change after insert. */
