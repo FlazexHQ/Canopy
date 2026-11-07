@@ -225,6 +225,7 @@
       },
       "dependencies": {
         "@canopy/auth": "workspace:*",
+        "@canopy/config": "workspace:*",
         "@canopy/matcher": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
