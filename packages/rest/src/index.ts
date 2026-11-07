@@ -1,3 +1,4 @@
+export { mongoContextReader } from "./context-reader.ts"
 export {
   type CursorKey,
   type CursorPosition,

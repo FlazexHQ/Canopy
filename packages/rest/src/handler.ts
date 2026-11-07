@@ -1,5 +1,5 @@
 import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
-import type { PolicyEngine } from "@canopy/policy"
+import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
   canonicalString,
@@ -11,6 +11,7 @@ import {
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
 import type { MongoClient } from "mongodb"
+import { mongoContextReader } from "./context-reader.ts"
 import {
   type CorsOptions,
   type Encoding,
@@ -72,6 +73,12 @@ export interface RestHandlerOptions {
   readonly schemas?: SchemaCache
   /** The `info` of the OpenAPI document. */
   readonly openapi?: { readonly title?: string; readonly version?: string }
+  /**
+   * Resolves context lookups (`$ctx`). Share the realtime engine's resolver (`realtime.contexts`) so
+   * membership changes seen on its change stream reach REST at once. Defaults to a resolver of its own
+   * that reads the app database; without a change stream, its results only expire after their `ttl`.
+   */
+  readonly contexts?: ContextResolver
   /** Called with every error that becomes a `5xx` response, for logging. */
   readonly onError?: (error: unknown, request: Request) => void
 }
@@ -117,6 +124,9 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     typeof options.policies === "function"
       ? options.policies
       : () => options.policies as PolicyEngine
+  const contexts =
+    options.contexts ??
+    new ContextResolver({ reader: mongoContextReader(options.client.db(options.database)) })
   const schemaCache = options.schemas ?? new SchemaCache(options.client.db(options.database))
   const documents = new Map<string, Record<string, unknown>>()
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
@@ -355,13 +365,22 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
       }
       const credentials = credentialsFromHeaders(request.headers)
       const principal = await options.authenticator.authenticate(credentials.key, credentials.token)
+      const current = engine()
+      const names = current.contextNames(lookupScope(segments), principal.context.roles)
+      const context =
+        names.length === 0
+          ? principal.context
+          : {
+              ...principal.context,
+              ctx: (await contexts.resolve(current.set.contexts, names, principal.context)).ctx,
+            }
       return await route({
         request,
         url,
         segments,
         encoding,
         prefer: preferencesOf(request.headers),
-        caller: { context: principal.context, subject: principal.subject },
+        caller: { context, subject: principal.subject },
         requestId,
       })
     } catch (error: unknown) {
@@ -391,6 +410,17 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
       return withCors(response, options.cors, request.headers.get("origin"))
     },
   }
+}
+
+/**
+ * The collections whose context lookups a request may need: the addressed collection, or every collection
+ * for batches and aggregations, which can reach several. Requests that evaluate no policy need none.
+ */
+function lookupScope(segments: readonly string[]): string[] | undefined {
+  const [first, second] = segments
+  if (first === undefined || first === "openapi.json") return []
+  if (first === "_batch" || second === "_aggregate") return undefined
+  return [first]
 }
 
 /**
