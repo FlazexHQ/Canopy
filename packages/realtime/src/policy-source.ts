@@ -11,7 +11,7 @@ import {
   type PolicySet,
 } from "@canopy/policy"
 import { isDocument, parse } from "@canopy/protocol"
-import type { Db, MongoClient } from "mongodb"
+import type { ChangeStream, Db, MongoClient } from "mongodb"
 
 /** Where policies come from. A source with `watch` supports hot reload. */
 export interface PolicySource {
@@ -100,7 +100,10 @@ export function directoryPolicies(dir: string): PolicySource {
   }
 }
 
-/** Loads policies from the meta database (`canopy.policies`) and hot reloads them through a change stream. */
+/**
+ * Loads policies from the meta database (`canopy.policies`) and hot reloads them through a change stream,
+ * which is reopened (followed by a full reload) when it fails.
+ */
 export function databasePolicies(client: MongoClient, metaDatabase = "canopy"): PolicySource {
   const db: Db = client.db(metaDatabase)
   const load = async (): Promise<PolicySet> => {
@@ -122,13 +125,31 @@ export function databasePolicies(client: MongoClient, metaDatabase = "canopy"): 
   return {
     load,
     watch(onChange, onError) {
-      const stream = db.collection("policies").watch([], { fullDocument: "off" })
-      stream.on("change", () => {
+      let stream: ChangeStream | undefined
+      let retry: ReturnType<typeof setTimeout> | undefined
+      let stopped = false
+      const reload = (): void => {
         load().then(onChange, onError)
-      })
-      stream.on("error", onError)
+      }
+      const open = (): void => {
+        const current = db.collection("policies").watch([])
+        stream = current
+        current.on("change", reload)
+        current.on("error", (error: unknown) => {
+          onError(error)
+          current.close().catch(() => {})
+          if (stopped) return
+          retry = setTimeout(() => {
+            open()
+            reload()
+          }, 1000)
+        })
+      }
+      open()
       return () => {
-        stream.close().catch(onError)
+        stopped = true
+        if (retry !== undefined) clearTimeout(retry)
+        stream?.close().catch(onError)
       }
     },
   }
