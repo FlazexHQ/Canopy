@@ -100,6 +100,13 @@ interface QueryEntry {
   dirty: boolean
 }
 
+/** A document of the document cache, with the cluster time of its server state. */
+export interface CachedDocument {
+  readonly id: unknown
+  readonly doc: Document
+  readonly ct: ClusterTime
+}
+
 /** How a live query is evaluated locally. */
 export interface QuerySpec {
   readonly filter?: Document
@@ -631,6 +638,32 @@ export class Store {
     query.status = "error"
     query.error = error
     this.touch([id])
+  }
+
+  /**
+   * Shows cached documents for a query that has no server data yet. They stay `stale` and unconfirmed, so
+   * the first snapshot keeps what the server still sends and drops the rest.
+   */
+  seed(id: string, docs: readonly CachedDocument[]): void {
+    const query = this.queries.get(id)
+    if (query === undefined || query.status !== "loading" || docs.length === 0) return
+    const known = new Set<string>()
+    for (const [key, entry] of this.docs) if (entry.subs.has(id)) known.add(key)
+    for (const item of docs) this.added(query.coll, item.id, item.doc, item.ct, [id])
+    query.unconfirmed = new Set(
+      docs.map((item) => cacheKey(query.coll, item.id)).filter((key) => !known.has(key)),
+    )
+    query.status = "stale"
+    this.touch([id])
+  }
+
+  /** The server state of a query's members, for the document cache. */
+  members(id: string): CachedDocument[] {
+    const out: CachedDocument[] = []
+    for (const entry of this.docs.values())
+      if (entry.subs.has(id) && entry.server !== undefined && !entry.tombstone)
+        out.push({ id: entry.id, doc: entry.server, ct: entry.ct })
+    return out
   }
 
   /** Marks queries that went stale with the connection ready again, after a resume replayed what was missed. */

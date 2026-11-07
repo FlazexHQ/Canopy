@@ -21,6 +21,11 @@
       "@canopy/source": "./src/rest-polling.ts",
       "default": "./dist/rest-polling.js"
     },
+    "./persist": {
+      "types": "./dist/persist.d.ts",
+      "@canopy/source": "./src/persist.ts",
+      "default": "./dist/persist.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -43,6 +48,7 @@
     "@canopy/rest": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
+    "fake-indexeddb": "catalog:",
     "fast-check": "catalog:",
     "jose": "catalog:",
     "mongodb": "catalog:",

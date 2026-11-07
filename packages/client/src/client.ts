@@ -9,6 +9,7 @@ import {
   decode,
   decodeServerMessage,
   ErrorCode,
+  encode,
   encodeMessage,
   errorFromWire,
   type MutationOp,
@@ -21,7 +22,7 @@ import {
   unbatch,
   uuidv7,
 } from "@canopy/protocol"
-import { type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
+import { type CachedDocument, type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
 
 /**
  * The connection status an application sees. `fallback` means connected through a transport below
@@ -61,6 +62,38 @@ export interface FallbackTransport {
   readonly polling?: boolean
 }
 
+/** Where a {@link Persister} keeps an entry. */
+export type PersistScope = "mutations" | "docs"
+
+/**
+ * Durable string storage for the offline queue and the document cache, such as `indexedDbPersister()`
+ * from `@canopy/client/persist`. Data is stored as written: the SDK does not encrypt it, so supply an
+ * encrypting persister when the device is not trusted.
+ */
+export interface Persister {
+  get(scope: PersistScope, key: string): Promise<string | undefined>
+  set(scope: PersistScope, key: string, value: string): Promise<void>
+  delete(scope: PersistScope, key: string): Promise<void>
+  /** Every entry of a scope, ordered by key. */
+  entries(scope: PersistScope): Promise<readonly (readonly [string, string])[]>
+}
+
+/**
+ * A persisted mutation too old to replay safely: the server may have forgotten its idempotency record,
+ * so sending it again could apply it twice. The application decides.
+ */
+export interface StaleMutation {
+  readonly mutationId: string
+  readonly collection: string
+  readonly op: MutationOp
+  readonly args: Document
+  readonly createdAt: number
+  /** Sends it again as a new mutation, with a new ID. */
+  retry(): MutationHandle
+  /** Forgets it. */
+  discard(): void
+}
+
 /** The fallback ladder, usually `() => import("@canopy/client/fallback")` so it loads only when needed. */
 export type FallbackSource =
   | { readonly transports: readonly FallbackTransport[] }
@@ -97,6 +130,20 @@ export interface ClientOptions {
   readonly fetch?: typeof fetch
   /** Interval of WebSocket probes while on a fallback transport. Defaults to 60 s. */
   readonly probeIntervalMs?: number
+  /**
+   * Keeps pending mutations across reloads: they replay in order, with their original IDs, once the
+   * client connects. Entries are kept per user (the token's `sub`).
+   */
+  readonly persist?: Persister
+  /** Also persists the server state of live queries, shown `stale` at startup until the server answers. */
+  readonly cacheDocuments?: boolean
+  /**
+   * The server's idempotency window (`CANOPY_MUTATION_TTL`), 24 h by default. Persisted mutations older
+   * than this minus 4 h are not replayed but reported through `onStaleMutations`.
+   */
+  readonly mutationTtlMs?: number
+  /** Reacts to `online`, `offline`, visibility and focus events where they exist. Defaults to true. */
+  readonly lifecycle?: boolean
 }
 
 /** The confirmed outcome of a mutation. */
@@ -131,6 +178,8 @@ export interface WriteOptions {
 interface PendingMutation {
   readonly message: MutMessage
   readonly ids: readonly unknown[]
+  /** Settles with the persister key once the mutation is stored. */
+  readonly persisted?: Promise<string>
   sent: boolean
   readonly resolve: (result: MutationResult) => void
   readonly reject: (error: Error) => void
@@ -155,18 +204,33 @@ function backoff(attempt: number, maxMs: number): number {
   return Math.random() * Math.min(maxMs, 250 * 2 ** attempt)
 }
 
-function tokenExpiry(token: string): number | undefined {
-  const part = token.split(".")[1]
-  if (part === undefined) return undefined
+/** The unverified claims of a JWT; the server verifies, the client only reads `exp` and `sub`. */
+function claims(token: string | null | undefined): { exp?: unknown; sub?: unknown } {
+  const part = token?.split(".")[1]
+  if (part === undefined) return {}
   try {
-    const json = JSON.parse(atob(part.replaceAll("-", "+").replaceAll("_", "/"))) as {
+    return JSON.parse(atob(part.replaceAll("-", "+").replaceAll("_", "/"))) as {
       exp?: unknown
+      sub?: unknown
     }
-    return typeof json.exp === "number" ? json.exp * 1000 : undefined
   } catch {
-    return undefined
+    return {}
   }
 }
+
+function tokenExpiry(token: string): number | undefined {
+  const exp = claims(token).exp
+  return typeof exp === "number" ? exp * 1000 : undefined
+}
+
+interface PersistedMutation {
+  readonly m: MutMessage
+  readonly ids: readonly unknown[]
+  readonly layers: readonly Layer[]
+  readonly at: number
+}
+
+const HOUR = 3_600_000
 
 interface Subscription {
   readonly id: string
@@ -207,6 +271,14 @@ export class CanopyClient {
   private readonly outbox: PendingMutation[] = []
   private inFlight = 0
   private readonly mutationErrorListeners = new Set<(error: Error, mutationId: string) => void>()
+  private readonly staleListeners = new Set<(mutations: readonly StaleMutation[]) => void>()
+  private stale: StaleMutation[] = []
+  /** Resolves once persisted mutations are back in the outbox; nothing is sent before. */
+  private restoring: Promise<void> | undefined
+  private scope = "anon"
+  private readonly saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  private lastAttemptAt = 0
+  private stopLifecycle: (() => void) | undefined
 
   constructor(options: ClientOptions) {
     this.options = options
@@ -217,7 +289,114 @@ export class CanopyClient {
     base.pathname = `${base.pathname.replace(/\/$/, "")}/realtime/v1`
     this.socketUrl = base.toString()
     this.store.onRefetch = (coll) => this.refetch(coll)
+    if (options.persist !== undefined) {
+      this.restoring = this.restore(options.persist)
+        .catch(() => {})
+        .finally(() => {
+          this.restoring = undefined
+          this.pump()
+        })
+    }
+    this.watchLifecycle()
     this.connect()
+  }
+
+  /** Brings persisted mutations back: recent ones are queued again, older ones become stale. */
+  private async restore(persist: Persister): Promise<void> {
+    const sub = claims(await this.options.auth?.getToken()).sub
+    this.scope = typeof sub === "string" ? sub : "anon"
+    const prefix = `${this.scope}\u0000`
+    const cutoff = Date.now() - ((this.options.mutationTtlMs ?? 24 * HOUR) - 4 * HOUR)
+    const restored: PendingMutation[] = []
+    for (const [key, value] of await persist.entries("mutations")) {
+      if (!key.startsWith(prefix)) continue
+      const record = decode(JSON.parse(value)) as PersistedMutation
+      if (record.at < cutoff) {
+        this.stale.push(this.staleMutation(persist, key, record))
+        continue
+      }
+      for (const layer of record.layers) this.store.addLayer(record.m.id, layer)
+      restored.push({
+        message: record.m,
+        ids: record.ids,
+        persisted: Promise.resolve(key),
+        sent: false,
+        resolve: () => {},
+        reject: () => {},
+      })
+    }
+    this.outbox.unshift(...restored)
+    if (this.stale.length > 0) for (const listener of this.staleListeners) listener(this.stale)
+  }
+
+  private staleMutation(persist: Persister, key: string, record: PersistedMutation): StaleMutation {
+    const forget = (): void => {
+      this.stale = this.stale.filter((entry) => entry.mutationId !== record.m.id)
+      void persist.delete("mutations", key).catch(() => {})
+    }
+    return {
+      mutationId: record.m.id,
+      collection: record.m.c,
+      op: record.m.op,
+      args: record.m.args,
+      createdAt: record.at,
+      retry: () => {
+        forget()
+        return this.mutate(record.m.c, record.m.op, record.m.args, record.layers, record.ids)
+      },
+      discard: forget,
+    }
+  }
+
+  /**
+   * Calls `listener` with the persisted mutations that are too old to replay (at once when some are
+   * already known).
+   */
+  onStaleMutations(listener: (mutations: readonly StaleMutation[]) => void): () => void {
+    this.staleListeners.add(listener)
+    if (this.restoring === undefined && this.stale.length > 0) listener(this.stale)
+    return () => this.staleListeners.delete(listener)
+  }
+
+  private watchLifecycle(): void {
+    const target = globalThis as {
+      addEventListener?: (type: string, listener: () => void) => void
+      removeEventListener?: (type: string, listener: () => void) => void
+      document?: { readonly visibilityState?: string }
+    }
+    const add = target.addEventListener
+    const remove = target.removeEventListener
+    if (this.options.lifecycle === false || add === undefined || remove === undefined) return
+    const online = (): void => this.reconnectNow()
+    const offline = (): void => {
+      const socket = this.socket
+      if (socket !== undefined) {
+        this.detach()
+        socket.close(4000, "offline")
+      }
+      if (this.reconnectTimer !== undefined) clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = undefined
+      if (!this.closed) this.setStatus("offline")
+    }
+    const wake = (): void => {
+      if (target.document?.visibilityState === "hidden") return
+      if (this.status === "reconnecting" && Date.now() - this.lastAttemptAt > 5000)
+        this.reconnectNow()
+    }
+    const events: [string, () => void][] = [
+      ["online", online],
+      ["offline", offline],
+      ["visibilitychange", wake],
+      ["focus", wake],
+    ]
+    for (const [type, listener] of events) add.call(globalThis, type, listener)
+    this.stopLifecycle = () => {
+      for (const [type, listener] of events) remove.call(globalThis, type, listener)
+    }
+  }
+
+  private static offline(): boolean {
+    return (globalThis as { navigator?: { onLine?: boolean } }).navigator?.onLine === false
   }
 
   /** Calls `listener` whenever a mutation is rolled back. */
@@ -353,9 +532,21 @@ export class CanopyClient {
       reject(new CanopyError(ErrorCode.Unavailable, "The client is closed"))
     } else {
       for (const layer of layers) this.store.addLayer(mutationId, layer)
+      const message: MutMessage = { t: "mut", id: mutationId, c: collection, op, args }
+      const persist = this.options.persist
+      const record: PersistedMutation = { m: message, ids, layers, at: Date.now() }
+      const persisted =
+        persist === undefined
+          ? undefined
+          : (this.restoring ?? Promise.resolve()).then(async () => {
+              const key = `${this.scope}\u0000${mutationId}`
+              await persist.set("mutations", key, JSON.stringify(encode(record))).catch(() => {})
+              return key
+            })
       this.outbox.push({
-        message: { t: "mut", id: mutationId, c: collection, op, args },
+        message,
         ids,
+        ...(persisted === undefined ? {} : { persisted }),
         sent: false,
         resolve,
         reject,
@@ -367,6 +558,7 @@ export class CanopyClient {
 
   /** Sends queued mutations in order, keeping at most `maxInFlight` unacknowledged. */
   private pump(): void {
+    if (this.restoring !== undefined) return
     if (this.socket === undefined || !this.welcomed || this.socket.readyState !== 1) return
     const max = this.options.maxInFlight ?? 32
     for (const pending of this.outbox) {
@@ -384,6 +576,9 @@ export class CanopyClient {
     const [pending] = this.outbox.splice(index, 1)
     if (pending === undefined) return
     if (pending.sent) this.inFlight = Math.max(0, this.inFlight - 1)
+    const persist = this.options.persist
+    if (persist !== undefined)
+      void pending.persisted?.then((key) => persist.delete("mutations", key)).catch(() => {})
     const { message } = pending
     if (!ack.ok) {
       this.store.dropLayer(message.id)
@@ -501,6 +696,7 @@ export class CanopyClient {
               : { project: (doc: Document) => compileProjection(options.fields).apply(doc) }),
           })
           this.send({ t: "sub", id: sub.id, c: collection, q: query })
+          if (this.options.cacheDocuments === true) this.cache(sub, key)
         }
         sub.refs += 1
         const current = sub
@@ -512,6 +708,9 @@ export class CanopyClient {
           stop()
           current.refs -= 1
           if (current.refs > 0) return
+          const timer = this.saveTimers.get(current.id)
+          if (timer !== undefined) clearTimeout(timer)
+          this.saveTimers.delete(current.id)
           this.byQuery.delete(key)
           this.subscriptions.delete(current.id)
           this.store.removeQuery(current.id)
@@ -519,6 +718,32 @@ export class CanopyClient {
         }
       },
     }
+  }
+
+  /** Seeds a new query from the document cache and keeps the cache current once it is ready. */
+  private cache(sub: Subscription, queryKey: string): void {
+    const persist = this.options.persist
+    if (persist === undefined) return
+    const cacheKey = (): string => `${this.scope}\u0000${queryKey}`
+    void (this.restoring ?? Promise.resolve())
+      .then(() => persist.get("docs", cacheKey()))
+      .then((text) => {
+        if (text !== undefined && this.subscriptions.get(sub.id) === sub)
+          this.store.seed(sub.id, decode(JSON.parse(text)) as CachedDocument[])
+      })
+      .catch(() => {})
+    this.store.listen(sub.id, () => {
+      if (this.store.state(sub.id).status !== "ready" || this.saveTimers.has(sub.id)) return
+      this.saveTimers.set(
+        sub.id,
+        setTimeout(() => {
+          this.saveTimers.delete(sub.id)
+          if (this.subscriptions.get(sub.id) !== sub) return
+          const docs = JSON.stringify(encode(this.store.members(sub.id)))
+          void persist.set("docs", cacheKey(), docs).catch(() => {})
+        }, 500),
+      )
+    })
   }
 
   private send(message: ClientMessage): void {
@@ -539,6 +764,11 @@ export class CanopyClient {
       void this.descend()
       return
     }
+    if (CanopyClient.offline()) {
+      this.setStatus("offline")
+      return
+    }
+    this.lastAttemptAt = Date.now()
     this.setStatus(this.attempt === 0 ? "connecting" : "reconnecting")
     const transport = this.ladder?.[this.rung - 1]
     let socket: WebSocketLike
@@ -775,6 +1005,10 @@ export class CanopyClient {
 
   private scheduleReconnect(minDelayMs: number): void {
     if (this.reconnectTimer !== undefined || this.closed) return
+    if (CanopyClient.offline()) {
+      this.setStatus("offline")
+      return
+    }
     this.setStatus("reconnecting")
     const delay = Math.max(minDelayMs, backoff(this.attempt, this.options.maxBackoffMs ?? 30_000))
     this.attempt += 1
@@ -799,6 +1033,8 @@ export class CanopyClient {
       if (timer !== undefined) clearTimeout(timer)
     for (const timer of [this.heartbeatTimer, this.probeTimer])
       if (timer !== undefined) clearInterval(timer)
+    for (const timer of this.saveTimers.values()) clearTimeout(timer)
+    this.stopLifecycle?.()
     if (this.socket !== undefined && this.socket.readyState === 1)
       this.socket.send(encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")
