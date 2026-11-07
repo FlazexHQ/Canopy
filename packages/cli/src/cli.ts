@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { Writable } from "node:stream"
 import {
+  type Command,
   ConfigError,
   databaseFromUri,
   formatConfig,
@@ -142,76 +143,357 @@ const BOOLEAN_FLAGS = new Set([
   "all",
 ])
 
+type Flags = Map<string, string | true>
+type Env = Readonly<Record<string, string | undefined>>
+
+/** One run of a command, after its name, flags and arguments were checked. */
+interface Invocation {
+  readonly name: string
+  readonly args: readonly string[]
+  readonly flags: Flags
+  readonly env: Env
+  readonly out: Output
+  readonly cwd: string
+  readonly signal: AbortSignal
+  /** The project named by `--env`, already checked to be an environment name. */
+  readonly environment: string | undefined
+}
+
+/** An invocation with the resolved config and the policy directory. */
+interface Configured extends Invocation {
+  readonly loaded: LoadedConfig
+  readonly config: ResolvedConfig
+  readonly dir: string
+  /** Whether the policy directory came from `--dir` or the config rather than the default. */
+  readonly dirGiven: boolean
+  readonly uriFlag: string | undefined
+}
+
+/** Where a meta database command works: a MongoDB deployment, or a project's admin API (`--env`). */
+interface MetaTarget {
+  readonly mongodbUri: string
+  readonly metaDatabase: string
+  readonly remote?: AdminClient
+}
+
+/** The app database a command reads. */
+interface AppTarget {
+  readonly mongodbUri: string
+  readonly database: string
+}
+
+/**
+ * How a command runs. `direct` commands need no config; the others load it first (as `load`, which
+ * decides which settings must be present). `meta` commands then get the meta database or the admin API
+ * behind `--env`, and `app` commands the app database.
+ */
+type Handler =
+  | { readonly kind: "direct"; run(call: Invocation): number | Promise<number> }
+  | {
+      readonly kind: "config"
+      readonly load: Command
+      run(call: Configured): number | Promise<number>
+    }
+  | { readonly kind: "meta"; run(call: Configured, meta: MetaTarget): number | Promise<number> }
+  | {
+      readonly kind: "app"
+      readonly load: Command
+      run(call: Configured, app: AppTarget): number | Promise<number>
+    }
+
 interface CommandSpec {
   readonly flags: readonly string[]
   /** The fewest and most positional arguments after the command name. */
   readonly args?: readonly [number, number]
   /** What the arguments are, for the error when their number is wrong. */
   readonly needs?: string
+  readonly handler: Handler
 }
 
 const ANY = [0, Number.POSITIVE_INFINITY] as const
 
+const EXPLAIN_FLAGS = ["as", "roles", "op", "filter", "ctx"]
+
 const COMMANDS: Readonly<Record<string, CommandSpec>> = {
-  doctor: { flags: [] },
-  "policies lint": { flags: [] },
-  "policies test": { flags: [] },
+  doctor: {
+    flags: [],
+    handler: {
+      kind: "app",
+      load: "doctor",
+      run: (call, app) => doctor({ ...app, ...(call.dirGiven ? { dir: call.dir } : {}) }, call.out),
+    },
+  },
+  "policies lint": {
+    flags: [],
+    handler: {
+      kind: "config",
+      load: "policies",
+      run: (call) => policiesLint({ dir: call.dir }, call.out),
+    },
+  },
+  "policies test": {
+    flags: [],
+    handler: {
+      kind: "config",
+      load: "policies",
+      run: (call) =>
+        policiesTest(
+          { dir: call.dir, ...(call.uriFlag === undefined ? {} : { mongodbUri: call.uriFlag }) },
+          call.out,
+        ),
+    },
+  },
   "policies explain": {
-    flags: ["as", "roles", "op", "filter", "ctx"],
+    flags: EXPLAIN_FLAGS,
     args: [1, 1],
     needs: "exactly one collection",
+    handler: { kind: "config", load: "policies", run: runExplain },
   },
-  "policies diff": { flags: ["fail-on-drift", "env"], args: ANY },
-  "policies push": { flags: ["expect-version", "comment", "dry-run", "env"], args: ANY },
-  "policies pull": { flags: ["force", "env"], args: ANY },
-  "policies history": { flags: ["limit", "env"], args: [1, 1], needs: "exactly one collection" },
+  "policies diff": {
+    flags: ["fail-on-drift", "env"],
+    args: ANY,
+    handler: {
+      kind: "meta",
+      run: (call, meta) =>
+        policiesDiff(
+          {
+            ...meta,
+            dir: call.dir,
+            collections: call.args,
+            failOnDrift: call.flags.has("fail-on-drift"),
+          },
+          call.out,
+        ),
+    },
+  },
+  "policies push": {
+    flags: ["expect-version", "comment", "dry-run", "env"],
+    args: ANY,
+    handler: {
+      kind: "meta",
+      run: (call, meta) => {
+        const expectVersion = text(call.flags, "expect-version")
+        return policiesPush(
+          {
+            ...meta,
+            dir: call.dir,
+            collections: call.args,
+            dryRun: call.flags.has("dry-run"),
+            ...withComment(call.flags),
+            ...(expectVersion === undefined ? {} : { expectVersion }),
+          },
+          call.out,
+        )
+      },
+    },
+  },
+  "policies pull": {
+    flags: ["force", "env"],
+    args: ANY,
+    handler: {
+      kind: "meta",
+      run: (call, meta) =>
+        policiesPull(
+          { ...meta, dir: call.dir, collections: call.args, force: call.flags.has("force") },
+          call.out,
+        ),
+    },
+  },
+  "policies history": {
+    flags: ["limit", "env"],
+    args: [1, 1],
+    needs: "exactly one collection",
+    handler: {
+      kind: "meta",
+      run: (call, meta) => {
+        const limit = count(text(call.flags, "limit"), "limit", call.out)
+        if (limit === false) return 1
+        return policiesHistory(
+          { ...meta, collection: call.args[0] ?? "", ...(limit === undefined ? {} : { limit }) },
+          call.out,
+        )
+      },
+    },
+  },
   "policies rollback": {
     flags: ["expect-version", "comment", "yes", "env"],
     args: [2, 2],
     needs: "a collection and a version",
+    handler: {
+      kind: "meta",
+      run: (call, meta) => {
+        const version = count(call.args[1], "version", call.out)
+        const expectVersion = count(text(call.flags, "expect-version"), "expect-version", call.out)
+        if (version === false || version === undefined || expectVersion === false) return 1
+        return policiesRollback(
+          {
+            ...meta,
+            collection: call.args[0] ?? "",
+            version,
+            yes: call.flags.has("yes"),
+            ...withComment(call.flags),
+            ...(expectVersion === undefined ? {} : { expectVersion }),
+          },
+          call.out,
+        )
+      },
+    },
   },
-  "gen types": { flags: ["out", "role", "check", "infer-enums", "sample"] },
-  "config print": { flags: ["sources"] },
-  init: { flags: [] },
-  dev: { flags: ["with-mongo", "port", "mongo-port", "mongo-image"] },
-  "realtime enable-images": { flags: ["yes"], args: ANY },
-  "realtime disable-images": { flags: ["yes"], args: ANY },
-  "indexes advise": { flags: [] },
-  "indexes create": { flags: ["yes"] },
-  "keys list": { flags: [] },
-  "keys create": { flags: ["kind", "name"] },
-  "keys revoke": { flags: ["yes"], args: [1, 1], needs: "the id of one key" },
-  "admin list": { flags: [] },
-  "admin create": { flags: ["email", "role", "name"] },
-  "admin reset-totp": { flags: ["yes"], args: [1, 1], needs: "the id or email of one admin" },
-  "admin tokens create": { flags: ["name", "role", "expires", "env"] },
-  "admin tokens list": { flags: ["all", "env"] },
-  "admin tokens revoke": { flags: ["yes", "env"], args: [1, 1], needs: "the id of one token" },
-  migrate: { flags: ["status"] },
-  login: { flags: ["token", "env"], args: [1, 1], needs: "the project URL" },
-  logout: { flags: [], args: [1, 1], needs: "the project URL" },
+  "gen types": {
+    flags: ["out", "role", "check", "infer-enums", "sample"],
+    handler: { kind: "app", load: "gen", run: runGenTypes },
+  },
+  "config print": {
+    flags: ["sources"],
+    handler: {
+      kind: "config",
+      load: "print",
+      run: (call) => {
+        call.out.log(formatConfig(call.loaded, { sources: call.flags.has("sources") }).trimEnd())
+        return 0
+      },
+    },
+  },
+  init: { flags: [], handler: { kind: "direct", run: runInit } },
+  dev: {
+    flags: ["with-mongo", "port", "mongo-port", "mongo-image"],
+    handler: { kind: "direct", run: runDev },
+  },
+  "realtime enable-images": {
+    flags: ["yes"],
+    args: ANY,
+    handler: { kind: "app", load: "gen", run: (call, app) => runImages(call, app, true) },
+  },
+  "realtime disable-images": {
+    flags: ["yes"],
+    args: ANY,
+    handler: { kind: "app", load: "gen", run: (call, app) => runImages(call, app, false) },
+  },
+  "indexes advise": {
+    flags: [],
+    handler: { kind: "app", load: "gen", run: (call, app) => runIndexes(call, app, false) },
+  },
+  "indexes create": {
+    flags: ["yes"],
+    handler: { kind: "app", load: "gen", run: (call, app) => runIndexes(call, app, true) },
+  },
+  "keys list": {
+    flags: [],
+    handler: { kind: "meta", run: (call, meta) => keysList(meta, call.out) },
+  },
+  "keys create": {
+    flags: ["kind", "name"],
+    handler: {
+      kind: "meta",
+      run: (call, meta) => {
+        const kind = text(call.flags, "kind")
+        const keyName = text(call.flags, "name")
+        if ((kind !== "publishable" && kind !== "secret") || keyName === undefined) {
+          call.out.error("keys create needs --kind publishable|secret and --name <name>")
+          return 1
+        }
+        return keysCreate({ ...meta, kind, name: keyName }, call.out)
+      },
+    },
+  },
+  "keys revoke": {
+    flags: ["yes"],
+    args: [1, 1],
+    needs: "the id of one key",
+    handler: {
+      kind: "meta",
+      run: (call, meta) =>
+        keysRevoke({ ...meta, id: call.args[0] ?? "", yes: call.flags.has("yes") }, call.out),
+    },
+  },
+  "admin list": {
+    flags: [],
+    handler: { kind: "meta", run: (call, meta) => adminList(meta, call.out) },
+  },
+  "admin create": {
+    flags: ["email", "role", "name"],
+    handler: {
+      kind: "meta",
+      run: (call, meta) => {
+        const email = text(call.flags, "email")
+        const role = text(call.flags, "role")
+        const adminName = text(call.flags, "name")
+        if (email === undefined || role === undefined) {
+          call.out.error(
+            "admin create needs --email <email> and --role owner|admin|developer|viewer",
+          )
+          return 1
+        }
+        return adminCreate(
+          { ...meta, email, role, ...(adminName === undefined ? {} : { name: adminName }) },
+          call.out,
+        )
+      },
+    },
+  },
+  "admin reset-totp": {
+    flags: ["yes"],
+    args: [1, 1],
+    needs: "the id or email of one admin",
+    handler: {
+      kind: "meta",
+      run: (call, meta) =>
+        adminResetTotp(
+          { ...meta, admin: call.args[0] ?? "", yes: call.flags.has("yes") },
+          call.out,
+        ),
+    },
+  },
+  "admin tokens create": {
+    flags: ["name", "role", "expires", "env"],
+    handler: { kind: "direct", run: runTokensCreate },
+  },
+  "admin tokens list": {
+    flags: ["all", "env"],
+    handler: {
+      kind: "direct",
+      run: (call) =>
+        withRemote(call, (remote) => tokensList({ remote, all: call.flags.has("all") }, call.out)),
+    },
+  },
+  "admin tokens revoke": {
+    flags: ["yes", "env"],
+    args: [1, 1],
+    needs: "the id of one token",
+    handler: {
+      kind: "direct",
+      run: (call) =>
+        withRemote(call, (remote) =>
+          tokensRevoke({ remote, id: call.args[0] ?? "", yes: call.flags.has("yes") }, call.out),
+        ),
+    },
+  },
+  migrate: {
+    flags: ["status"],
+    handler: {
+      kind: "meta",
+      run: (call, meta) => migrate({ ...meta, status: call.flags.has("status") }, call.out),
+    },
+  },
+  login: {
+    flags: ["token", "env"],
+    args: [1, 1],
+    needs: "the project URL",
+    handler: { kind: "direct", run: (call) => login(accountOptions(call), call.out) },
+  },
+  logout: {
+    flags: [],
+    args: [1, 1],
+    needs: "the project URL",
+    handler: { kind: "direct", run: (call) => logout(accountOptions(call), call.out) },
+  },
 }
 
-const SINGLE = new Set(["doctor", "init", "dev", "migrate", "login", "logout"])
+/** Commands of one word; every other command has two words, or three in a group. */
+const SINGLE = new Set(Object.keys(COMMANDS).filter((name) => !name.includes(" ")))
 
 /** Command groups whose commands have three words, such as `admin tokens create`. */
 const GROUPS = new Set(["admin tokens"])
-
-/** Commands that only use the meta database, not the app database. */
-const META_ONLY = new Set([
-  "policies diff",
-  "policies push",
-  "policies pull",
-  "policies history",
-  "policies rollback",
-  "keys list",
-  "keys create",
-  "keys revoke",
-  "admin list",
-  "admin create",
-  "admin reset-totp",
-  "migrate",
-])
 
 /** Parses `--name value` flags. Flags in `booleans` never take the next word as their value. */
 export function parseArgs(
@@ -219,7 +501,7 @@ export function parseArgs(
   booleans: ReadonlySet<string> = BOOLEAN_FLAGS,
 ): {
   positional: string[]
-  flags: Map<string, string | true>
+  flags: Flags
 } {
   const positional: string[] = []
   const flags = new Map<string, string | true>()
@@ -240,7 +522,7 @@ export function parseArgs(
   return { positional, flags }
 }
 
-function text(flags: Map<string, string | true>, name: string): string | undefined {
+function text(flags: Flags, name: string): string | undefined {
   const value = flags.get(name)
   return typeof value === "string" ? value : undefined
 }
@@ -264,7 +546,7 @@ function databaseOf(uri: string): string {
  */
 export async function run(
   argv: readonly string[],
-  env: Readonly<Record<string, string | undefined>>,
+  env: Env,
   out: Output,
   cwd: string = process.cwd(),
   signal: AbortSignal = new AbortController().signal,
@@ -280,7 +562,7 @@ export async function run(
     : GROUPS.has(positional.slice(0, 2).join(" "))
       ? positional.slice(0, 3).join(" ")
       : positional.slice(0, 2).join(" ")
-  const rest = positional.slice(name.split(" ").length)
+  const args = positional.slice(name.split(" ").length)
   const spec = COMMANDS[name]
   if (spec === undefined) {
     const near = suggest(name, Object.keys(COMMANDS))
@@ -299,24 +581,14 @@ export async function run(
     return 1
   }
   const [fewest, most] = spec.args ?? [0, 0]
-  if (rest.length < fewest || rest.length > most) {
+  if (args.length < fewest || args.length > most) {
     out.error(
       spec.needs === undefined
-        ? `Unexpected argument ${rest.slice(most).join(" ")} for ${name}`
+        ? `Unexpected argument ${args.slice(most).join(" ")} for ${name}`
         : `${name} needs ${spec.needs}`,
     )
     return 1
   }
-  const uriFlag = text(flags, "mongodb-uri")
-  if (name === "init") {
-    const database = text(flags, "database") ?? (uriFlag === undefined ? "" : databaseOf(uriFlag))
-    if (uriFlag !== undefined && database === "") {
-      out.error("init --mongodb-uri needs --database or a database in the URI path")
-      return 1
-    }
-    return init({ cwd, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag, database }) }, out)
-  }
-  if (name === "dev") return runDev(flags, env, out, cwd, signal)
   const environment = flags.get("env")
   if (environment === true) {
     out.error("--env needs an environment name, such as --env production")
@@ -328,161 +600,195 @@ export async function run(
     )
     return 1
   }
-  if (name === "login" || name === "logout") {
-    const token = text(flags, "token")
-    const options = {
-      url: rest[0] ?? "",
-      env,
-      ...(token === undefined ? {} : { token }),
-      ...(environment === undefined ? {} : { environment }),
-    }
-    return name === "login" ? login(options, out) : logout(options, out)
+  const call: Invocation = { name, args, flags, env, out, cwd, signal, environment }
+  const handler = spec.handler
+  if (handler.kind === "direct") return handler.run(call)
+  const configured = await configure(call, handler.kind === "meta" ? "gen" : handler.load)
+  if (configured === undefined) return 1
+  if (handler.kind === "config") return handler.run(configured)
+  if (handler.kind === "meta") {
+    const meta = await metaTarget(configured)
+    return meta === undefined ? 1 : handler.run(configured, meta)
   }
-  if (name.startsWith("admin tokens ")) {
-    if (environment === undefined) {
-      out.error(
-        `${name} works on a project through its admin API: pass --env <name> (with canopy login <url> --env <name>, or CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN).`,
-      )
-      return 1
-    }
-    return adminTokens(name, rest, flags, environment, env, out)
-  }
+  const app = appTarget(configured)
+  return app === undefined ? 1 : handler.run(configured, app)
+}
+
+async function configure(call: Invocation, load: Command): Promise<Configured | undefined> {
+  const { flags, environment } = call
+  const uriFlag = text(flags, "mongodb-uri")
   const configEnv =
     environment === "production" || environment === "development"
-      ? { ...env, CANOPY_ENV: environment }
-      : env
-  const command =
-    name === "config print"
-      ? "print"
-      : name === "doctor"
-        ? "doctor"
-        : name === "policies lint" || name === "policies test" || name === "policies explain"
-          ? "policies"
-          : "gen"
+      ? { ...call.env, CANOPY_ENV: environment }
+      : call.env
   let loaded: LoadedConfig
   try {
     const file = text(flags, "config")
     loaded = await loadConfig({
       command:
-        (uriFlag !== undefined || environment !== undefined) && command !== "print"
+        (uriFlag !== undefined || environment !== undefined) && load !== "print"
           ? "policies"
-          : command,
-      cwd,
+          : load,
+      cwd: call.cwd,
       env: configEnv,
       ...(file === undefined ? {} : { file }),
     })
   } catch (error: unknown) {
     if (!(error instanceof ConfigError)) throw error
-    out.error(error.message)
-    return 1
+    call.out.error(error.message)
+    return undefined
   }
-  const config: ResolvedConfig = loaded.config
-  if (name === "config print") {
-    out.log(formatConfig(loaded, { sources: flags.has("sources") }).trimEnd())
-    return 0
-  }
+  const config = loaded.config
   const dir = resolve(
-    cwd,
+    call.cwd,
     text(flags, "dir") ?? ("dir" in config.policies ? config.policies.dir : "./canopy/policies"),
   )
   const dirGiven = flags.has("dir") || "dir" in config.policies
-  const uri = uriFlag ?? (config.mongodb.uri === "" ? undefined : config.mongodb.uri)
-  if (name === "policies lint") return policiesLint({ dir }, out)
-  if (name === "policies test")
-    return policiesTest({ dir, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag }) }, out)
-  if (name === "policies explain") {
-    const bare = ["as", "roles", "op", "filter", "ctx"].find((flag) => flags.get(flag) === true)
-    if (bare !== undefined) {
-      out.error(`--${bare} needs a value`)
-      return 1
-    }
-    const explainOptions = ["as", "roles", "op", "filter", "ctx"].flatMap((flag) => {
-      const value = text(flags, flag)
-      return value === undefined ? [] : [[flag, value] as const]
-    })
-    return policiesExplain(
-      {
-        dir,
-        collection: rest[0] ?? "",
-        ...Object.fromEntries(explainOptions),
-        ...(uriFlag === undefined
-          ? {}
-          : {
-              mongodbUri: uriFlag,
-              database: text(flags, "database") ?? env["CANOPY_DB"] ?? databaseOf(uriFlag),
-            }),
-      },
-      out,
-    )
+  return { ...call, loaded, config, dir, dirGiven, uriFlag }
+}
+
+function configuredUri(call: Configured): string | undefined {
+  return call.uriFlag ?? (call.config.mongodb.uri === "" ? undefined : call.config.mongodb.uri)
+}
+
+async function metaTarget(call: Configured): Promise<MetaTarget | undefined> {
+  if (call.environment !== undefined) {
+    const remote = await remoteFor(call.environment, call.env, call.out)
+    return remote === undefined ? undefined : { mongodbUri: "", metaDatabase: "", remote }
   }
-  if (environment !== undefined) {
-    const remote = await remoteFor(environment, env, out)
-    if (remote === undefined) return 1
-    return runMeta(name, rest, flags, { mongodbUri: "", metaDatabase: "", remote }, dir, out)
-  }
+  const uri = configuredUri(call)
   if (uri === undefined) {
-    out.error(`${name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`)
-    return 1
-  }
-  if (META_ONLY.has(name))
-    return runMeta(
-      name,
-      rest,
-      flags,
-      { mongodbUri: uri, metaDatabase: env["CANOPY_META_DB"] ?? config.mongodb.metaDatabase },
-      dir,
-      out,
+    call.out.error(
+      `${call.name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`,
     )
+    return undefined
+  }
+  return {
+    mongodbUri: uri,
+    metaDatabase: call.env["CANOPY_META_DB"] ?? call.config.mongodb.metaDatabase,
+  }
+}
+
+function appTarget(call: Configured): AppTarget | undefined {
+  const uri = configuredUri(call)
+  if (uri === undefined) {
+    call.out.error(
+      `${call.name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`,
+    )
+    return undefined
+  }
   const database =
-    text(flags, "database") ??
-    (uriFlag === undefined ? config.mongodb.database : (env["CANOPY_DB"] ?? databaseOf(uri)))
+    text(call.flags, "database") ??
+    (call.uriFlag === undefined
+      ? call.config.mongodb.database
+      : (call.env["CANOPY_DB"] ?? databaseOf(uri)))
   if (database === "") {
-    out.error(`${name} needs --database, CANOPY_DB or a database in the URI path`)
+    call.out.error(`${call.name} needs --database, CANOPY_DB or a database in the URI path`)
+    return undefined
+  }
+  return { mongodbUri: uri, database }
+}
+
+function withComment(flags: Flags): { comment?: string } {
+  const comment = text(flags, "comment")
+  return comment === undefined ? {} : { comment }
+}
+
+function runInit(call: Invocation): number | Promise<number> {
+  const uriFlag = text(call.flags, "mongodb-uri")
+  const database =
+    text(call.flags, "database") ?? (uriFlag === undefined ? "" : databaseOf(uriFlag))
+  if (uriFlag !== undefined && database === "") {
+    call.out.error("init --mongodb-uri needs --database or a database in the URI path")
     return 1
   }
-  if (name === "doctor")
-    return doctor({ mongodbUri: uri, database, ...(dirGiven ? { dir } : {}) }, out)
-  if (name.startsWith("realtime "))
-    return realtimeImages(
-      {
-        mongodbUri: uri,
-        database,
-        collections: rest,
-        enable: name === "realtime enable-images",
-        yes: flags.has("yes"),
-      },
-      out,
-    )
-  if (name.startsWith("indexes "))
-    return indexes(
-      {
-        mongodbUri: uri,
-        database,
-        metaDatabase: config.mongodb.metaDatabase,
-        create: name === "indexes create",
-        yes: flags.has("yes"),
-        ...(dirGiven ? { dir } : {}),
-      },
-      out,
-    )
+  return init(
+    { cwd: call.cwd, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag, database }) },
+    call.out,
+  )
+}
+
+function accountOptions(call: Invocation): {
+  url: string
+  env: Env
+  token?: string
+  environment?: string
+} {
+  const token = text(call.flags, "token")
+  return {
+    url: call.args[0] ?? "",
+    env: call.env,
+    ...(token === undefined ? {} : { token }),
+    ...(call.environment === undefined ? {} : { environment: call.environment }),
+  }
+}
+
+function runExplain(call: Configured): number | Promise<number> {
+  const bare = EXPLAIN_FLAGS.find((flag) => call.flags.get(flag) === true)
+  if (bare !== undefined) {
+    call.out.error(`--${bare} needs a value`)
+    return 1
+  }
+  const explainOptions = EXPLAIN_FLAGS.flatMap((flag) => {
+    const value = text(call.flags, flag)
+    return value === undefined ? [] : [[flag, value] as const]
+  })
+  const { uriFlag } = call
+  return policiesExplain(
+    {
+      dir: call.dir,
+      collection: call.args[0] ?? "",
+      ...Object.fromEntries(explainOptions),
+      ...(uriFlag === undefined
+        ? {}
+        : {
+            mongodbUri: uriFlag,
+            database: text(call.flags, "database") ?? call.env["CANOPY_DB"] ?? databaseOf(uriFlag),
+          }),
+    },
+    call.out,
+  )
+}
+
+function runImages(call: Configured, app: AppTarget, enable: boolean): Promise<number> {
+  return realtimeImages(
+    { ...app, collections: call.args, enable, yes: call.flags.has("yes") },
+    call.out,
+  )
+}
+
+function runIndexes(call: Configured, app: AppTarget, create: boolean): Promise<number> {
+  return indexes(
+    {
+      ...app,
+      metaDatabase: call.config.mongodb.metaDatabase,
+      create,
+      yes: call.flags.has("yes"),
+      ...(call.dirGiven ? { dir: call.dir } : {}),
+    },
+    call.out,
+  )
+}
+
+function runGenTypes(call: Configured, app: AppTarget): number | Promise<number> {
+  const { flags, config } = call
   const sample = text(flags, "sample")
   const role = text(flags, "role") ?? config.types.role
   if (sample !== undefined && !/^[1-9]\d*$/.test(sample)) {
-    out.error("--sample needs a positive integer")
+    call.out.error("--sample needs a positive integer")
     return 1
   }
   return genTypes(
     {
-      mongodbUri: uri,
-      database,
+      ...app,
       out: text(flags, "out") ?? config.types.out,
       check: flags.has("check"),
       inferEnums: flags.has("infer-enums"),
-      ...(dirGiven ? { dir } : {}),
+      ...(call.dirGiven ? { dir: call.dir } : {}),
       ...(role === undefined ? {} : { role }),
       ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
     },
-    out,
+    call.out,
   )
 }
 
@@ -503,7 +809,7 @@ function count(value: string | undefined, flag: string, out: Output): number | u
  */
 async function remoteFor(
   environment: string,
-  env: Readonly<Record<string, string | undefined>>,
+  env: Env,
   out: Output,
 ): Promise<AdminClient | undefined> {
   const explicit = env["CANOPY_ADMIN_URL"]
@@ -543,34 +849,46 @@ async function remoteFor(
   }
 }
 
-async function adminTokens(
-  name: string,
-  args: readonly string[],
-  flags: Map<string, string | true>,
-  environment: string,
-  env: Readonly<Record<string, string | undefined>>,
-  out: Output,
+/** Returns the project of an `admin tokens` command, reporting an error when `--env` is missing. */
+function tokensEnvironment(call: Invocation): string | undefined {
+  if (call.environment === undefined)
+    call.out.error(
+      `${call.name} works on a project through its admin API: pass --env <name> (with canopy login <url> --env <name>, or CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN).`,
+    )
+  return call.environment
+}
+
+async function withRemote(
+  call: Invocation,
+  fn: (remote: AdminClient) => Promise<number>,
 ): Promise<number> {
-  if (name === "admin tokens create") {
-    const tokenName = text(flags, "name")
-    if (tokenName === undefined) {
-      out.error("admin tokens create needs --name <name>")
-      return 1
-    }
-    const role = text(flags, "role")
-    if (role !== undefined && !["owner", "admin", "developer", "viewer"].includes(role)) {
-      out.error("--role must be owner, admin, developer or viewer")
-      return 1
-    }
-    const expires = text(flags, "expires")
-    const days = expires === undefined ? undefined : /^([1-9]\d{0,3})d?$/.exec(expires)?.[1]
-    if (expires !== undefined && days === undefined) {
-      out.error("--expires needs a number of days, such as 90 or 90d")
-      return 1
-    }
-    const remote = await remoteFor(environment, env, out)
-    if (remote === undefined) return 1
-    return tokensCreate(
+  const environment = tokensEnvironment(call)
+  if (environment === undefined) return 1
+  const remote = await remoteFor(environment, call.env, call.out)
+  return remote === undefined ? 1 : fn(remote)
+}
+
+function runTokensCreate(call: Invocation): number | Promise<number> {
+  if (tokensEnvironment(call) === undefined) return 1
+  const { flags, out } = call
+  const tokenName = text(flags, "name")
+  if (tokenName === undefined) {
+    out.error("admin tokens create needs --name <name>")
+    return 1
+  }
+  const role = text(flags, "role")
+  if (role !== undefined && !["owner", "admin", "developer", "viewer"].includes(role)) {
+    out.error("--role must be owner, admin, developer or viewer")
+    return 1
+  }
+  const expires = text(flags, "expires")
+  const days = expires === undefined ? undefined : /^([1-9]\d{0,3})d?$/.exec(expires)?.[1]
+  if (expires !== undefined && days === undefined) {
+    out.error("--expires needs a number of days, such as 90 or 90d")
+    return 1
+  }
+  return withRemote(call, (remote) =>
+    tokensCreate(
       {
         remote,
         name: tokenName,
@@ -578,116 +896,12 @@ async function adminTokens(
         ...(days === undefined ? {} : { expiresInDays: Number(days) }),
       },
       out,
-    )
-  }
-  const remote = await remoteFor(environment, env, out)
-  if (remote === undefined) return 1
-  if (name === "admin tokens list") return tokensList({ remote, all: flags.has("all") }, out)
-  return tokensRevoke({ remote, id: args[0] ?? "", yes: flags.has("yes") }, out)
+    ),
+  )
 }
 
-async function runMeta(
-  name: string,
-  args: readonly string[],
-  flags: Map<string, string | true>,
-  meta: {
-    readonly mongodbUri: string
-    readonly metaDatabase: string
-    readonly remote?: AdminClient
-  },
-  dir: string,
-  out: Output,
-): Promise<number> {
-  const comment = text(flags, "comment")
-  const withComment = comment === undefined ? {} : { comment }
-  switch (name) {
-    case "policies diff":
-      return policiesDiff(
-        { ...meta, dir, collections: args, failOnDrift: flags.has("fail-on-drift") },
-        out,
-      )
-    case "policies push": {
-      const expectVersion = text(flags, "expect-version")
-      return policiesPush(
-        {
-          ...meta,
-          dir,
-          collections: args,
-          dryRun: flags.has("dry-run"),
-          ...withComment,
-          ...(expectVersion === undefined ? {} : { expectVersion }),
-        },
-        out,
-      )
-    }
-    case "policies pull":
-      return policiesPull({ ...meta, dir, collections: args, force: flags.has("force") }, out)
-    case "policies history": {
-      const limit = count(text(flags, "limit"), "limit", out)
-      if (limit === false) return 1
-      return policiesHistory(
-        { ...meta, collection: args[0] ?? "", ...(limit === undefined ? {} : { limit }) },
-        out,
-      )
-    }
-    case "policies rollback": {
-      const version = count(args[1], "version", out)
-      const expectVersion = count(text(flags, "expect-version"), "expect-version", out)
-      if (version === false || version === undefined || expectVersion === false) return 1
-      return policiesRollback(
-        {
-          ...meta,
-          collection: args[0] ?? "",
-          version,
-          yes: flags.has("yes"),
-          ...withComment,
-          ...(expectVersion === undefined ? {} : { expectVersion }),
-        },
-        out,
-      )
-    }
-    case "keys list":
-      return keysList(meta, out)
-    case "keys create": {
-      const kind = text(flags, "kind")
-      const keyName = text(flags, "name")
-      if ((kind !== "publishable" && kind !== "secret") || keyName === undefined) {
-        out.error("keys create needs --kind publishable|secret and --name <name>")
-        return 1
-      }
-      return keysCreate({ ...meta, kind, name: keyName }, out)
-    }
-    case "keys revoke":
-      return keysRevoke({ ...meta, id: args[0] ?? "", yes: flags.has("yes") }, out)
-    case "admin list":
-      return adminList(meta, out)
-    case "admin create": {
-      const email = text(flags, "email")
-      const role = text(flags, "role")
-      const adminName = text(flags, "name")
-      if (email === undefined || role === undefined) {
-        out.error("admin create needs --email <email> and --role owner|admin|developer|viewer")
-        return 1
-      }
-      return adminCreate(
-        { ...meta, email, role, ...(adminName === undefined ? {} : { name: adminName }) },
-        out,
-      )
-    }
-    case "admin reset-totp":
-      return adminResetTotp({ ...meta, admin: args[0] ?? "", yes: flags.has("yes") }, out)
-    default:
-      return migrate({ ...meta, status: flags.has("status") }, out)
-  }
-}
-
-async function runDev(
-  flags: Map<string, string | true>,
-  env: Readonly<Record<string, string | undefined>>,
-  out: Output,
-  cwd: string,
-  signal: AbortSignal,
-): Promise<number> {
+async function runDev(call: Invocation): Promise<number> {
+  const { flags, env, out, cwd, signal } = call
   const serverPort = port(text(flags, "port"), "port", out)
   const mongoPort = port(text(flags, "mongo-port"), "mongo-port", out)
   if (serverPort === false || mongoPort === false) return 1
