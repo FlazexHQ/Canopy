@@ -35,7 +35,6 @@ export function styleHookSingleton(): (styles: string, isDynamic?: boolean) => v
   const sheet = stylesheetSingleton()
   return (styles, isDynamic) => {
     const key = isDynamic === true ? styles : false
-    // biome-ignore lint/correctness/useExhaustiveDependencies: styles change only when dynamic, as upstream
     useEffect(() => {
       sheet.add(styles)
       return () => sheet.remove()

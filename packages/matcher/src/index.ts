@@ -28,8 +28,6 @@ export {
 } from "./numeric.ts"
 export {
   anyPathValue,
-  collectPathValues,
-  getPath,
   isArrayIndex,
   type LeafTest,
   splitPath,

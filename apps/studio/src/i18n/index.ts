@@ -35,19 +35,11 @@ export function t(key: MessageKey, params?: MessageParams): string {
 }
 
 const numberFormat = new Intl.NumberFormat(locale)
-const compactFormat = new Intl.NumberFormat(locale, {
-  notation: "compact",
-  maximumFractionDigits: 1,
-})
 const dateTimeFormat = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "medium" })
 const relativeFormat = new Intl.RelativeTimeFormat(locale, { numeric: "auto" })
 
 export function formatNumber(value: number): string {
   return numberFormat.format(value)
-}
-
-export function formatCompact(value: number): string {
-  return compactFormat.format(value)
 }
 
 export function formatDateTime(value: string | number | Date): string {

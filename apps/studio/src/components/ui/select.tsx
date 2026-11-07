@@ -5,7 +5,6 @@ import { cn } from "../../lib/utils.ts"
 
 export const Select = SelectPrimitive.Root
 export const SelectValue = SelectPrimitive.Value
-export const SelectGroup = SelectPrimitive.Group
 
 export function SelectTrigger({
   className,

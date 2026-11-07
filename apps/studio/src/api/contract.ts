@@ -85,7 +85,6 @@ export const collectionSchema = object({
   images: optional(literal("on", "off", "unknown")),
 })
 export type CollectionSummary = Infer<typeof collectionSchema>
-export const collectionsSchema = object({ collections: array(collectionSchema) })
 
 export const fieldInfoSchema = object({
   path: string,
@@ -93,7 +92,6 @@ export const fieldInfoSchema = object({
   frequency: optional(number),
 })
 export type FieldInfo = Infer<typeof fieldInfoSchema>
-export const collectionSchemaSchema = object({ fields: array(fieldInfoSchema) })
 
 export const indexSchema = object({
   name: string,
@@ -127,9 +125,6 @@ export const documentsPageSchema = object({
   next: optional(string),
 })
 export type DocumentsPage = Infer<typeof documentsPageSchema>
-export const documentResultSchema = object({ document: nullable(json) })
-export const bulkInsertResultSchema = object({ inserted: number })
-export const deleteResultSchema = object({ deleted: number })
 
 /** One policy as stored, with `using` and `check` as canonical EJSON strings. */
 export const storedPolicySchema = object({
@@ -167,8 +162,6 @@ export const storedCollectionSchema = object({
 })
 export type StoredCollection = Infer<typeof storedCollectionSchema>
 
-export const policyDocumentSchema = object({ published: nullable(storedCollectionSchema) })
-
 export const validationSchema = object({
   ok: boolean,
   errors: array(object({ path: optional(string), message: string })),
@@ -192,7 +185,6 @@ export const explainedPolicySchema = object({
   reason: string,
   resolved: optional(json),
 })
-export type ExplainedPolicy = Infer<typeof explainedPolicySchema>
 
 export const SIMULATED_OPERATIONS = ["read", "insert", "update", "delete"] as const
 export type SimulatedOperation = (typeof SIMULATED_OPERATIONS)[number]
@@ -212,8 +204,6 @@ export const simulationSchema = object({
 })
 export type Simulation = Infer<typeof simulationSchema>
 
-export const publishResultSchema = object({ version: number, hash: optional(string) })
-
 export const historyEntrySchema = object({
   version: number,
   hash: optional(string),
@@ -223,7 +213,6 @@ export const historyEntrySchema = object({
   policies: storedCollectionSchema,
 })
 export type HistoryEntry = Infer<typeof historyEntrySchema>
-export const historySchema = object({ versions: array(historyEntrySchema) })
 
 /** An app user of built in auth. Anonymous users have no email. */
 export interface AppUser {
@@ -342,7 +331,6 @@ export const apiKeySchema = object({
   revokedBy: optional(nullable(string)),
 })
 export type ApiKey = Infer<typeof apiKeySchema>
-export const apiKeysSchema = object({ keys: array(apiKeySchema) })
 export const createdKeySchema = object({ key: string, info: apiKeySchema })
 export type CreatedKey = Infer<typeof createdKeySchema>
 
@@ -531,11 +519,6 @@ export const auditEntrySchema = object({
   impersonating: optional(string),
 })
 export type AuditEntry = Infer<typeof auditEntrySchema>
-export const auditSchema = object({
-  entries: array(auditEntrySchema),
-  nextCursor: optional(nullable(string)),
-})
-
 /** Settings changed at runtime; everything else comes from the config file. */
 export interface Settings {
   /** How many days audit entries are kept; `null` keeps them forever. */
