@@ -91,17 +91,34 @@ interface DriverError {
   readonly code: unknown
   readonly codeName: unknown
   readonly cause: unknown
+  /** Whether the error lists servers and none of them ever answered (all still of type `Unknown`). */
+  readonly unanswered: boolean
 }
 
 function driverError(error: unknown): DriverError | undefined {
   if (typeof error !== "object" || error === null) return undefined
   const record = error as Record<string, unknown>
+  const reason = record["reason"]
+  const servers =
+    typeof reason === "object" && reason !== null
+      ? (reason as Record<string, unknown>)["servers"]
+      : undefined
+  const unanswered =
+    servers instanceof Map &&
+    servers.size > 0 &&
+    [...servers.values()].every(
+      (server: unknown) =>
+        typeof server === "object" &&
+        server !== null &&
+        (server as Record<string, unknown>)["type"] === "Unknown",
+    )
   return {
     name: typeof record["name"] === "string" ? record["name"] : "",
     message: typeof record["message"] === "string" ? record["message"] : "",
     code: record["code"],
     codeName: record["codeName"],
     cause: record["cause"],
+    unanswered,
   }
 }
 
@@ -213,7 +230,8 @@ const RULES: readonly MongoDiagnosticRule[] = [
   {
     matches: (error, text) =>
       /ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ETIMEDOUT|connect ECONN/i.test(text) ||
-      (error.name === "MongoServerSelectionError" && /connection .*(?:closed|refused)/i.test(text)),
+      (error.name === "MongoServerSelectionError" &&
+        (error.unanswered || /connection .*(?:closed|refused)/i.test(text))),
     diagnose: (_error, _text, target) => ({
       code: ErrorCode.Unavailable,
       summary: "cannot reach MongoDB",
