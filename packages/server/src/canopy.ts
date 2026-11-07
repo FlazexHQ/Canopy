@@ -8,6 +8,7 @@ import {
   resolveConfig,
 } from "@canopy/config"
 import { ContextResolver, PolicyEngine, type PolicySet } from "@canopy/policy"
+import { CloseCode } from "@canopy/protocol"
 import {
   type Attachment,
   attach,
@@ -29,6 +30,7 @@ import {
 import { createRestHandler, type RestHandler, toNodeListener } from "@canopy/rest"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
+import { ApiKeys } from "./api-keys.ts"
 import { migrateMeta } from "./migrations.ts"
 
 /** Options of {@link createCanopy}. */
@@ -58,6 +60,8 @@ export interface Canopy extends AsyncDisposable {
   readonly realtime: Realtime | undefined
   /** The policies in force (hot reloaded). */
   readonly policies: PolicyEngine
+  /** The API keys stored in the meta database. Keys from the config work next to them. */
+  readonly keys: ApiKeys
   /**
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
@@ -138,6 +142,8 @@ export async function createCanopy(
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const auth = jwtOptions(config)
   const keys = { publishable: config.keys.publishable, secret: config.keys.secret }
+  const apiKeys = new ApiKeys(meta, { logger })
+  const authenticator = new Authenticator(auth, keys, { store: apiKeys })
   const source: PolicySource =
     options.policies !== undefined
       ? staticPolicies(options.policies)
@@ -164,7 +170,7 @@ export async function createCanopy(
           database: config.mongodb.database,
           metaDatabase: config.mongodb.metaDatabase,
           policies: engine,
-          authenticator: new Authenticator(auth, keys),
+          authenticator,
           contexts,
           readLimits: { defaultLimit: restConfig.defaultLimit, maxLimit: restConfig.maxLimit },
           maxBodyBytes: restConfig.maxBodyBytes,
@@ -184,8 +190,7 @@ export async function createCanopy(
       mongo,
       database: config.mongodb.database,
       metaDatabase: config.mongodb.metaDatabase,
-      ...(auth === undefined ? {} : { auth }),
-      keys,
+      authenticator,
       policies: watch ? source : { load: () => source.load() },
       fullDocument: realtimeConfig.fullDocument,
       checkpoints: realtimeConfig.checkpoints,
@@ -209,6 +214,29 @@ export async function createCanopy(
       )
     }
   }
+
+  const revoked = (ids: ReadonlySet<string>): void => {
+    const closed = realtime?.closeConnections(
+      (principal) => principal.keyId !== undefined && ids.has(principal.keyId),
+      CloseCode.Forbidden,
+      "The API key was revoked",
+    )
+    if (closed !== undefined && closed > 0)
+      logger.info({ keys: [...ids], connections: closed }, "closed connections of revoked keys")
+  }
+  apiKeys.watch(
+    (id) => revoked(new Set([id])),
+    () => {
+      const used = (realtime?.connections() ?? []).flatMap((c) =>
+        c.keyId === undefined ? [] : [c.keyId],
+      )
+      apiKeys
+        .inactive(used)
+        .then(revoked, (error: unknown) =>
+          logger.error({ err: error }, "could not recheck API keys"),
+        )
+    },
+  )
 
   const transports =
     realtimeConfig === false ? new Set<string>() : new Set(realtimeConfig.transports)
@@ -240,6 +268,7 @@ export async function createCanopy(
     config,
     rest,
     realtime,
+    keys: apiKeys,
     get policies() {
       return engine()
     },
@@ -303,6 +332,7 @@ export async function createCanopy(
       http?.close()
       for (const attachment of attachments.splice(0)) await attachment.close()
       contexts.close()
+      await apiKeys.close()
       if (ownsMongo) await mongo.close()
     },
     async [Symbol.asyncDispose]() {

@@ -7,6 +7,12 @@ export {
   type ResolvedConfig,
 } from "@canopy/config"
 export {
+  type ApiKeyDocument,
+  type ApiKeyInfo,
+  ApiKeys,
+  type ApiKeysOptions,
+} from "./api-keys.ts"
+export {
   type Canopy,
   type CreateCanopyOptions,
   createCanopy,
