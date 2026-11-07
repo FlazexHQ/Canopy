@@ -10,7 +10,6 @@ import type {
 } from "@canopy/auth"
 import { ConflictError, NotFoundError, ValidationError } from "@canopy/protocol"
 import { MongoServerError } from "mongodb"
-import type { AuditLog } from "./audit.ts"
 import type { EngineApi, EngineSession, EngineUser } from "./engine.ts"
 
 const RESERVED_ROLES = new Set(["anon", "authenticated", "service", "public"])
@@ -101,7 +100,6 @@ function checkEmail(email: string): string {
 /** What {@link EngineUserAdmin} needs from the provider. */
 export interface UserAdminHooks {
   readonly engine: EngineApi
-  readonly audit: AuditLog
   readonly minPasswordLength: number
   /** Revokes every access token of the user issued until now. */
   revokeUser(sub: string): void
@@ -111,8 +109,8 @@ export interface UserAdminHooks {
 
 /**
  * User management on Better Auth's internal adapter. The admin plugin's own endpoints need a Better Auth admin
- * session, and Canopy admins are separate accounts, so `/admin/v1/users` goes through here. Multi document
- * changes run in one transaction.
+ * session, and Canopy admins are separate accounts, so `/admin/v1/users` goes through here (and audits each
+ * call with the admin who made it). Multi document changes run in one transaction.
  */
 export class EngineUserAdmin implements UserAdmin {
   private readonly hooks: UserAdminHooks
@@ -197,11 +195,6 @@ export class EngineUserAdmin implements UserAdmin {
         throw new ConflictError("A user with this email exists", { cause: error })
       throw error
     }
-    this.hooks.audit.record({
-      action: "auth.admin.user_created",
-      actor: { type: "admin" },
-      target: { type: "user", id: created.id },
-    })
     return toAuthUser(created)
   }
 
@@ -251,12 +244,6 @@ export class EngineUserAdmin implements UserAdmin {
         throw new ConflictError("A user with this email exists", { cause: error })
       throw error
     }
-    this.hooks.audit.record({
-      action: "auth.admin.user_updated",
-      actor: { type: "admin" },
-      target: { type: "user", id },
-      details: { fields: [...Object.keys(data), ...(hash === undefined ? [] : ["password"])] },
-    })
     return toAuthUser(updated)
   }
 
@@ -276,12 +263,6 @@ export class EngineUserAdmin implements UserAdmin {
       return banned
     })
     this.hooks.revokeUser(id)
-    this.hooks.audit.record({
-      action: "auth.admin.user_banned",
-      actor: { type: "admin" },
-      target: { type: "user", id },
-      ...(options.reason === undefined ? {} : { details: { reason: options.reason } }),
-    })
     return toAuthUser(user)
   }
 
@@ -293,11 +274,6 @@ export class EngineUserAdmin implements UserAdmin {
       banReason: null,
       banExpires: null,
     })) as EngineUser
-    this.hooks.audit.record({
-      action: "auth.admin.user_unbanned",
-      actor: { type: "admin" },
-      target: { type: "user", id },
-    })
     return toAuthUser(user)
   }
 
@@ -310,11 +286,6 @@ export class EngineUserAdmin implements UserAdmin {
       await context.internalAdapter.deleteUser(id)
     })
     this.hooks.revokeUser(id)
-    this.hooks.audit.record({
-      action: "auth.admin.user_deleted",
-      actor: { type: "admin" },
-      target: { type: "user", id },
-    })
     return true
   }
 
@@ -333,12 +304,6 @@ export class EngineUserAdmin implements UserAdmin {
       sessionId === undefined ? sessions : sessions.filter((session) => session.id === sessionId)
     if (sessionId !== undefined && chosen.length === 0) throw new NotFoundError("No such session")
     for (const session of chosen) await context.internalAdapter.deleteSession(session.token)
-    this.hooks.audit.record({
-      action: "auth.admin.sessions_revoked",
-      actor: { type: "admin" },
-      target: { type: "user", id },
-      details: { count: chosen.length, ...(sessionId === undefined ? {} : { sessionId }) },
-    })
     return chosen.length
   }
 
@@ -364,11 +329,6 @@ export class EngineUserAdmin implements UserAdmin {
         })
     }
     await this.hooks.sendInvite(email, input.redirectTo ?? "/")
-    this.hooks.audit.record({
-      action: "auth.admin.user_invited",
-      actor: { type: "admin" },
-      target: { type: "user", id: user.id },
-    })
     return user
   }
 }

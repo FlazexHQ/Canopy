@@ -1,5 +1,6 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import { Authenticator, type JwtAuthOptions } from "@canopy/auth"
+import type { BuiltinAuth } from "@canopy/auth-builtin"
 import {
   type CanopyConfigInput,
   type ConfigFunction,
@@ -37,6 +38,7 @@ import { SecretBox } from "./admin/secrets.ts"
 import { SettingsStore } from "./admin/settings.ts"
 import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
+import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
@@ -92,6 +94,8 @@ export interface Canopy extends AsyncDisposable {
   readonly rest: RestHandler | undefined
   /** The realtime engine, when realtime is on. */
   readonly realtime: Realtime | undefined
+  /** Built in auth, when the config chooses `builtin()`; it serves `/auth/v1`. */
+  readonly auth: BuiltinAuth | undefined
   /** The policies in force (hot reloaded). */
   readonly policies: PolicyEngine
   /** The API keys stored in the meta database. Keys from the config work next to them. */
@@ -102,7 +106,12 @@ export interface Canopy extends AsyncDisposable {
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
    */
-  fetch(request: Request, fallback?: FetchHandler): Promise<Response>
+  fetch(
+    request: Request,
+    fallback?: FetchHandler,
+    /** `ip` is the peer address, used for auth rate limits; forwarded headers count only from trusted proxies. */
+    info?: { readonly ip?: string },
+  ): Promise<Response>
   /** A `node:http` and Express style listener with the same routes, streaming SSE responses. */
   node(options?: {
     readonly fallback?: (request: IncomingMessage, response: ServerResponse) => void
@@ -122,8 +131,7 @@ export interface Canopy extends AsyncDisposable {
 function jwtOptions(config: ResolvedConfig): JwtAuthOptions | undefined {
   const auth = config.auth
   if (auth === undefined) return undefined
-  if (auth.kind === "builtin")
-    throw new TypeError("built in auth is not available in this build yet")
+  if (auth.kind === "builtin") return undefined
   return {
     issuer: auth.issuer,
     audience: auth.audience,
@@ -178,7 +186,11 @@ export async function createCanopy(
   const meta = mongo.db(config.mongodb.metaDatabase)
   if (options.migrate !== false) await migrateMeta(meta, { logger })
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
-  const auth = jwtOptions(config)
+  const builtinAuth =
+    config.auth?.kind === "builtin"
+      ? await startBuiltinAuth(config, config.auth, mongo, logger)
+      : undefined
+  const auth = builtinAuth?.verification ?? jwtOptions(config)
   const keys = { publishable: config.keys.publishable, secret: config.keys.secret }
   const apiKeys = new ApiKeys(meta, { logger })
   const authenticator = new Authenticator(auth, keys, { store: apiKeys })
@@ -277,6 +289,19 @@ export async function createCanopy(
     },
   )
 
+  builtinAuth?.onRevocation((revocation) => {
+    const closed = realtime?.closeConnections(
+      (principal) => revokes(revocation, principal),
+      CloseCode.Unauthorized,
+      "The session was revoked",
+    )
+    if (closed !== undefined && closed > 0)
+      logger.info(
+        { sub: revocation.sub, connections: closed },
+        "closed connections of a revoked session",
+      )
+  })
+
   const audit = new AuditLog(meta)
   const policyStore = new PolicyStore({
     client: mongo,
@@ -322,6 +347,7 @@ export async function createCanopy(
             }),
           realtime,
           logger,
+          ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),
         })
   if (adminApi !== undefined) {
     const token = await accounts.createSetupToken()
@@ -420,6 +446,13 @@ export async function createCanopy(
     return undefined
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
+  const isAuth = (path: string): boolean =>
+    builtinAuth !== undefined &&
+    (path === "/auth/v1" || path.startsWith("/auth/v1/") || path === "/.well-known/jwks.json")
+  const authFetch = (request: Request, info: { readonly ip?: string } = {}): Promise<Response> => {
+    if (builtinAuth === undefined) return Promise.resolve(plain(404, "Not found"))
+    return builtinAuth.handler(request, info.ip === undefined ? {} : { clientAddress: info.ip })
+  }
 
   const fetch = async (
     request: Request,
@@ -428,6 +461,7 @@ export async function createCanopy(
   ): Promise<Response> => {
     const path = new URL(request.url).pathname
     if (isAdmin(path)) return privateAdmin ? plain(404, "Not found") : adminFetch(request, info)
+    if (isAuth(path)) return authFetch(request, info)
     if (rest !== undefined && isRest(path)) return rest.fetch(request)
     if (http?.matches(request) === true) return http.fetch(request)
     return health(path) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
@@ -437,18 +471,21 @@ export async function createCanopy(
     config,
     rest,
     realtime,
+    auth: builtinAuth,
     keys: apiKeys,
     admin: adminSurface,
     get policies() {
       return engine()
     },
-    fetch: (request, fallback) => fetch(request, fallback),
+    fetch: (request, fallback, info) => fetch(request, fallback, info),
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
       const admin = nodeBridge(adminFetch)
+      const authListener = nodeBridge(authFetch)
       return (request, response) => {
         const path = new URL(request.url ?? "/", "http://localhost").pathname
+        if (isAuth(path)) return authListener(request, response)
         if (isAdmin(path)) {
           if (!privateAdmin) return admin(request, response)
           response.statusCode = 404
@@ -499,7 +536,8 @@ export async function createCanopy(
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
           const path = new URL(request.url).pathname
-          if (isAdmin(path)) return fetch(request, bunOptions.fallback, peer(request, server))
+          if (isAdmin(path) || isAuth(path))
+            return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) return rest.fetch(request)
           if (!transports.has("websocket") && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)
@@ -524,6 +562,7 @@ export async function createCanopy(
       for (const attachment of attachments.splice(0)) await attachment.close()
       contexts.close()
       await apiKeys.close()
+      await builtinAuth?.close()
       if (ownsMongo) await mongo.close()
     },
     async [Symbol.asyncDispose]() {

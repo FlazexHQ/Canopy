@@ -235,7 +235,6 @@ class BetterAuthProvider implements BuiltinAuth {
     this.engine = engine
     this.users = new EngineUserAdmin({
       engine,
-      audit: this.audit,
       minPasswordLength: settings.emailPassword.minPasswordLength,
       revokeUser: (sub) => this.revoke({ kind: "user", sub }),
       sendInvite: async (email, redirectTo) => {
@@ -315,21 +314,8 @@ class BetterAuthProvider implements BuiltinAuth {
   get keys(): BuiltinAuth["keys"] {
     return {
       list: () => this.keyring.list(),
-      rotate: async () => {
-        const keys = await this.keyring.rotate()
-        this.audit.record({ action: "auth.admin.keys_rotated", actor: { type: "admin" } })
-        return keys
-      },
-      revoke: async (kid) => {
-        const done = await this.keyring.revoke(kid)
-        if (done)
-          this.audit.record({
-            action: "auth.admin.key_revoked",
-            actor: { type: "admin" },
-            target: { type: "signing_key", id: kid },
-          })
-        return done
-      },
+      rotate: () => this.keyring.rotate(),
+      revoke: (kid) => this.keyring.revoke(kid),
     }
   }
 

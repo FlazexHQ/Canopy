@@ -516,7 +516,6 @@ describeMongo("built in auth flows", () => {
       "auth.session_ended",
       "auth.anonymous_upgraded",
       "auth.claims_hook_failed",
-      "auth.admin.user_updated",
     ])
       expect(actions).toContain(action)
     const failed = await h.side

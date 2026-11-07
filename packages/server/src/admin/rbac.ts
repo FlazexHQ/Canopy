@@ -38,6 +38,10 @@ export type Permission =
   | "admins.manage"
   /** Creating, changing and removing owners. */
   | "admins.manageOwners"
+  /** App users of built in auth, their sessions and signing keys (read only). */
+  | "users.read"
+  /** Creating, changing, banning and deleting app users, and ending their sessions. */
+  | "users.manage"
 
 const DEVELOPER: ReadonlySet<Permission> = new Set<Permission>([
   "session",
@@ -55,6 +59,7 @@ const DEVELOPER: ReadonlySet<Permission> = new Set<Permission>([
   "realtime.stats",
   "realtime.inspect",
   "ops.doctor",
+  "users.read",
 ])
 
 /** What developers lose when `CANOPY_ENV=production`: publishing and data edits. */

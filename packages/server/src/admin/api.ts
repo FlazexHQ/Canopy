@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { UserAdmin } from "@canopy/auth"
 import type { ResolvedConfig } from "@canopy/config"
 import {
   type ContextDefinitions,
@@ -91,6 +92,18 @@ export interface AdminApiOptions {
   readonly logger: Logger
   /** Origins allowed to send state changing requests, besides the request's own origin. */
   readonly origins?: readonly string[]
+  /** Built in auth, when the config chooses it: serves `/admin/v1/users` and `/admin/v1/auth/keys`. */
+  readonly auth?: AdminAuth
+}
+
+/** What the admin API needs from built in auth. */
+export interface AdminAuth {
+  readonly users: UserAdmin
+  readonly keys: {
+    list(): readonly unknown[]
+    rotate(): Promise<readonly unknown[]>
+    revoke(kid: string): Promise<boolean>
+  }
 }
 
 /** The admin API: a Web standard handler for `/admin/v1/*`. */
@@ -355,6 +368,8 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
           "admins.read",
           "admins.manage",
           "admins.manageOwners",
+          "users.read",
+          "users.manage",
         ] as const
       ).filter((permission) => can(context.session.user.role, permission, environment)),
     }),
@@ -1055,6 +1070,248 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       return json(revoked)
     },
     "key.revoke",
+  )
+
+  // App users (built in auth)
+
+  const authOf = (): AdminAuth => {
+    if (options.auth === undefined) throw new NotFoundError("Built in auth is not configured")
+    return options.auth
+  }
+  const userOf = async (context: Context) => {
+    const id = context.params["id"] ?? ""
+    const user = await authOf().users.get(id)
+    if (user === undefined) throw new NotFoundError("No such user")
+    return user
+  }
+  const metadata = optional(document())
+  const roleList = optional(array(string({ min: 1, max: 200 }), { max: 64 }))
+
+  route("GET", "users", "users.read", async (context) => {
+    const limit = context.url.searchParams.get("limit")
+    const offset = context.url.searchParams.get("offset")
+    const email = context.url.searchParams.get("email")
+    const page = await authOf().users.list({
+      ...(limit === null ? {} : { limit: Number(limit) || 50 }),
+      ...(offset === null ? {} : { offset: Number(offset) || 0 }),
+      ...(email === null ? {} : { email }),
+    })
+    return json({ data: page.users, total: page.total })
+  })
+
+  route(
+    "POST",
+    "users/invite",
+    "users.manage",
+    async (context) => {
+      const body = object({
+        email: string({ min: 3, max: 320 }),
+        redirectTo: optional(string({ min: 1, max: 2000 })),
+        roles: roleList,
+        appMetadata: metadata,
+      }).parse(await context.body())
+      const user = await authOf().users.invite({
+        email: body.email,
+        ...(body.redirectTo === undefined ? {} : { redirectTo: body.redirectTo }),
+        ...(body.roles === undefined ? {} : { roles: body.roles }),
+        ...(body.appMetadata === undefined ? {} : { appMetadata: body.appMetadata }),
+      })
+      await context.audit({ action: "user.invite", target: { userId: user.id } })
+      return json(user, 201)
+    },
+    "user.invite",
+  )
+
+  route(
+    "POST",
+    "users",
+    "users.manage",
+    async (context) => {
+      const body = object({
+        email: string({ min: 3, max: 320 }),
+        password: optional(string({ min: 1, max: 1024 })),
+        name: optional(string({ max: 200 })),
+        emailVerified: optional(boolean()),
+        roles: roleList,
+        appMetadata: metadata,
+        userMetadata: metadata,
+      }).parse(await context.body())
+      const user = await authOf().users.create({
+        email: body.email,
+        ...(body.password === undefined ? {} : { password: body.password }),
+        ...(body.name === undefined ? {} : { name: body.name }),
+        ...(body.emailVerified === undefined ? {} : { emailVerified: body.emailVerified }),
+        ...(body.roles === undefined ? {} : { roles: body.roles }),
+        ...(body.appMetadata === undefined ? {} : { appMetadata: body.appMetadata }),
+        ...(body.userMetadata === undefined ? {} : { userMetadata: body.userMetadata }),
+      })
+      await context.audit({ action: "user.create", target: { userId: user.id } })
+      return json(user, 201)
+    },
+    "user.create",
+  )
+
+  route("GET", "users/:id", "users.read", async (context) => json(await userOf(context)))
+
+  route(
+    "PATCH",
+    "users/:id",
+    "users.manage",
+    async (context) => {
+      const before = await userOf(context)
+      const body = object({
+        email: optional(string({ min: 3, max: 320 })),
+        password: optional(string({ min: 1, max: 1024 })),
+        name: optional(string({ max: 200 })),
+        emailVerified: optional(boolean()),
+        roles: roleList,
+        appMetadata: metadata,
+        userMetadata: metadata,
+      }).parse(await context.body())
+      const after = await authOf().users.update(before.id, {
+        ...(body.email === undefined ? {} : { email: body.email }),
+        ...(body.password === undefined ? {} : { password: body.password }),
+        ...(body.name === undefined ? {} : { name: body.name }),
+        ...(body.emailVerified === undefined ? {} : { emailVerified: body.emailVerified }),
+        ...(body.roles === undefined ? {} : { roles: body.roles }),
+        ...(body.appMetadata === undefined ? {} : { appMetadata: body.appMetadata }),
+        ...(body.userMetadata === undefined ? {} : { userMetadata: body.userMetadata }),
+      })
+      await context.audit({
+        action: "user.update",
+        target: { userId: before.id },
+        diff: {
+          before: { roles: before.roles, appMetadata: before.appMetadata, email: before.email },
+          after: { roles: after.roles, appMetadata: after.appMetadata, email: after.email },
+        },
+        details: {
+          fields: Object.keys(body).map((key) => (key === "password" ? "password" : key)),
+        },
+      })
+      return json(after)
+    },
+    "user.update",
+  )
+
+  route(
+    "POST",
+    "users/:id/ban",
+    "users.manage",
+    async (context) => {
+      const user = await userOf(context)
+      const body = object({
+        reason: optional(string({ max: 500 })),
+        until: optional(string({ min: 1, max: 40 })),
+      }).parse(await context.body())
+      const until = body.until === undefined ? undefined : new Date(body.until)
+      if (until !== undefined && Number.isNaN(until.getTime()))
+        throw new ValidationError("until must be an ISO date")
+      realtime?.closeConnections((principal) => principal.subject === user.id, 4003, "user banned")
+      const banned = await authOf().users.ban(user.id, {
+        ...(body.reason === undefined ? {} : { reason: body.reason }),
+        ...(until === undefined ? {} : { until }),
+      })
+      await context.audit({
+        action: "user.ban",
+        target: { userId: user.id },
+        details: { reason: body.reason },
+      })
+      return json(banned)
+    },
+    "user.ban",
+  )
+
+  route(
+    "POST",
+    "users/:id/unban",
+    "users.manage",
+    async (context) => {
+      const user = await userOf(context)
+      const unbanned = await authOf().users.unban(user.id)
+      await context.audit({ action: "user.unban", target: { userId: user.id } })
+      return json(unbanned)
+    },
+    "user.unban",
+  )
+
+  route(
+    "DELETE",
+    "users/:id",
+    "users.manage",
+    async (context) => {
+      const user = await userOf(context)
+      realtime?.closeConnections((principal) => principal.subject === user.id, 4003, "user deleted")
+      await authOf().users.delete(user.id)
+      await context.audit({ action: "user.delete", target: { userId: user.id, email: user.email } })
+      return new Response(null, { status: 204 })
+    },
+    "user.delete",
+  )
+
+  route("GET", "users/:id/sessions", "users.read", async (context) => {
+    const user = await userOf(context)
+    return json({ data: await authOf().users.listSessions(user.id) })
+  })
+
+  route(
+    "DELETE",
+    "users/:id/sessions",
+    "users.manage",
+    async (context) => {
+      const user = await userOf(context)
+      const count = await authOf().users.revokeSessions(user.id)
+      await context.audit({
+        action: "user.sessions.revoke",
+        target: { userId: user.id },
+        details: { count },
+      })
+      return json({ revoked: count })
+    },
+    "user.sessions.revoke",
+  )
+
+  route(
+    "DELETE",
+    "users/:id/sessions/:sid",
+    "users.manage",
+    async (context) => {
+      const user = await userOf(context)
+      const sid = context.params["sid"] ?? ""
+      const count = await authOf().users.revokeSessions(user.id, sid)
+      await context.audit({
+        action: "user.sessions.revoke",
+        target: { userId: user.id, sessionId: sid },
+      })
+      return json({ revoked: count })
+    },
+    "user.sessions.revoke",
+  )
+
+  route("GET", "auth/keys", "settings.read", async () => json({ data: authOf().keys.list() }))
+
+  route(
+    "POST",
+    "auth/keys/rotate",
+    "settings.write",
+    async (context) => {
+      const keys = await authOf().keys.rotate()
+      await context.audit({ action: "auth.keys.rotate" })
+      return json({ data: keys })
+    },
+    "auth.keys.rotate",
+  )
+
+  route(
+    "DELETE",
+    "auth/keys/:kid",
+    "settings.write",
+    async (context) => {
+      const kid = context.params["kid"] ?? ""
+      if (!(await authOf().keys.revoke(kid))) throw new NotFoundError("No such signing key")
+      await context.audit({ action: "auth.keys.revoke", target: { kid } })
+      return json({ data: authOf().keys.list() })
+    },
+    "auth.keys.revoke",
   )
 
   // Realtime

@@ -1,7 +1,14 @@
+export type {
+  BuiltinAuth,
+  ClaimsHook,
+  ClaimsHookInput,
+  ClaimsHookResult,
+} from "@canopy/auth-builtin"
 export {
   type CanopyConfigInput,
   ConfigError,
   defineConfig,
+  email,
   env,
   external,
   type ResolvedConfig,
@@ -34,6 +41,7 @@ export {
   type AuditQuery,
   type RequestOrigin,
 } from "./audit.ts"
+export { builtin } from "./builtin-auth.ts"
 export {
   type AdminSurface,
   type Canopy,

@@ -9,6 +9,7 @@
   "include": ["src"],
   "references": [
     { "path": "../auth" },
+    { "path": "../auth-builtin" },
     { "path": "../config" },
     { "path": "../policy" },
     { "path": "../protocol" },
