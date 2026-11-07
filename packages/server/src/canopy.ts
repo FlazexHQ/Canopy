@@ -45,6 +45,7 @@ import { problem, STUDIO_CSP, secure } from "./admin/http.ts"
 import { addressAllowed } from "./admin/ip.ts"
 import { SecretBox } from "./admin/secrets.ts"
 import { DEFAULT_SETTINGS, SettingsStore } from "./admin/settings.ts"
+import { AdminTokens } from "./admin/tokens.ts"
 import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
 import { BUILTIN_APP_NAME, revokes, startBuiltinAuth } from "./builtin-auth.ts"
@@ -86,6 +87,8 @@ export interface CreateCanopyOptions {
 export interface AdminSurface {
   readonly api: AdminApi | undefined
   readonly accounts: AdminAccounts
+  /** Long lived admin API tokens for CI, in `canopy.admin_tokens`. */
+  readonly tokens: AdminTokens
   readonly policies: PolicyStore
   readonly audit: AuditLog
   /** Runtime settings; `refresh()` rereads them at once instead of at the next periodic refresh. */
@@ -93,8 +96,9 @@ export interface AdminSurface {
   /** Sampled request logs, served by `GET /admin/v1/logs`. */
   readonly requestLog: RequestLog
   /**
-   * Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address, checked against
-   * the `adminAllowlist` setting (forwarded headers are not trusted here).
+   * Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address; when it is one of
+   * `server.trustedProxies`, the client address comes from `X-Forwarded-For`. The client address is checked
+   * against the `adminAllowlist` setting.
    */
   fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** The same as a `node:http` listener. */
@@ -399,6 +403,7 @@ export async function createCanopy(
     secrets: new SecretBox(config.masterKey),
     environment: config.environment,
   })
+  const adminTokens = new AdminTokens({ meta, accounts, audit })
   const adminApi =
     options.admin === false
       ? undefined
@@ -406,6 +411,7 @@ export async function createCanopy(
           config,
           client: mongo,
           accounts,
+          tokens: adminTokens,
           audit,
           policies: policyStore,
           keys: apiKeys,
@@ -477,6 +483,7 @@ export async function createCanopy(
   const adminSurface: AdminSurface = {
     api: adminApi,
     accounts,
+    tokens: adminTokens,
     policies: policyStore,
     audit,
     settings,

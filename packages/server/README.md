@@ -134,6 +134,37 @@ not listed, or whose address is unknown, gets `403`. Saving a list that does not
 is refused, so it cannot lock you out. If it does anyway (an address change), clear it in the meta
 database: `db.settings.updateOne({ _id: "settings" }, { $set: { adminAllowlist: [] } })`.
 
+## Admin API tokens
+
+Sessions from Studio or `POST /admin/v1/login` expire after 12 hours (1 hour idle), so CI jobs use admin API
+tokens instead. A signed in admin creates one for a role no higher than their own:
+
+| Method and path               | What                                                                                                                                    |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /admin/v1/tokens`       | `{ "name": "ci", "role": "developer", "expiresInDays": 90 }`; `role` defaults to yours, the expiry is optional. Answers the token once. |
+| `GET /admin/v1/tokens`        | Your tokens, with `prefix`, `role`, `expiresAt`, `lastUsedAt` and `active`; `?all=true` lists everyone's (owners and admins).           |
+| `DELETE /admin/v1/tokens/:id` | Revokes a token at once. Owners and admins may revoke other admins' tokens; only owners revoke owners' tokens.                          |
+
+Tokens start with `canopy_pat_` and are stored only as a SHA-256 hash in `canopy.admin_tokens`. They are
+accepted only as `Authorization: Bearer` on `/admin/v1`, never as a cookie (so there is no CSRF surface) and
+never on the app routes (`/rest/v1`, `/realtime/v1`, `/auth/v1`). A token acts as its admin with the lower
+of its own role and the admin's current role, so demoting an admin demotes their tokens, and disabling or
+removing the admin stops them. Tokens cannot create or revoke tokens, change passwords or TOTP, or manage
+admins, so a leaked token cannot outlive its revocation. Every use is written to the audit log as
+`admin_token.use` (refused uses with the reason: `revoked`, `expired`, `admin disabled`), changes made with a
+token carry `actor.tokenId`, and `lastUsedAt` is updated at most once a minute.
+
+From CI, pass the project URL and the token as secrets; `--env` then works without `canopy login`. With
+`CANOPY_ENV=production` developers may not publish, so a token that pushes policies there needs the `admin`
+role:
+
+```yaml
+- run: bunx canopy policies push --env production --comment "${{ github.sha }}"
+  env:
+    CANOPY_ADMIN_URL: https://canopy.example.com
+    CANOPY_ADMIN_TOKEN: ${{ secrets.CANOPY_ADMIN_TOKEN }}
+```
+
 ## Shutdown
 
 On SIGTERM or SIGINT the server fails readiness, tells every realtime client to reconnect within

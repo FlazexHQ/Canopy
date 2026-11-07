@@ -8,6 +8,8 @@ export interface Actor {
   readonly id: string
   readonly email?: string
   readonly role?: string
+  /** The admin API token the admin acted through. */
+  readonly tokenId?: string
 }
 
 /** Where a request came from, kept with its audit entry. */

@@ -33,6 +33,7 @@ suite("meta migrations", () => {
     const names = (await meta.listCollections().toArray()).map((c) => c.name).sort()
     for (const collection of [
       "admin_sessions",
+      "admin_tokens",
       "admin_users",
       "api_keys",
       "audit_log",
@@ -50,6 +51,10 @@ suite("meta migrations", () => {
     expect(sessions.find((index) => index.name === "ttl_expires")?.expireAfterSeconds).toBe(0)
     const requestLog = await meta.collection("request_log").indexes()
     expect(requestLog.find((index) => index.name === "ttl_at")?.expireAfterSeconds).toBe(7 * 86_400)
+    await meta.collection("admin_tokens").insertOne({ hash: "t1" })
+    await expect(meta.collection("admin_tokens").insertOne({ hash: "t1" })).rejects.toMatchObject({
+      code: 11000,
+    })
     const revocations = await meta.collection("revocations").indexes()
     expect(revocations.find((index) => index.name === "ttl_expires")?.expireAfterSeconds).toBe(0)
     await meta.collection("admin_users").insertOne({ email: "a@example.com" })

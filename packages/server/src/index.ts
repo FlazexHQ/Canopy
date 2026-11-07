@@ -26,6 +26,14 @@ export { API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, STUDIO_CSP } from ".
 export { ADMIN_ROLES, type AdminRole, can, isAdminRole, type Permission } from "./admin/rbac.ts"
 export { SecretBox } from "./admin/secrets.ts"
 export { type Settings, SettingsStore } from "./admin/settings.ts"
+export {
+  ADMIN_TOKEN_PREFIX,
+  type AdminTokenDocument,
+  type AdminTokenInfo,
+  AdminTokens,
+  type AdminTokensOptions,
+  type CreatedAdminToken,
+} from "./admin/tokens.ts"
 export { generateTotpSecret, hotp, totp, totpUri, verifyTotp } from "./admin/totp.ts"
 export type { AdminEventTrace, MaskedOutcome } from "./admin/trace.ts"
 export {

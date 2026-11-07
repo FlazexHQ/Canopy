@@ -80,11 +80,22 @@ export interface AdminUser {
 
 /** A valid session with its account. */
 export interface AdminSession {
+  /** The session id, or the token id for `token` sessions. */
   readonly id: string
+  /** The account; for a token, its role is the lower of the token's and the account's. */
   readonly user: AdminUser
-  readonly transport: "cookie" | "bearer"
+  /** `token` for admin API tokens, which are accepted as `Authorization: Bearer` only. */
+  readonly transport: "cookie" | "bearer" | "token"
   readonly csrfHash: string
-  readonly expiresAt: Date
+  /** Absent for tokens that never expire. */
+  readonly expiresAt: Date | undefined
+  /** The admin API token behind a `token` session. */
+  readonly token?: {
+    readonly id: string
+    readonly name: string
+    readonly prefix: string
+    readonly role: AdminRole
+  }
 }
 
 /** The secret an authenticator app needs, shown once at enrollment. */
@@ -156,9 +167,15 @@ function view(doc: AdminUserDocument): AdminUser {
   }
 }
 
-/** The audit actor of an account. */
-export function actorOf(user: AdminUser): Actor {
-  return { type: "admin", id: user.id, email: user.email, role: user.role }
+/** The audit actor of an account, and of the admin API token it acts through when there is one. */
+export function actorOf(user: AdminUser, tokenId?: string): Actor {
+  return {
+    type: "admin",
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    ...(tokenId === undefined ? {} : { tokenId }),
+  }
 }
 
 /**

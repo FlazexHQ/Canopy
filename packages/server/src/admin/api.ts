@@ -79,6 +79,7 @@ import {
 import { addressAllowed } from "./ip.ts"
 import { ADMIN_ROLES, can, type Permission } from "./rbac.ts"
 import { type SettingsStore, settingsPatch } from "./settings.ts"
+import { AdminTokens, roleAtMost } from "./tokens.ts"
 import { maskTrace } from "./trace.ts"
 
 /** Everything the admin API works on. */
@@ -90,6 +91,8 @@ export interface AdminApiOptions {
   readonly policies: PolicyStore
   readonly keys: ApiKeys
   readonly settings: SettingsStore
+  /** Admin API tokens; by default stored in the meta database of `config`. */
+  readonly tokens?: AdminTokens
   /** Serves `GET /admin/v1/logs`; without it the route answers `404`. */
   readonly requestLog?: RequestLog
   /** The policies in force. */
@@ -183,6 +186,13 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
   const { config, accounts, audit, policies, keys, settings, realtime } = options
   const environment = config.environment
   const production = environment === "production"
+  const tokens =
+    options.tokens ??
+    new AdminTokens({
+      meta: options.client.db(config.mongodb.metaDatabase),
+      accounts,
+      audit,
+    })
   const app = options.client.db(config.mongodb.database)
   const schemas = new SchemaCache(app)
   const idTypes: Readonly<Record<string, IdType>> = Object.fromEntries(
@@ -358,7 +368,8 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     json({
       user: context.session.user,
       environment,
-      expiresAt: context.session.expiresAt,
+      expiresAt: context.session.expiresAt ?? null,
+      ...(context.session.token === undefined ? {} : { token: context.session.token }),
       permissions: (
         [
           "collections.read",
@@ -490,6 +501,60 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       return new Response(null, { status: 204 })
     },
     "admin.remove",
+  )
+
+  // Admin API tokens
+
+  route("GET", "tokens", "session", async (context) => {
+    const all = context.url.searchParams.get("all") === "true"
+    if (all) require(context, "admins.read")
+    return json({ data: await tokens.list(all ? undefined : context.session.user.id) })
+  })
+
+  route(
+    "POST",
+    "tokens",
+    "session",
+    async (context) => {
+      const body = object({
+        name: string({ min: 1, max: 200 }),
+        role: optional(oneOf(...ADMIN_ROLES)),
+        expiresInDays: optional(integer({ min: 1, max: 3650 })),
+      }).parse(await context.body())
+      const role = body.role ?? context.session.user.role
+      if (!roleAtMost(role, context.session.user.role)) {
+        await context.audit({
+          action: "admin_token.create",
+          outcome: "denied",
+          target: { name: body.name, role },
+        })
+        throw new ForbiddenError(
+          `A ${context.session.user.role} may not create a token for the ${role} role`,
+        )
+      }
+      const created = await tokens.create(context.session, body, context.origin)
+      return json({ token: created.token, ...created.info }, 201)
+    },
+    "admin_token.create",
+  )
+
+  route(
+    "DELETE",
+    "tokens/:id",
+    "session",
+    async (context) =>
+      json(
+        await tokens.revoke(
+          context.session,
+          context.params["id"] ?? "",
+          {
+            others: can(context.session.user.role, "admins.manage", environment),
+            owners: can(context.session.user.role, "admins.manageOwners", environment),
+          },
+          context.origin,
+        ),
+      ),
+    "admin_token.revoke",
   )
 
   // Collections
@@ -1667,11 +1732,15 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     return { params: {}, allowed }
   }
 
-  const authenticate = async (request: Request): Promise<AdminSession | undefined> => {
+  const authenticate = async (
+    request: Request,
+    origin: RequestOrigin,
+  ): Promise<AdminSession | undefined> => {
     const header = request.headers.get("authorization")
     if (header !== null) {
       const bearer = /^Bearer[ ]+(\S+)$/i.exec(header)?.[1]
       if (bearer === undefined) return undefined
+      if (AdminTokens.isToken(bearer)) return tokens.authenticate(bearer, origin)
       const session = await accounts.session(bearer)
       return session?.transport === "bearer" ? session : undefined
     }
@@ -1713,7 +1782,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
 
     let session: AdminSession | undefined
     if (current.permission !== "public") {
-      session = await authenticate(request)
+      session = await authenticate(request, origin)
       if (session === undefined) {
         throw new CanopyError(ErrorCode.Unauthorized, "Log in to use the admin API")
       }
@@ -1735,7 +1804,9 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     let audited = false
     let bodyCache: Promise<unknown> | undefined
     const actor: Actor =
-      session === undefined ? { type: "system", id: "anonymous" } : actorOf(session.user)
+      session === undefined
+        ? { type: "system", id: "anonymous" }
+        : actorOf(session.user, session.transport === "token" ? session.id : undefined)
     const context: Context = {
       request,
       url,
@@ -1751,6 +1822,32 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
         audited = true
         await audit.record({ ...input, actor, origin })
       },
+    }
+
+    if (session?.transport === "token") {
+      await audit.record({
+        action: "admin_token.use",
+        actor,
+        target: { tokenId: session.id },
+        origin,
+        details: { method: request.method, path: url.pathname },
+      })
+      if (SESSION_ONLY.has(`${current.method} ${current.path.join("/")}`)) {
+        if (mutating)
+          await audit.record({
+            action: current.action ?? `${request.method} ${url.pathname}`,
+            actor,
+            outcome: "denied",
+            target: found.params,
+            origin,
+            details: { reason: "session_required" },
+          })
+        throw new CanopyError(
+          ErrorCode.Forbidden,
+          "Admin API tokens cannot manage credentials or admins; sign in to do this",
+          { details: { reason: "session_required" } },
+        )
+      }
     }
 
     if (session !== undefined) {
@@ -1839,6 +1936,24 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
   }
 }
 
+/**
+ * Routes admin API tokens may not use: credentials and admin accounts, so a leaked token can neither
+ * outlive its revocation through new credentials nor change who may do what.
+ */
+const SESSION_ONLY: ReadonlySet<string> = new Set([
+  "POST logout",
+  "POST me/password",
+  "POST me/totp",
+  "POST me/totp/confirm",
+  "POST admins",
+  "PATCH admins/:id",
+  "POST admins/:id/reset-totp",
+  "DELETE admins/:id",
+  "GET tokens",
+  "POST tokens",
+  "DELETE tokens/:id",
+])
+
 /** Actions whose stores write their own audit entries (inside their transactions). */
 const selfAudited: ReadonlySet<string> = new Set([
   "setup.claim",
@@ -1859,4 +1974,6 @@ const selfAudited: ReadonlySet<string> = new Set([
   "settings.update",
   "auth.templates.update",
   "auth.templates.reset",
+  "admin_token.create",
+  "admin_token.revoke",
 ])

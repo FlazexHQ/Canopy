@@ -141,6 +141,17 @@ export const META_MIGRATIONS: readonly MetaMigration[] = [
       ])
     },
   },
+  {
+    version: 3,
+    name: "create-admin-tokens",
+    async up(meta) {
+      await createCollection(meta, "admin_tokens")
+      await createIndexes(meta, "admin_tokens", [
+        { key: { hash: 1 }, name: "hash", unique: true },
+        { key: { userId: 1, createdAt: -1 }, name: "user_created" },
+      ])
+    },
+  },
 ]
 
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
