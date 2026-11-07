@@ -46,6 +46,12 @@ describe("jsonLogger", () => {
     expect(lines[0]?.["err"]).not.toHaveProperty("stack")
   })
 
+  it("starts every line with level, time and msg, then the fields in call order", () => {
+    const { lines, logger } = capture("debug")
+    logger.info({ signal: "SIGTERM", drainMs: 5000 }, "draining")
+    expect(Object.keys(lines[0] ?? {})).toEqual(["level", "time", "msg", "signal", "drainMs"])
+  })
+
   it("refuses an unknown level instead of logging everything", () => {
     expect(() => jsonLogger("warning" as LogLevel, () => {})).toThrow('Unknown log level "warning"')
   })

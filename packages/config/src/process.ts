@@ -28,13 +28,15 @@ export function jsonLogger(
     (name: LogLevel) =>
     (object: Record<string, unknown>, message?: string): void => {
       if (LEVELS.indexOf(name) < threshold) return
-      const err = object["err"]
+      const { level: _level, time: _time, msg: _msg, err, ...fields } = object
       const record = {
-        ...object,
-        ...(err instanceof Error ? { err: { name: err.name, message: err.message } } : {}),
         level: name,
         time: new Date().toISOString(),
         msg: message,
+        ...fields,
+        ...(err === undefined
+          ? {}
+          : { err: err instanceof Error ? { name: err.name, message: err.message } : err }),
       }
       write(`${JSON.stringify(record)}\n`)
     }
