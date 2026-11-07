@@ -1,31 +1,53 @@
-import { deleteToken, projectKey, saveToken, type ToolRunner } from "./credentials.ts"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
+import {
+  deleteToken,
+  isEnvironmentName,
+  projectKey,
+  saveEnvironment,
+  saveToken,
+  type ToolRunner,
+} from "./credentials.ts"
 import { messageOf, type Output } from "./output.ts"
+import { AdminClient, type AdminIdentity, type Fetch } from "./remote.ts"
 
 /** Options of `canopy login` and `canopy logout`. */
 export interface LoginOptions {
   readonly url: string
   /** The token; otherwise `CANOPY_ADMIN_TOKEN`, otherwise read from the terminal or standard input. */
   readonly token?: string
+  /** Also remember the project under this environment name, for `--env` on `policies push` and `diff`. */
+  readonly environment?: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly platform?: NodeJS.Platform
   readonly run?: ToolRunner
-  /** Checks that the project answers; injected by tests. Defaults to `GET <url>/healthz`. */
-  readonly reachable?: (url: string) => Promise<boolean>
+  /** The `fetch` used to verify the token; injected by tests. */
+  readonly fetch?: Fetch
 }
 
-async function healthz(url: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(5000) })
-    return response.ok
-  } catch {
-    return false
+/** Why a token was not accepted, in words for the terminal. */
+function refusal(error: unknown, url: string): string {
+  if (!(error instanceof CanopyError)) return `Could not verify the token: ${messageOf(error)}`
+  switch (error.code) {
+    case ErrorCode.Unauthorized:
+      return `${url} refused the token: it is unknown, expired or ended. Log in to Studio or POST /admin/v1/login with "transport": "bearer" for a new one.`
+    case ErrorCode.Forbidden:
+      return error.details?.["reason"] === "password_change_required"
+        ? `${url} accepted the token, but the admin must change their password first.`
+        : `${url} refused the token: ${error.message}`
+    case ErrorCode.NotFound:
+      return `${url} has no admin API at /admin/v1. With a private admin listener (CANOPY_ADMIN_LISTEN), log in to that address.`
+    case ErrorCode.Unavailable:
+      return `${url} did not answer, so the token could not be verified.`
+    default:
+      return `Could not verify the token: ${error.message}`
   }
 }
 
 /**
- * `canopy login <url>`: stores an admin token for a remote project in the OS keychain (macOS Keychain or
- * the Linux Secret Service), falling back to a 0600 credentials file. The token is never taken from a
- * prompt that echoes it.
+ * `canopy login <url>`: verifies an admin token with `GET /admin/v1/me`, then stores it for the project in
+ * the OS keychain (macOS Keychain or the Linux Secret Service), falling back to a 0600 credentials file. A
+ * token the server refuses, or a server that does not answer, stores nothing. The token is never taken
+ * from a prompt that echoes it. With `environment`, the project is also remembered under that name.
  */
 export async function login(options: LoginOptions, out: Output): Promise<number> {
   let url: string
@@ -39,6 +61,12 @@ export async function login(options: LoginOptions, out: Output): Promise<number>
     out.error("Admin tokens are only sent over HTTPS (http is allowed for localhost).")
     return 1
   }
+  if (options.environment !== undefined && !isEnvironmentName(options.environment)) {
+    out.error(
+      `--env ${JSON.stringify(options.environment)} is not an environment name: a letter, then letters, digits, _ or -`,
+    )
+    return 1
+  }
   const token =
     options.token ??
     options.env["CANOPY_ADMIN_TOKEN"] ??
@@ -47,18 +75,28 @@ export async function login(options: LoginOptions, out: Output): Promise<number>
     out.error("No token: pass --token, set CANOPY_ADMIN_TOKEN, or pipe it on standard input.")
     return 1
   }
-  if (!(await (options.reachable ?? healthz)(url)))
-    out.log(`warn  ${url}/healthz did not answer; the token is stored anyway`)
+  let identity: AdminIdentity
+  try {
+    identity = await new AdminClient(url, token.trim(), options.fetch).me()
+  } catch (error: unknown) {
+    out.error(refusal(error, url))
+    out.error("Nothing was stored.")
+    return 1
+  }
   const where = await saveToken(url, token.trim(), {
     env: options.env,
     ...(options.platform === undefined ? {} : { platform: options.platform }),
     ...(options.run === undefined ? {} : { run: options.run }),
   })
+  if (options.environment !== undefined)
+    await saveEnvironment(options.environment, url, options.env)
   out.log(
     where === "keychain"
-      ? `Logged in to ${url}; the token is in the OS keychain.`
-      : `Logged in to ${url}; no keychain was available, so the token is in the credentials file (mode 0600).`,
+      ? `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); the token is in the OS keychain.`
+      : `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); no keychain was available, so the token is in the credentials file (mode 0600).`,
   )
+  if (options.environment !== undefined)
+    out.log(`--env ${options.environment} now selects ${url} for canopy policies push and diff.`)
   return 0
 }
 

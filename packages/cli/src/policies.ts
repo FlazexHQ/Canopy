@@ -5,18 +5,22 @@ import {
   CONTEXT_DOCUMENT_ID,
   type CollectionPolicies,
   type ContextDefinitions,
+  fromStored,
   hashCollection,
   hashPolicySet,
+  type LintFinding,
   lintPolicies,
   type PolicySet,
   type StoredCollectionPolicies,
+  toStored,
 } from "@canopy/policy"
-import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { CanopyError, ErrorCode, isDocument } from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
 import { type Actor, AuditLog, migrationStatus, PolicyStore } from "@canopy/server"
 import { MongoClient } from "mongodb"
 import { collectionModule, contextModule, UnwritableValueError } from "./dsl-writer.ts"
 import { confirmed, messageOf, type Output } from "./output.ts"
+import type { AdminClient } from "./remote.ts"
 
 /** Connection settings shared by the commands that use the meta database. */
 export interface MetaOptions {
@@ -75,6 +79,154 @@ function store(client: MongoClient, metaDatabase: string): PolicyStore {
   })
 }
 
+/** The published state of a project: each collection's version and hash, and the context lookups. */
+export interface PublishedPolicies {
+  readonly collections: ReadonlyMap<string, { readonly version: number; readonly hash: string }>
+  readonly contexts: ContextDefinitions
+  readonly contextVersion: number
+}
+
+/** Where `policies push` and `diff` publish: the meta database directly, or a remote admin API. */
+export interface PolicyTarget {
+  published(): Promise<PublishedPolicies>
+  definition(collection: string): Promise<CollectionPolicies | undefined>
+  publish(
+    definition: CollectionPolicies,
+    expectedVersion: number,
+    comment: string | undefined,
+  ): Promise<{ readonly version: number; readonly findings: readonly LintFinding[] }>
+  publishContexts(
+    lookups: ContextDefinitions,
+    expectedVersion: number,
+    comment: string | undefined,
+  ): Promise<{ readonly version: number }>
+}
+
+function metaTarget(client: MongoClient, metaDatabase: string): PolicyTarget {
+  const policies = store(client, metaDatabase)
+  const actor = cliActor()
+  const withComment = (comment: string | undefined) => (comment === undefined ? {} : { comment })
+  return {
+    async published() {
+      const all = await policies.all()
+      return {
+        collections: all.stored,
+        contexts: all.contexts,
+        contextVersion: (await policies.getContexts())?.version ?? 0,
+      }
+    },
+    async definition(collection) {
+      return (await policies.all()).definitions.get(collection)
+    },
+    async publish(definition, expectedVersion, comment) {
+      const result = await policies.publish({
+        definition,
+        expectedVersion,
+        actor,
+        ...withComment(comment),
+      })
+      return { version: result.stored.version, findings: result.findings }
+    },
+    async publishContexts(lookups, expectedVersion, comment) {
+      const result = await policies.publishContexts({
+        lookups,
+        expectedVersion,
+        actor,
+        ...withComment(comment),
+      })
+      return { version: result.stored.version }
+    },
+  }
+}
+
+function versionOf(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : 0
+}
+
+function storedVersion(result: unknown): number {
+  return isDocument(result) && isDocument(result["stored"])
+    ? versionOf(result["stored"]["version"])
+    : 0
+}
+
+/** Publishes through `/admin/v1/policies` and `/admin/v1/contexts`, as the admin the token belongs to. */
+export function remoteTarget(admin: AdminClient): PolicyTarget {
+  const withComment = (comment: string | undefined) => (comment === undefined ? {} : { comment })
+  return {
+    async published() {
+      const list = await admin.get("/policies")
+      const contexts = await admin.get("/contexts")
+      const collections = new Map<string, { version: number; hash: string }>()
+      const data = isDocument(list) && Array.isArray(list["data"]) ? list["data"] : []
+      for (const entry of data)
+        if (isDocument(entry) && typeof entry["collection"] === "string")
+          collections.set(entry["collection"], {
+            version: versionOf(entry["version"]),
+            hash: String(entry["hash"] ?? ""),
+          })
+      const stored = isDocument(contexts) ? contexts["stored"] : undefined
+      const lookups = isDocument(stored) ? stored["lookups"] : undefined
+      return {
+        collections,
+        contexts: (isDocument(lookups) ? lookups : {}) as ContextDefinitions,
+        contextVersion: isDocument(contexts) ? versionOf(contexts["version"]) : 0,
+      }
+    },
+    async definition(collection) {
+      const body = await admin.get(`/policies/${encodeURIComponent(collection)}`)
+      const stored = isDocument(body) ? body["stored"] : undefined
+      return isDocument(stored) ? fromStored(stored) : undefined
+    },
+    async publish(definition, expectedVersion, comment) {
+      const stored = toStored(definition, { version: 0 })
+      const result = await admin.post(
+        `/policies/${encodeURIComponent(definition.collection)}/publish`,
+        {
+          definition: {
+            exposed: stored.exposed,
+            realtime: stored.realtime,
+            policies: stored.policies,
+            ...(stored.fields === undefined ? {} : { fields: stored.fields }),
+            ...(stored.immutable === undefined ? {} : { immutable: stored.immutable }),
+          },
+          expectedVersion,
+          ...withComment(comment),
+        },
+      )
+      const findings =
+        isDocument(result) && Array.isArray(result["findings"])
+          ? (result["findings"] as LintFinding[])
+          : []
+      return { version: storedVersion(result), findings }
+    },
+    async publishContexts(lookups, expectedVersion, comment) {
+      const result = await admin.post("/contexts/publish", {
+        lookups,
+        expectedVersion,
+        ...withComment(comment),
+      })
+      return { version: storedVersion(result) }
+    },
+  }
+}
+
+/** Runs `body` against the remote admin API when one is given, else against the meta database. */
+async function withTarget(
+  options: MetaOptions & { readonly remote?: AdminClient },
+  out: Output,
+  body: (target: PolicyTarget) => Promise<number>,
+): Promise<number> {
+  const remote = options.remote
+  if (remote === undefined)
+    return withMeta(options, out, (client) => body(metaTarget(client, options.metaDatabase)))
+  try {
+    return await body(remoteTarget(remote))
+  } catch (error: unknown) {
+    out.error(error instanceof CanopyError ? error.message : `error  ${messageOf(error)}`)
+    return 1
+  }
+}
+
 async function loadLocal(dir: string, out: Output): Promise<PolicySet | undefined> {
   try {
     return await directoryPolicies(dir).load()
@@ -125,6 +277,8 @@ export interface DiffOptions extends MetaOptions {
   readonly collections: readonly string[]
   /** Exit 1 when anything differs, for scheduled drift checks. */
   readonly failOnDrift: boolean
+  /** Compare with a remote project through its admin API (`--env`) instead of the meta database. */
+  readonly remote?: AdminClient
 }
 
 /**
@@ -135,21 +289,20 @@ export interface DiffOptions extends MetaOptions {
 export async function policiesDiff(options: DiffOptions, out: Output): Promise<number> {
   const local = await loadLocal(options.dir, out)
   if (local === undefined) return 1
-  return withMeta(options, out, async (client) => {
-    const remote = await store(client, options.metaDatabase).all()
+  return withTarget(options, out, async (target) => {
+    const remote = await target.published()
     const names = new Set([
       ...select(options.collections, local.collections),
-      ...(options.collections.length === 0 ? remote.definitions.keys() : []),
+      ...(options.collections.length === 0 ? remote.collections.keys() : []),
     ])
     let drift = 0
     for (const name of [...names].sort()) {
       const mine = local.collections.get(name)
-      const theirs = remote.stored.get(name)
-      const theirDef = remote.definitions.get(name)
+      const theirs = remote.collections.get(name)
       if (mine === undefined && theirs === undefined) {
         out.error(`${name}: no policies locally or in the database`)
         drift += 1
-      } else if (theirs === undefined || theirDef === undefined) {
+      } else if (theirs === undefined) {
         out.log(`only local     ${name}`)
         drift += 1
       } else if (mine === undefined) {
@@ -159,7 +312,9 @@ export async function policiesDiff(options: DiffOptions, out: Output): Promise<n
         out.log(`same           ${name}  v${theirs.version}`)
       } else {
         out.log(`changed        ${name}  v${theirs.version} in the database`)
-        for (const line of describeChanges(mine, theirDef)) out.log(`                 ${line}`)
+        const theirDef = await target.definition(name)
+        if (theirDef !== undefined)
+          for (const line of describeChanges(mine, theirDef)) out.log(`                 ${line}`)
         drift += 1
       }
     }
@@ -209,6 +364,13 @@ export interface PushOptions extends MetaOptions {
   readonly expectVersion?: string
   readonly comment?: string
   readonly dryRun?: boolean
+  /** Publish to a remote project through its admin API (`--env`) instead of the meta database. */
+  readonly remote?: AdminClient
+}
+
+function conflictHint(error: unknown, out: Output): void {
+  if (error instanceof CanopyError && error.code === ErrorCode.Conflict)
+    out.error("Someone published in between: run canopy policies diff, then push again.")
 }
 
 /**
@@ -216,8 +378,8 @@ export interface PushOptions extends MetaOptions {
  * the published version. Each publish is validated and linted against the whole set, recorded in
  * `policy_history` and the audit log, and conditional on the expected version: from `--expect-version`
  * when given (every changed collection must then be listed; `_context=<n>` optionally pins the context
- * lookups too), otherwise the version read at the start.
- * All expectations are checked before anything is published. Prints the resulting versions.
+ * lookups too), otherwise the version read at the start. All expectations are checked before anything is
+ * published. Prints the resulting versions.
  */
 export async function policiesPush(options: PushOptions, out: Output): Promise<number> {
   const local = await loadLocal(options.dir, out)
@@ -238,17 +400,18 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
     out.error("Not pushed: fix the lint errors first (canopy policies lint).")
     return 1
   }
-  return withMeta(options, out, async (client) => {
-    const policies = store(client, options.metaDatabase)
-    const remote = await policies.all()
+  return withTarget(options, out, async (target) => {
+    const remote = await target.published()
     const changed = names.filter((name) => {
       const def = local.collections.get(name)
-      return def !== undefined && remote.stored.get(name)?.hash !== hashCollection(def)
+      return def !== undefined && remote.collections.get(name)?.hash !== hashCollection(def)
     })
     const contextsChanged =
       options.collections.length === 0 && !sameContexts(local.contexts, remote.contexts)
-    const contextVersion = (await policies.getContexts())?.version ?? 0
-    let expected = new Map(changed.map((name) => [name, remote.stored.get(name)?.version ?? 0]))
+    const contextVersion = remote.contextVersion
+    let expected = new Map(
+      changed.map((name) => [name, remote.collections.get(name)?.version ?? 0]),
+    )
     if (options.expectVersion !== undefined) {
       const parsed = parseExpectedVersions(
         options.expectVersion,
@@ -264,7 +427,7 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
         return 1
       }
       const current = (name: string): number =>
-        name === CONTEXT_DOCUMENT_ID ? contextVersion : (remote.stored.get(name)?.version ?? 0)
+        name === CONTEXT_DOCUMENT_ID ? contextVersion : (remote.collections.get(name)?.version ?? 0)
       const stale = [...parsed].filter(([name, version]) => current(name) !== version)
       if (stale.length > 0) {
         for (const [name, version] of stale)
@@ -275,7 +438,9 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
       }
       expected = new Map(changed.map((name) => [name, parsed.get(name) ?? 0]))
     }
-    const versions = new Map(names.map((name) => [name, remote.stored.get(name)?.version ?? 0]))
+    const versions = new Map(
+      names.map((name) => [name, remote.collections.get(name)?.version ?? 0]),
+    )
     for (const name of names)
       if (!changed.includes(name)) out.log(`unchanged  ${name}  v${versions.get(name) ?? 0}`)
     if (!contextsChanged && options.collections.length === 0 && contextVersion > 0)
@@ -286,20 +451,13 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
         out.log(`would publish  ${name}  v${(expected.get(name) ?? 0) + 1}`)
       return 0
     }
-    const actor = cliActor()
     if (contextsChanged) {
       try {
-        const result = await policies.publishContexts({
-          lookups: local.contexts,
-          expectedVersion: contextVersion,
-          actor,
-          ...(options.comment === undefined ? {} : { comment: options.comment }),
-        })
-        out.log(`published  _context  v${result.stored.version}`)
+        const result = await target.publishContexts(local.contexts, contextVersion, options.comment)
+        out.log(`published  _context  v${result.version}`)
       } catch (error: unknown) {
         out.error(`_context: ${messageOf(error)}`)
-        if (error instanceof CanopyError && error.code === ErrorCode.Conflict)
-          out.error("Someone published in between: run canopy policies diff, then push again.")
+        conflictHint(error, out)
         return 1
       }
     }
@@ -307,20 +465,14 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
       const definition = local.collections.get(name)
       if (definition === undefined) continue
       try {
-        const result = await policies.publish({
-          definition,
-          expectedVersion: expected.get(name) ?? 0,
-          actor,
-          ...(options.comment === undefined ? {} : { comment: options.comment }),
-        })
-        versions.set(name, result.stored.version)
-        out.log(`published  ${name}  v${result.stored.version}`)
+        const result = await target.publish(definition, expected.get(name) ?? 0, options.comment)
+        versions.set(name, result.version)
+        out.log(`published  ${name}  v${result.version}`)
         for (const finding of result.findings.filter((f) => f.severity === "warn"))
           out.log(`  warn  ${finding.rule}: ${finding.message}`)
       } catch (error: unknown) {
         out.error(`${name}: ${messageOf(error)}`)
-        if (error instanceof CanopyError && error.code === ErrorCode.Conflict)
-          out.error("Someone published in between: run canopy policies diff, then push again.")
+        conflictHint(error, out)
         return 1
       }
     }

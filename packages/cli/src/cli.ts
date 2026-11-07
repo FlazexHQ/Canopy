@@ -6,6 +6,7 @@ import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
 import { adminCreate, adminList, adminResetTotp } from "./admin.ts"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
+import { isEnvironmentName, readEnvironment, readToken } from "./credentials.ts"
 import { dev } from "./dev.ts"
 import { policiesExplain } from "./explain.ts"
 import { genTypes } from "./gen-types.ts"
@@ -23,6 +24,7 @@ import {
   policiesRollback,
 } from "./policies.ts"
 import { realtimeImages } from "./realtime-images.ts"
+import { AdminClient } from "./remote.ts"
 
 const USAGE = `Usage: canopy <command> [options]
 
@@ -52,7 +54,7 @@ Commands:
   admin reset-totp <id|email>
                          Clear an admin's TOTP and end their sessions (asks first)
   migrate                Bring the meta database up to date (--status lists the migrations)
-  login <url>            Store an admin token for a remote project in the OS keychain
+  login <url>            Verify an admin token and store it for a remote project in the OS keychain
   logout <url>           Remove the stored admin token of a project
   gen types              Generate the Database types from validators, config and sampled documents
   config print           Print the resolved config with secrets masked
@@ -94,6 +96,9 @@ Options:
   --role <role>          gen types: make fields this role cannot read optional; admin create: the role
   --status               migrate: list the migrations instead of running them
   --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)
+  --env <name>           login: remember the project under this name; policies push, diff: work on
+                         that project through its admin API ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN
+                         override the stored login). production and development also set CANOPY_ENV
   --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp:
                          apply without asking
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
@@ -138,8 +143,8 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
     args: [1, 1],
     needs: "exactly one collection",
   },
-  "policies diff": { flags: ["fail-on-drift"], args: ANY },
-  "policies push": { flags: ["expect-version", "comment", "dry-run"], args: ANY },
+  "policies diff": { flags: ["fail-on-drift", "env"], args: ANY },
+  "policies push": { flags: ["expect-version", "comment", "dry-run", "env"], args: ANY },
   "policies pull": { flags: ["force"], args: ANY },
   "policies history": { flags: ["limit"], args: [1, 1], needs: "exactly one collection" },
   "policies rollback": {
@@ -162,7 +167,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   "admin create": { flags: ["email", "role", "name"] },
   "admin reset-totp": { flags: ["yes"], args: [1, 1], needs: "the id or email of one admin" },
   migrate: { flags: ["status"] },
-  login: { flags: ["token"], args: [1, 1], needs: "the project URL" },
+  login: { flags: ["token", "env"], args: [1, 1], needs: "the project URL" },
   logout: { flags: [], args: [1, 1], needs: "the project URL" },
 }
 
@@ -288,11 +293,31 @@ export async function run(
     return init({ cwd, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag, database }) }, out)
   }
   if (name === "dev") return runDev(flags, env, out, cwd, signal)
+  const environment = flags.get("env")
+  if (environment === true) {
+    out.error("--env needs an environment name, such as --env production")
+    return 1
+  }
+  if (environment !== undefined && !isEnvironmentName(environment)) {
+    out.error(
+      `--env ${JSON.stringify(environment)} is not an environment name: a letter, then letters, digits, _ or -`,
+    )
+    return 1
+  }
   if (name === "login" || name === "logout") {
     const token = text(flags, "token")
-    const options = { url: rest[0] ?? "", env, ...(token === undefined ? {} : { token }) }
+    const options = {
+      url: rest[0] ?? "",
+      env,
+      ...(token === undefined ? {} : { token }),
+      ...(environment === undefined ? {} : { environment }),
+    }
     return name === "login" ? login(options, out) : logout(options, out)
   }
+  const configEnv =
+    environment === "production" || environment === "development"
+      ? { ...env, CANOPY_ENV: environment }
+      : env
   const command =
     name === "config print"
       ? "print"
@@ -305,9 +330,12 @@ export async function run(
   try {
     const file = text(flags, "config")
     loaded = await loadConfig({
-      command: uriFlag !== undefined && command !== "print" ? "policies" : command,
+      command:
+        (uriFlag !== undefined || environment !== undefined) && command !== "print"
+          ? "policies"
+          : command,
       cwd,
-      env,
+      env: configEnv,
       ...(file === undefined ? {} : { file }),
     })
   } catch (error: unknown) {
@@ -353,6 +381,11 @@ export async function run(
       },
       out,
     )
+  }
+  if (environment !== undefined) {
+    const remote = await remoteFor(environment, env, out)
+    if (remote === undefined) return 1
+    return runMeta(name, rest, flags, { mongodbUri: "", metaDatabase: "", remote }, dir, out)
   }
   if (uri === undefined) {
     out.error(`${name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`)
@@ -429,11 +462,63 @@ function count(value: string | undefined, flag: string, out: Output): number | u
   return Number(value)
 }
 
+/**
+ * The admin API behind `--env <name>`: the URL from `CANOPY_ADMIN_URL`, else the project stored by
+ * `canopy login <url> --env <name>`; the token from `CANOPY_ADMIN_TOKEN`, else the one stored for that URL.
+ * The token is checked first, and for the names `production` and `development` the server's `CANOPY_ENV`
+ * must match, so a push meant for production never lands on a development server.
+ */
+async function remoteFor(
+  environment: string,
+  env: Readonly<Record<string, string | undefined>>,
+  out: Output,
+): Promise<AdminClient | undefined> {
+  const explicit = env["CANOPY_ADMIN_URL"]
+  const url =
+    explicit !== undefined && explicit !== "" ? explicit : await readEnvironment(environment, env)
+  if (url === undefined) {
+    out.error(
+      `No project for --env ${environment}: run canopy login <url> --env ${environment}, or set CANOPY_ADMIN_URL and CANOPY_ADMIN_TOKEN.`,
+    )
+    return undefined
+  }
+  const fromEnv = env["CANOPY_ADMIN_TOKEN"]
+  const token = fromEnv !== undefined && fromEnv !== "" ? fromEnv : await readToken(url, { env })
+  if (token === undefined) {
+    out.error(
+      `No admin token for ${url}: run canopy login ${url} --env ${environment}, or set CANOPY_ADMIN_TOKEN.`,
+    )
+    return undefined
+  }
+  const client = new AdminClient(url, token)
+  try {
+    const identity = await client.me()
+    if (
+      (environment === "production" || environment === "development") &&
+      identity.environment !== environment
+    ) {
+      out.error(
+        `--env ${environment} points at ${url}, which runs with CANOPY_ENV=${identity.environment}. Log in to the right project with canopy login <url> --env ${environment}.`,
+      )
+      return undefined
+    }
+    out.log(`env ${environment}: ${url} as ${identity.email} (${identity.role})`)
+    return client
+  } catch (error: unknown) {
+    out.error(`--env ${environment}: ${messageOf(error)}`)
+    return undefined
+  }
+}
+
 async function runMeta(
   name: string,
   args: readonly string[],
   flags: Map<string, string | true>,
-  meta: { readonly mongodbUri: string; readonly metaDatabase: string },
+  meta: {
+    readonly mongodbUri: string
+    readonly metaDatabase: string
+    readonly remote?: AdminClient
+  },
   dir: string,
   out: Output,
 ): Promise<number> {

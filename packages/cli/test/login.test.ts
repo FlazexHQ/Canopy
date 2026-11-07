@@ -2,9 +2,17 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
-import { credentialsFile, projectKey, readToken, type ToolResult } from "../src/credentials.ts"
+import {
+  credentialsFile,
+  environmentsFile,
+  projectKey,
+  readEnvironment,
+  readToken,
+  type ToolResult,
+} from "../src/credentials.ts"
 import { login, logout } from "../src/login.ts"
 import type { Output } from "../src/output.ts"
+import type { Fetch } from "../src/remote.ts"
 
 const scratch = fileURLToPath(new URL("./.tmp/login/", import.meta.url))
 afterAll(async () => {
@@ -43,7 +51,42 @@ function keychain(available = true): {
   }
 }
 
-const reachable = async (): Promise<boolean> => true
+/** An admin API that knows `tokens`; every request is recorded. */
+function adminApi(tokens: Readonly<Record<string, string>> = {}): {
+  requests: { url: string; authorization: string | null }[]
+  fetch: Fetch
+} {
+  const requests: { url: string; authorization: string | null }[] = []
+  return {
+    requests,
+    fetch: async (url, init) => {
+      const authorization = new Headers(init?.headers).get("authorization")
+      requests.push({ url, authorization })
+      const token = authorization?.replace(/^Bearer /, "") ?? ""
+      const email = tokens[token]
+      if (!url.endsWith("/admin/v1/me")) return new Response("Not found", { status: 404 })
+      if (email === undefined)
+        return Response.json(
+          { status: 401, code: "CANOPY_UNAUTHORIZED", detail: "Log in to use the admin API" },
+          { status: 401, headers: { "content-type": "application/problem+json" } },
+        )
+      return Response.json({
+        user: { id: "adm_1", email, role: "admin" },
+        environment: "production",
+        permissions: ["policies.read", "policies.publish"],
+      })
+    },
+  }
+}
+
+const fetch = adminApi({
+  tok_1: "ops@example.com",
+  tok_a: "a@example.com",
+  tok_b: "b@example.com",
+  from_env: "env@example.com",
+  from_prompt: "prompt@example.com",
+  t: "t@example.com",
+}).fetch
 
 describe("canopy login", () => {
   it("normalizes project URLs", () => {
@@ -60,11 +103,13 @@ describe("canopy login", () => {
       const tool = keychain()
       const { lines, out } = capture()
       const code = await login(
-        { url: "https://p.example/", token: "tok_1", env, platform, run: tool.run, reachable },
+        { url: "https://p.example/", token: "tok_1", env, platform, run: tool.run, fetch },
         out,
       )
       expect(code).toBe(0)
-      expect(lines).toEqual(["Logged in to https://p.example; the token is in the OS keychain."])
+      expect(lines).toEqual([
+        "Logged in to https://p.example as ops@example.com (admin, production); the token is in the OS keychain.",
+      ])
       expect(tool.calls[0]?.program).toBe(platform === "darwin" ? "security" : "secret-tool")
       if (platform === "linux") {
         expect(tool.calls[0]?.input).toBe("tok_1")
@@ -87,7 +132,7 @@ describe("canopy login", () => {
       ["win32", "https://b.example", "tok_b"],
     ] as const) {
       const { lines, out } = capture()
-      expect(await login({ url, token, env, platform, run: tool.run, reachable }, out)).toBe(0)
+      expect(await login({ url, token, env, platform, run: tool.run, fetch }, out)).toBe(0)
       expect(lines[0]).toContain("the token is in the credentials file (mode 0600)")
     }
     const file = join(config, "canopy", "credentials.json")
@@ -109,7 +154,7 @@ describe("canopy login", () => {
     await mkdir(scratch, { recursive: true })
     const credentials = join(await mkdtemp(join(scratch, "file-")), "c.json")
     const env = { CANOPY_CREDENTIALS: credentials, CANOPY_ADMIN_TOKEN: "from_env" }
-    expect(await login({ url: "https://e.example", env, reachable }, capture().out)).toBe(0)
+    expect(await login({ url: "https://e.example", env, fetch }, capture().out)).toBe(0)
     const asked: string[] = []
     const prompt = capture()
     const out: Output = {
@@ -121,7 +166,7 @@ describe("canopy login", () => {
     }
     expect(
       await login(
-        { url: "https://f.example", env: { CANOPY_CREDENTIALS: credentials }, reachable },
+        { url: "https://f.example", env: { CANOPY_CREDENTIALS: credentials }, fetch },
         out,
       ),
     ).toBe(0)
@@ -140,15 +185,108 @@ describe("canopy login", () => {
     expect(await login({ url: "http://g.example", token: "t", env }, http.out)).toBe(1)
     expect(http.errors[0]).toContain("only sent over HTTPS")
     expect(
-      await login({ url: "http://localhost:8080", token: "t", env, reachable }, capture().out),
+      await login({ url: "http://localhost:8080", token: "t", env, fetch }, capture().out),
     ).toBe(0)
-    const unreachable = capture()
-    await login(
-      { url: "https://h.example", token: "t", env, reachable: async () => false },
-      unreachable.out,
+  })
+
+  it("verifies the token with GET /admin/v1/me and stores nothing the server refuses", async () => {
+    await mkdir(scratch, { recursive: true })
+    const credentials = join(await mkdtemp(join(scratch, "verify-")), "c.json")
+    const env = { CANOPY_CREDENTIALS: credentials }
+    const api = adminApi({ good: "ops@example.com" })
+
+    const refused = capture()
+    expect(
+      await login(
+        { url: "https://v.example/eu/", token: "stolen", env, fetch: api.fetch },
+        refused.out,
+      ),
+    ).toBe(1)
+    expect(api.requests).toEqual([
+      { url: "https://v.example/eu/admin/v1/me", authorization: "Bearer stolen" },
+    ])
+    expect(refused.errors[0]).toContain("https://v.example/eu refused the token")
+    expect(refused.errors.at(-1)).toBe("Nothing was stored.")
+    await expect(stat(credentials)).rejects.toThrow()
+
+    const down = capture()
+    const unreachable: Fetch = async () => {
+      throw new TypeError("fetch failed")
+    }
+    expect(
+      await login({ url: "https://v.example", token: "good", env, fetch: unreachable }, down.out),
+    ).toBe(1)
+    expect(down.errors[0]).toBe(
+      "https://v.example did not answer, so the token could not be verified.",
     )
-    expect(unreachable.lines[0]).toBe(
-      "warn  https://h.example/healthz did not answer; the token is stored anyway",
+    await expect(stat(credentials)).rejects.toThrow()
+
+    const notCanopy: Fetch = async () => Response.json({ hello: "world" })
+    expect(
+      await login(
+        { url: "https://v.example", token: "good", env, fetch: notCanopy },
+        capture().out,
+      ),
+    ).toBe(1)
+    await expect(stat(credentials)).rejects.toThrow()
+
+    expect(
+      await login(
+        { url: "https://v.example", token: "good", env, fetch: api.fetch },
+        capture().out,
+      ),
+    ).toBe(0)
+    expect(JSON.parse(await readFile(credentials, "utf8"))).toEqual({ "https://v.example": "good" })
+  })
+
+  it("remembers the project under an environment name with --env", async () => {
+    await mkdir(scratch, { recursive: true })
+    const config = await mkdtemp(join(scratch, "envs-"))
+    const env = { XDG_CONFIG_HOME: config, CANOPY_CREDENTIALS: join(config, "c.json") }
+    const api = adminApi({ good: "ops@example.com" })
+    const bad = capture()
+    expect(
+      await login(
+        { url: "https://prod.example", token: "good", environment: "prod uction", env, fetch },
+        bad.out,
+      ),
+    ).toBe(1)
+    expect(bad.errors[0]).toContain("is not an environment name")
+    expect(api.requests).toEqual([])
+
+    const refused = capture()
+    expect(
+      await login(
+        {
+          url: "https://prod.example",
+          token: "nope",
+          environment: "production",
+          env,
+          fetch: api.fetch,
+        },
+        refused.out,
+      ),
+    ).toBe(1)
+    expect(await readEnvironment("production", env)).toBeUndefined()
+
+    const done = capture()
+    expect(
+      await login(
+        {
+          url: "https://prod.example/",
+          token: "good",
+          environment: "production",
+          env,
+          fetch: api.fetch,
+        },
+        done.out,
+      ),
+    ).toBe(0)
+    expect(done.lines.at(-1)).toBe(
+      "--env production now selects https://prod.example for canopy policies push and diff.",
     )
+    expect(environmentsFile(env)).toBe(join(config, "canopy", "environments.json"))
+    expect(await readEnvironment("production", env)).toBe("https://prod.example")
+    expect(await readEnvironment("staging", env)).toBeUndefined()
   })
 })

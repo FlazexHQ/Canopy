@@ -195,3 +195,41 @@ export async function deleteToken(url: string, options: CredentialOptions): Prom
   }
   return (await forgetFileToken(account, options.env)) || found
 }
+
+const ENVIRONMENT_NAME = /^[A-Za-z][\w-]{0,63}$/
+
+/** Whether `name` can name an environment for `--env`: a letter, then up to 63 word characters or `-`. */
+export function isEnvironmentName(name: string): boolean {
+  return ENVIRONMENT_NAME.test(name)
+}
+
+/**
+ * The file that maps environment names (`--env production`) to project URLs: `$CANOPY_ENVIRONMENTS`, else
+ * `environments.json` next to the default credentials file. It holds no secrets.
+ */
+export function environmentsFile(env: Readonly<Record<string, string | undefined>>): string {
+  const explicit = env["CANOPY_ENVIRONMENTS"]
+  if (explicit !== undefined && explicit !== "") return explicit
+  const base = env["XDG_CONFIG_HOME"] || join(env["HOME"] || homedir(), ".config")
+  return join(base, "canopy", "environments.json")
+}
+
+/** Remembers that the environment `name` is the project at `url`. */
+export async function saveEnvironment(
+  name: string,
+  url: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<void> {
+  const path = environmentsFile(env)
+  const environments = await readFileStore(path)
+  environments[name] = projectKey(url)
+  await writeFileStore(path, environments)
+}
+
+/** The project URL stored for an environment name. */
+export async function readEnvironment(
+  name: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<string | undefined> {
+  return (await readFileStore(environmentsFile(env)))[name]
+}

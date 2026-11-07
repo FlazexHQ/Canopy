@@ -40,14 +40,23 @@ These print the exact command first and ask before running it. Without a termina
 | `canopy admin list \| create --email <email> --role <role> \| reset-totp <id or email>` | Admin accounts, straight in the meta database for bootstrapping. `create` prints a generated password that must be changed at first login; creating an owner also claims the server. `reset-totp` asks first.                                                                                                                                            |
 
 A GitOps setup runs `canopy policies lint && canopy policies test && canopy gen types --check` on pull
-requests, `canopy policies push --expect-version "$(cat .canopy/production.version)" --comment "$GIT_SHA"`
-on merge, and `canopy policies diff --fail-on-drift` nightly.
+requests,
+`canopy policies push --env production --expect-version "$(cat .canopy/production.version)" --comment "$GIT_SHA"`
+on merge, and `canopy policies diff --env production --fail-on-drift` nightly (see
+[Environments](#environments)).
 
 ## Remote projects
 
-`canopy login <url>` stores an admin token for a remote project. The token comes from `--token`, then
-`CANOPY_ADMIN_TOKEN`, then a prompt that does not echo (or standard input when piped). Tokens are sent only
-over HTTPS, except to localhost. `canopy logout <url>` removes it.
+`canopy login <url> [--env <name>]` stores an admin token for a remote project. The token comes from
+`--token`, then `CANOPY_ADMIN_TOKEN`, then a prompt that does not echo (or standard input when piped).
+Before anything is stored the token is checked with `GET <url>/admin/v1/me`: a token the server refuses, a
+server that does not answer, or an address without a Canopy admin API stores nothing and exits 1. With a
+private admin listener (`CANOPY_ADMIN_LISTEN`), log in to that address. Tokens are sent only over HTTPS,
+except to localhost. `canopy logout <url>` removes the token.
+
+Admin tokens are bearer sessions from `POST /admin/v1/login` with `"transport": "bearer"`. They end like
+Studio sessions do, so CI is better served by a dedicated admin account whose token is kept in the CI
+secret store.
 
 Where the token is kept:
 
@@ -63,3 +72,28 @@ Where the token is kept:
 
 On macOS `security` receives the token as an argument, so it is briefly visible to other processes of
 the same user.
+
+## Environments
+
+`--env <name>` points `canopy policies push` and `canopy policies diff` at a remote project, through its
+admin API instead of a MongoDB connection. Publishing then runs as the admin the token belongs to, with that
+admin's role and the server's production rules (a comment is required, developers may not publish), and
+the history and audit log name that admin.
+
+| Setting                  | Where it comes from                                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The project URL          | `CANOPY_ADMIN_URL`, else the project saved by `canopy login <url> --env <name>`                                                                     |
+| The admin token          | `CANOPY_ADMIN_TOKEN`, else the token stored for that URL                                                                                            |
+| `CANOPY_ENV` for config  | `--env production` and `--env development` set it, so `defineConfig(({ mode }) => ...)` sees that mode; other names leave it as it is               |
+| The server's environment | checked with `GET /admin/v1/me`: `--env production` refuses a server that does not run with `CANOPY_ENV=production`, and the same for `development` |
+
+The names are saved in `environments.json` next to the credentials file (`$CANOPY_ENVIRONMENTS` overrides
+the path); it holds URLs only, never tokens. A deploy job typically sets `CANOPY_ADMIN_URL` and
+`CANOPY_ADMIN_TOKEN` from its secrets and runs
+
+```sh
+canopy policies push --env production --expect-version "$(cat .canopy/production.version)" --comment "$GIT_SHA"
+```
+
+The last line of a push (`versions: notes=5,todos=4`) is the content of `.canopy/production.version` for
+the next run; add `_context=<n>` to it when the project has context lookups.
