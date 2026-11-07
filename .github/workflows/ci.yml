@@ -114,11 +114,12 @@ jobs:
           fi
       - if: failure()
         shell: bash
-        run: tail -n 100 "$RUNNER_TEMP/mongodb/mongod.log" || true
+        run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   mongo:
     name: MongoDB ${{ matrix.mongo }} replica set
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -152,7 +153,8 @@ jobs:
 
   e2e:
     name: Browser end to end tests (todo-react, Playwright)
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,7 +179,8 @@ jobs:
 
   studio-e2e:
     name: Studio end to end tests (canopy-server, Playwright)
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,7 +213,8 @@ jobs:
 
   images:
     name: Docker images and compose stack
-    runs-on: ubuntu-24.04
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

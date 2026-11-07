@@ -75,7 +75,7 @@ async function download(url: string, dir: string): Promise<string> {
 async function waitFor<T>(what: string, attempt: () => Promise<T | undefined>): Promise<T> {
   const started = Date.now()
   let last: unknown
-  while (Date.now() - started < 120_000) {
+  while (Date.now() - started < 300_000) {
     try {
       const value = await attempt()
       if (value !== undefined) return value
@@ -84,7 +84,10 @@ async function waitFor<T>(what: string, attempt: () => Promise<T | undefined>): 
     }
     await new Promise((done) => setTimeout(done, 500))
   }
-  throw new Error(`Timed out waiting for ${what}`, { cause: last })
+  const reason = last instanceof Error ? last.message : String(last)
+  throw new Error(
+    `Timed out after ${Math.round((Date.now() - started) / 1000)} s waiting for ${what}: ${reason}`,
+  )
 }
 
 async function main(): Promise<void> {
