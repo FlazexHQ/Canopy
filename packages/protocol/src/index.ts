@@ -33,6 +33,7 @@ export {
   toCanonical,
 } from "./ejson.ts"
 export {
+  AuthHookFailedError,
   CanopyError,
   type CanopyErrorOptions,
   ConflictError,

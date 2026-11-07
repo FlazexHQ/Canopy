@@ -39,6 +39,7 @@ const TITLES: Readonly<Record<ErrorCode, string>> = {
   CANOPY_TIMEOUT: "Timeout",
   CANOPY_UNAVAILABLE: "Unavailable",
   CANOPY_INTERNAL: "Internal error",
+  CANOPY_AUTH_HOOK_FAILED: "Claims hook failed",
   CANOPY_CONFIG_INVALID: "Invalid configuration",
 }
 

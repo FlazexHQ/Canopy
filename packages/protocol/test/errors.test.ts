@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "vitest"
 import {
+  AuthHookFailedError,
   CanopyError,
   ConflictError,
   ErrorCode,
@@ -40,5 +41,16 @@ describe("isCanopyError", () => {
     const error = errorFromWire({ code: ErrorCode.NotFound, msg: "Document not found" })
     expect(error).toBeInstanceOf(NotFoundError)
     expect(error).toMatchObject({ name: "NotFoundError", code: "CANOPY_NOT_FOUND", status: 404 })
+  })
+
+  it("decodes CANOPY_AUTH_HOOK_FAILED as an AuthHookFailedError with status 500", () => {
+    const error = errorFromWire({ code: ErrorCode.AuthHookFailed, msg: "hook timed out" })
+    expect(error).toBeInstanceOf(AuthHookFailedError)
+    expect(error).toMatchObject({
+      name: "AuthHookFailedError",
+      code: "CANOPY_AUTH_HOOK_FAILED",
+      status: 500,
+    })
+    expect(isCanopyError(error, "CANOPY_AUTH_HOOK_FAILED")).toBe(true)
   })
 })

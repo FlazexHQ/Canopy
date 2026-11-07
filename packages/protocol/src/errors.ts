@@ -23,6 +23,8 @@ export const ErrorCode = {
   Timeout: "CANOPY_TIMEOUT",
   Unavailable: "CANOPY_UNAVAILABLE",
   Internal: "CANOPY_INTERNAL",
+  /** The built in auth claims hook threw, timed out or produced an oversized token; no token was issued. */
+  AuthHookFailed: "CANOPY_AUTH_HOOK_FAILED",
   /** Local only: a configuration that does not validate. Never sent over the wire. */
   ConfigInvalid: "CANOPY_CONFIG_INVALID",
 } as const
@@ -51,6 +53,7 @@ const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   CANOPY_TIMEOUT: 504,
   CANOPY_UNAVAILABLE: 503,
   CANOPY_INTERNAL: 500,
+  CANOPY_AUTH_HOOK_FAILED: 500,
   CANOPY_CONFIG_INVALID: 500,
 }
 
@@ -180,6 +183,14 @@ export class ProtocolError extends CanopyError {
   }
 }
 
+/** The claims hook of built in auth failed, so no access token was issued (fail closed). */
+export class AuthHookFailedError extends CanopyError {
+  constructor(message: string, options: CanopyErrorOptions = {}) {
+    super(ErrorCode.AuthHookFailed, message, options)
+    this.name = "AuthHookFailedError"
+  }
+}
+
 /** Builds the most specific {@link CanopyError} subclass for a wire error. */
 export function errorFromWire(error: WireError): CanopyError {
   switch (error.code) {
@@ -203,6 +214,8 @@ export function errorFromWire(error: WireError): CanopyError {
       return new RateLimitError(error.msg)
     case ErrorCode.ProtocolError:
       return new ProtocolError(error.msg)
+    case ErrorCode.AuthHookFailed:
+      return new AuthHookFailedError(error.msg)
     default:
       return new CanopyError(error.code, error.msg)
   }
