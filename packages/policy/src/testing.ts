@@ -4,6 +4,7 @@ import { parseUpdate, pathsOverlap } from "@canopy/query"
 import { type Compiled, type PolicyEngine, toFilter } from "./engine.ts"
 import { canAccess, documentPaths, projectReadable } from "./fields.ts"
 import { type RequestContext, Role } from "./model.ts"
+import type { CollectionName, DocumentOf, Registered } from "./typed.ts"
 
 /** Who performs an action in a policy test. */
 export interface Actor {
@@ -15,19 +16,21 @@ export interface Actor {
 
 /** Builders for actors. */
 export const as: {
+  /** A signed in user with these claims, typed by the project's `Register` declaration. */
   user(
-    claims: Readonly<Record<string, unknown>>,
+    claims: Partial<Registered["claims"]>,
     options?: { roles?: readonly string[]; ctx?: Readonly<Record<string, unknown>> },
   ): Actor
   anon(): Actor
   service(): Actor
 } = {
   user(claims, options = {}) {
-    const label = typeof claims["sub"] === "string" ? claims["sub"] : "user"
+    const record = toRecord(claims)
+    const label = typeof record["sub"] === "string" ? record["sub"] : "user"
     return {
       label,
       roles: [Role.Authenticated, ...(options.roles ?? [])],
-      claims,
+      claims: record,
       ...(options.ctx === undefined ? {} : { ctx: options.ctx }),
     }
   },
@@ -81,17 +84,21 @@ interface ReadChain {
   withFields(fields: readonly string[]): ReadChain
 }
 
-interface Expectation {
-  read(doc: Record<string, unknown>): ReadChain
-  insert(doc: Record<string, unknown>): void
-  update(doc: Record<string, unknown>, update: Record<string, unknown>): void
-  delete(doc: Record<string, unknown>): void
+interface Expectation<Doc> {
+  read(doc: Partial<Doc>): ReadChain
+  insert(doc: Partial<Doc>): void
+  update(doc: Partial<Doc>, update: Readonly<Record<string, unknown>>): void
+  delete(doc: Partial<Doc>): void
 }
 
-/** The helpers passed to a {@link describePolicies} body. */
-export interface SuiteHelpers {
-  doc<T extends Record<string, unknown>>(value: T): T
-  expect(actor: Actor): { readonly can: Expectation; readonly cannot: Expectation }
+/** The helpers passed to a {@link describePolicies} body, typed by the collection's document type. */
+export interface SuiteHelpers<Doc = Readonly<Record<string, unknown>>> {
+  doc(value: Partial<Doc>): Partial<Doc>
+  expect(actor: Actor): { readonly can: Expectation<Doc>; readonly cannot: Expectation<Doc> }
+}
+
+function toRecord(value: object): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value))
 }
 
 const registry: PolicySuite[] = []
@@ -101,20 +108,21 @@ const registry: PolicySuite[] = []
  * with {@link runPolicyTests} or `canopy policies test`, which evaluates every case in memory and against
  * MongoDB and fails on any disagreement.
  */
-export function describePolicies(
-  collection: string,
-  body: (helpers: SuiteHelpers) => void,
+export function describePolicies<const C extends CollectionName<Registered>>(
+  collection: C,
+  body: (helpers: SuiteHelpers<DocumentOf<Registered, C>>) => void,
   name: string = collection,
 ): PolicySuite {
+  type Doc = DocumentOf<Registered, C>
   const cases: PolicyTestCase[] = []
-  const expectation = (actor: Actor, expected: boolean): Expectation => ({
+  const expectation = (actor: Actor, expected: boolean): Expectation<Doc> => ({
     read(doc) {
       const testCase: { -readonly [K in keyof PolicyTestCase]: PolicyTestCase[K] } = {
         suite: name,
         collection,
         actor,
         action: "read",
-        doc,
+        doc: toRecord(doc),
         expected,
       }
       cases.push(testCase)
@@ -131,13 +139,21 @@ export function describePolicies(
       return chain
     },
     insert(doc) {
-      cases.push({ suite: name, collection, actor, action: "insert", doc, expected })
+      cases.push({ suite: name, collection, actor, action: "insert", doc: toRecord(doc), expected })
     },
     update(doc, update) {
-      cases.push({ suite: name, collection, actor, action: "update", doc, update, expected })
+      cases.push({
+        suite: name,
+        collection,
+        actor,
+        action: "update",
+        doc: toRecord(doc),
+        update: toRecord(update),
+        expected,
+      })
     },
     delete(doc) {
-      cases.push({ suite: name, collection, actor, action: "delete", doc, expected })
+      cases.push({ suite: name, collection, actor, action: "delete", doc: toRecord(doc), expected })
     },
   })
   body({
