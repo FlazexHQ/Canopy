@@ -1,5 +1,12 @@
 import { type CompiledFilter, compileFilter } from "@canopy/matcher"
-import { CanopyError, canonicalString, ErrorCode, isDocument } from "@canopy/protocol"
+import {
+  type BsonLibrary,
+  CanopyError,
+  canonicalString,
+  ErrorCode,
+  isDocument,
+  toBsonLibrary,
+} from "@canopy/protocol"
 import type { ContextDefinitions, ContextLookup, RequestContext } from "./model.ts"
 import { resolveClause } from "./variables.ts"
 
@@ -471,4 +478,33 @@ export class ContextResolver {
     if (this.sweeper !== undefined) clearInterval(this.sweeper)
     this.sweeper = undefined
   }
+}
+
+/** The part of a MongoDB driver `Db` that {@link driverContextReader} uses. */
+export interface ContextDatabase {
+  collection(name: string): {
+    find(
+      filter: Record<string, unknown>,
+      options: Record<string, unknown>,
+    ): { toArray(): Promise<readonly unknown[]> }
+  }
+}
+
+/**
+ * Reads context lookups from the app database with the caller's own (service) privileges, through a
+ * MongoDB driver `Db`. `bson` is the driver's BSON library (`import { BSON } from "mongodb"`). Values keep
+ * their exact BSON types, so a lookup of ObjectIds matches ObjectIds.
+ */
+export function driverContextReader(db: ContextDatabase, bson: BsonLibrary): ContextReader {
+  return async (query) =>
+    (await db
+      .collection(query.from)
+      .find(toBsonLibrary(query.filter, bson) as Record<string, unknown>, {
+        promoteValues: false,
+        bsonRegExp: true,
+        projection: { _id: 1, [query.select]: 1 },
+        limit: query.limit,
+        signal: query.signal,
+      })
+      .toArray()) as Record<string, unknown>[]
 }

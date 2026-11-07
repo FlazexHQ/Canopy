@@ -1,6 +1,5 @@
 export { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from "@canopy/auth"
 export { toCt } from "@canopy/protocol"
-export { mongoContextReader } from "./context-reader.ts"
 export { EchoWaiter } from "./echo.ts"
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from "./event.ts"
 export {

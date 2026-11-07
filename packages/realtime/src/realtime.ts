@@ -10,6 +10,7 @@ import {
   type Compiled,
   ContextResolver,
   deniedPaths,
+  driverContextReader,
   explainAccess,
   explainContext,
   type FieldAccess,
@@ -41,8 +42,7 @@ import {
   type WireError,
 } from "@canopy/protocol"
 import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
-import type { MongoClient } from "mongodb"
-import { mongoContextReader } from "./context-reader.ts"
+import { BSON, type MongoClient } from "mongodb"
 import { EchoWaiter } from "./echo.ts"
 import type { ControlEvent, Doc, NormalizedEvent } from "./event.ts"
 import {
@@ -419,7 +419,7 @@ export class Realtime {
     this.contexts =
       options.contexts ??
       new ContextResolver({
-        reader: mongoContextReader(db),
+        reader: driverContextReader(db, BSON),
         onIssue: (issue) =>
           this.metrics.contextFailures.inc({ name: issue.name, kind: issue.kind }),
       })

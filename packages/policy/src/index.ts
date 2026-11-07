@@ -1,6 +1,7 @@
 export { DEFAULT_PIPELINE_LIMITS, type PipelineLimits, securePipeline } from "./aggregate.ts"
 export {
   type ContextChange,
+  type ContextDatabase,
   type ContextIssue,
   type ContextIssueKind,
   type ContextQuery,
@@ -8,6 +9,7 @@ export {
   ContextResolver,
   type ContextResolverOptions,
   contextNames,
+  driverContextReader,
   type ResolvedContext,
   selectValues,
   ttlMs,

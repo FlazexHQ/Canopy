@@ -34,14 +34,19 @@ import {
   directoryPolicies,
   type HttpTransport,
   type Logger,
-  mongoContextReader,
   type PolicySource,
   type Realtime,
   silentLogger,
   staticPolicies,
   toNodeHandler,
 } from "@canopy/realtime"
-import { createRestHandler, type RestHandler, toNodeListener, WritePath } from "@canopy/rest"
+import {
+  createRestHandler,
+  mongoContextReader,
+  type RestHandler,
+  toNodeListener,
+  WritePath,
+} from "@canopy/rest"
 import { createStudioHandler } from "@canopy/studio"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
