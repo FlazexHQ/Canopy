@@ -27,6 +27,8 @@
     { "path": "packages/config/test" },
     { "path": "packages/auth" },
     { "path": "packages/auth/test" },
+    { "path": "packages/auth-builtin" },
+    { "path": "packages/auth-builtin/test" },
     { "path": "packages/realtime" },
     { "path": "packages/realtime/test" },
     { "path": "packages/rest" },

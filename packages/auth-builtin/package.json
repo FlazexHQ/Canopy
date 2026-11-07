@@ -1,0 +1,42 @@
+{
+  "name": "@canopy/auth-builtin",
+  "version": "0.0.0",
+  "description": "Canopy's built in app user auth: email and password, magic links, OTP, OAuth, anonymous users and EdDSA access tokens, on Better Auth in the canopy_auth database.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@better-auth/core": "1.7.18",
+    "@better-auth/mongo-adapter": "1.7.18",
+    "@canopy/auth": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "better-auth": "1.7.18",
+    "better-call": "1.4.5",
+    "jose": "catalog:",
+    "mongodb": "catalog:"
+  },
+  "devDependencies": {
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
