@@ -1,60 +1,51 @@
 import { CanopyError, ErrorCode, isErrorCode } from "@canopy/protocol"
-import {
-  type Admin,
-  type ApiKey,
-  type AppUser,
-  type AppUserPatch,
-  type AppUserSession,
-  type AuditEntry,
-  apiKeySchema,
-  type CollectionStats,
-  type CollectionSummary,
-  type CreatedAdmin,
-  type CreatedKey,
-  connectionsSchema,
-  createdKeySchema,
-  type DoctorReport,
-  type DocumentsPage,
-  type EmailKind,
-  type EmailTemplate,
-  type EmailTemplateBody,
-  type EmailTemplateVersion,
-  type EventTrace,
-  type FieldInfo,
-  type HistoryEntry,
-  type LogsPage,
-  type Me,
-  observersSchema,
-  type Providers,
-  parseDls,
-  providersSchema,
-  type RealtimeConnection,
-  type RealtimeEvent,
-  type RealtimeObserver,
-  type RealtimeStats,
-  type RequestSurface,
-  realtimeEventSchema,
-  realtimeStatsSchema,
-  realtimeTokenSchema,
-  type Session,
-  type Settings,
-  type SetupResult,
-  type SetupStatus,
-  type SigningKey,
-  type SimulatedOperation,
-  type Simulation,
-  type StoredCollection,
-  storedCollectionSchema,
-  traceSchema,
-  type ValidationResult,
-  type ViewAs,
+import type {
+  Admin,
+  ApiKey,
+  AppUser,
+  AppUserPatch,
+  AppUserSession,
+  AuditEntry,
+  CollectionStats,
+  CollectionSummary,
+  CreatedAdmin,
+  CreatedKey,
+  DoctorReport,
+  DocumentsPage,
+  EmailKind,
+  EmailTemplate,
+  EmailTemplateBody,
+  EmailTemplateVersion,
+  EventTrace,
+  FieldInfo,
+  HistoryEntry,
+  LogsPage,
+  Me,
+  Providers,
+  RealtimeConnection,
+  RealtimeEvent,
+  RealtimeObserver,
+  RealtimeStats,
+  RequestSurface,
+  Session,
+  Settings,
+  SetupResult,
+  SetupStatus,
+  SigningKey,
+  SimulatedOperation,
+  Simulation,
+  StoredCollection,
+  ValidationResult,
+  ViewAs,
 } from "./contract.ts"
 import { object, record, type Schema, unknown } from "./schema.ts"
 import {
+  parseDls,
   wireAdminCreated,
   wireAdmins,
   wireAdminUpdated,
   type wireAdminUser,
+  wireApiKey,
   wireApiKeys,
   wireAppUser,
   wireAudit,
@@ -63,15 +54,21 @@ import {
   wireCollectionSchema,
   wireCollectionStats,
   wireCollections,
+  wireConnections,
+  wireCreatedKey,
   wireDoctor,
   wireDocuments,
   wireHistory,
-  wireList,
   wireLogin,
   wireLogs,
   wireMe,
+  wireObservers,
   wirePolicies,
+  wireProviders,
   wirePublishResult,
+  wireRealtimeEvents,
+  wireRealtimeStats,
+  wireRealtimeToken,
   wireRevoked,
   wireSettings,
   wireSetupStatus,
@@ -82,6 +79,7 @@ import {
   wireTemplateSaved,
   wireTemplates,
   wireTotpEnrollment,
+  wireTrace,
   wireUsersPage,
   wireValidation,
   wireWrite,
@@ -726,7 +724,7 @@ export class AdminApi {
         signal,
       },
     )
-    return result.stored === null ? null : storedCollectionSchema.parse(result.stored)
+    return result.stored
   }
 
   /**
@@ -841,7 +839,7 @@ export class AdminApi {
       ...(entry.publishedAt === undefined ? {} : { updatedAt: entry.publishedAt }),
       ...(entry.publishedBy === undefined ? {} : { updatedBy: entry.publishedBy }),
       ...(entry.comment === undefined ? {} : { comment: entry.comment }),
-      policies: storedCollectionSchema.parse(entry.document),
+      policies: entry.document,
     }))
   }
 
@@ -947,7 +945,7 @@ export class AdminApi {
   }
 
   providers(signal?: AbortSignal): Promise<Providers> {
-    return this.request("GET", "/auth/providers", providersSchema, { signal })
+    return this.request("GET", "/auth/providers", wireProviders, { signal })
   }
 
   /** Every email kind with the template in force and the version of the set. */
@@ -1028,18 +1026,18 @@ export class AdminApi {
 
   async apiKeys(signal?: AbortSignal): Promise<readonly ApiKey[]> {
     const result = await this.request("GET", "/api-keys", wireApiKeys, { signal })
-    return result.data.map((key, index) => apiKeySchema.parse(key, `data[${index}]`))
+    return result.data
   }
 
   createApiKey(input: {
     readonly name: string
     readonly kind: ApiKey["kind"]
   }): Promise<CreatedKey> {
-    return this.request("POST", "/api-keys", createdKeySchema, { body: input })
+    return this.request("POST", "/api-keys", wireCreatedKey, { body: input })
   }
 
   async revokeApiKey(id: string): Promise<void> {
-    await this.request("DELETE", `/api-keys/${encodeSegment(id)}`, apiKeySchema)
+    await this.request("DELETE", `/api-keys/${encodeSegment(id)}`, wireApiKey)
   }
 
   /** The OpenAPI document of the Data API as `role` sees it (`anon`, `authenticated`, `service` or custom). */
@@ -1050,30 +1048,30 @@ export class AdminApi {
   }
 
   realtimeStats(signal?: AbortSignal): Promise<RealtimeStats> {
-    return this.request("GET", "/realtime/stats", realtimeStatsSchema, { signal })
+    return this.request("GET", "/realtime/stats", wireRealtimeStats, { signal })
   }
 
   async realtimeConnections(signal?: AbortSignal): Promise<readonly RealtimeConnection[]> {
-    const result = await this.request("GET", "/realtime/connections", wireList, { signal })
-    return connectionsSchema.parse({ connections: result.data }).connections
+    const result = await this.request("GET", "/realtime/connections", wireConnections, { signal })
+    return result.data
   }
 
   async realtimeObservers(signal?: AbortSignal): Promise<readonly RealtimeObserver[]> {
-    const result = await this.request("GET", "/realtime/observers", wireList, { signal })
-    return observersSchema.parse({ observers: result.data }).observers
+    const result = await this.request("GET", "/realtime/observers", wireObservers, { signal })
+    return result.data
   }
 
   /** The last events the engine routed, newest last, for picking one to trace. */
   async recentEvents(signal?: AbortSignal): Promise<readonly RealtimeEvent[]> {
-    const result = await this.request("GET", "/realtime/events", wireList, { signal })
-    return result.data.map((event, index) => realtimeEventSchema.parse(event, `data[${index}]`))
+    const result = await this.request("GET", "/realtime/events", wireRealtimeEvents, { signal })
+    return result.data
   }
 
   async trace(eventId: string, signal?: AbortSignal): Promise<EventTrace> {
     const trace = await this.request(
       "GET",
       `/realtime/trace/${encodeSegment(eventId)}`,
-      traceSchema,
+      wireTrace,
       { signal },
     )
     return {
@@ -1087,7 +1085,7 @@ export class AdminApi {
 
   /** A short lived token and the publishable key, for following data live through `@canopy/react`. */
   realtimeToken(as?: ViewAs): Promise<{ readonly token: string; readonly publishableKey: string }> {
-    return this.request("POST", "/realtime/token", realtimeTokenSchema, {
+    return this.request("POST", "/realtime/token", wireRealtimeToken, {
       body: as === undefined ? {} : { as: wireAs(as) },
     })
   }
@@ -1207,4 +1205,3 @@ export class AdminApi {
 }
 
 export type { Admin, StoredCollection }
-export { storedCollectionSchema }

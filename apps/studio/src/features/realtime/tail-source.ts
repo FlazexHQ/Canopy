@@ -1,4 +1,5 @@
-import { type RealtimeEvent, realtimeEventSchema } from "../../api/contract.ts"
+import type { RealtimeEvent } from "../../api/contract.ts"
+import { wireRealtimeEvent } from "../../api/wire.ts"
 
 /** The part of `EventSource` the tail uses, so tests can push events without a server. */
 export interface TailSource {
@@ -44,7 +45,7 @@ export function openTailSource(url: string): TailSource {
 export function parseTailMessage(data: unknown): RealtimeEvent | undefined {
   if (typeof data !== "string") return undefined
   try {
-    return realtimeEventSchema.parse(JSON.parse(data))
+    return wireRealtimeEvent.parse(JSON.parse(data))
   } catch {
     return undefined
   }

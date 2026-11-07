@@ -1,19 +1,23 @@
+import type { Infer } from "./schema.ts"
 import {
-  array,
-  boolean,
-  date,
-  type Infer,
-  json,
-  literal,
-  nullable,
-  number,
-  object,
-  optional,
-  record,
-  string,
-  unknown,
-} from "./schema.ts"
-import { EMAIL_KINDS, EMAIL_PLACEHOLDERS } from "./wire.ts"
+  EMAIL_KINDS,
+  EMAIL_PLACEHOLDERS,
+  OBSERVER_OUTCOMES,
+  type wireApiKey,
+  type wireConnection,
+  type wireCreatedKey,
+  type wireObserver,
+  type wireProviders,
+  type wireRealtimeEvent,
+  type wireRealtimeStats,
+  type wireStoredCollection,
+  type wireTrace,
+} from "./wire.ts"
+
+/**
+ * The types Studio works with. Responses are validated by the schemas of `wire.ts`; where the server's
+ * shape is the one Studio uses, the type is inferred from that schema, otherwise the client converts it.
+ */
 
 /** Admin roles, from most to least privileged. */
 export const ADMIN_ROLES = ["owner", "admin", "developer", "viewer"] as const
@@ -73,38 +77,36 @@ export interface CreatedAdmin {
   readonly password: string
 }
 
-export const collectionSchema = object({
-  name: string,
+/** A collection with its policy summary. */
+export interface CollectionSummary {
+  readonly name: string
   /** False for collections that only have policies so far. */
-  exists: optional(boolean),
-  exposed: boolean,
-  realtime: boolean,
-  estimatedCount: optional(number),
-  policyVersion: optional(nullable(number)),
-  policyCount: optional(number),
-  images: optional(literal("on", "off", "unknown")),
-})
-export type CollectionSummary = Infer<typeof collectionSchema>
+  readonly exists?: boolean
+  readonly exposed: boolean
+  readonly realtime: boolean
+  readonly estimatedCount?: number
+  readonly policyVersion?: number | null
+  readonly policyCount?: number
+  readonly images?: "on" | "off" | "unknown"
+}
 
-export const fieldInfoSchema = object({
-  path: string,
-  types: array(string),
-  frequency: optional(number),
-})
-export type FieldInfo = Infer<typeof fieldInfoSchema>
+/** One field of a collection's schema, with the BSON types seen there. */
+export interface FieldInfo {
+  readonly path: string
+  readonly types: string[]
+  readonly frequency?: number
+}
 
-export const indexSchema = object({
-  name: string,
-  keys: record(unknown),
-  unique: optional(boolean),
-})
-export const collectionStatsSchema = object({
-  count: number,
-  size: optional(number),
-  avgDocumentSize: optional(number),
-  indexes: optional(array(indexSchema)),
-})
-export type CollectionStats = Infer<typeof collectionStatsSchema>
+export interface CollectionStats {
+  readonly count: number
+  readonly size?: number
+  readonly avgDocumentSize?: number
+  readonly indexes?: {
+    readonly name: string
+    readonly keys: Record<string, unknown>
+    readonly unique?: boolean
+  }[]
+}
 
 /** Who a request is evaluated as: roles plus JWT claims. Absent means the `service` role. */
 export interface ViewAs {
@@ -114,105 +116,66 @@ export interface ViewAs {
   readonly label?: string
 }
 
-export const documentsPageSchema = object({
-  documents: array(json),
+export interface DocumentsPage {
+  readonly documents: Record<string, unknown>[]
   /** Not reported by the server, which pages with `next` instead. */
-  total: optional(number),
-  hiddenFields: optional(array(string)),
+  readonly total?: number
+  readonly hiddenFields?: string[]
   /** Viewers see fields hidden by policy as `"[masked]"`. */
-  masked: optional(boolean),
+  readonly masked?: boolean
   /** A cursor for the next page; absent on the last page. */
-  next: optional(string),
-})
-export type DocumentsPage = Infer<typeof documentsPageSchema>
+  readonly next?: string
+}
 
-/** One policy as stored, with `using` and `check` as canonical EJSON strings. */
-export const storedPolicySchema = object({
-  name: string,
-  kind: literal("permissive", "restrictive"),
-  ops: array(literal("read", "insert", "update", "delete")),
-  roles: array(string),
-  using: optional(string),
-  check: optional(string),
-})
-export type StoredPolicy = Infer<typeof storedPolicySchema>
+/** A collection's policies as stored, with `using` and `check` as canonical EJSON strings. */
+export type StoredCollection = Infer<typeof wireStoredCollection>
+export type StoredPolicy = StoredCollection["policies"][number]
 
-const fieldRuleSchema = object({ only: optional(array(string)), omit: optional(array(string)) })
-const fieldRulesSchema = record(fieldRuleSchema)
+export interface ValidationResult {
+  readonly ok: boolean
+  readonly errors: { readonly path?: string; readonly message: string }[]
+  readonly lint?: {
+    readonly rule: string
+    readonly severity: "error" | "warn" | "info"
+    readonly policy?: string
+    readonly message: string
+  }[]
+}
 
-export const storedCollectionSchema = object({
-  _id: string,
-  version: number,
-  exposed: boolean,
-  realtime: boolean,
-  policies: array(storedPolicySchema),
-  fields: optional(
-    nullable(
-      object({
-        read: optional(fieldRulesSchema),
-        write: optional(fieldRulesSchema),
-        update: optional(fieldRulesSchema),
-      }),
-    ),
-  ),
-  immutable: optional(array(string)),
-  hash: optional(string),
-  updatedAt: optional(unknown),
-  updatedBy: optional(string),
-})
-export type StoredCollection = Infer<typeof storedCollectionSchema>
-
-export const validationSchema = object({
-  ok: boolean,
-  errors: array(object({ path: optional(string), message: string })),
-  lint: optional(
-    array(
-      object({
-        rule: string,
-        severity: literal("error", "warn", "info"),
-        policy: optional(string),
-        message: string,
-      }),
-    ),
-  ),
-})
-export type ValidationResult = Infer<typeof validationSchema>
-
-export const explainedPolicySchema = object({
-  name: string,
-  kind: literal("permissive", "restrictive"),
-  applies: boolean,
-  reason: string,
-  resolved: optional(json),
-})
+/** How one policy took part in a decision. */
+export interface ExplainedPolicy {
+  readonly name: string
+  readonly kind: "permissive" | "restrictive"
+  readonly applies: boolean
+  readonly reason: string
+  readonly resolved?: Record<string, unknown>
+}
 
 export const SIMULATED_OPERATIONS = ["read", "insert", "update", "delete"] as const
 export type SimulatedOperation = (typeof SIMULATED_OPERATIONS)[number]
 
-export const simulationSchema = object({
-  allowed: boolean,
-  roles: optional(array(string)),
+export interface Simulation {
+  readonly allowed: boolean
+  readonly roles?: string[]
   /** The explain trace of the check clause, for insert and update. */
-  checkPolicies: optional(array(explainedPolicySchema)),
-  bypass: optional(boolean),
-  count: optional(number),
-  documents: optional(array(json)),
-  effectiveFilter: nullable(json),
-  hiddenFields: optional(array(string)),
-  policies: array(explainedPolicySchema),
-  violations: optional(array(string)),
-})
-export type Simulation = Infer<typeof simulationSchema>
+  readonly checkPolicies?: ExplainedPolicy[]
+  readonly bypass?: boolean
+  readonly count?: number
+  readonly documents?: Record<string, unknown>[]
+  readonly effectiveFilter: Record<string, unknown> | null
+  readonly hiddenFields?: string[]
+  readonly policies: ExplainedPolicy[]
+  readonly violations?: string[]
+}
 
-export const historyEntrySchema = object({
-  version: number,
-  hash: optional(string),
-  updatedAt: optional(string),
-  updatedBy: optional(string),
-  comment: optional(string),
-  policies: storedCollectionSchema,
-})
-export type HistoryEntry = Infer<typeof historyEntrySchema>
+export interface HistoryEntry {
+  readonly version: number
+  readonly hash?: string
+  readonly updatedAt?: string
+  readonly updatedBy?: string
+  readonly comment?: string
+  readonly policies: StoredCollection
+}
 
 /** An app user of built in auth. Anonymous users have no email. */
 export interface AppUser {
@@ -254,27 +217,8 @@ export interface AppUserPatch {
   readonly password?: string
 }
 
-export const providersSchema = object({
-  mode: literal("builtin", "external"),
-  providers: array(
-    object({
-      id: string,
-      enabled: boolean,
-      clientId: optional(string),
-      issuer: optional(string),
-      configured: optional(boolean),
-    }),
-  ),
-  external: optional(
-    object({
-      issuer: optional(string),
-      audience: optional(string),
-      jwksUrl: optional(string),
-      algorithms: optional(array(string)),
-    }),
-  ),
-})
-export type Providers = Infer<typeof providersSchema>
+/** The sign in methods of the server, without secrets. */
+export type Providers = Infer<typeof wireProviders>
 
 /** The emails built in auth sends. */
 export type EmailKind = (typeof EMAIL_KINDS)[number]
@@ -318,98 +262,17 @@ export interface SigningKey {
   readonly revokedAt?: string
 }
 
-export const apiKeySchema = object({
-  id: string,
-  kind: literal("publishable", "secret"),
-  name: string,
-  prefix: string,
-  key: optional(nullable(string)),
-  createdAt: optional(date),
-  createdBy: optional(string),
-  lastUsedAt: optional(nullable(date)),
-  revokedAt: optional(nullable(date)),
-  revokedBy: optional(nullable(string)),
-})
-export type ApiKey = Infer<typeof apiKeySchema>
-export const createdKeySchema = object({ key: string, info: apiKeySchema })
-export type CreatedKey = Infer<typeof createdKeySchema>
+export type ApiKey = Infer<typeof wireApiKey>
+export type CreatedKey = Infer<typeof wireCreatedKey>
 
-export const lagPointSchema = object({ t: number, lagMs: number, eventsPerSecond: number })
-export const realtimeStatsSchema = object({
-  connections: number,
-  sessions: optional(number),
-  subscriptions: number,
-  observers: record(number),
-  subjects: optional(number),
-  policyVersion: optional(string),
-  streamPosition: optional(unknown),
-  collections: optional(array(string)),
-  lagMs: optional(number),
-  eventsPerSecond: optional(number),
-  history: optional(array(lagPointSchema)),
-})
-export type RealtimeStats = Infer<typeof realtimeStatsSchema>
-
-export const connectionSchema = object({
-  sid: string,
-  subject: string,
-  roles: array(string),
-  keyId: optional(nullable(string)),
-  connected: boolean,
-  transport: optional(string),
-  openedAt: date,
-  tokenExpiresAt: optional(nullable(date)),
-  subscriptions: array(object({ id: string, coll: string, observer: string })),
-  documents: number,
-  queuedBytes: number,
-  lastSeq: number,
-})
-export type RealtimeConnection = Infer<typeof connectionSchema>
-export const connectionsSchema = object({ connections: array(connectionSchema) })
-
-export const observerSchema = object({
-  key: string,
-  coll: string,
-  type: string,
-  status: string,
-  subscribers: number,
-  filter: json,
-  sort: optional(nullable(record(number))),
-  limit: optional(nullable(number)),
-  candidatesPerEvent: optional(number),
-  matchCostMicros: optional(number),
-})
-export type RealtimeObserver = Infer<typeof observerSchema>
-export const observersSchema = object({ observers: array(observerSchema) })
+export type RealtimeStats = Infer<typeof wireRealtimeStats>
+export type RealtimeConnection = Infer<typeof wireConnection>
+export type RealtimeObserver = Infer<typeof wireObserver>
 
 export const EVENT_OPERATIONS = ["insert", "update", "replace", "delete"] as const
-export const eventSummaryShape = {
-  id: string,
-  ct: unknown,
-  wallTime: optional(nullable(date)),
-  coll: string,
-  op: string,
-  docId: unknown,
-  fields: optional(nullable(array(string))),
-}
-export const realtimeEventSchema = object(eventSummaryShape)
-export type RealtimeEvent = Infer<typeof realtimeEventSchema>
+export type RealtimeEvent = Infer<typeof wireRealtimeEvent>
 
-export const OBSERVER_OUTCOMES = ["entered", "updated", "left", "unmatched"] as const
-export const traceSchema = object({
-  ...eventSummaryShape,
-  policyVersion: optional(string),
-  candidates: array(
-    object({
-      observer: string,
-      type: string,
-      outcome: literal(...OBSERVER_OUTCOMES),
-      subscribers: array(object({ sid: string, sub: string, subject: string })),
-      dls: optional(unknown),
-    }),
-  ),
-})
-type ParsedTrace = Infer<typeof traceSchema>
+type ParsedTrace = Infer<typeof wireTrace>
 
 /** One policy in a DLS explanation: whether it matched, and the claim that made it drop out. */
 export interface DeniedPolicy {
@@ -440,64 +303,40 @@ export type EventTrace = Omit<ParsedTrace, "candidates"> & {
   })[]
 }
 
-const deniedPolicySchema = object({
-  name: string,
-  kind: literal("permissive", "restrictive"),
-  matched: boolean,
-  issue: optional(object({ variable: string, kind: string })),
-  fields: array(string),
-})
-const dlsDenialSchema = object({
-  reason: literal("no_grant", "no_permissive", "restrictive"),
-  responsible: array(string),
-  policies: array(deniedPolicySchema),
-})
-
-/** Validates the `dls` field of a trace candidate. */
-export function parseDls(value: unknown, path: string): DlsDenial | undefined {
-  if (value === undefined || value === null) return undefined
-  if (typeof value === "object" && (value as { masked?: unknown }).masked === true) {
-    return { masked: true }
-  }
-  return dlsDenialSchema.parse(value, path)
-}
-
 export const CHECK_STATUSES = ["ok", "info", "warn", "error"] as const
 export type CheckStatus = (typeof CHECK_STATUSES)[number]
-export const doctorSchema = object({
-  status: optional(literal(...CHECK_STATUSES)),
-  checks: array(
-    object({
-      id: string,
-      title: string,
-      status: literal(...CHECK_STATUSES),
-      message: string,
-      fix: optional(string),
-      docs: optional(string),
-    }),
-  ),
-  topology: optional(string),
-  serverVersion: optional(string),
-})
-export type DoctorReport = Infer<typeof doctorSchema>
-export type DoctorCheck = DoctorReport["checks"][number]
+
+export interface DoctorCheck {
+  readonly id: string
+  readonly title: string
+  readonly status: CheckStatus
+  readonly message: string
+  readonly fix?: string
+  readonly docs?: string
+}
+
+export interface DoctorReport {
+  readonly status?: CheckStatus
+  readonly checks: DoctorCheck[]
+  readonly topology?: string
+  readonly serverVersion?: string
+}
 
 export const REQUEST_SURFACES = ["rest", "auth", "admin", "realtime"] as const
 export type RequestSurface = (typeof REQUEST_SURFACES)[number]
 
 /** One sampled request. Only the path is kept: no query string, headers or bodies. */
-export const logEntrySchema = object({
-  id: string,
-  at: date,
-  surface: literal(...REQUEST_SURFACES),
-  method: string,
-  path: string,
-  status: number,
-  durationMs: number,
-  ip: optional(string),
-  requestId: optional(string),
-})
-export type LogEntry = Infer<typeof logEntrySchema>
+export interface LogEntry {
+  readonly id: string
+  readonly at: string
+  readonly surface: RequestSurface
+  readonly method: string
+  readonly path: string
+  readonly status: number
+  readonly durationMs: number
+  readonly ip?: string
+  readonly requestId?: string
+}
 
 /** A page of the request log, with the sampling settings in force. */
 export interface LogsPage {
@@ -507,18 +346,18 @@ export interface LogsPage {
   readonly retentionDays: number
 }
 
-export const auditEntrySchema = object({
-  id: string,
-  outcome: optional(literal("ok", "denied", "failed")),
-  at: string,
-  actor: string,
-  action: string,
-  target: optional(string),
-  comment: optional(string),
-  diff: optional(unknown),
-  impersonating: optional(string),
-})
-export type AuditEntry = Infer<typeof auditEntrySchema>
+export interface AuditEntry {
+  readonly id: string
+  readonly outcome?: "ok" | "denied" | "failed"
+  readonly at: string
+  readonly actor: string
+  readonly action: string
+  readonly target?: string
+  readonly comment?: string
+  readonly diff?: unknown
+  readonly impersonating?: string
+}
+
 /** Settings changed at runtime; everything else comes from the config file. */
 export interface Settings {
   /** How many days audit entries are kept; `null` keeps them forever. */
@@ -531,6 +370,4 @@ export interface Settings {
   readonly adminAllowlist: readonly string[]
 }
 
-export const realtimeTokenSchema = object({ token: string, publishableKey: string })
-
-export { EMAIL_KINDS, EMAIL_PLACEHOLDERS }
+export { EMAIL_KINDS, EMAIL_PLACEHOLDERS, OBSERVER_OUTCOMES }
