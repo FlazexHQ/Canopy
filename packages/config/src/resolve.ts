@@ -90,7 +90,20 @@ export interface Resolution {
   readonly secrets: ReadonlySet<string>
 }
 
-type Spec =
+/** A numeric bound of a setting, checked after defaults are applied. */
+interface Range {
+  readonly min?: number
+  readonly max?: number
+  readonly message: (value: number) => string
+}
+
+/** What a setting may add to its type: a default for when it is unset, and a numeric range. */
+interface Constraints {
+  readonly def?: unknown
+  readonly range?: Range
+}
+
+type Spec = (
   | { readonly t: "string" | "url" | "int" | "bool" | "list" | "duration" | "raw" }
   | { readonly t: "enum"; readonly values: readonly string[] }
   | { readonly t: "enums"; readonly values: readonly string[] }
@@ -107,6 +120,8 @@ type Spec =
       readonly kinds: Readonly<Record<string, Readonly<Record<string, Spec>>>>
       readonly hint: string
     }
+) &
+  Constraints
 
 const str: Spec = { t: "string" }
 const url: Spec = { t: "url" }
@@ -116,6 +131,20 @@ const list: Spec = { t: "list" }
 const duration: Spec = { t: "duration" }
 const oneOf = (...values: string[]): Spec => ({ t: "enum", values })
 const obj = (fields: Record<string, Spec>): Spec => ({ t: "object", fields })
+/** A setting with a default, applied when it is unset and recorded with a `default` source. */
+const withDefault = (spec: Spec, def: unknown, range?: Range): Spec => ({
+  ...spec,
+  def,
+  ...(range === undefined ? {} : { range }),
+})
+
+const MINUTE = 60_000
+const DAY = 86_400_000
+const PORT: Range = {
+  min: 0,
+  max: 65_535,
+  message: (value) => `Received ${value}.\nExpected a port between 0 and 65535.`,
+}
 
 const ENVIRONMENTS = ["development", "production"] as const
 const FULL_DOCUMENT = ["auto", "updateLookup", "images"] as const
@@ -137,18 +166,35 @@ const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
   builtin: {
     kind: str,
     secret: str,
-    appName: str,
-    accessTokenTtl: duration,
-    algorithm: oneOf("EdDSA", "ES256"),
-    keyRotation: obj({ interval: duration, grace: duration }),
+    appName: withDefault(str, "Canopy"),
+    accessTokenTtl: withDefault(duration, 10 * MINUTE, {
+      min: 5 * MINUTE,
+      max: 60 * MINUTE,
+      message: () => "Access tokens live between 5 and 60 minutes.",
+    }),
+    algorithm: withDefault(oneOf("EdDSA", "ES256"), "EdDSA"),
+    keyRotation: obj({
+      interval: withDefault(duration, 30 * DAY, {
+        min: 60 * MINUTE,
+        message: () => "Keys sign for at least an hour.",
+      }),
+      grace: withDefault(duration, 30 * DAY),
+    }),
     redirectUrls: list,
     emailPassword: {
       t: "toggle",
-      of: obj({ minPasswordLength: int, requireEmailVerification: bool }),
+      of: obj({
+        minPasswordLength: withDefault(int, 10, {
+          min: 10,
+          max: 128,
+          message: () => "Use 10 to 128 characters.",
+        }),
+        requireEmailVerification: withDefault(bool, true),
+      }),
     },
-    magicLink: bool,
-    emailOtp: bool,
-    anonymous: bool,
+    magicLink: withDefault(bool, true),
+    emailOtp: withDefault(bool, true),
+    anonymous: withDefault(bool, false),
     providers: obj({
       google: obj(OAUTH_CLIENT),
       github: obj(OAUTH_CLIENT),
@@ -169,9 +215,12 @@ const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
         hint: "Use email.smtp(), email.resend(), email.postmark(), email.ses() or email.log().",
       },
     }),
-    trustedProxies: list,
-    identifierLimit: obj({ max: int, window: duration }),
-    session: obj({ expiresIn: duration, updateAge: duration }),
+    trustedProxies: withDefault(list, []),
+    identifierLimit: obj({ max: withDefault(int, 10), window: withDefault(duration, MINUTE) }),
+    session: obj({
+      expiresIn: withDefault(duration, 7 * DAY),
+      updateAge: withDefault(duration, DAY),
+    }),
   },
   external: {
     kind: str,
@@ -190,36 +239,54 @@ const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
   supabase: { kind: str, projectRef: str, rolesClaim: str },
 }
 
-const ROOT: Spec = obj({
-  mongodb: obj({ uri: str, database: str, metaDatabase: str, authDatabase: str }),
-  environment: oneOf(...ENVIRONMENTS),
+const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
+  mongodb: obj({
+    uri: str,
+    database: str,
+    metaDatabase: withDefault(str, "canopy"),
+    authDatabase: withDefault(str, "canopy_auth"),
+  }),
+  environment: withDefault(oneOf(...ENVIRONMENTS), "development"),
   publicUrl: url,
   masterKey: str,
   previousMasterKeys: list,
   auth: { t: "auth" },
-  keys: obj({ publishable: list, secret: list }),
+  keys: obj({ publishable: withDefault(list, []), secret: withDefault(list, []) }),
   policies: { t: "policies" },
   rest: {
     t: "toggle",
-    of: obj({ defaultLimit: int, maxLimit: int, maxBodyBytes: int, mutationTtl: duration }),
+    of: obj({
+      defaultLimit: withDefault(int, 100),
+      maxLimit: withDefault(int, 1000),
+      maxBodyBytes: withDefault(int, 1024 * 1024),
+      mutationTtl: withDefault(duration, DAY),
+    }),
   },
   realtime: {
     t: "toggle",
     of: obj({
-      fullDocument: oneOf(...FULL_DOCUMENT),
-      transports: { t: "enums", values: TRANSPORTS },
-      resumeWindow: duration,
-      checkpoints: oneOf("meta", "off"),
-      drainWindow: duration,
+      fullDocument: withDefault(oneOf(...FULL_DOCUMENT), "auto"),
+      transports: withDefault({ t: "enums", values: TRANSPORTS }, TRANSPORTS),
+      resumeWindow: withDefault(duration, 120_000),
+      checkpoints: withDefault(oneOf("meta", "off"), "meta"),
+      drainWindow: withDefault(duration, 30_000),
     }),
   },
   collections: { t: "record", of: obj({ idType: oneOf(...ID_TYPES) }) },
   cors: obj({ origins: { t: "origins" } }),
-  server: obj({ port: int, metricsPort: int, adminListen: str, nodeId: str, trustedProxies: list }),
-  log: obj({ level: oneOf(...LOG_LEVELS) }),
+  server: obj({
+    port: withDefault(int, 8080, PORT),
+    metricsPort: withDefault(int, 9464, PORT),
+    adminListen: str,
+    nodeId: withDefault(str, "n1"),
+    trustedProxies: withDefault(list, []),
+  }),
+  log: obj({ level: withDefault(oneOf(...LOG_LEVELS), "info") }),
   types: obj({ out: str, role: str }),
-  dev: obj({ insecure: bool }),
-})
+  dev: obj({ insecure: withDefault(bool, false) }),
+}
+
+const ROOT: Spec = obj(ROOT_FIELDS)
 
 /** Variables that configure Canopy without a config file. A config file may not contradict them. */
 const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
@@ -596,6 +663,50 @@ class Resolver {
     return out
   }
 
+  /**
+   * Fills every unset setting that has a default and checks numeric ranges. Sections turned off (`false`)
+   * are skipped, and so is auth other than built in auth.
+   */
+  fillDefaults(
+    fields: Readonly<Record<string, Spec>>,
+    node: Record<string, unknown>,
+    prefix: string,
+  ): void {
+    for (const [key, spec] of Object.entries(fields)) {
+      const path = `${prefix}${key}`
+      const value = node[key]
+      const nested =
+        spec.t === "object"
+          ? spec.fields
+          : spec.t === "toggle" && spec.of.t === "object"
+            ? spec.of.fields
+            : spec.t === "auth" && isPlainObject(value) && value["kind"] === "builtin"
+              ? AUTH_KINDS["builtin"]
+              : undefined
+      if (nested !== undefined) {
+        if (value === false) continue
+        if (value !== undefined && !isPlainObject(value)) continue
+        const child: Record<string, unknown> = isPlainObject(value) ? value : {}
+        this.fillDefaults(nested, child, `${path}.`)
+        if (value === undefined && Object.keys(child).length > 0) node[key] = child
+        continue
+      }
+      if (value === undefined && spec.def !== undefined) {
+        node[key] = Array.isArray(spec.def) ? [...spec.def] : spec.def
+        this.sources.set(path, { kind: "default" })
+      }
+      const current = node[key]
+      const range = spec.range
+      if (range !== undefined && typeof current === "number") {
+        if (
+          (range.min !== undefined && current < range.min) ||
+          (range.max !== undefined && current > range.max)
+        )
+          this.problem(path, range.message(current))
+      }
+    }
+  }
+
   /** Applies a well known variable on top of the file, refusing contradictions. */
   overlay(tree: Record<string, unknown>, name: string, path: string, spec: Spec): void {
     const text = this.options.env[name]
@@ -763,13 +874,9 @@ function normalize(
   tree: Record<string, unknown>,
   options: ResolveOptions,
 ): ResolvedConfig {
-  const defaulted = (path: string, value: unknown): unknown => {
-    const current = get(tree, path)
-    if (current !== undefined) return current
-    resolver.sources.set(path, { kind: "default" })
-    return value
-  }
-  const environment = defaulted("environment", "development") as Environment
+  resolver.fillDefaults(ROOT_FIELDS, tree, "")
+  const at = <T>(path: string): T => get(tree, path) as T
+  const environment = at<Environment>("environment")
   const production = environment === "production"
 
   const uri = get(tree, "mongodb.uri")
@@ -801,8 +908,8 @@ function normalize(
     mongodb = {
       uri,
       database: database ?? "",
-      metaDatabase: defaulted("mongodb.metaDatabase", "canopy") as string,
-      authDatabase: defaulted("mongodb.authDatabase", "canopy_auth") as string,
+      metaDatabase: at<string>("mongodb.metaDatabase"),
+      authDatabase: at<string>("mongodb.authDatabase"),
     }
     const names = [mongodb.database, mongodb.metaDatabase, mongodb.authDatabase]
     if (database !== undefined && new Set(names).size !== names.length)
@@ -881,10 +988,10 @@ function normalize(
     tree["rest"] === false
       ? false
       : {
-          defaultLimit: defaulted("rest.defaultLimit", 100) as number,
-          maxLimit: defaulted("rest.maxLimit", 1000) as number,
-          maxBodyBytes: defaulted("rest.maxBodyBytes", 1024 * 1024) as number,
-          mutationTtlMs: defaulted("rest.mutationTtl", 24 * 3_600_000) as number,
+          defaultLimit: at<number>("rest.defaultLimit"),
+          maxLimit: at<number>("rest.maxLimit"),
+          maxBodyBytes: at<number>("rest.maxBodyBytes"),
+          mutationTtlMs: at<number>("rest.mutationTtl"),
         }
   if (rest !== false && rest.defaultLimit > rest.maxLimit)
     resolver.problem("rest.defaultLimit", `Must not exceed rest.maxLimit (${rest.maxLimit}).`)
@@ -893,11 +1000,11 @@ function normalize(
     tree["realtime"] === false
       ? false
       : {
-          fullDocument: defaulted("realtime.fullDocument", "auto") as FullDocumentMode,
-          transports: defaulted("realtime.transports", [...TRANSPORTS]) as Transport[],
-          resumeWindowMs: defaulted("realtime.resumeWindow", 120_000) as number,
-          checkpoints: defaulted("realtime.checkpoints", "meta") as "meta" | "off",
-          drainWindowMs: defaulted("realtime.drainWindow", 30_000) as number,
+          fullDocument: at<FullDocumentMode>("realtime.fullDocument"),
+          transports: at<Transport[]>("realtime.transports"),
+          resumeWindowMs: at<number>("realtime.resumeWindow"),
+          checkpoints: at<"meta" | "off">("realtime.checkpoints"),
+          drainWindowMs: at<number>("realtime.drainWindow"),
         }
 
   const collections: Record<string, { idType: IdType }> = {}
@@ -931,17 +1038,9 @@ function normalize(
       rotatingMasterKey:
         ((get(tree, "previousMasterKeys") as string[] | undefined) ?? []).length > 0,
       cors,
-      defaulted,
     })
 
-  const port = (path: string, fallback: number): number => {
-    const value = defaulted(path, fallback) as number
-    if (value < 0 || value > 65_535)
-      resolver.problem(path, `Received ${value}.\nExpected a port between 0 and 65535.`)
-    return value
-  }
-
-  const insecure = defaulted("dev.insecure", false) as boolean
+  const insecure = at<boolean>("dev.insecure")
   if (production && insecure)
     resolver.problem(
       "dev.insecure",
@@ -965,8 +1064,8 @@ function normalize(
     previousMasterKeys: (get(tree, "previousMasterKeys") as string[] | undefined) ?? [],
     auth,
     keys: {
-      publishable: (defaulted("keys.publishable", []) as string[]) ?? [],
-      secret: (defaulted("keys.secret", []) as string[]) ?? [],
+      publishable: at<string[]>("keys.publishable"),
+      secret: at<string[]>("keys.secret"),
     },
     policies,
     rest,
@@ -974,13 +1073,13 @@ function normalize(
     collections,
     cors,
     server: {
-      port: port("server.port", 8080),
-      metricsPort: port("server.metricsPort", 9464),
-      adminListen: get(tree, "server.adminListen") as string | undefined,
-      nodeId: defaulted("server.nodeId", "n1") as string,
-      trustedProxies: (defaulted("server.trustedProxies", []) as string[]) ?? [],
+      port: at<number>("server.port"),
+      metricsPort: at<number>("server.metricsPort"),
+      adminListen: at<string | undefined>("server.adminListen"),
+      nodeId: at<string>("server.nodeId"),
+      trustedProxies: at<string[]>("server.trustedProxies"),
     },
-    log: { level: defaulted("log.level", "info") as LogLevel },
+    log: { level: at<LogLevel>("log.level") },
     types: {
       out:
         typeof typesOut === "string"
@@ -1002,8 +1101,6 @@ const EXTERNAL_ONLY = [
   "allowServiceRoleFromJwt",
   "clockToleranceSeconds",
 ]
-const MINUTE = 60_000
-const DAY = 86_400_000
 const PROVIDER_IDS = ["google", "github", "apple", "microsoft", "discord"]
 
 function isHttps(value: string): boolean {
@@ -1011,7 +1108,7 @@ function isHttps(value: string): boolean {
   return parsed.protocol === "https:" || isLocalHost(parsed.hostname)
 }
 
-/** Validates built in auth and applies its defaults. Durations arrive in milliseconds. */
+/** Validates built in auth, whose defaults are already applied. Durations arrive in milliseconds. */
 function normalizeBuiltin(
   resolver: Resolver,
   raw: Record<string, unknown>,
@@ -1021,10 +1118,10 @@ function normalizeBuiltin(
     readonly masterKey: string | undefined
     readonly rotatingMasterKey: boolean
     readonly cors: ResolvedConfig["cors"]
-    readonly defaulted: (path: string, value: unknown) => unknown
   },
 ): ResolvedBuiltinAuth {
-  const { production, defaulted } = context
+  const { production } = context
+  const at = <T>(path: string): T => get(raw, path) as T
   for (const key of EXTERNAL_ONLY)
     if (raw[key] !== undefined)
       resolver.problem(
@@ -1055,13 +1152,9 @@ function normalizeBuiltin(
   else if (context.publicUrl !== undefined && production && !isHttps(context.publicUrl))
     resolver.problem("publicUrl", "Built in auth needs an https public URL in production.")
 
-  const ttl = defaulted("auth.accessTokenTtl", 10 * MINUTE) as number
-  if (ttl < 5 * MINUTE || ttl > 60 * MINUTE)
-    resolver.problem("auth.accessTokenTtl", "Access tokens live between 5 and 60 minutes.")
-  const interval = defaulted("auth.keyRotation.interval", 30 * DAY) as number
-  const grace = defaulted("auth.keyRotation.grace", 30 * DAY) as number
-  if (interval < 60 * MINUTE)
-    resolver.problem("auth.keyRotation.interval", "Keys sign for at least an hour.")
+  const ttl = at<number>("accessTokenTtl")
+  const interval = at<number>("keyRotation.interval")
+  const grace = at<number>("keyRotation.grace")
   if (grace < ttl)
     resolver.problem(
       "auth.keyRotation.grace",
@@ -1081,20 +1174,13 @@ function normalizeBuiltin(
       )
   }
 
-  const rawPassword = raw["emailPassword"]
-  let emailPassword: ResolvedBuiltinAuth["emailPassword"] = false
-  if (rawPassword !== false) {
-    const minPasswordLength = defaulted("auth.emailPassword.minPasswordLength", 10) as number
-    if (minPasswordLength < 10 || minPasswordLength > 128)
-      resolver.problem("auth.emailPassword.minPasswordLength", "Use 10 to 128 characters.")
-    emailPassword = {
-      minPasswordLength,
-      requireEmailVerification: defaulted(
-        "auth.emailPassword.requireEmailVerification",
-        true,
-      ) as boolean,
-    }
-  }
+  const emailPassword: ResolvedBuiltinAuth["emailPassword"] =
+    raw["emailPassword"] === false
+      ? false
+      : {
+          minPasswordLength: at<number>("emailPassword.minPasswordLength"),
+          requireEmailVerification: at<boolean>("emailPassword.requireEmailVerification"),
+        }
 
   const providers: Record<string, { clientId: string; clientSecret: string; tenantId?: string }> =
     {}
@@ -1187,7 +1273,7 @@ function normalizeBuiltin(
   }
 
   const claims = raw["claims"]
-  const appName = defaulted("auth.appName", "Canopy")
+  const appName = raw["appName"]
   if (typeof appName !== "string" || appName.trim() === "" || appName.length > 100)
     resolver.problem("auth.appName", "Use 1 to 100 characters.")
   return {
@@ -1195,30 +1281,28 @@ function normalizeBuiltin(
     appName: typeof appName === "string" ? appName : "Canopy",
     secret,
     accessTokenTtlSeconds: Math.round(ttl / 1000),
-    algorithm: defaulted("auth.algorithm", "EdDSA") as "EdDSA" | "ES256",
+    algorithm: at<"EdDSA" | "ES256">("algorithm"),
     keyRotation: {
       intervalSeconds: Math.round(interval / 1000),
       graceSeconds: Math.round(grace / 1000),
     },
     redirectUrls,
     emailPassword,
-    magicLink: defaulted("auth.magicLink", true) as boolean,
-    emailOtp: defaulted("auth.emailOtp", true) as boolean,
-    anonymous: defaulted("auth.anonymous", false) as boolean,
+    magicLink: at<boolean>("magicLink"),
+    emailOtp: at<boolean>("emailOtp"),
+    anonymous: at<boolean>("anonymous"),
     providers,
     oidc,
     claims: typeof claims === "function" ? (claims as ResolvedBuiltinAuth["claims"]) : undefined,
     email,
-    trustedProxies: (defaulted("auth.trustedProxies", []) as string[]) ?? [],
+    trustedProxies: at<string[]>("trustedProxies"),
     identifierLimit: {
-      max: defaulted("auth.identifierLimit.max", 10) as number,
-      windowSeconds: Math.round(
-        (defaulted("auth.identifierLimit.window", MINUTE) as number) / 1000,
-      ),
+      max: at<number>("identifierLimit.max"),
+      windowSeconds: Math.round(at<number>("identifierLimit.window") / 1000),
     },
     session: {
-      expiresInSeconds: Math.round((defaulted("auth.session.expiresIn", 7 * DAY) as number) / 1000),
-      updateAgeSeconds: Math.round((defaulted("auth.session.updateAge", DAY) as number) / 1000),
+      expiresInSeconds: Math.round(at<number>("session.expiresIn") / 1000),
+      updateAgeSeconds: Math.round(at<number>("session.updateAge") / 1000),
     },
   }
 }
