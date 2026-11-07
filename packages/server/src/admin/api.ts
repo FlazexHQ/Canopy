@@ -77,6 +77,7 @@ import {
 } from "./http.ts"
 import { ADMIN_ROLES, can, type Permission } from "./rbac.ts"
 import { type SettingsStore, settingsPatch } from "./settings.ts"
+import { maskTrace } from "./trace.ts"
 
 /** Everything the admin API works on. */
 export interface AdminApiOptions {
@@ -1455,7 +1456,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
   route("GET", "realtime/trace/:eventId", "realtime.inspect", async (context) => {
     const trace = engineOf().trace(context.params["eventId"] ?? "")
     if (trace === undefined) throw new NotFoundError("The event is no longer in the trace buffer")
-    return json(trace)
+    return json(context.session.user.role === "viewer" ? maskTrace(trace, options.engine()) : trace)
   })
   route("GET", "realtime/tail", "realtime.inspect", async (context) => {
     const engine = engineOf()

@@ -1,5 +1,6 @@
 import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from "@canopy/auth"
 import {
+  type CompiledFilter,
   type CompiledProjection,
   compileFilter,
   compileProjection,
@@ -220,6 +221,33 @@ export interface EventSummary {
   readonly fields: readonly string[] | undefined
 }
 
+/**
+ * One read policy as a DLS denial reports it: its name and whether it matched the document, never the
+ * resolved clause or a field value.
+ */
+export interface DeniedPolicy {
+  readonly name: string
+  readonly kind: "permissive" | "restrictive"
+  /** Whether the policy's resolved `using` clause matched the document. */
+  readonly matched: boolean
+  /** The variable that made the policy drop out (by name and kind, never its value). */
+  readonly issue?: { readonly variable: string; readonly kind: string }
+  /** The top level fields the clause reads, so a caller can hide outcomes over fields it may not see. */
+  readonly fields: readonly string[]
+}
+
+/** Why DLS kept a document from an observer whose own filter matched it. */
+export interface DlsDenial {
+  /**
+   * `no_grant`: no read policy covers the subscribers' roles; `no_permissive`: no permissive policy
+   * matched the document; `restrictive`: a restrictive policy did not match it.
+   */
+  readonly reason: "no_grant" | "no_permissive" | "restrictive"
+  /** The names of the policies responsible: every permissive one for `no_permissive`, else the failing restrictive ones. */
+  readonly responsible: readonly string[]
+  readonly policies: readonly DeniedPolicy[]
+}
+
 /** How one candidate observer handled an event. */
 export interface ObserverOutcome {
   readonly observer: string
@@ -231,6 +259,11 @@ export interface ObserverOutcome {
     readonly sub: string
     readonly subject: string
   }[]
+  /**
+   * Set when the outcome is `unmatched` or `left` because of DLS: the subscription's own filter matches the
+   * new document but the read policies of its subscribers do not.
+   */
+  readonly dls?: DlsDenial
 }
 
 /** The route of one event through the engine. */
@@ -297,6 +330,21 @@ function coverageOf(projection: CompiledProjection | undefined): Coverage {
   return { covers: (field) => !hidden.has(field) }
 }
 
+/** The top level fields a policy clause reads, looking through `$and`, `$or` and `$nor`. */
+function clauseFields(clause: unknown): string[] {
+  const fields = new Set<string>()
+  const walk = (value: unknown): void => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return
+    for (const [key, inner] of Object.entries(value)) {
+      if (key === "$and" || key === "$or" || key === "$nor") {
+        if (Array.isArray(inner)) for (const part of inner) walk(part)
+      } else if (!key.startsWith("$")) fields.add(key.split(".")[0] ?? key)
+    }
+  }
+  walk(clause)
+  return [...fields].sort()
+}
+
 function accessDescriptor(access: FieldAccess): unknown {
   return access.kind === "all" ? "all" : { [access.kind]: [...access.paths].sort() }
 }
@@ -333,6 +381,15 @@ export class Realtime {
   private eventCounter = 0
   private readonly tails = new Set<(event: EventSummary) => void>()
   private readonly traces = new Map<string, EventTrace>()
+  /** What a DLS denial is explained against: the first subscriber's own filter and request context. */
+  private readonly observerOrigins = new WeakMap<
+    Observer,
+    {
+      readonly filter: Record<string, unknown>
+      readonly context: RequestContext
+      matcher?: CompiledFilter | null
+    }
+  >()
 
   /** Use {@link createRealtime}. */
   constructor(options: RealtimeOptions, set: PolicySet, source: PolicySource) {
@@ -1072,6 +1129,8 @@ export class Realtime {
     query: ObservedQuery
     type: "filter" | "window" | "polling"
     projection: CompiledProjection | undefined
+    /** The subscription's own filter, before the read policies. */
+    userFilter: Record<string, unknown>
   } {
     const coll = message.c
     if (!this.engine.isRealtime(coll))
@@ -1116,6 +1175,7 @@ export class Realtime {
       key,
       type,
       projection,
+      userFilter: parsed.filter.filter,
       query: {
         coll,
         filter,
@@ -1170,6 +1230,11 @@ export class Realtime {
     const projection = plan.projection
     const project =
       projection === undefined ? (doc: Doc) => doc : (doc: Doc) => projection.apply(doc)
+    if (!this.observerOrigins.has(observer))
+      this.observerOrigins.set(observer, {
+        filter: plan.userFilter,
+        context: this.contextOf(state),
+      })
     const listener = state.session.listener(message.c, message.id, project, coverageOf(projection))
     const sub: SubscriptionState = { id: message.id, coll: message.c, observer, listener }
     this.queries.set(sub, { msg: message })
@@ -1343,11 +1408,13 @@ export class Realtime {
         if (!tracing) continue
         const after = observer.has(event.key)
         subscribers ??= this.subscribersByObserver()
+        const dls = after ? undefined : this.dlsDenial(observer, event.post)
         outcomes.push({
           observer: observer.key,
           type: observer.type,
           outcome: before ? (after ? "updated" : "left") : after ? "entered" : "unmatched",
           subscribers: subscribers.get(observer) ?? [],
+          ...(dls === undefined ? {} : { dls }),
         })
       }
       this.metrics.fanoutLatency.observe((performance.now() - started) / 1000)
@@ -1356,6 +1423,67 @@ export class Realtime {
     }
     for (const observer of this.registry.all()) observer.advance(last)
     this.echoes.processed(events)
+  }
+
+  /**
+   * Explains why DLS kept `doc` from an observer: only when the subscription's own filter matches it, so
+   * documents the query itself excludes are not blamed on a policy. Policy clauses are matched in memory
+   * and reported by name; nothing of the document or the resolved clauses is kept.
+   */
+  private dlsDenial(observer: Observer, doc: Doc | null | undefined): DlsDenial | undefined {
+    if (doc === null || doc === undefined) return undefined
+    const origin = this.observerOrigins.get(observer)
+    if (origin === undefined) return undefined
+    if (origin.matcher === undefined) {
+      try {
+        origin.matcher = compileFilter(origin.filter)
+      } catch {
+        origin.matcher = null
+      }
+    }
+    if (origin.matcher === null || !origin.matcher.matches(doc)) return undefined
+    const coll = observer.query.coll
+    const explanation = this.engine.explain(coll, "read", origin.context, "using")
+    if (explanation.bypass) return undefined
+    const definitions = this.engine.collection(coll)?.policies ?? []
+    const policies: DeniedPolicy[] = []
+    for (const policy of explanation.policies) {
+      if (!policy.applies && policy.issue === undefined) continue
+      let matched = false
+      if (policy.applies && policy.resolved !== undefined) {
+        try {
+          matched = compileFilter(policy.resolved).matches(doc)
+        } catch {
+          matched = false
+        }
+      }
+      const template = definitions.find((d) => d.name === policy.name)?.using ?? {}
+      policies.push({
+        name: policy.name,
+        kind: policy.kind,
+        matched,
+        ...(policy.issue === undefined
+          ? {}
+          : { issue: { variable: policy.issue.variable, kind: policy.issue.kind } }),
+        fields: clauseFields(template),
+      })
+    }
+    const permissive = policies.filter((policy) => policy.kind === "permissive")
+    if (!explanation.exposed || permissive.length === 0)
+      return {
+        reason: "no_grant",
+        responsible: [],
+        policies,
+      }
+    if (!permissive.some((policy) => policy.matched))
+      return {
+        reason: "no_permissive",
+        responsible: permissive.map((policy) => policy.name),
+        policies,
+      }
+    const failing = policies.filter((policy) => policy.kind === "restrictive" && !policy.matched)
+    if (failing.length === 0) return undefined
+    return { reason: "restrictive", responsible: failing.map((policy) => policy.name), policies }
   }
 
   private processControl(event: ControlEvent): void {

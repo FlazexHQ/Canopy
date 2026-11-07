@@ -47,6 +47,8 @@ export {
   type ConnectionInfo,
   createRealtime,
   DEFAULT_REALTIME_LIMITS,
+  type DeniedPolicy,
+  type DlsDenial,
   type EventSummary,
   type EventTrace,
   type ObserverInfo,
