@@ -605,6 +605,36 @@ export class AdminAccounts {
     origin: RequestOrigin,
   ): Promise<{ readonly user: AdminUser; readonly password: string }> {
     this.guard(actor, undefined, input.role)
+    return this.insertAdmin(input, actorOf(actor.user), origin)
+  }
+
+  /**
+   * Creates an admin without a session, for bootstrap tools such as `canopy admin create` that reach the
+   * meta database directly (and so already hold full control). Creating an owner also claims the server, so
+   * setup tokens stop working. Owners enroll TOTP at their first login.
+   */
+  async createBootstrap(
+    input: { readonly email: string; readonly role: AdminRole; readonly name?: string },
+    actor: Actor,
+    origin: RequestOrigin = {},
+  ): Promise<{ readonly user: AdminUser; readonly password: string }> {
+    const created = await this.insertAdmin(input, actor, origin)
+    if (input.role === "owner") {
+      await this.settings
+        .insertOne({ _id: "claimed", at: new Date(this.now()), by: created.user.id })
+        .catch((error: unknown) => {
+          if (!(error instanceof MongoServerError && error.code === 11000)) throw error
+        })
+      await this.settings.deleteOne({ _id: "setup" })
+    }
+    return created
+  }
+
+  private async insertAdmin(
+    input: { readonly email: string; readonly role: AdminRole; readonly name?: string },
+    actor: Actor,
+    origin: RequestOrigin,
+  ): Promise<{ readonly user: AdminUser; readonly password: string }> {
     const email = normalizeEmail(input.email)
     const password = randomBytes(18).toString("base64url")
     const now = new Date(this.now())
@@ -618,7 +648,7 @@ export class AdminAccounts {
       disabled: false,
       failedLogins: 0,
       createdAt: now,
-      createdBy: actor.user.id,
+      createdBy: actor.id,
       updatedAt: now,
       passwordChangedAt: now,
     }
@@ -631,11 +661,48 @@ export class AdminAccounts {
     }
     await this.audit.record({
       action: "admin.create",
-      actor: actorOf(actor.user),
+      actor,
       target: { adminId: doc._id, email, role: input.role },
       origin,
     })
     return { user: view(doc), password }
+  }
+
+  /** Finds an admin by id or email. */
+  async find(idOrEmail: string): Promise<AdminUser | undefined> {
+    const doc = await this.users.findOne(
+      idOrEmail.includes("@") ? { email: idOrEmail.trim().toLowerCase() } : { _id: idOrEmail },
+    )
+    return doc === null ? undefined : view(doc)
+  }
+
+  /**
+   * Clears an admin's TOTP secret and ends their sessions, for a lost authenticator. Owners must enroll a
+   * new one at their next login. `session` is checked like other account changes; bootstrap tools pass
+   * `undefined` with a system actor.
+   */
+  async resetTotp(
+    id: string,
+    actor: Actor,
+    session: AdminSession | undefined,
+    origin: RequestOrigin = {},
+  ): Promise<AdminUser> {
+    const target = await this.users.findOne({ _id: id })
+    if (target === null) throw new NotFoundError("No such admin")
+    if (session !== undefined) this.guard(session, target.role, undefined)
+    const updated = await this.users.findOneAndUpdate(
+      { _id: id },
+      { $unset: { totp: "" }, $set: { updatedAt: new Date(this.now()) } },
+      { returnDocument: "after" },
+    )
+    await this.sessions.deleteMany({ userId: id })
+    await this.audit.record({
+      action: "admin.totp.reset",
+      actor,
+      target: { adminId: id, email: target.email, role: target.role },
+      origin,
+    })
+    return view(updated ?? target)
   }
 
   /** Changes an admin's role, name or disabled flag. Their sessions end when the role or flag changes. */

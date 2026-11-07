@@ -4,6 +4,7 @@ import { createInterface } from "node:readline/promises"
 import { Writable } from "node:stream"
 import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
+import { adminCreate, adminList, adminResetTotp } from "./admin.ts"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
 import { dev } from "./dev.ts"
 import { policiesExplain } from "./explain.ts"
@@ -46,6 +47,10 @@ Commands:
   keys list              List the API keys of the project
   keys create            Create a key: --kind publishable|secret --name <name>
   keys revoke <id>       Revoke a key for good (asks first)
+  admin list             List the Studio admins
+  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]
+  admin reset-totp <id|email>
+                         Clear an admin's TOTP and end their sessions (asks first)
   migrate                Bring the meta database up to date (--status lists the migrations)
   login <url>            Store an admin token for a remote project in the OS keychain
   logout <url>           Remove the stored admin token of a project
@@ -67,7 +72,6 @@ Options:
   --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)
   --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)
   --out <file>           gen types: the file to write (default: the config's types.out, else src/canopy.gen.ts)
-  --role <role>          gen types: make fields this role cannot read optional
   --check                gen types: fail when the file is out of date instead of writing it
   --infer-enums          gen types: turn low cardinality string fields into literal unions
   --sample <n>           gen types: documents sampled per collection (default 1000)
@@ -84,10 +88,13 @@ Options:
   --force                policies pull: replace existing files
   --limit <n>            policies history: how many versions (default 50)
   --kind <kind>          keys create: publishable or secret
-  --name <name>          keys create: a label for the key
+  --name <name>          keys create: a label for the key; admin create: the admin's name
+  --email <email>        admin create: the admin's email
+  --role <role>          gen types: make fields this role cannot read optional; admin create: the role
   --status               migrate: list the migrations instead of running them
   --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)
-  --yes                  realtime, indexes create, policies rollback, keys revoke: apply without asking
+  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp:
+                         apply without asking
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
   --roles <a,b>          policies explain: custom roles of the caller
   --op <op>              policies explain: read, insert, update or delete (default read)
@@ -150,6 +157,9 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   "keys list": { flags: [] },
   "keys create": { flags: ["kind", "name"] },
   "keys revoke": { flags: ["yes"], args: [1, 1], needs: "the id of one key" },
+  "admin list": { flags: [] },
+  "admin create": { flags: ["email", "role", "name"] },
+  "admin reset-totp": { flags: ["yes"], args: [1, 1], needs: "the id or email of one admin" },
   migrate: { flags: ["status"] },
   login: { flags: ["token"], args: [1, 1], needs: "the project URL" },
   logout: { flags: [], args: [1, 1], needs: "the project URL" },
@@ -167,6 +177,9 @@ const META_ONLY = new Set([
   "keys list",
   "keys create",
   "keys revoke",
+  "admin list",
+  "admin create",
+  "admin reset-totp",
   "migrate",
 ])
 
@@ -484,6 +497,23 @@ async function runMeta(
     }
     case "keys revoke":
       return keysRevoke({ ...meta, id: args[0] ?? "", yes: flags.has("yes") }, out)
+    case "admin list":
+      return adminList(meta, out)
+    case "admin create": {
+      const email = text(flags, "email")
+      const role = text(flags, "role")
+      const adminName = text(flags, "name")
+      if (email === undefined || role === undefined) {
+        out.error("admin create needs --email <email> and --role owner|admin|developer|viewer")
+        return 1
+      }
+      return adminCreate(
+        { ...meta, email, role, ...(adminName === undefined ? {} : { name: adminName }) },
+        out,
+      )
+    }
+    case "admin reset-totp":
+      return adminResetTotp({ ...meta, admin: args[0] ?? "", yes: flags.has("yes") }, out)
     default:
       return migrate({ ...meta, status: flags.has("status") }, out)
   }

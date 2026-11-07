@@ -321,6 +321,30 @@ suite("admin accounts", () => {
     })
   })
 
+  it("resets TOTP only for those allowed to manage the target, and owners enroll again", async () => {
+    const { session: owner } = await ownerSession()
+    const admin = await accounts.create(
+      owner,
+      { email: "admin@example.com", role: "admin" },
+      origin,
+    )
+    const adminSession: AdminSession = { ...owner, id: "x", user: admin.user }
+    await expect(
+      accounts.resetTotp(owner.user.id, { type: "admin", id: admin.user.id }, adminSession, origin),
+    ).rejects.toMatchObject({ code: "CANOPY_FORBIDDEN" })
+    expect((await accounts.find("owner@example.com"))?.totpEnabled).toBe(true)
+    const reset = await accounts.resetTotp(
+      owner.user.id,
+      { type: "system", id: "cli:test" },
+      undefined,
+    )
+    expect(reset.totpEnabled).toBe(false)
+    expect(await accounts.session(owner.id)).toBeUndefined()
+    await expect(
+      accounts.login({ email: "owner@example.com", password: PASSWORD }, origin, "cookie"),
+    ).rejects.toMatchObject({ details: { totpRequired: true, totpEnrollment: {} } })
+  })
+
   it("changes passwords, ends the other sessions and audits failures", async () => {
     const { session, secret } = await ownerSession()
     now += 30_000

@@ -348,9 +348,7 @@ suite("admin API", () => {
       data: { outcome: string; actor: { role?: string }; action: string }[]
     }
     const refusals = denied.data.filter((entry) => entry.outcome === "denied")
-    expect(refusals.some((e) => e.actor.role === "viewer" && e.action === "apikey.create")).toBe(
-      true,
-    )
+    expect(refusals.some((e) => e.actor.role === "viewer" && e.action === "key.create")).toBe(true)
     expect(
       refusals.some((e) => e.actor.role === "developer" && e.action === "settings.update"),
     ).toBe(true)

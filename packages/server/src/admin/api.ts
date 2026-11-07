@@ -430,6 +430,22 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
   )
 
   route(
+    "POST",
+    "admins/:id/reset-totp",
+    "admins.manage",
+    async (context) =>
+      json({
+        user: await accounts.resetTotp(
+          context.params["id"] ?? "",
+          context.actor,
+          context.session,
+          context.origin,
+        ),
+      }),
+    "admin.totp.reset",
+  )
+
+  route(
     "DELETE",
     "admins/:id",
     "admins.manage",
@@ -922,7 +938,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
         createdBy: context.actor.id,
       })
       await context.audit({
-        action: "apikey.create",
+        action: "key.create",
         target: {
           keyId: created.info.id,
           kind: body.kind,
@@ -932,7 +948,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       })
       return json(created, 201)
     },
-    "apikey.create",
+    "key.create",
   )
 
   route(
@@ -946,12 +962,12 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       if (existing.kind === "secret") require(context, "keys.secret")
       const revoked = await keys.revoke(id, context.actor.id)
       await context.audit({
-        action: "apikey.revoke",
+        action: "key.revoke",
         target: { keyId: id, kind: existing.kind, name: existing.name, prefix: existing.prefix },
       })
       return json(revoked)
     },
-    "apikey.revoke",
+    "key.revoke",
   )
 
   // Realtime
@@ -1316,6 +1332,7 @@ const selfAudited: ReadonlySet<string> = new Set([
   "admin.create",
   "admin.update",
   "admin.remove",
+  "admin.totp.reset",
   "collection.update",
   "policy.publish",
   "policy.rollback",
