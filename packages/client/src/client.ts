@@ -1,4 +1,4 @@
-import { compileProjection } from "@canopy/matcher"
+import { compileProjection } from "@canopy/matcher/lite"
 import {
   type AckMessage,
   CanopyError,

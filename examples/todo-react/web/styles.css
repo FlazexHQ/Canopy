@@ -1,0 +1,88 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: Canvas;
+  color: CanvasText;
+}
+
+main {
+  max-width: 40rem;
+  margin: 2rem auto;
+  padding: 0 1rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.status {
+  padding: 0.2rem 0.6rem;
+  border-radius: 1rem;
+  font-size: 0.85rem;
+  background: #ddd;
+  color: #222;
+}
+
+.status.live {
+  background: #c8f0d0;
+}
+
+.status.offline,
+.status.reconnecting {
+  background: #f6dba8;
+}
+
+.status.fallback {
+  background: #d6e4ff;
+}
+
+.add {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.add input[aria-label="New todo"] {
+  flex: 1;
+  padding: 0.4rem;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid color-mix(in srgb, CanvasText 15%, transparent);
+}
+
+.title {
+  flex: 1;
+}
+
+li.done .title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.meta,
+.query {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+[role="alert"] {
+  padding: 0.5rem;
+  background: #ffe1e1;
+  color: #600;
+}

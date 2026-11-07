@@ -44,7 +44,7 @@ export function useQuery<T extends Document = Document>(query: LiveQuery<T>): Qu
   return useSyncExternalStore(subscribe, read, read)
 }
 
-/** The connection status: `connecting`, `live`, `reconnecting`, `offline` or `closed`. */
+/** The connection status: `connecting`, `live`, `fallback`, `reconnecting`, `offline` or `closed`. */
 export function useCanopyStatus(): ConnectionStatus {
   const client = useCanopy()
   const subscribe = useCallback((notify: () => void) => client.onStatus(() => notify()), [client])

@@ -8,7 +8,8 @@ Canopy (working name) is an open source, self hostable backend platform for Mong
 Phase 1 (DLS core and Canopy Realtime, v0.1) is done and the repository is in **Phase 2 (Data API and optimistic
 SDK, v0.2)**. Packages: `protocol`, `matcher`, `query`, `policy` (universal), `auth` (API keys and JWKS tokens),
 `rest` (the transactional write path, with the REST endpoints to follow), `realtime` (engine plus the
-`canopy-realtime` sidecar), `client`, `react`, `cli` and the private `testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar),
+`canopy-realtime` sidecar), `client`, `react`, `cli` and the private `testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar;
+`todo-react`: an optimistic, offline capable React app with Playwright tests),
 and the sidecar quickstart is `packages/realtime/README.md`. The only branch is
 **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers and Changesets.
 `docs/` is the source of truth for the design:

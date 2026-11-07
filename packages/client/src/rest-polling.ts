@@ -166,6 +166,13 @@ class RestSocket extends HttpSocket {
       )
       const counts = (MUTATION_OPS.has(op) ? result : (data ?? {})) as Frame
       const matched = Number(counts["matched"] ?? counts["deleted"] ?? docs.length)
+      if (
+        matched === 0 &&
+        (op === "update" || op === "delete" || (op === "replace" && docs.length === 0))
+      ) {
+        ack({ ok: false, err: { code: "CANOPY_NOT_FOUND", msg: "Document not found" } })
+        return
+      }
       ack({
         ok: true,
         ct: result["ct"],

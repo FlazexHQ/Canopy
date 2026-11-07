@@ -5,7 +5,7 @@ import {
   compileSort,
   type DocComparator,
   UnsupportedQueryError,
-} from "@canopy/matcher"
+} from "@canopy/matcher/lite"
 import { type ClusterTime, canonicalString, compareCt, type Document } from "@canopy/protocol"
 
 /** The cache key of a document: `collection/canonical(_id)`. */

@@ -491,11 +491,6 @@ export class Realtime {
       throw new CanopyError(ErrorCode.ProtocolError, "Unsupported protocol version")
     }
     const principal = await this.auth.authenticate(hello.key, hello.token)
-    const count = this.subjects.get(principal.subject) ?? 0
-    if (principal.subject !== "anon" && count >= this.limits.maxConnectionsPerSubject) {
-      socket.close(CloseCode.RateLimited, "too many connections")
-      throw new CanopyError(ErrorCode.RateLimited, "Too many connections for this subject")
-    }
     const caps = new Set((hello.caps ?? []).filter((cap) => cap === "batch" || cap === "diff"))
     const welcome = (sid: string, resumed: boolean) => ({
       t: "welcome" as const,
@@ -534,6 +529,11 @@ export class Realtime {
         }
         this.destroySession(existing)
       }
+    }
+    const count = this.makeRoom(principal.subject)
+    if (principal.subject !== "anon" && count >= this.limits.maxConnectionsPerSubject) {
+      socket.close(CloseCode.RateLimited, "too many connections")
+      throw new CanopyError(ErrorCode.RateLimited, "Too many connections for this subject")
     }
     const sid = `${this.options.nodeId ?? "n1"}.${randomId()}`
     const session = new Session(sid, caps, {
@@ -657,7 +657,8 @@ export class Realtime {
    * fanned out, the `ack` is enqueued behind them on this connection (`echo: true`). When that cannot be
    * promised (a bulk write, a collection without realtime, a subscription that defers events to a later
    * snapshot, a timeout, or a replay, whose events were sent with the original write) the `ack` carries
-   * the readable post images and `echo: false`.
+   * the readable post images and `echo: false`. A single document write that found no visible document
+   * fails with `CANOPY_NOT_FOUND`, as it does over REST.
    */
   private async runMutation(
     state: SessionState,
@@ -672,6 +673,13 @@ export class Realtime {
         mutationRequest(message),
         { mutationId: message.id },
       )
+      if (
+        (message.op === "update" || message.op === "replace" || message.op === "delete") &&
+        result.matched === 0 &&
+        result.deleted === 0 &&
+        result.changedIds.length === 0
+      )
+        throw new CanopyError(ErrorCode.NotFound, "Document not found")
       let echo = false
       if (!result.replayed && !isBulk(message.op) && this.watched.includes(message.c)) {
         echo =
@@ -939,6 +947,25 @@ export class Realtime {
       observer.dispose()
     this.registry.remove(observer)
     this.metrics.observers.add(-1, { type: observer.type })
+  }
+
+  /**
+   * The subject's session count once there is room for a new session: at the limit, its oldest sessions
+   * that only wait for a resume (their tab was closed or reloaded) are dropped first, so only connected
+   * sessions count against `maxConnectionsPerSubject`.
+   */
+  private makeRoom(subject: string): number {
+    let count = this.subjects.get(subject) ?? 0
+    if (subject === "anon" || count < this.limits.maxConnectionsPerSubject) return count
+    const waiting = [...this.sessions.values()]
+      .filter((state) => state.principal.subject === subject && state.socket === undefined)
+      .sort((a, b) => (a.session.disconnectedAt ?? 0) - (b.session.disconnectedAt ?? 0))
+    for (const state of waiting) {
+      if (count < this.limits.maxConnectionsPerSubject) break
+      this.destroySession(state)
+      count = this.subjects.get(subject) ?? 0
+    }
+    return count
   }
 
   private scheduleDrop(state: SessionState): void {

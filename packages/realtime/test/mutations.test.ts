@@ -208,6 +208,39 @@ suite("mutations over the socket", () => {
     expect(await engine.db.collection("todos").countDocuments({ _id: 2 } as never)).toBe(0)
   })
 
+  it("fails single document writes that find no visible document, as REST does", async () => {
+    await engine.db
+      .collection<{ _id: number; ownerId: string; title: string }>("todos")
+      .insertOne({ _id: 30, ownerId: "bob", title: "bob's" })
+    const client = await connect()
+    for (const [op, args] of [
+      ["update", { id: 30, update: { $set: { title: "taken" } } }],
+      ["replace", { id: 30, doc: { ownerId: "alice", title: "taken" } }],
+      ["delete", { id: 30 }],
+      ["update", { id: 31, update: { $set: { title: "missing" } } }],
+    ] as const) {
+      const ack = await mutate(client, "todos", op, args)
+      expect(ack).toMatchObject({ ok: false, err: { code: ErrorCode.NotFound } })
+    }
+    expect(await engine.db.collection("todos").findOne({ _id: 30 as never })).toMatchObject({
+      title: "bob's",
+    })
+    const upsert = await mutate(client, "todos", "replace", {
+      id: 32,
+      doc: { ownerId: "alice", title: "new" },
+      upsert: true,
+    })
+    expect(upsert).toMatchObject({ ok: true })
+    await engine.db
+      .collection("todos")
+      .insertOne({ _id: 33 as never, ownerId: "alice", title: "same" })
+    const unchanged = await mutate(client, "todos", "update", {
+      id: 33,
+      update: { $set: { title: "same" } },
+    })
+    expect(unchanged).toMatchObject({ ok: true, res: { matched: 1, modified: 0 } })
+  })
+
   it("replays a repeated mutation ID instead of writing twice", async () => {
     const client = await connect()
     const id = mutationId()

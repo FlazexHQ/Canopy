@@ -1,3 +1,12 @@
+import {
+  type CompiledFilter,
+  compileFilter as compileWith,
+  isMatcherSafe as safeWith,
+  withRegexEngine,
+} from "./filter.ts"
+import { compileRegex } from "./regex.ts"
+import { applyUpdate as applyWith, type UpdateOptions } from "./update.ts"
+
 export {
   Bracket,
   type BsonType,
@@ -9,7 +18,7 @@ export {
 } from "./compare.ts"
 export { equalityKey } from "./equality-key.ts"
 export { UnsupportedQueryError, UpdateError } from "./errors.ts"
-export { type CompiledFilter, compileFilter, type DocTest, isMatcherSafe } from "./filter.ts"
+export { type CompiledFilter, type DocTest, type RegexEngine, withRegexEngine } from "./filter.ts"
 export {
   compareNumeric,
   isInt32,
@@ -42,4 +51,32 @@ export {
   sortKeyOf,
   withIdTieBreaker,
 } from "./sort.ts"
-export { applyUpdate, isOperatorUpdate, UPDATE_OPERATORS, type UpdateOptions } from "./update.ts"
+export { isOperatorUpdate, UPDATE_OPERATORS, type UpdateOptions } from "./update.ts"
+
+/**
+ * Compiles a MongoDB query filter into a document test. Supports the matcher safe operators: comparisons,
+ * `$in`/`$nin`, `$exists`, `$type`, logical operators, `$all`, `$elemMatch`, `$size`, `$mod` and linear
+ * time `$regex`. Throws `UnsupportedQueryError` for valid constructs the matcher does not evaluate, and
+ * `InvalidQueryError` for filters MongoDB would reject.
+ */
+export function compileFilter(filter: unknown): CompiledFilter {
+  return withRegexEngine(compileRegex, () => compileWith(filter))
+}
+
+/** Returns true when every operator in `filter` can be evaluated in process. */
+export function isMatcherSafe(filter: unknown): boolean {
+  return withRegexEngine(compileRegex, () => safeWith(filter))
+}
+
+/**
+ * Applies a MongoDB update (operators or a replacement document) to a copy of `doc`, following MongoDB 5.0
+ * and later semantics, including lexicographic processing of new fields. The input is never modified.
+ * Throws `UpdateError` where MongoDB would reject the update.
+ */
+export function applyUpdate(
+  doc: Record<string, unknown>,
+  update: unknown,
+  options: UpdateOptions = {},
+): Record<string, unknown> {
+  return withRegexEngine(compileRegex, () => applyWith(doc, update, options))
+}

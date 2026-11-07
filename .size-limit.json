@@ -1,0 +1,33 @@
+[
+  {
+    "name": "@canopy/client",
+    "gzip": true,
+    "path": "packages/client/dist/index.js",
+    "limit": "24.5 kB"
+  },
+  {
+    "name": "@canopy/client/fallback",
+    "gzip": true,
+    "path": "packages/client/dist/fallback.js",
+    "limit": "2 kB"
+  },
+  {
+    "name": "@canopy/client/rest-polling",
+    "gzip": true,
+    "path": "packages/client/dist/rest-polling.js",
+    "limit": "2 kB"
+  },
+  {
+    "name": "@canopy/client/persist",
+    "gzip": true,
+    "path": "packages/client/dist/persist.js",
+    "limit": "2 kB"
+  },
+  {
+    "name": "@canopy/react",
+    "gzip": true,
+    "path": "packages/react/dist/index.js",
+    "ignore": ["react", "@canopy/client"],
+    "limit": "2 kB"
+  }
+]

@@ -4,7 +4,7 @@ import { equalityKey } from "./equality-key.ts"
 import { UnsupportedQueryError } from "./errors.ts"
 import { isNaNValue, readNumeric, toDouble } from "./numeric.ts"
 import { anyPathValue, type LeafTest, splitPath } from "./path.ts"
-import { compileRegex, type LinearRegex } from "./regex.ts"
+import type { LinearRegex } from "./regex.ts"
 
 /** A document test compiled from a MongoDB filter. */
 export type DocTest = (doc: unknown) => boolean
@@ -94,6 +94,26 @@ function isOperatorObject(value: unknown): value is Record<string, unknown> {
 
 function isRegexValue(value: unknown): boolean {
   return regexParts(value) !== undefined
+}
+
+/** Compiles a `$regex` pattern into a linear time test. */
+export type RegexEngine = (pattern: string, options: string) => LinearRegex
+
+let regexEngine: RegexEngine | undefined
+
+/**
+ * Runs `fn` with `engine` compiling regular expressions. The `@canopy/matcher` entry point wraps every
+ * call in the full engine; `@canopy/matcher/lite` runs without one, so `$regex` is unsupported there and
+ * the regex translator stays out of browser bundles.
+ */
+export function withRegexEngine<T>(engine: RegexEngine | undefined, fn: () => T): T {
+  const previous = regexEngine
+  regexEngine = engine
+  try {
+    return fn()
+  } finally {
+    regexEngine = previous
+  }
 }
 
 /**
@@ -438,7 +458,9 @@ function regexFromOperator(pattern: unknown, options: unknown): unknown {
 function regexLeaf(value: unknown): LeafTest {
   const parts = regexParts(value)
   if (parts === undefined) return invalid("expected a regular expression")
-  const compiled: LinearRegex = compileRegex(parts.pattern, parts.options)
+  if (regexEngine === undefined)
+    throw new UnsupportedQueryError("$regex needs the full matcher, not @canopy/matcher/lite")
+  const compiled: LinearRegex = regexEngine(parts.pattern, parts.options)
   const sortedOptions = [...parts.options].sort().join("")
   return (candidate) => {
     if (typeof candidate === "string") return compiled.test(candidate)

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.server.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "node_modules/.cache/types",
+    "tsBuildInfoFile": "node_modules/.cache/types/.tsbuildinfo"
+  },
+  "include": ["src", "test", "e2e", "playwright.config.ts"],
+  "references": [
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/realtime" },
+    { "path": "../../packages/rest" },
+    { "path": "../../packages/testing" }
+  ]
+}
