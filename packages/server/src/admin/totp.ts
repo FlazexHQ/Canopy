@@ -66,7 +66,7 @@ export interface TotpOptions {
 }
 
 /** The time step of a moment, in whole steps since the epoch. */
-export function totpStep(timeMs: number, step = 30): number {
+function totpStep(timeMs: number, step = 30): number {
   return Math.floor(timeMs / 1000 / step)
 }
 

@@ -12,10 +12,10 @@ export interface DockerResult {
 }
 
 /** Runs `docker` with arguments. Injected so tests can observe the calls. */
-export type DockerRunner = (args: readonly string[]) => Promise<DockerResult>
+type DockerRunner = (args: readonly string[]) => Promise<DockerResult>
 
 /** Runs the real `docker` binary. */
-export const docker: DockerRunner = (args) =>
+const docker: DockerRunner = (args) =>
   new Promise((done) => {
     execFile("docker", [...args], { timeout: 600_000 }, (error, stdout, stderr) => {
       const code =

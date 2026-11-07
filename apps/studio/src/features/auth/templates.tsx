@@ -28,7 +28,7 @@ export interface TemplateDraft {
   readonly html: string
 }
 
-export function draftOf(template: EmailTemplateBody): TemplateDraft {
+function draftOf(template: EmailTemplateBody): TemplateDraft {
   return { subject: template.subject, text: template.text, html: template.html ?? "" }
 }
 

@@ -15,8 +15,8 @@ import { type Db, MongoClient } from "mongodb"
 import WebSocket from "ws"
 import { attach, createRealtime, type Realtime, type RealtimeOptions } from "../src/index.ts"
 
-export const ISSUER = "https://issuer.test/"
-export const AUDIENCE = "https://api.test"
+const ISSUER = "https://issuer.test/"
+const AUDIENCE = "https://api.test"
 
 /** A signing key and its public JWKS. */
 export interface Keys {

@@ -11,7 +11,7 @@ export type ParseResult<T = unknown> =
     }
 
 /** The offset of the first JSON syntax error, found by a small recursive descent scanner. */
-export function jsonErrorOffset(text: string): number {
+function jsonErrorOffset(text: string): number {
   let i = 0
   const fail = (): never => {
     throw i

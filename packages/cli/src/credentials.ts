@@ -18,7 +18,7 @@ export type ToolRunner = (
 ) => Promise<ToolResult>
 
 /** Runs a real program. A missing program gives code 127. */
-export const runTool: ToolRunner = (program, args, input) =>
+const runTool: ToolRunner = (program, args, input) =>
   new Promise((done) => {
     const child = execFile(program, [...args], { timeout: 30_000 }, (error, stdout) => {
       const code =

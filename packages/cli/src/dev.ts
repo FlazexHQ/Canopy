@@ -23,7 +23,7 @@ export interface DevOptions {
 }
 
 /** Development keys for a session without configured keys. */
-export function devKeys(): { publishable: string; secret: string } {
+function devKeys(): { publishable: string; secret: string } {
   return {
     publishable: `canopy_pk_dev_${randomBytes(12).toString("hex")}`,
     secret: `canopy_sk_dev_${randomBytes(18).toString("hex")}`,

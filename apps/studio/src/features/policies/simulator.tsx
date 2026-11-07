@@ -44,7 +44,7 @@ interface SimulatorInput {
 }
 
 /** Builds who the simulation runs as, or an error message for invalid claims. */
-export function simulatedIdentity(input: SimulatorInput): ViewAs | string {
+function simulatedIdentity(input: SimulatorInput): ViewAs | string {
   const extra = splitList(input.extraRoles).filter((role) => role !== "authenticated")
   if (input.mode === "anon") return { roles: ["anon"], claims: {}, label: "anon" }
   if (input.mode === "claims") {

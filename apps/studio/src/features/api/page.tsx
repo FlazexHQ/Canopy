@@ -33,7 +33,7 @@ import {
 } from "./snippets.ts"
 
 /** The server origin the admin API client talks to, empty for the page origin. */
-export function serverOrigin(api: AdminApi): string {
+function serverOrigin(api: AdminApi): string {
   const admin = api.url("")
   return admin.endsWith(ADMIN_BASE_PATH) ? admin.slice(0, -ADMIN_BASE_PATH.length) : ""
 }

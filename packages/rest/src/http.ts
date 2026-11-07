@@ -166,7 +166,7 @@ const ALLOWED_HEADERS =
 const EXPOSED_HEADERS = "x-request-id, x-canopy-ct, retry-after, location, etag"
 
 /** Returns the origin to echo, or `undefined` when the origin is not allowed. */
-export function allowedOrigin(cors: CorsOptions, origin: string | null): string | undefined {
+function allowedOrigin(cors: CorsOptions, origin: string | null): string | undefined {
   if (origin === null) return undefined
   if (cors.origins === "*") return "*"
   return cors.origins.includes(origin) ? origin : undefined

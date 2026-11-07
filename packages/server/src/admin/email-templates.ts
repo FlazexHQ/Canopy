@@ -19,8 +19,8 @@ export const EMAIL_KINDS: readonly EmailKind[] = [
 ]
 
 /** The placeholders a template may use, written `{{name}}`. */
-export const EMAIL_PLACEHOLDERS = ["appName", "email", "url", "otp", "newEmail"] as const
-export type EmailPlaceholder = (typeof EMAIL_PLACEHOLDERS)[number]
+const EMAIL_PLACEHOLDERS = ["appName", "email", "url", "otp", "newEmail"] as const
+type EmailPlaceholder = (typeof EMAIL_PLACEHOLDERS)[number]
 
 /** Placeholders each kind must use somewhere, so an edited email still carries its link or code. */
 const REQUIRED: Readonly<Record<EmailKind, readonly EmailPlaceholder[]>> = {
@@ -51,7 +51,7 @@ export interface StoredEmailTemplate {
 }
 
 /** Where the template in force comes from. */
-export type TemplateSource = "default" | "studio"
+type TemplateSource = "default" | "studio"
 
 /** One template as the admin API shows it. */
 export interface EmailTemplateView extends StoredEmailTemplate {
@@ -74,7 +74,7 @@ export interface EmailTemplateVersion {
 }
 
 /** Test data for previews: realistic values for every placeholder. */
-export const PREVIEW_DATA: Omit<EmailTemplateData, "appName"> = {
+const PREVIEW_DATA: Omit<EmailTemplateData, "appName"> = {
   email: "ada@example.com",
   url: "https://app.example.com/auth/v1/verify?token=preview",
   otp: "482913",

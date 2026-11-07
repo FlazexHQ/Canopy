@@ -16,7 +16,7 @@ import {
 import { useWriteMode, writeContext } from "./write-dialogs.tsx"
 
 /** The most documents one export downloads. */
-export const EXPORT_MAX = 10_000
+const EXPORT_MAX = 10_000
 const PAGE = 500
 
 const EXTENSIONS: Record<TransferFormat, string> = { ejson: "json", json: "json", csv: "csv" }

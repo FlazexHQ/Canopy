@@ -47,7 +47,7 @@ export const noCheckpoints: CheckpointStore = {
 }
 
 /** Callbacks of the ingestor. */
-export interface IngestorHandlers {
+interface IngestorHandlers {
   /** Processes a batch of data events in stream order. The next batch waits for the promise. */
   onEvents(events: NormalizedEvent[]): Promise<void>
   /** A drop, rename, dropDatabase or invalidate. */

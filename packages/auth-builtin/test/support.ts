@@ -175,7 +175,7 @@ export class Client {
 let ipCounter = 0
 
 /** A fresh client address for each simulated device, so engine limits per address do not interfere. */
-export function nextIp(): string {
+function nextIp(): string {
   ipCounter++
   return `10.${(ipCounter >> 16) & 255}.${(ipCounter >> 8) & 255}.${ipCounter & 255}`
 }
@@ -214,7 +214,7 @@ export function otpOf(mail: EmailMessage): string {
 }
 
 /** A MongoDB command seen by the client built in auth uses. */
-export interface SeenCommand {
+interface SeenCommand {
   readonly db: string
   readonly name: string
   readonly collection: string

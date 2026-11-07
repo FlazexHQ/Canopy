@@ -26,7 +26,7 @@ import { TEMPLATE_IDS, type TemplateId, templateDraft } from "../policies/model.
 import { TotpEnrollmentPanel } from "../session/totp-enrollment.tsx"
 
 /** The shortest owner password the wizard accepts, matching the server rule. */
-export const PASSWORD_MIN = 12
+const PASSWORD_MIN = 12
 
 const STEPS = ["claim", "doctor", "collections", "connect"] as const
 type Step = (typeof STEPS)[number]

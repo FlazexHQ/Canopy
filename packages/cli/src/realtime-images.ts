@@ -12,7 +12,7 @@ export interface ImagesOptions {
 }
 
 /** The `collMod` command that turns pre and post images on or off for one collection. */
-export function imagesCommand(
+function imagesCommand(
   collection: string,
   enable: boolean,
 ): { collMod: string; changeStreamPreAndPostImages: { enabled: boolean } } {

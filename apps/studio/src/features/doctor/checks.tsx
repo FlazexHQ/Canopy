@@ -53,7 +53,7 @@ export function countChecks(checks: readonly DoctorCheck[]): Record<CheckStatus,
 const NAMES = en.doctor.names
 
 /** The title of a check: a known check name in words, or the server's own title. */
-export function checkTitle(check: DoctorCheck): string {
+function checkTitle(check: DoctorCheck): string {
   return Object.hasOwn(NAMES, check.id)
     ? t(`doctor.names.${check.id as keyof typeof NAMES}`)
     : check.title

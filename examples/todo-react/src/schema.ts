@@ -4,7 +4,7 @@ import type { Db } from "mongodb"
  * The shape of a todo, enforced by MongoDB. `canopy gen types` reads this validator to write
  * `web/canopy.gen.ts`, so the React app is typed by the same schema the database enforces.
  */
-export const todoValidator = {
+const todoValidator = {
   $jsonSchema: {
     bsonType: "object",
     required: ["_id", "title", "done", "shared", "ownerId", "v", "createdAt"],

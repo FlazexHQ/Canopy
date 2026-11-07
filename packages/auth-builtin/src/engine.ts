@@ -122,7 +122,7 @@ const EMAIL_OTP_PATHS = [
 ]
 
 /** Better Auth routes that are off for a given configuration. */
-export function disabledPaths(settings: EngineSettings): string[] {
+function disabledPaths(settings: EngineSettings): string[] {
   const paths = ["/token", "/jwks", ...ADMIN_PATHS]
   if (!settings.anonymous) paths.push("/sign-in/anonymous", "/delete-anonymous-user")
   if (!settings.magicLink) paths.push("/sign-in/magic-link", "/magic-link/verify")
@@ -367,7 +367,7 @@ export interface EngineApi {
 }
 
 /** The engine internals Canopy builds on: user and session storage, transactions and hashing. */
-export interface EngineContext {
+interface EngineContext {
   readonly internalAdapter: InternalAdapter
   /** Runs `fn` in one MongoDB transaction; engine writes inside it join the transaction. */
   transaction<R>(fn: () => Promise<R>): Promise<R>

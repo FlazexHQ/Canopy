@@ -79,21 +79,21 @@ function store(client: MongoClient, metaDatabase: string): PolicyStore {
 }
 
 /** The published state of a project: each collection's version and hash, and the context lookups. */
-export interface PublishedPolicies {
+interface PublishedPolicies {
   readonly collections: ReadonlyMap<string, { readonly version: number; readonly hash: string }>
   readonly contexts: ContextDefinitions
   readonly contextVersion: number
 }
 
 /** Everything published, as `policies pull` writes it. */
-export interface PolicySnapshot {
+interface PolicySnapshot {
   readonly definitions: ReadonlyMap<string, CollectionPolicies>
   readonly stored: ReadonlyMap<string, { readonly version: number; readonly hash: string }>
   readonly contexts: ContextDefinitions
 }
 
 /** One published version, as `policies history` prints it. */
-export interface PolicyVersionEntry {
+interface PolicyVersionEntry {
   readonly version: number
   readonly publishedAt: Date
   readonly publishedBy: string
@@ -106,7 +106,7 @@ export interface PolicyVersionEntry {
  * Where the `policies` commands that touch published policies work: the meta database directly, or a
  * remote admin API.
  */
-export interface PolicyTarget {
+interface PolicyTarget {
   published(): Promise<PublishedPolicies>
   definition(collection: string): Promise<CollectionPolicies | undefined>
   publish(
@@ -200,7 +200,7 @@ function storedVersion(result: unknown): number {
 }
 
 /** Publishes through `/admin/v1/policies` and `/admin/v1/contexts`, as the admin the token belongs to. */
-export function remoteTarget(admin: AdminClient): PolicyTarget {
+function remoteTarget(admin: AdminClient): PolicyTarget {
   const withComment = (comment: string | undefined) => (comment === undefined ? {} : { comment })
   const target: PolicyTarget = {
     async published() {
@@ -348,7 +348,7 @@ function select<T>(names: readonly string[], all: ReadonlyMap<string, T>): strin
 }
 
 /** What differs between a local and a stored definition, one line per difference. */
-export function describeChanges(local: CollectionPolicies, stored: CollectionPolicies): string[] {
+function describeChanges(local: CollectionPolicies, stored: CollectionPolicies): string[] {
   const lines: string[] = []
   const policyHash = (def: CollectionPolicies, name: string): string | undefined => {
     const policy = def.policies.find((p) => p.name === name)

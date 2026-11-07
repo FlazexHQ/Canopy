@@ -74,7 +74,7 @@ export function roleAtMost(role: AdminRole, limit: AdminRole): boolean {
 }
 
 /** The less privileged of two roles. */
-export function lowerRole(a: AdminRole, b: AdminRole): AdminRole {
+function lowerRole(a: AdminRole, b: AdminRole): AdminRole {
   return rank(a) <= rank(b) ? a : b
 }
 

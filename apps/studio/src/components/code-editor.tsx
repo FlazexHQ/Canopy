@@ -33,7 +33,7 @@ import { parseEjson } from "../lib/ejson.ts"
 import { cn } from "../lib/utils.ts"
 
 /** Query and update operators offered by autocomplete, with a short description each. */
-export const OPERATOR_COMPLETIONS: readonly (readonly [string, string])[] = [
+const OPERATOR_COMPLETIONS: readonly (readonly [string, string])[] = [
   ["$eq", "equals"],
   ["$ne", "not equal"],
   ["$gt", "greater than"],
@@ -59,7 +59,7 @@ export const OPERATOR_COMPLETIONS: readonly (readonly [string, string])[] = [
 ]
 
 /** Extended JSON wrappers for BSON types. */
-export const EJSON_COMPLETIONS: readonly (readonly [string, string])[] = [
+const EJSON_COMPLETIONS: readonly (readonly [string, string])[] = [
   ["$oid", "ObjectId"],
   ["$date", "Date"],
   ["$numberLong", "64 bit integer"],
@@ -70,7 +70,7 @@ export const EJSON_COMPLETIONS: readonly (readonly [string, string])[] = [
 ]
 
 /** Policy variables, offered in policy clauses only. */
-export const VARIABLE_COMPLETIONS: readonly (readonly [string, string])[] = [
+const VARIABLE_COMPLETIONS: readonly (readonly [string, string])[] = [
   ["$auth", "a JWT claim, for example sub"],
   ["$ctx", "a context lookup"],
   ["$now", "the request time"],
@@ -86,7 +86,7 @@ export interface CompletionOptions {
  * Completes inside JSON property names: field names from the collection schema, query operators, EJSON
  * wrappers and, in policies, the `$auth`, `$ctx` and `$now` variables.
  */
-export function ejsonCompletionSource(options: CompletionOptions) {
+function ejsonCompletionSource(options: CompletionOptions) {
   return (context: CompletionContext): CompletionResult | null => {
     const node = syntaxTree(context.state).resolveInner(context.pos, -1)
     const inString = node.name === "String" || node.name === "PropertyName"

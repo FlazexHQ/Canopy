@@ -24,7 +24,7 @@ function base32Decode(text: string): Buffer {
 }
 
 /** RFC 6238 with SHA-1, 6 digits and 30 second steps, as authenticator apps compute it. */
-export function totpAt(secret: string, step: number): string {
+function totpAt(secret: string, step: number): string {
   const counter = Buffer.alloc(8)
   counter.writeBigUInt64BE(BigInt(step))
   const digest = createHmac("sha1", base32Decode(secret)).update(counter).digest()
@@ -68,7 +68,7 @@ declare global {
 }
 
 /** Records every Content Security Policy violation the page reports, from before any script runs. */
-export async function watchCsp(page: Page): Promise<void> {
+async function watchCsp(page: Page): Promise<void> {
   await page.addInitScript(() => {
     window.__cspViolations = []
     document.addEventListener("securitypolicyviolation", (event) => {

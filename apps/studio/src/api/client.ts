@@ -90,7 +90,7 @@ export const ADMIN_BASE_PATH = "/admin/v1"
 /** The header carrying the double submit CSRF token on mutating requests. */
 export const CSRF_HEADER = "x-canopy-csrf"
 /** The header carrying the typed confirmation that production data edits require. */
-export const CONFIRM_HEADER = "x-canopy-confirm"
+const CONFIRM_HEADER = "x-canopy-confirm"
 const CSRF_COOKIES = ["__Host-canopy_csrf", "canopy_csrf"]
 
 /** Options of {@link AdminApi}. */
@@ -139,7 +139,7 @@ export interface SimulationRequest {
 }
 
 /** The definition body the server takes: the draft without `_id`. */
-export function definitionOf(draft: PolicyDraft): Record<string, unknown> {
+function definitionOf(draft: PolicyDraft): Record<string, unknown> {
   const { _id: _ignored, fields, immutable, ...rest } = draft
   return {
     ...rest,
@@ -218,21 +218,21 @@ export function encodeId(id: unknown): string {
  * The `as` parameter of the admin API: `{ role: "anon" }` for anonymous callers, otherwise the claims
  * (the server adds `authenticated` for them) and any extra roles.
  */
-export function wireAs(viewAs: ViewAs): Record<string, unknown> {
+function wireAs(viewAs: ViewAs): Record<string, unknown> {
   if (viewAs.roles.includes("anon")) return { role: "anon" }
   const roles = viewAs.roles.filter((role) => role !== "authenticated")
   return { ...(roles.length === 0 ? {} : { roles }), claims: { ...viewAs.claims } }
 }
 
 /** `sort=-createdAt,title`, the syntax of the Data API. */
-export function sortParam(sort: Readonly<Record<string, 1 | -1>>): string {
+function sortParam(sort: Readonly<Record<string, 1 | -1>>): string {
   return Object.entries(sort)
     .map(([path, direction]) => (direction === -1 ? `-${path}` : path))
     .join(",")
 }
 
 /** `fields=title,done` or `fields=-notes`; inclusion wins when both are given, like MongoDB forbids mixing. */
-export function fieldsParam(projection: Readonly<Record<string, 0 | 1>>): string {
+function fieldsParam(projection: Readonly<Record<string, 0 | 1>>): string {
   const entries = Object.entries(projection)
   const included = entries.filter(([, value]) => value === 1)
   return (included.length > 0 ? included : entries)
@@ -278,7 +278,7 @@ function shapeTypes(shape: unknown): string[] {
 }
 
 /** Flattens a `@canopy/schema` object shape into dotted field paths with their BSON types. */
-export function fieldsOfShape(shape: unknown, prefix = ""): FieldInfo[] {
+function fieldsOfShape(shape: unknown, prefix = ""): FieldInfo[] {
   if (typeof shape !== "object" || shape === null) return []
   const node = shape as Record<string, unknown>
   if (node["kind"] === "union") {

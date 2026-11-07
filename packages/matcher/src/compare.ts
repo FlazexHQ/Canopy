@@ -1,11 +1,4 @@
-import {
-  binaryParts,
-  bsonTypeTag,
-  isDocument,
-  objectIdHex,
-  regexParts,
-  timestampParts,
-} from "@canopy/protocol"
+import { binaryParts, bsonTypeTag, objectIdHex, regexParts, timestampParts } from "@canopy/protocol"
 import { compareNumeric, readNumeric } from "./numeric.ts"
 
 /** BSON types, named as the `$type` aliases MongoDB accepts. */
@@ -294,6 +287,3 @@ export function compareValues(a: unknown, b: unknown): number {
 export function valuesEqual(a: unknown, b: unknown): boolean {
   return compareValues(a, b) === 0
 }
-
-/** Returns true for plain documents. Re-exported for convenience. */
-export { isDocument }

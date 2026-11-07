@@ -1,5 +1,5 @@
 /** Tokens come from an Auth0 tenant. */
-export interface Auth0Identity {
+interface Auth0Identity {
   readonly kind: "auth0"
   /** The tenant domain, for example `your-tenant.us.auth0.com`. */
   readonly domain: string
@@ -10,7 +10,7 @@ export interface Auth0Identity {
 }
 
 /** Tokens come from the built in development issuer, so the example runs without an Auth0 tenant. */
-export interface DevIdentity {
+interface DevIdentity {
   readonly kind: "dev"
   readonly issuer: string
   readonly audience: string

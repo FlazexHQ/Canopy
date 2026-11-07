@@ -12,7 +12,7 @@ export interface DenialGroup {
 }
 
 /** Whether a log entry is a denial: answered with 401 or 403. */
-export function isDenial(entry: LogEntry): boolean {
+function isDenial(entry: LogEntry): boolean {
   return entry.status === 401 || entry.status === 403
 }
 

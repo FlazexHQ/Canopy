@@ -9,9 +9,9 @@ const KEY_LENGTH = 32
 const MAX_MEMORY = 64 * 1024 * 1024
 
 /** The shortest accepted admin password. */
-export const MIN_PASSWORD_LENGTH = 12
+const MIN_PASSWORD_LENGTH = 12
 /** The longest accepted admin password, so hashing cost stays bounded. */
-export const MAX_PASSWORD_LENGTH = 1024
+const MAX_PASSWORD_LENGTH = 1024
 
 function scrypt(
   password: string,

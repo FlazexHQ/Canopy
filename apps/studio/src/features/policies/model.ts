@@ -56,7 +56,7 @@ export function sameDraft(a: PolicyDraft, b: PolicyDraft): boolean {
 }
 
 /** Converts a draft to authoring form; throws when a clause is not valid EJSON. */
-export function toAuthoring(draft: PolicyDraft): CollectionPolicies {
+function toAuthoring(draft: PolicyDraft): CollectionPolicies {
   return fromStored(draft)
 }
 

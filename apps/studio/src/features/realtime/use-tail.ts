@@ -4,9 +4,9 @@ import { useApi } from "../../app/context.tsx"
 import { openTailSource, parseTailMessage } from "./tail-source.ts"
 
 /** How many events the tail keeps in memory. */
-export const TAIL_CAPACITY = 500
+const TAIL_CAPACITY = 500
 
-export type TailStatus = "connecting" | "open" | "error"
+type TailStatus = "connecting" | "open" | "error"
 
 /** The live event tail: newest first, bounded, with pause and clear. */
 export interface Tail {

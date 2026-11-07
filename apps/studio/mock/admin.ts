@@ -48,8 +48,8 @@ import {
 export const TEST_SESSION_HEADER = "x-canopy-mock-session"
 
 /** The session and CSRF cookies of the server. */
-export const SESSION_COOKIE = "__Host-canopy_admin"
-export const CSRF_COOKIE = "__Host-canopy_csrf"
+const SESSION_COOKIE = "__Host-canopy_admin"
+const CSRF_COOKIE = "__Host-canopy_csrf"
 
 /** An admin account of the mock. `totp: true` means an authenticator is enrolled and confirmed. */
 export interface MockAdminAccount {
@@ -206,7 +206,7 @@ interface EventState {
 }
 
 /** The in memory state, exposed for assertions in tests. */
-export interface MockState {
+interface MockState {
   readonly admins: AdminState[]
   readonly sessions: Map<string, SessionState>
   readonly collections: Map<string, Record<string, unknown>[]>
@@ -2747,5 +2747,3 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
     },
   }
 }
-
-export type { AdminRole }

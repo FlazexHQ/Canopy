@@ -122,7 +122,7 @@ export default collection(${JSON.stringify(collection)}, {
 }
 
 /** A drop box: anyone may submit, nobody reads back through Canopy. */
-export const writeOnlyIntake: PolicyTemplate = {
+const writeOnlyIntake: PolicyTemplate = {
   file: "write-only-intake.ts",
   title: "Write only intake",
   render: (collection, field) => `${header("Write only intake", [

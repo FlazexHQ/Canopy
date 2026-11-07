@@ -72,7 +72,7 @@ export function adviseIndexes(
 }
 
 /** The shell command that creates a suggested index. */
-export function createIndexCommand(advice: IndexAdvice): string {
+function createIndexCommand(advice: IndexAdvice): string {
   const key = Object.fromEntries(advice.fields.map((field) => [field, 1]))
   return `db.getCollection(${JSON.stringify(advice.collection)}).createIndex(${JSON.stringify(key)})`
 }

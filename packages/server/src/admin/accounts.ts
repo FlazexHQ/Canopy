@@ -1,9 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import type { Environment } from "@canopy/config"
 import {
-  CanopyError,
   ConflictError,
-  ErrorCode,
   ForbiddenError,
   NotFoundError,
   RateLimitError,
@@ -832,13 +830,5 @@ export class AdminAccounts {
         session,
       )
     })
-  }
-}
-
-/** Raised when a mutating request lacks a valid CSRF token or comes from another origin. */
-export class CsrfError extends CanopyError {
-  constructor(message: string) {
-    super(ErrorCode.Forbidden, message)
-    this.name = "CsrfError"
   }
 }

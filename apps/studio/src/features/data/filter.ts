@@ -59,7 +59,7 @@ export function parseValue(text: string, op: BuilderOperator): unknown {
 }
 
 /** The text the builder shows for a value; plain strings are shown without quotes. */
-export function formatValue(value: unknown): string {
+function formatValue(value: unknown): string {
   if (typeof value === "string") {
     try {
       JSON.parse(value)

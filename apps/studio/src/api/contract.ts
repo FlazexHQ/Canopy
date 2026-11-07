@@ -1,8 +1,7 @@
 import type { Infer } from "./schema.ts"
 import {
   EMAIL_KINDS,
-  EMAIL_PLACEHOLDERS,
-  OBSERVER_OUTCOMES,
+  type EMAIL_PLACEHOLDERS,
   type wireApiKey,
   type wireConnection,
   type wireCreatedKey,
@@ -143,7 +142,7 @@ export interface ValidationResult {
 }
 
 /** How one policy took part in a decision. */
-export interface ExplainedPolicy {
+interface ExplainedPolicy {
   readonly name: string
   readonly kind: "permissive" | "restrictive"
   readonly applies: boolean
@@ -275,7 +274,7 @@ export type RealtimeEvent = Infer<typeof wireRealtimeEvent>
 type ParsedTrace = Infer<typeof wireTrace>
 
 /** One policy in a DLS explanation: whether it matched, and the claim that made it drop out. */
-export interface DeniedPolicy {
+interface DeniedPolicy {
   readonly name: string
   readonly kind: "permissive" | "restrictive"
   readonly matched: boolean
@@ -303,7 +302,7 @@ export type EventTrace = Omit<ParsedTrace, "candidates"> & {
   })[]
 }
 
-export const CHECK_STATUSES = ["ok", "info", "warn", "error"] as const
+const CHECK_STATUSES = ["ok", "info", "warn", "error"] as const
 export type CheckStatus = (typeof CHECK_STATUSES)[number]
 
 export interface DoctorCheck {
@@ -370,4 +369,4 @@ export interface Settings {
   readonly adminAllowlist: readonly string[]
 }
 
-export { EMAIL_KINDS, EMAIL_PLACEHOLDERS, OBSERVER_OUTCOMES }
+export { EMAIL_KINDS }

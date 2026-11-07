@@ -48,7 +48,7 @@ export interface TodoServer {
 }
 
 /** The demo users the development issuer signs tokens for. */
-export const USERS = ["alice", "bob"] as const
+const USERS = ["alice", "bob"] as const
 
 const ISSUER = "https://todo-react.example/dev-issuer"
 const AUDIENCE = "https://todo-react.example/api"

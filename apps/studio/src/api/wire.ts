@@ -21,7 +21,7 @@ import {
  * converts the response to the Studio type.
  */
 
-export const ROLES = ["owner", "admin", "developer", "viewer"] as const
+const ROLES = ["owner", "admin", "developer", "viewer"] as const
 
 export const wireAdminUser = object({
   id: string,
@@ -75,7 +75,7 @@ export const wireCollections = object({
   ),
 })
 
-export const wireFinding = object({
+const wireFinding = object({
   rule: string,
   severity: literal("error", "warn", "info"),
   collection: optional(string),
@@ -467,7 +467,7 @@ const eventSummaryShape = {
 export const wireRealtimeEvent = object(eventSummaryShape)
 export const wireRealtimeEvents = object({ data: array(wireRealtimeEvent) })
 
-export const OBSERVER_OUTCOMES = ["entered", "updated", "left", "unmatched"] as const
+const OBSERVER_OUTCOMES = ["entered", "updated", "left", "unmatched"] as const
 export const wireTrace = object({
   ...eventSummaryShape,
   policyVersion: optional(string),

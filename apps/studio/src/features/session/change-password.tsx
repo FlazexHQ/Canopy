@@ -11,7 +11,7 @@ import { Label } from "../../components/ui/label.tsx"
 import { t } from "../../i18n/index.ts"
 
 /** The shortest admin password the server accepts. */
-export const MIN_PASSWORD_LENGTH = 12
+const MIN_PASSWORD_LENGTH = 12
 
 function ChangePassword() {
   const api = useApi()
