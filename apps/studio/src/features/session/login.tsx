@@ -1,8 +1,8 @@
-import { CanopyError } from "@canopy/protocol"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useRouter, useSearch } from "@tanstack/react-router"
 import { AlertCircleIcon } from "lucide-react"
 import { useEffect, useId, useRef, useState } from "react"
+import type { TotpEnrollment } from "../../api/contract.ts"
 import { keys, useApi } from "../../app/context.tsx"
 import { Alert, AlertDescription } from "../../components/ui/alert.tsx"
 import { Button } from "../../components/ui/button.tsx"
@@ -10,16 +10,13 @@ import { Card, CardContent, CardDescription, CardHeader } from "../../components
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
 import { t } from "../../i18n/index.ts"
+import { enrollmentOf, TotpEnrollmentPanel, totpRequired } from "./totp-enrollment.tsx"
 
 /** A redirect target is only followed when it stays inside Studio. */
 export function safeRedirect(target: string | undefined): string {
   if (target === undefined || !target.startsWith("/") || target.startsWith("//")) return "/"
   if (target.startsWith("/login") || target.startsWith("/setup")) return "/"
   return target
-}
-
-function totpRequired(error: unknown): boolean {
-  return error instanceof CanopyError && error.details?.["totpRequired"] === true
 }
 
 export function LoginPage() {
@@ -31,6 +28,7 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [totp, setTotp] = useState("")
   const [needsTotp, setNeedsTotp] = useState(false)
+  const [enrollment, setEnrollment] = useState<TotpEnrollment | undefined>(undefined)
   const errorId = useId()
   const totpHintId = useId()
   const totpRef = useRef<HTMLInputElement>(null)
@@ -48,6 +46,8 @@ export function LoginPage() {
     },
     onError: (error) => {
       if (totpRequired(error)) setNeedsTotp(true)
+      const next = enrollmentOf(error)
+      if (next !== undefined) setEnrollment(next)
     },
   })
   useEffect(() => {
@@ -108,6 +108,7 @@ export function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
               />
             </div>
+            {enrollment === undefined ? null : <TotpEnrollmentPanel enrollment={enrollment} />}
             {needsTotp ? (
               <div className="grid gap-2">
                 <Label htmlFor="login-totp">{t("session.totp")}</Label>

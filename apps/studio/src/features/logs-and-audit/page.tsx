@@ -1,9 +1,10 @@
-import { useQuery } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useId, useState } from "react"
-import type { LogsPage as LogsPageData } from "../../api/contract.ts"
+import { type LogsPage as LogsPageData, REQUEST_SURFACES } from "../../api/contract.ts"
 import { keys, useApi } from "../../app/context.tsx"
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
+import { Button } from "../../components/ui/button.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
 import {
@@ -18,7 +19,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { formatDateTime, formatNumber, formatPercent, formatRelative, t } from "../../i18n/index.ts"
 import { NativeSelect } from "../realtime/native-select.tsx"
-import { groupDenials, matchesStatus, STATUS_FILTERS, type StatusFilter } from "./denials.ts"
+import { groupDenials, STATUS_FILTERS, type StatusFilter, summarize } from "./denials.ts"
 
 const TABS = ["requests", "audit", "denials"] as const
 
@@ -26,98 +27,159 @@ function statusVariant(status: number): "success" | "warning" | "destructive" {
   return status >= 500 ? "destructive" : status >= 400 ? "warning" : "success"
 }
 
-function useLogs() {
-  const api = useApi()
-  return useQuery({
-    queryKey: keys.logs,
-    queryFn: ({ signal }) => api.logs({}, signal),
-    refetchInterval: 15_000,
-  })
-}
-
 function Summary({ data }: { readonly data: LogsPageData }) {
+  const summary = summarize(data)
   return (
-    <dl className="grid gap-3 sm:grid-cols-3">
+    <dl className="grid gap-3 sm:grid-cols-4">
       <div className="rounded-lg border p-4">
         <dt className="text-sm text-muted-foreground">{t("logs.summary.requestsPerSecond")}</dt>
         <dd className="mt-1 text-2xl font-semibold">
-          {data.summary === undefined
+          {summary.estimatedPerSecond === undefined
             ? t("common.unknown")
-            : formatNumber(data.summary.requestsPerSecond)}
+            : formatNumber(Math.round(summary.estimatedPerSecond * 10) / 10)}
         </dd>
       </div>
       <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.errorRate")}</dt>
+        <dt className="text-sm text-muted-foreground">{t("logs.summary.serverErrors")}</dt>
+        <dd className="mt-1 text-2xl font-semibold">{formatPercent(summary.serverErrorShare)}</dd>
+      </div>
+      <div className="rounded-lg border p-4">
+        <dt className="text-sm text-muted-foreground">{t("logs.summary.sampleRate")}</dt>
+        <dd className="mt-1 text-2xl font-semibold">{formatPercent(data.sampleRate)}</dd>
+      </div>
+      <div className="rounded-lg border p-4">
+        <dt className="text-sm text-muted-foreground">{t("logs.summary.retention")}</dt>
         <dd className="mt-1 text-2xl font-semibold">
-          {data.summary === undefined ? t("common.unknown") : formatPercent(data.summary.errorRate)}
+          {t("logs.summary.retentionDays", { days: data.retentionDays })}
         </dd>
-      </div>
-      <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.sampled")}</dt>
-        <dd className="mt-1 text-2xl font-semibold">{formatNumber(data.entries.length)}</dd>
       </div>
     </dl>
   )
 }
 
-function RequestsView({ data }: { readonly data: LogsPageData }) {
-  const [filter, setFilter] = useState<StatusFilter>("all")
-  const id = useId()
-  const shown = data.entries.filter((entry) => matchesStatus(entry, filter))
+const SURFACE_FILTERS = ["", ...REQUEST_SURFACES] as const
+
+function RequestsView() {
+  const api = useApi()
+  const [surface, setSurface] = useState<(typeof SURFACE_FILTERS)[number]>("")
+  const [status, setStatus] = useState<StatusFilter>("")
+  const surfaceId = useId()
+  const statusId = useId()
+  const query = useInfiniteQuery({
+    queryKey: [...keys.logs, surface, status],
+    queryFn: ({ signal, pageParam }) =>
+      api.logs(
+        {
+          ...(surface === "" ? {} : { surface }),
+          ...(status === "" ? {} : { status }),
+          ...(pageParam === undefined ? {} : { before: pageParam }),
+          limit: 100,
+        },
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.entries.length < 100 ? undefined : last.next),
+    refetchInterval: 15_000,
+  })
+  const pages = query.data?.pages ?? []
+  const entries = pages.flatMap((page) => page.entries)
+  const first = pages[0]
   return (
     <div className="grid gap-4">
-      <div className="grid w-fit gap-1.5">
-        <Label htmlFor={id}>{t("logs.requests.filter")}</Label>
-        <NativeSelect
-          id={id}
-          value={filter}
-          onChange={(event) => setFilter(event.target.value as StatusFilter)}
-        >
-          {STATUS_FILTERS.map((option) => (
-            <option key={option} value={option}>
-              {t(`logs.requests.${option}`)}
-            </option>
-          ))}
-        </NativeSelect>
-      </div>
-      {shown.length === 0 ? (
-        <EmptyState>{t("logs.requests.empty")}</EmptyState>
+      {query.isError ? (
+        <ErrorState
+          error={query.error}
+          feature={t("logs.tabs.requests")}
+          onRetry={() => void query.refetch()}
+        />
+      ) : first === undefined ? (
+        <LoadingState />
       ) : (
-        <Table>
-          <TableCaption>{t("logs.requests.caption")}</TableCaption>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t("logs.requests.time")}</TableHead>
-              <TableHead>{t("logs.requests.method")}</TableHead>
-              <TableHead>{t("logs.requests.path")}</TableHead>
-              <TableHead>{t("logs.requests.status")}</TableHead>
-              <TableHead>{t("logs.requests.duration")}</TableHead>
-              <TableHead>{t("logs.requests.role")}</TableHead>
-              <TableHead>{t("logs.requests.code")}</TableHead>
-              <TableHead>{t("logs.requests.requestId")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {shown.map((entry, index) => (
-              <TableRow key={entry.requestId ?? `${entry.at}:${index}`} data-testid="log-entry">
-                <TableCell className="whitespace-nowrap" title={formatDateTime(entry.at)}>
-                  {formatRelative(entry.at)}
-                </TableCell>
-                <TableCell className="font-mono text-xs">{entry.method}</TableCell>
-                <TableCell className="font-mono text-xs">{entry.path}</TableCell>
-                <TableCell>
-                  <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
-                </TableCell>
-                <TableCell>
-                  {t("logs.requests.durationValue", { value: entry.durationMs })}
-                </TableCell>
-                <TableCell>{entry.role ?? ""}</TableCell>
-                <TableCell className="font-mono text-xs">{entry.code ?? ""}</TableCell>
-                <TableCell className="font-mono text-xs">{entry.requestId ?? ""}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <>
+          <Summary data={{ ...first, entries }} />
+          <div className="flex flex-wrap gap-4">
+            <div className="grid w-fit gap-1.5">
+              <Label htmlFor={surfaceId}>{t("logs.requests.surface")}</Label>
+              <NativeSelect
+                id={surfaceId}
+                value={surface}
+                onChange={(event) => setSurface(event.target.value as typeof surface)}
+              >
+                {SURFACE_FILTERS.map((option) => (
+                  <option key={option} value={option}>
+                    {t(`logs.surfaces.${option === "" ? "all" : option}`)}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+            <div className="grid w-fit gap-1.5">
+              <Label htmlFor={statusId}>{t("logs.requests.filter")}</Label>
+              <NativeSelect
+                id={statusId}
+                value={status}
+                onChange={(event) => setStatus(event.target.value as StatusFilter)}
+              >
+                {STATUS_FILTERS.map((option) => (
+                  <option key={option} value={option}>
+                    {t(`logs.statuses.${option === "" ? "all" : option}`)}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+          </div>
+          {entries.length === 0 ? (
+            <EmptyState>
+              {first.sampleRate === 0 ? t("logs.requests.off") : t("logs.requests.empty")}
+            </EmptyState>
+          ) : (
+            <Table>
+              <TableCaption>{t("logs.requests.caption")}</TableCaption>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("logs.requests.time")}</TableHead>
+                  <TableHead>{t("logs.requests.surface")}</TableHead>
+                  <TableHead>{t("logs.requests.method")}</TableHead>
+                  <TableHead>{t("logs.requests.path")}</TableHead>
+                  <TableHead>{t("logs.requests.status")}</TableHead>
+                  <TableHead>{t("logs.requests.duration")}</TableHead>
+                  <TableHead>{t("logs.requests.address")}</TableHead>
+                  <TableHead>{t("logs.requests.requestId")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {entries.map((entry) => (
+                  <TableRow key={entry.id} data-testid="log-entry">
+                    <TableCell className="whitespace-nowrap" title={formatDateTime(entry.at)}>
+                      {formatRelative(entry.at)}
+                    </TableCell>
+                    <TableCell>{t(`logs.surfaces.${entry.surface}`)}</TableCell>
+                    <TableCell className="font-mono text-xs">{entry.method}</TableCell>
+                    <TableCell className="font-mono text-xs">{entry.path}</TableCell>
+                    <TableCell>
+                      <Badge variant={statusVariant(entry.status)}>{entry.status}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      {t("logs.requests.durationValue", { value: entry.durationMs })}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">{entry.ip ?? ""}</TableCell>
+                    <TableCell className="font-mono text-xs">{entry.requestId ?? ""}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+          {query.hasNextPage ? (
+            <div>
+              <Button
+                variant="outline"
+                disabled={query.isFetchingNextPage}
+                onClick={() => void query.fetchNextPage()}
+              >
+                {t("logs.requests.older")}
+              </Button>
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   )
@@ -204,8 +266,29 @@ function AuditView() {
   )
 }
 
-function DenialsView({ data }: { readonly data: LogsPageData }) {
-  const groups = groupDenials(data.entries)
+function DenialsView() {
+  const api = useApi()
+  const query = useQuery({
+    queryKey: [...keys.logs, "denials"],
+    queryFn: async ({ signal }) => {
+      const [unauthorized, forbidden] = await Promise.all([
+        api.logs({ status: "401", limit: 1000 }, signal),
+        api.logs({ status: "403", limit: 1000 }, signal),
+      ])
+      return groupDenials([...unauthorized.entries, ...forbidden.entries])
+    },
+  })
+  if (query.isPending) return <LoadingState />
+  if (query.isError) {
+    return (
+      <ErrorState
+        error={query.error}
+        feature={t("logs.tabs.requests")}
+        onRetry={() => void query.refetch()}
+      />
+    )
+  }
+  const groups = query.data
   return (
     <div className="grid gap-4">
       <p className="text-sm text-muted-foreground">{t("logs.denials.intro")}</p>
@@ -217,11 +300,10 @@ function DenialsView({ data }: { readonly data: LogsPageData }) {
           <TableHeader>
             <TableRow>
               <TableHead>{t("logs.denials.count")}</TableHead>
+              <TableHead>{t("logs.denials.surface")}</TableHead>
               <TableHead>{t("logs.denials.collection")}</TableHead>
               <TableHead>{t("logs.denials.operation")}</TableHead>
-              <TableHead>{t("logs.denials.role")}</TableHead>
-              <TableHead>{t("logs.denials.policy")}</TableHead>
-              <TableHead>{t("logs.denials.code")}</TableHead>
+              <TableHead>{t("logs.denials.status")}</TableHead>
               <TableHead>{t("logs.denials.last")}</TableHead>
             </TableRow>
           </TableHeader>
@@ -229,20 +311,22 @@ function DenialsView({ data }: { readonly data: LogsPageData }) {
             {groups.map((group) => (
               <TableRow
                 key={JSON.stringify([
+                  group.surface,
                   group.collection,
                   group.operation,
-                  group.role,
-                  group.policy,
-                  group.code,
+                  group.status,
                 ])}
                 data-testid="denial-group"
               >
                 <TableCell className="font-semibold">{formatNumber(group.count)}</TableCell>
-                <TableCell>{group.collection ?? t("common.unknown")}</TableCell>
+                <TableCell>{t(`logs.surfaces.${group.surface}`)}</TableCell>
+                <TableCell>{group.collection ?? ""}</TableCell>
                 <TableCell>{group.operation ?? ""}</TableCell>
-                <TableCell>{group.role ?? ""}</TableCell>
-                <TableCell>{group.policy ?? t("logs.denials.noPolicy")}</TableCell>
-                <TableCell className="font-mono text-xs">{group.code ?? ""}</TableCell>
+                <TableCell>
+                  {group.status === 401
+                    ? t("logs.denials.unauthorized")
+                    : t("logs.denials.forbidden")}
+                </TableCell>
                 <TableCell title={formatDateTime(group.last)}>
                   {formatRelative(group.last)}
                 </TableCell>
@@ -257,7 +341,6 @@ function DenialsView({ data }: { readonly data: LogsPageData }) {
 
 /** Sampled request logs, the audit log of admin and policy changes, and the denials explorer. */
 export function LogsPage() {
-  const logs = useLogs()
   return (
     <>
       <PageHeader title={t("logs.title")} description={t("logs.description")} />
@@ -269,31 +352,15 @@ export function LogsPage() {
             </TabsTrigger>
           ))}
         </TabsList>
+        <TabsContent value="requests" className="grid gap-4">
+          <RequestsView />
+        </TabsContent>
         <TabsContent value="audit">
           <AuditView />
         </TabsContent>
-        {(["requests", "denials"] as const).map((name) => (
-          <TabsContent key={name} value={name} className="grid gap-4">
-            {logs.isPending ? (
-              <LoadingState />
-            ) : logs.isError ? (
-              <ErrorState
-                error={logs.error}
-                feature={t("logs.tabs.requests")}
-                onRetry={() => void logs.refetch()}
-              />
-            ) : (
-              <>
-                <Summary data={logs.data} />
-                {name === "requests" ? (
-                  <RequestsView data={logs.data} />
-                ) : (
-                  <DenialsView data={logs.data} />
-                )}
-              </>
-            )}
-          </TabsContent>
-        ))}
+        <TabsContent value="denials">
+          <DenialsView />
+        </TabsContent>
       </Tabs>
     </>
   )

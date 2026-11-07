@@ -60,7 +60,7 @@ export function handle(request: IncomingMessage, response: ServerResponse): Prom
         id: "adm_owner",
         email: "owner@example.com",
         role: "owner",
-        totp: false,
+        totp: true,
         password: "correct horse battery",
       },
     ],

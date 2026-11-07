@@ -27,7 +27,10 @@ export function useWriteMode(): WriteMode {
   const { permissions } = useSession()
   const { viewAs, writeReason } = useViewAs()
   return {
-    allowed: permissions.writeData && (viewAs === undefined || writeReason !== undefined),
+    allowed:
+      viewAs === undefined
+        ? permissions.writeData
+        : permissions.writeAs && writeReason !== undefined,
     viewAs,
     reason: writeReason,
     confirm: permissions.confirmDataEdits,

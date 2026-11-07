@@ -1,9 +1,9 @@
 import { waitFor, within } from "@testing-library/react"
 import { beforeAll, describe, expect, it } from "vitest"
 import { sdkSnippet } from "../src/features/setup/wizard.tsx"
-import { renderStudio, screen } from "./harness.tsx"
+import { renderStudio, screen, TOTP_CODE } from "./harness.tsx"
 
-const TOKEN = "canopy-setup-0000"
+const TOKEN = "canopy_setup_0000"
 
 beforeAll(() => {
   const proto = Element.prototype as unknown as Record<string, unknown>
@@ -23,11 +23,20 @@ async function fillClaim(
   await user.click(screen.getByRole("button", { name: "Claim and create the owner" }))
 }
 
+async function enroll(user: Awaited<ReturnType<typeof renderStudio>>["user"]) {
+  await user.type(await screen.findByLabelText("Authenticator code"), TOTP_CODE)
+  await user.click(screen.getByRole("button", { name: "Verify and sign in" }))
+}
+
 describe("first run setup", () => {
   it("refuses a wrong setup token and creates no admin", async () => {
     const { user, mock } = await renderStudio("/setup", { admins: [], signedInAs: false })
     await fillClaim(user, { token: "guess", password: "long enough password" })
-    expect(await screen.findByText("The setup token is wrong")).toBeTruthy()
+    expect(
+      await screen.findByText(
+        "The setup token is not valid; use the one printed in the server logs",
+      ),
+    ).toBeTruthy()
     expect(mock.state.admins).toHaveLength(0)
   })
 
@@ -53,13 +62,16 @@ describe("first run setup", () => {
   it("claims the owner, runs the doctor, publishes starter policies and shows the key", async () => {
     const { user, mock, router } = await renderStudio("/setup", { admins: [], signedInAs: false })
     await fillClaim(user, { token: TOKEN, password: "long enough password" })
+    expect(await screen.findByLabelText("Authenticator code")).toBeTruthy()
+    expect(mock.state.sessions.size).toBe(0)
+    await enroll(user)
 
     expect(await screen.findByRole("heading", { name: "Check the deployment" })).toBeTruthy()
     expect(mock.state.admins.map((admin) => [admin.email, admin.role])).toEqual([
       ["first@example.com", "owner"],
     ])
     expect(document.activeElement?.textContent).toBe("Check the deployment")
-    expect(screen.getByText("The oplog covers 6 hours of writes")).toBeTruthy()
+    expect(screen.getByText("Replica set rs0")).toBeTruthy()
     const current = document.querySelector('[aria-current="step"]')
     expect(current?.textContent).toContain("Check the deployment")
     await user.click(screen.getByRole("button", { name: "Next" }))
@@ -87,7 +99,6 @@ describe("first run setup", () => {
     ])
     expect(notes?.policies[0]).toMatchObject({ name: "anyone reads", roles: ["public"] })
     expect(mock.state.published.has("orders")).toBe(false)
-    expect(mock.state.collections.get("todos")?.exposed).toBe(true)
     expect(mock.state.history.get("todos")?.[0]?.comment).toBe(
       "Starter template from the setup wizard",
     )
@@ -98,7 +109,7 @@ describe("first run setup", () => {
     expect(snippet.textContent).toContain(
       'publishableKey: "canopy_pk_8f2KQmTfE1c9xZ0aW3bYdL5nR7sVuH2j"',
     )
-    expect(snippet.textContent).toContain('canopy.from("todos")')
+    expect(snippet.textContent).toContain('canopy.from("notes")')
 
     await user.click(screen.getByRole("button", { name: "Open Studio" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/"))
@@ -107,14 +118,15 @@ describe("first run setup", () => {
   it("creates a publishable key when none is usable", async () => {
     const { user, mock } = await renderStudio("/setup", { admins: [], signedInAs: false })
     for (const key of mock.state.apiKeys)
-      if (key.kind === "publishable") Object.assign(key, { revokedAt: "2026-11-01T00:00:00Z" })
+      if (key.kind === "publishable") key.revokedAt = new Date("2026-11-01T00:00:00Z")
     await fillClaim(user, { token: TOKEN, password: "long enough password" })
+    await enroll(user)
     await user.click(await screen.findByRole("button", { name: "Next" }))
     await user.click(await screen.findByRole("button", { name: "Skip for now" }))
     const key = (await screen.findByLabelText("Publishable key")) as HTMLInputElement
     await waitFor(() => expect(key.value).toMatch(/^canopy_pk_/))
     const created = mock.state.apiKeys.filter(
-      (entry) => entry.name === "Default publishable key" && entry.revokedAt === null,
+      (entry) => entry.name === "Default publishable key" && entry.revokedAt === undefined,
     )
     expect(created).toHaveLength(1)
     expect(created[0]?.key).toBe(key.value)

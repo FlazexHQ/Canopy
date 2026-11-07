@@ -21,6 +21,11 @@ export const data = {
     imagesUnknown: "Unknown",
     browse: "Browse documents of {name}",
     editPolicies: "Edit policies of {name}",
+    toggleTitle: "Change {name}",
+    toggleDescription:
+      "Exposure and realtime are part of the collection's policies, so this publishes a new policy version.",
+    toggleConfirm: "Publish the change",
+    comment: "Comment",
   },
   documents: {
     backToCollections: "All collections",

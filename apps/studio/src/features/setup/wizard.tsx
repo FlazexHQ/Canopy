@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Navigate, useRouter } from "@tanstack/react-router"
 import { AlertCircleIcon, CheckIcon, RefreshCwIcon } from "lucide-react"
 import { type ReactNode, useEffect, useId, useRef, useState } from "react"
-import type { ApiKey, CollectionSummary } from "../../api/contract.ts"
+import type { ApiKey, CollectionSummary, TotpEnrollment } from "../../api/contract.ts"
 import { keys, useApi } from "../../app/context.tsx"
 import { CodeBlock, CopyButton } from "../../components/copy-button.tsx"
 import { ErrorState, LoadingState } from "../../components/states.tsx"
@@ -23,6 +23,7 @@ import { t } from "../../i18n/index.ts"
 import { cn } from "../../lib/utils.ts"
 import { CheckGroups, countChecks } from "../doctor/checks.tsx"
 import { TEMPLATE_IDS, type TemplateId, templateDraft } from "../policies/model.ts"
+import { TotpEnrollmentPanel } from "../session/totp-enrollment.tsx"
 
 /** The shortest owner password the wizard accepts, matching the server rule. */
 export const PASSWORD_MIN = 12
@@ -86,15 +87,63 @@ function ClaimStep({ onDone }: { readonly onDone: () => void }) {
   const errorId = useId()
   const tokenHintId = useId()
   const passwordHintId = useId()
+  const [enrollment, setEnrollment] = useState<TotpEnrollment | undefined>(undefined)
+  const [code, setCode] = useState("")
   const claim = useMutation({
     mutationFn: () => api.setup({ token: token.trim(), email: email.trim(), password }),
-    onSuccess: () => {
-      queryClient.removeQueries({ queryKey: keys.me })
-      queryClient.setQueryData(keys.setup, { required: false })
-      onDone()
+    onSuccess: (result) => {
+      setProblem(undefined)
+      setEnrollment(result.totp)
     },
     onError: (error) => setProblem(errorText(error)),
   })
+  const signIn = useMutation({
+    mutationFn: () => api.login({ email: email.trim(), password, totp: code.trim() }),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: keys.me })
+      onDone()
+      queryClient.setQueryData(keys.setup, { required: false })
+    },
+    onError: (error) => setProblem(errorText(error)),
+  })
+  if (enrollment !== undefined) {
+    return (
+      <form
+        className="grid gap-4"
+        aria-describedby={problem === undefined ? undefined : errorId}
+        onSubmit={(event) => {
+          event.preventDefault()
+          signIn.mutate()
+        }}
+      >
+        <StepHeading step="claim">{t("setup.steps.claim")}</StepHeading>
+        <p className="text-sm text-muted-foreground">{t("setup.claim.claimed")}</p>
+        <TotpEnrollmentPanel enrollment={enrollment} />
+        <div className="grid gap-2">
+          <Label htmlFor="setup-totp">{t("setup.claim.code")}</Label>
+          <Input
+            id="setup-totp"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]*"
+            maxLength={8}
+            required
+            value={code}
+            onChange={(event) => setCode(event.target.value)}
+          />
+        </div>
+        {problem === undefined ? null : (
+          <Alert variant="destructive" id={errorId}>
+            <AlertCircleIcon aria-hidden="true" />
+            <AlertDescription className="text-destructive">{problem}</AlertDescription>
+          </Alert>
+        )}
+        <Button type="submit" disabled={signIn.isPending || code.trim() === ""}>
+          {signIn.isPending ? t("setup.claim.signingIn") : t("setup.claim.signIn")}
+        </Button>
+      </form>
+    )
+  }
   return (
     <form
       className="grid gap-4"

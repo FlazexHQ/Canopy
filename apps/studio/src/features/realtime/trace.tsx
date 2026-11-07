@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { CheckCircle2Icon, FilterXIcon } from "lucide-react"
 import { useEffect, useId, useState } from "react"
 import { statusOf } from "../../api/client.ts"
-import type { EventTrace } from "../../api/contract.ts"
+import type { DlsDenial, EventTrace } from "../../api/contract.ts"
 import { keys, useApi } from "../../app/context.tsx"
 import { EmptyState, ErrorState, LoadingState } from "../../components/states.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
@@ -15,8 +15,60 @@ import { displayValue } from "../../lib/ejson.ts"
 
 type Candidate = EventTrace["candidates"][number]
 
+/** Why document level security kept the event from an observer whose own filter matched it. */
+function DlsExplanation({ dls }: { readonly dls: DlsDenial }) {
+  return (
+    <section data-testid="dls-explanation">
+      <h4 className="flex items-center gap-1.5 font-medium">
+        <FilterXIcon className="size-4 text-warning" aria-hidden="true" />
+        {t("realtime.trace.dls.title")}
+      </h4>
+      {"masked" in dls ? (
+        <p className="mt-1 text-muted-foreground">{t("realtime.trace.dls.masked")}</p>
+      ) : (
+        <div className="mt-1 grid gap-2">
+          <p>{t(`realtime.trace.dls.reasons.${dls.reason}`)}</p>
+          {dls.responsible.length === 0 ? null : (
+            <p>
+              {t("realtime.trace.dls.responsible", {
+                names: dls.responsible.map((name) => `"${name}"`).join(", "),
+              })}
+            </p>
+          )}
+          {dls.policies.length === 0 ? null : (
+            <ul className="grid gap-1" aria-label={t("realtime.trace.dls.policies")}>
+              {dls.policies.map((policy) => (
+                <li
+                  key={policy.name}
+                  data-testid="dls-policy"
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  <span className="font-medium">{policy.name}</span>
+                  <Badge variant="outline">{t(`realtime.trace.dls.kinds.${policy.kind}`)}</Badge>
+                  <Badge variant={policy.matched ? "success" : "warning"}>
+                    {policy.matched
+                      ? t("realtime.trace.dls.matched")
+                      : t("realtime.trace.dls.notMatched")}
+                  </Badge>
+                  {policy.issue === undefined ? null : (
+                    <span className="text-muted-foreground">
+                      {t("realtime.trace.dls.issue", {
+                        variable: policy.issue.variable,
+                        kind: policy.issue.kind,
+                      })}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function CandidateCard({ candidate }: { readonly candidate: Candidate }) {
-  const filtered = candidate.filteredOut ?? []
   return (
     <Card className="gap-3 py-4" data-testid="trace-candidate">
       <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
@@ -50,30 +102,7 @@ function CandidateCard({ candidate }: { readonly candidate: Candidate }) {
             </ul>
           )}
         </section>
-        {filtered.length === 0 ? null : (
-          <section>
-            <h4 className="flex items-center gap-1.5 font-medium">
-              <FilterXIcon className="size-4 text-warning" aria-hidden="true" />
-              {t("realtime.trace.filteredOut")}
-            </h4>
-            <ul className="mt-1 grid gap-1">
-              {filtered.map((entry) => (
-                <li key={entry.sid} data-testid="filtered-out">
-                  <span className="font-medium">{entry.subject}</span>{" "}
-                  <span className="font-mono text-xs text-muted-foreground">{entry.sid}</span>
-                  {entry.policy === undefined ? null : (
-                    <span className="block">
-                      {t("realtime.trace.policy", { name: entry.policy })}
-                    </span>
-                  )}
-                  {entry.reason === undefined ? null : (
-                    <span className="block text-muted-foreground">{entry.reason}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
+        {candidate.dls === undefined ? null : <DlsExplanation dls={candidate.dls} />}
       </CardContent>
     </Card>
   )

@@ -136,7 +136,6 @@ describe("Collections page", () => {
       .getByRole("link", { name: "Browse documents of todos" })
       .closest("tr")
     if (todosRow === null) throw new Error("no todos row")
-    expect(within(todosRow).getByText("24")).toBeTruthy()
     expect(within(todosRow).getByText("v1, 2 policies")).toBeTruthy()
     const ordersRow = within(table)
       .getByRole("link", { name: "Browse documents of orders" })
@@ -146,8 +145,13 @@ describe("Collections page", () => {
     await user.click(
       within(ordersRow).getByRole("switch", { name: "Expose orders through the Data API" }),
     )
-    await waitFor(() => expect(mock.state.collections.get("orders")?.exposed).toBe(true))
-    expect(mock.state.audit[0]).toMatchObject({ action: "collection.update", target: "orders" })
+    await waitFor(() =>
+      expect(mock.state.published.get("orders")).toMatchObject({ version: 1, exposed: true }),
+    )
+    expect(mock.state.audit[0]).toMatchObject({
+      action: "collection.update",
+      target: { collection: "orders" },
+    })
   })
 
   it("does not let a viewer change exposure", async () => {
@@ -209,13 +213,9 @@ describe("Documents page", () => {
       editorIn(dialog, "Document as EJSON"),
       '{ "title": "From Studio", "ownerId": "u_alice" }',
     )
-    await user.type(within(dialog).getByLabelText(/Reason/), "support ticket 7")
     await user.click(within(dialog).getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(mock.state.collections.get("todos")?.documents).toHaveLength(25))
-    expect(mock.state.audit[0]).toMatchObject({
-      action: "document.insert",
-      comment: "support ticket 7",
-    })
+    await waitFor(() => expect(mock.state.collections.get("todos")).toHaveLength(25))
+    expect(mock.state.audit[0]?.action).toBe("documents.insert")
 
     const firstEdit = (await screen.findAllByRole("button", { name: /^Edit document/ }))[0]
     if (firstEdit === undefined) throw new Error("no edit button")
@@ -226,10 +226,8 @@ describe("Documents page", () => {
       '{ "title": "Renamed", "ownerId": "u_alice" }',
     )
     await user.click(within(editDialog).getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(mock.state.audit[0]?.action).toBe("document.update"))
-    const edited = mock.state.collections
-      .get("todos")
-      ?.documents.find((todo) => todo["title"] === "Renamed")
+    await waitFor(() => expect(mock.state.audit[0]?.action).toBe("documents.replace"))
+    const edited = mock.state.collections.get("todos")?.find((todo) => todo["title"] === "Renamed")
     expect(edited).toBeDefined()
     expect(Object.keys(edited ?? {}).sort()).toEqual(["_id", "ownerId", "title"])
 
@@ -238,8 +236,8 @@ describe("Documents page", () => {
     await user.click(firstDelete)
     const deleteDialog = await screen.findByRole("dialog")
     await user.click(within(deleteDialog).getByRole("button", { name: "Delete" }))
-    await waitFor(() => expect(mock.state.collections.get("todos")?.documents).toHaveLength(24))
-    expect(mock.state.audit[0]?.action).toBe("document.delete")
+    await waitFor(() => expect(mock.state.collections.get("todos")).toHaveLength(24))
+    expect(mock.state.audit[0]?.action).toBe("documents.delete")
   })
 
   it("rejects invalid EJSON without writing", async () => {
@@ -250,7 +248,7 @@ describe("Documents page", () => {
     setEditor(editorIn(dialog, "Document as EJSON"), '{ "_id": { "$oid": "nope" } }')
     await user.click(within(dialog).getByRole("button", { name: "Save" }))
     expect(await within(dialog).findByText(/not valid EJSON/)).toBeTruthy()
-    expect(mock.state.collections.get("todos")?.documents).toHaveLength(24)
+    expect(mock.state.collections.get("todos")).toHaveLength(24)
   })
 
   it("requires the collection name typed before a production delete", async () => {
@@ -267,7 +265,7 @@ describe("Documents page", () => {
     await user.type(within(dialog).getByLabelText("Type todos to confirm"), "s")
     expect(confirm.disabled).toBe(false)
     await user.click(confirm)
-    await waitFor(() => expect(mock.state.collections.get("todos")?.documents).toHaveLength(23))
+    await waitFor(() => expect(mock.state.collections.get("todos")).toHaveLength(23))
   })
 
   it("hides write actions from roles that cannot edit data", async () => {
@@ -297,7 +295,11 @@ describe("Documents page", () => {
     expect(header.textContent).toContain("hidden by policy")
     expect(within(await grid()).queryByText("Escalated by support")).toBeNull()
     expect(screen.queryByRole("button", { name: "Insert document" })).toBeNull()
-    expect(mock.state.audit.some((entry) => entry.action === "impersonation.view")).toBe(true)
+    expect(
+      mock.state.audit.find((entry) => entry.action === "documents.viewAs")?.details,
+    ).toMatchObject({
+      as: { claims: { sub: "u_alice" } },
+    })
   })
 
   it("needs a reason before writing as the impersonated user, and audits it", async () => {
@@ -321,13 +323,15 @@ describe("Documents page", () => {
     expect(within(confirm).queryByLabelText(/Reason/)).toBeNull()
     await user.click(within(confirm).getByRole("button", { name: "Delete" }))
     await waitFor(() =>
-      expect(mock.state.audit.find((entry) => entry.action === "document.delete")).toMatchObject({
-        comment: "reproduce bug 12",
-        actor: "admin:owner@example.com",
-        impersonating: "u_alice",
-      }),
+      expect(mock.state.audit.find((entry) => entry.action === "documents.deleteAs")).toMatchObject(
+        {
+          comment: "reproduce bug 12",
+          actor: { email: "owner@example.com" },
+          details: { as: { claims: { sub: "u_alice" } } },
+        },
+      ),
     )
-    expect(mock.state.collections.get("todos")?.documents).toHaveLength(23)
+    expect(mock.state.collections.get("todos")).toHaveLength(23)
   })
 
   it("imports documents from a CSV file", async () => {
@@ -341,10 +345,8 @@ describe("Documents page", () => {
     await user.upload(within(dialog).getByLabelText("File"), file)
     expect(await within(dialog).findByText("2 documents ready to import")).toBeTruthy()
     await user.click(within(dialog).getByRole("button", { name: "Import" }))
-    await waitFor(() => expect(mock.state.collections.get("feedback")?.documents).toHaveLength(2))
-    const ratings = mock.state.collections
-      .get("feedback")
-      ?.documents.map((document) => document["rating"])
+    await waitFor(() => expect(mock.state.collections.get("feedback")).toHaveLength(2))
+    const ratings = mock.state.collections.get("feedback")?.map((document) => document["rating"])
     expect(ratings).toEqual([5, 3])
     expect(await screen.findByText("Slow, sometimes")).toBeTruthy()
   })

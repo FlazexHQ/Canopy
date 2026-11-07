@@ -1,9 +1,9 @@
 import { waitFor } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import { safeRedirect } from "../src/features/session/login.tsx"
-import { OWNER, renderStudio, screen } from "./harness.tsx"
+import { adminOf, OWNER, renderStudio, screen, TOTP_CODE } from "./harness.tsx"
 
-const TOTP_ADMIN = { ...OWNER, id: "adm_totp", email: "totp@example.com", totp: true }
+const DEVELOPER = { ...adminOf("developer"), totp: false }
 
 describe("login", () => {
   it("shows the server error for a wrong password and stays on the login", async () => {
@@ -11,35 +11,36 @@ describe("login", () => {
     await user.type(await screen.findByLabelText("Email"), OWNER.email)
     await user.type(screen.getByLabelText("Password"), "wrong password!")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
-    expect(await screen.findByText("Wrong email or password")).toBeTruthy()
+    expect(await screen.findByText("Invalid email or password")).toBeTruthy()
     expect(router.state.location.pathname).toBe("/login")
   })
 
-  it("asks for the authenticator code when the admin uses TOTP, then signs in", async () => {
-    const { user, router, mock } = await renderStudio("/login", {
-      admins: [TOTP_ADMIN],
-      signedInAs: false,
-    })
-    await user.type(await screen.findByLabelText("Email"), TOTP_ADMIN.email)
-    await user.type(screen.getByLabelText("Password"), TOTP_ADMIN.password)
+  it("asks owners for the authenticator code, then signs in", async () => {
+    const { user, router, mock } = await renderStudio("/login", { signedInAs: false })
+    await user.type(await screen.findByLabelText("Email"), OWNER.email)
+    await user.type(screen.getByLabelText("Password"), OWNER.password)
     await user.click(screen.getByRole("button", { name: "Sign in" }))
     const code = await screen.findByLabelText("Authenticator code")
     expect(document.activeElement).toBe(code)
     expect(mock.state.sessions.size).toBe(0)
     await user.type(code, "000000")
     await user.click(screen.getByRole("button", { name: "Sign in" }))
-    expect(await screen.findByText("The authenticator code is wrong")).toBeTruthy()
+    expect(await screen.findByText("Invalid email or password")).toBeTruthy()
+    expect(mock.state.sessions.size).toBe(0)
     await user.clear(code)
-    await user.type(code, "123456")
+    await user.type(code, TOTP_CODE)
     await user.click(screen.getByRole("button", { name: "Sign in" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/"))
     expect(mock.state.sessions.size).toBe(1)
   })
 
   it("lands on the redirect target after signing in", async () => {
-    const { user, router } = await renderStudio("/login?redirect=%2Fdoctor", { signedInAs: false })
-    await user.type(await screen.findByLabelText("Email"), OWNER.email)
-    await user.type(screen.getByLabelText("Password"), OWNER.password)
+    const { user, router } = await renderStudio("/login?redirect=%2Fdoctor", {
+      admins: [OWNER, DEVELOPER],
+      signedInAs: false,
+    })
+    await user.type(await screen.findByLabelText("Email"), DEVELOPER.email)
+    await user.type(screen.getByLabelText("Password"), DEVELOPER.password)
     await user.click(screen.getByRole("button", { name: "Sign in" }))
     await waitFor(() => expect(router.state.location.pathname).toBe("/doctor"))
     expect(await screen.findByRole("heading", { name: "Doctor", level: 1 })).toBeTruthy()

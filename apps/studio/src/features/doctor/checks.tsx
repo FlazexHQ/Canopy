@@ -9,6 +9,7 @@ import type { ReactNode } from "react"
 import type { CheckStatus, DoctorCheck } from "../../api/contract.ts"
 import { CodeBlock } from "../../components/copy-button.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
+import { en } from "../../i18n/en/index.ts"
 import { t } from "../../i18n/index.ts"
 
 /** Severity order, most severe first. */
@@ -49,6 +50,15 @@ export function countChecks(checks: readonly DoctorCheck[]): Record<CheckStatus,
   return counts
 }
 
+const NAMES = en.doctor.names
+
+/** The title of a check: a known check name in words, or the server's own title. */
+export function checkTitle(check: DoctorCheck): string {
+  return Object.hasOwn(NAMES, check.id)
+    ? t(`doctor.names.${check.id as keyof typeof NAMES}`)
+    : check.title
+}
+
 /** One doctor check with its explanation, fix and docs link. */
 export function CheckItem({ check }: { readonly check: DoctorCheck }) {
   const fix = check.fix === undefined ? undefined : splitFix(check.fix)
@@ -57,7 +67,7 @@ export function CheckItem({ check }: { readonly check: DoctorCheck }) {
       <div className="pt-0.5">{ICONS[check.status]}</div>
       <div className="grid min-w-0 flex-1 gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-medium">{check.title}</h3>
+          <h3 className="font-medium">{checkTitle(check)}</h3>
           <Badge variant={VARIANTS[check.status]}>{t(`common.status.${check.status}`)}</Badge>
         </div>
         <p className="text-sm text-muted-foreground">{check.message}</p>
@@ -79,7 +89,7 @@ export function CheckItem({ check }: { readonly check: DoctorCheck }) {
             rel="noreferrer"
             className="inline-flex w-fit items-center gap-1 text-sm text-primary underline-offset-4 hover:underline"
           >
-            {t("doctor.docs", { title: check.title })}
+            {t("doctor.docs", { title: checkTitle(check) })}
             <ExternalLinkIcon className="size-3" aria-hidden="true" />
           </a>
         )}

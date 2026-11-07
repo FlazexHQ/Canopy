@@ -15,4 +15,13 @@ export const doctor = {
   fix: "Fix",
   fixLabel: "the fix",
   docs: "Documentation for {title}",
+  names: {
+    mongodb: "MongoDB",
+    "replica-set": "Replica set",
+    "meta-migrations": "Meta database migrations",
+    "master-key": "Master key",
+    "admin-listener": "Private admin listener",
+    policies: "Policies",
+    realtime: "Realtime",
+  },
 } as const

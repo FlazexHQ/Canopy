@@ -182,7 +182,7 @@ export function WriteUnlock() {
   const { permissions } = useSession()
   const { viewAs, writeReason, unlockWrites, lockWrites } = useViewAs()
   const [open, setOpen] = useState(false)
-  if (viewAs === undefined || !permissions.writeData) return null
+  if (viewAs === undefined || !permissions.writeAs) return null
   if (writeReason !== undefined) {
     return (
       <Button variant="outline" size="sm" onClick={lockWrites}>

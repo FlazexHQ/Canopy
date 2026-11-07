@@ -1,7 +1,13 @@
 import { waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { isOrigin } from "../src/features/settings/page.tsx"
-import { renderStudio, screen } from "./harness.tsx"
+import {
+  isOrigin,
+  logRetentionOf,
+  retentionOf,
+  sampleRateOf,
+} from "../src/features/settings/page.tsx"
+import { addressAllowed, isAllowRule } from "../src/lib/ip.ts"
+import { adminOf, renderStudio, screen } from "./harness.tsx"
 
 const lastDialog = () => {
   const dialog = screen.getAllByRole("dialog").at(-1)
@@ -9,75 +15,91 @@ const lastDialog = () => {
   return within(dialog)
 }
 
-const admin = {
-  id: "adm_a",
-  email: "admin@example.com",
-  role: "admin" as const,
-  password: "a long password 1",
-}
-const viewer = {
-  id: "adm_v",
-  email: "viewer@example.com",
-  role: "viewer" as const,
-  password: "a long password 1",
-}
-
 describe("Settings", () => {
-  it("adds a CORS origin and saves it on the server", async () => {
+  it("saves the audit retention", async () => {
     const { user, mock } = await renderStudio("/settings")
-    await user.type(await screen.findByLabelText("New origin"), "https://app.example.com/")
-    await user.click(screen.getByRole("button", { name: "Add origin" }))
-    expect(screen.getByText("https://app.example.com")).toBeTruthy()
-    expect(mock.state.settings.corsOrigins).toEqual(["http://localhost:5173"])
-    await user.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() =>
-      expect(mock.state.settings.corsOrigins).toEqual([
-        "http://localhost:5173",
-        "https://app.example.com",
-      ]),
+    const field = await screen.findByLabelText("Keep audit entries for (days)")
+    await user.type(field, "90")
+    await user.click(
+      within(field.closest("form") as HTMLElement).getByRole("button", { name: "Save" }),
     )
-    expect(mock.state.audit.some((entry) => entry.action === "settings.update")).toBe(true)
+    await waitFor(() => expect(mock.state.settings.auditRetentionDays).toBe(90))
   })
 
-  it("rejects something that is not an origin and duplicates", async () => {
-    const { user } = await renderStudio("/settings")
-    const input = await screen.findByLabelText("New origin")
-    await user.type(input, "app.example.com/path")
-    await user.click(screen.getByRole("button", { name: "Add origin" }))
-    const describedError = () =>
-      document.getElementById(input.getAttribute("aria-describedby") ?? "")?.textContent ?? ""
-    expect(describedError()).toContain("app.example.com/path is not an origin")
-    expect(input.getAttribute("aria-invalid")).toBe("true")
-    await user.clear(input)
-    await user.type(input, "http://localhost:5173")
-    await user.click(screen.getByRole("button", { name: "Add origin" }))
-    expect(describedError()).toContain("is already in the list")
-  })
-
-  it("removes an origin", async () => {
+  it("saves the request log sample rate as a share and the retention in days", async () => {
     const { user, mock } = await renderStudio("/settings")
-    await user.click(await screen.findByRole("button", { name: "Remove http://localhost:5173" }))
-    expect(screen.getByText("No origins. Browsers cannot call the API.")).toBeTruthy()
-    await user.click(screen.getByRole("button", { name: "Save" }))
-    await waitFor(() => expect(mock.state.settings.corsOrigins).toEqual([]))
+    const rate = await screen.findByLabelText("Sample rate (percent of requests)")
+    expect((rate as HTMLInputElement).value).toBe("1")
+    const days = screen.getByLabelText("Keep request log entries for (days)")
+    expect((days as HTMLInputElement).value).toBe("7")
+    await user.clear(rate)
+    await user.type(rate, "150")
+    const form = rate.closest("form") as HTMLElement
+    await user.click(within(form).getByRole("button", { name: "Save" }))
+    expect(await screen.findByText("Enter a percentage from 0 to 100.")).toBeTruthy()
+    expect(mock.state.settings.requestLogSampleRate).toBe(0.01)
+    await user.clear(rate)
+    await user.type(rate, "12.5")
+    await user.clear(days)
+    await user.type(days, "30")
+    await user.click(within(form).getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mock.state.settings.requestLogSampleRate).toBe(0.125))
+    expect(mock.state.settings.requestLogRetentionDays).toBe(30)
+    expect(mock.state.audit[0]).toMatchObject({ action: "settings.update" })
+  })
+
+  it("validates allowlist entries and refuses a list that would lock the admin out", async () => {
+    const { user, mock } = await renderStudio("/settings", { clientIp: "203.0.113.7" })
+    const field = await screen.findByLabelText("Address or CIDR range")
+    await user.type(field, "10.0.0.300")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(screen.getByText("10.0.0.300 is not an IP address or CIDR range.")).toBeTruthy()
+    await user.clear(field)
+    await user.type(field, "10.0.0.0/8")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(screen.getByText("10.0.0.0/8")).toBeTruthy()
+    await user.click(screen.getByRole("button", { name: "Save allowlist" }))
+    expect(
+      await screen.findByText(/does not include the address you are connected from/),
+    ).toBeTruthy()
+    expect(mock.state.settings.adminAllowlist).toEqual([])
+    await user.type(field, "203.0.113.0/24")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    await user.click(screen.getByRole("button", { name: "Save allowlist" }))
+    await waitFor(() =>
+      expect(mock.state.settings.adminAllowlist).toEqual(["10.0.0.0/8", "203.0.113.0/24"]),
+    )
+    await user.click(screen.getByRole("button", { name: "Remove 10.0.0.0/8" }))
+    await user.click(screen.getByRole("button", { name: "Save allowlist" }))
+    await waitFor(() => expect(mock.state.settings.adminAllowlist).toEqual(["203.0.113.0/24"]))
+  })
+
+  it("refuses a duplicate allowlist entry", async () => {
+    const { user } = await renderStudio("/settings")
+    const field = await screen.findByLabelText("Address or CIDR range")
+    await user.type(field, "::1")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    await user.type(field, "::1")
+    await user.click(screen.getByRole("button", { name: "Add" }))
+    expect(screen.getByText("::1 is already in the list.")).toBeTruthy()
   })
 
   it("lists admins and realtime image status", async () => {
     const { api } = await renderStudio("/settings")
     expect(await screen.findByText("owner@example.com")).toBeTruthy()
     expect(screen.getByText("No collection has realtime turned on.")).toBeTruthy()
-    await api.updateCollection("todos", { realtime: true })
+    await api.updateCollection("todos", { realtime: true, expectedVersion: 0 })
     expect(screen.getByText(/canopy realtime enable-images/)).toBeTruthy()
   })
 
   it("shows the danger zone to owners only", async () => {
-    await renderStudio("/settings", { admins: [admin] })
-    expect(await screen.findByLabelText("New origin")).toBeTruthy()
+    await renderStudio("/settings", { admins: [adminOf("admin")] })
+    expect(await screen.findByLabelText("Address or CIDR range")).toBeTruthy()
     expect(screen.queryByText("Danger zone")).toBeNull()
   })
 
   it("requires the exact phrase before revoking all sessions", async () => {
-    const { user, mock } = await renderStudio("/settings")
+    const { user, mock } = await renderStudio("/settings", { extras: true })
     await user.click(await screen.findByRole("button", { name: "Revoke all sessions" }))
     const confirm = lastDialog().getByRole("button", {
       name: "Revoke all sessions",
@@ -96,34 +118,43 @@ describe("Settings", () => {
     )
   })
 
-  it("rotates the master key with its own phrase", async () => {
-    const { user, mock } = await renderStudio("/settings")
+  it("says when the server does not offer a danger zone action", async () => {
+    const { user } = await renderStudio("/settings")
     await user.click(await screen.findByRole("button", { name: "Rotate the master key" }))
     await user.type(
       lastDialog().getByLabelText("Type rotate master key to confirm"),
       "rotate master key",
     )
     await user.click(lastDialog().getByRole("button", { name: "Rotate the master key" }))
-    await waitFor(() =>
-      expect(mock.state.audit.some((entry) => entry.action === "danger.rotate_master_key")).toBe(
-        true,
-      ),
-    )
+    expect(await screen.findByText("This server does not offer this action yet.")).toBeTruthy()
   })
 
-  it("is read only for viewers", async () => {
-    await renderStudio("/settings", { admins: [viewer] })
+  it("keeps settings from viewers, who lack settings.read", async () => {
+    await renderStudio("/settings", { admins: [adminOf("viewer")] })
     expect(await screen.findByText("Your role can view settings but not change them.")).toBeTruthy()
-    expect((screen.getByLabelText("Public URL") as HTMLInputElement).disabled).toBe(true)
-    expect(screen.queryByLabelText("New origin")).toBeNull()
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull()
+    expect(screen.queryByLabelText("Address or CIDR range")).toBeNull()
+    expect(screen.queryByLabelText("Sample rate (percent of requests)")).toBeNull()
   })
 
-  it("recognizes origins", () => {
+  it("parses the numeric fields", () => {
+    expect(retentionOf("")).toBeNull()
+    expect(retentionOf("0")).toBeUndefined()
+    expect(sampleRateOf("100")).toBe(1)
+    expect(sampleRateOf("0")).toBe(0)
+    expect(sampleRateOf("-1")).toBeUndefined()
+    expect(sampleRateOf("1e2")).toBeUndefined()
+    expect(logRetentionOf("90")).toBe(90)
+    expect(logRetentionOf("91")).toBeUndefined()
     expect(isOrigin("https://app.example.com")).toBe(true)
-    expect(isOrigin("http://localhost:5173")).toBe(true)
     expect(isOrigin("https://app.example.com/")).toBe(false)
-    expect(isOrigin("ftp://files.example.com")).toBe(false)
-    expect(isOrigin("app.example.com")).toBe(false)
+  })
+
+  it("matches addresses like the server", () => {
+    expect(isAllowRule("2001:db8::/32")).toBe(true)
+    expect(isAllowRule("10.0.0.0/33")).toBe(false)
+    expect(addressAllowed("::ffff:10.1.2.3", ["10.0.0.0/8"])).toBe(true)
+    expect(addressAllowed("11.0.0.1", ["10.0.0.0/8"])).toBe(false)
+    expect(addressAllowed(undefined, ["10.0.0.0/8"])).toBe(false)
+    expect(addressAllowed("anything", [])).toBe(true)
   })
 })

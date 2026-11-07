@@ -22,7 +22,7 @@ export const overview = {
     exposed: "Expose a collection",
     policy: "Publish a policy",
     key: "Create a publishable key",
-    cors: "Configure CORS origins for your app",
+    doctor: "Fix the errors doctor reports",
     realtime: "Turn on realtime for a collection",
   },
 } as const

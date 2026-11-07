@@ -13,38 +13,70 @@ import {
   string,
   unknown,
 } from "./schema.ts"
+import { EMAIL_KINDS, EMAIL_PLACEHOLDERS } from "./wire.ts"
 
 /** Admin roles, from most to least privileged. */
 export const ADMIN_ROLES = ["owner", "admin", "developer", "viewer"] as const
 export type AdminRole = (typeof ADMIN_ROLES)[number]
 
-export const adminSchema = object({
-  id: string,
-  email: string,
-  role: literal(...ADMIN_ROLES),
-  totp: optional(boolean),
-})
-export type Admin = Infer<typeof adminSchema>
+/** A Studio administrator, from `canopy.admin_users`. */
+export interface Admin {
+  readonly id: string
+  readonly email: string
+  readonly name?: string
+  readonly role: AdminRole
+  /** Whether an authenticator app is set up. */
+  readonly totp?: boolean
+  /** Set for accounts created with a temporary password; every other request is refused until changed. */
+  readonly mustChangePassword?: boolean
+  readonly disabled?: boolean
+  readonly createdAt?: string
+  readonly lastLoginAt?: string
+}
 
-export const setupStatusSchema = object({ required: boolean })
-export type SetupStatus = Infer<typeof setupStatusSchema>
+/** Whether the server still waits for its first owner. */
+export interface SetupStatus {
+  readonly required: boolean
+}
 
-export const sessionSchema = object({
-  admin: adminSchema,
-  csrfToken: optional(string),
-})
-export type Session = Infer<typeof sessionSchema>
+/** An authenticator app enrollment: the base32 secret and the `otpauth:` URI for a QR code. */
+export interface TotpEnrollment {
+  readonly secret: string
+  readonly uri: string
+}
 
-export const meSchema = object({
-  admin: adminSchema,
-  csrfToken: optional(string),
-  environment: optional(literal("development", "production")),
-  version: optional(string),
-})
-export type Me = Infer<typeof meSchema>
+/** The owner created by the setup claim and the TOTP enrollment they must confirm at their first login. */
+export interface SetupResult {
+  readonly admin: Admin
+  readonly totp: TotpEnrollment
+}
+
+export interface Session {
+  readonly admin: Admin
+  readonly csrfToken?: string
+  readonly expiresAt?: string
+}
+
+export interface Me {
+  readonly admin: Admin
+  readonly csrfToken?: string
+  readonly environment?: "development" | "production"
+  readonly version?: string
+  readonly expiresAt?: string
+  /** The admin API permissions of this admin's role in this environment, as the server computes them. */
+  readonly grants?: readonly string[]
+}
+
+/** A new admin and the temporary password, shown once. */
+export interface CreatedAdmin {
+  readonly admin: Admin
+  readonly password: string
+}
 
 export const collectionSchema = object({
   name: string,
+  /** False for collections that only have policies so far. */
+  exists: optional(boolean),
   exposed: boolean,
   realtime: boolean,
   estimatedCount: optional(number),
@@ -86,8 +118,13 @@ export interface ViewAs {
 
 export const documentsPageSchema = object({
   documents: array(json),
+  /** Not reported by the server, which pages with `next` instead. */
   total: optional(number),
   hiddenFields: optional(array(string)),
+  /** Viewers see fields hidden by policy as `"[masked]"`. */
+  masked: optional(boolean),
+  /** A cursor for the next page; absent on the last page. */
+  next: optional(string),
 })
 export type DocumentsPage = Infer<typeof documentsPageSchema>
 export const documentResultSchema = object({ document: nullable(json) })
@@ -162,6 +199,9 @@ export type SimulatedOperation = (typeof SIMULATED_OPERATIONS)[number]
 
 export const simulationSchema = object({
   allowed: boolean,
+  roles: optional(array(string)),
+  /** The explain trace of the check clause, for insert and update. */
+  checkPolicies: optional(array(explainedPolicySchema)),
   bypass: optional(boolean),
   count: optional(number),
   documents: optional(array(json)),
@@ -185,26 +225,45 @@ export const historyEntrySchema = object({
 export type HistoryEntry = Infer<typeof historyEntrySchema>
 export const historySchema = object({ versions: array(historyEntrySchema) })
 
-export const appUserSchema = object({
-  id: string,
-  email: optional(nullable(string)),
-  name: optional(nullable(string)),
-  createdAt: optional(string),
-  lastSignInAt: optional(nullable(string)),
-  banned: optional(boolean),
-  roles: optional(array(string)),
-  appMetadata: optional(json),
-  userMetadata: optional(json),
-  identities: optional(array(object({ provider: string, subject: optional(string) }))),
-  sessions: optional(
-    array(object({ id: string, createdAt: optional(string), userAgent: optional(string) })),
-  ),
-})
-export type AppUser = Infer<typeof appUserSchema>
-export const usersPageSchema = object({
-  users: array(appUserSchema),
-  nextCursor: optional(nullable(string)),
-})
+/** An app user of built in auth. Anonymous users have no email. */
+export interface AppUser {
+  readonly id: string
+  readonly email?: string
+  readonly emailVerified: boolean
+  readonly name?: string
+  readonly isAnonymous: boolean
+  readonly roles: readonly string[]
+  /** Written only by admins and `service`, so policies may rely on it. */
+  readonly appMetadata: Readonly<Record<string, unknown>>
+  /** Editable by the user; never use it in policies. */
+  readonly userMetadata: Readonly<Record<string, unknown>>
+  readonly banned: boolean
+  readonly banReason?: string
+  readonly banExpires?: string
+  readonly createdAt: string
+  readonly updatedAt: string
+}
+
+/** A session of an app user. The session token is never shown. */
+export interface AppUserSession {
+  readonly id: string
+  readonly createdAt: string
+  readonly updatedAt: string
+  readonly expiresAt: string
+  readonly ipAddress?: string
+  readonly userAgent?: string
+}
+
+/** The fields an admin may change on an app user. */
+export interface AppUserPatch {
+  readonly email?: string
+  readonly name?: string
+  readonly emailVerified?: boolean
+  readonly roles?: readonly string[]
+  readonly appMetadata?: Readonly<Record<string, unknown>>
+  readonly userMetadata?: Readonly<Record<string, unknown>>
+  readonly password?: string
+}
 
 export const providersSchema = object({
   mode: literal("builtin", "external"),
@@ -228,25 +287,47 @@ export const providersSchema = object({
 })
 export type Providers = Infer<typeof providersSchema>
 
-export const templatesSchema = object({
-  templates: array(
-    object({ id: string, subject: string, body: string, updatedAt: optional(string) }),
-  ),
-})
-export type EmailTemplate = Infer<typeof templatesSchema>["templates"][number]
+/** The emails built in auth sends. */
+export type EmailKind = (typeof EMAIL_KINDS)[number]
+export type EmailPlaceholder = (typeof EMAIL_PLACEHOLDERS)[number]
 
-export const signingKeysSchema = object({
-  keys: array(
-    object({
-      kid: string,
-      alg: string,
-      status: literal("active", "standby", "retired"),
-      createdAt: optional(string),
-    }),
-  ),
-})
-export type SigningKey = Infer<typeof signingKeysSchema>["keys"][number]
-export const rotateResultSchema = object({ kid: string })
+/** An editable email template: text with `{{placeholder}}` markers. */
+export interface EmailTemplateBody {
+  readonly subject: string
+  readonly text: string
+  readonly html?: string
+}
+
+/** The template in force for one kind. */
+export interface EmailTemplate extends EmailTemplateBody {
+  readonly kind: EmailKind
+  /** `default` until edited in Studio. */
+  readonly source: "default" | "studio"
+  readonly placeholders: readonly EmailPlaceholder[]
+  /** Placeholders the body must keep, such as the link. */
+  readonly required: readonly EmailPlaceholder[]
+}
+
+/** One saved version of the email templates. */
+export interface EmailTemplateVersion {
+  readonly version: number
+  readonly kind?: EmailKind
+  readonly change: "update" | "reset"
+  readonly templates: Readonly<Partial<Record<EmailKind, EmailTemplateBody>>>
+  readonly updatedAt: string
+  readonly updatedBy: string
+  readonly comment?: string
+}
+
+/** A signing key of built in auth. */
+export interface SigningKey {
+  readonly kid: string
+  readonly alg: string
+  readonly state: "standby" | "active" | "retired" | "revoked"
+  readonly createdAt: string
+  readonly expiresAt: string
+  readonly revokedAt?: string
+}
 
 export const apiKeySchema = object({
   id: string,
@@ -336,24 +417,67 @@ export const traceSchema = object({
       type: string,
       outcome: literal(...OBSERVER_OUTCOMES),
       subscribers: array(object({ sid: string, sub: string, subject: string })),
-      filteredOut: optional(
-        array(
-          object({
-            sid: string,
-            subject: string,
-            policy: optional(string),
-            reason: optional(string),
-          }),
-        ),
-      ),
+      dls: optional(unknown),
     }),
   ),
 })
-export type EventTrace = Infer<typeof traceSchema>
+type ParsedTrace = Infer<typeof traceSchema>
+
+/** One policy in a DLS explanation: whether it matched, and the claim that made it drop out. */
+export interface DeniedPolicy {
+  readonly name: string
+  readonly kind: "permissive" | "restrictive"
+  readonly matched: boolean
+  readonly issue?: { readonly variable: string; readonly kind: string }
+  readonly fields: readonly string[]
+}
+
+/**
+ * Why DLS kept an event from an observer whose own filter matched it: no read policy for the
+ * subscribers' roles, no permissive policy matched, or a restrictive one failed. Viewers get
+ * `{ masked: true }` when the policies read fields hidden from them.
+ */
+export type DlsDenial =
+  | {
+      readonly reason: "no_grant" | "no_permissive" | "restrictive"
+      readonly responsible: readonly string[]
+      readonly policies: readonly DeniedPolicy[]
+    }
+  | { readonly masked: true }
+
+/** The route of one event through the engine. */
+export type EventTrace = Omit<ParsedTrace, "candidates"> & {
+  readonly candidates: readonly (Omit<ParsedTrace["candidates"][number], "dls"> & {
+    readonly dls?: DlsDenial
+  })[]
+}
+
+const deniedPolicySchema = object({
+  name: string,
+  kind: literal("permissive", "restrictive"),
+  matched: boolean,
+  issue: optional(object({ variable: string, kind: string })),
+  fields: array(string),
+})
+const dlsDenialSchema = object({
+  reason: literal("no_grant", "no_permissive", "restrictive"),
+  responsible: array(string),
+  policies: array(deniedPolicySchema),
+})
+
+/** Validates the `dls` field of a trace candidate. */
+export function parseDls(value: unknown, path: string): DlsDenial | undefined {
+  if (value === undefined || value === null) return undefined
+  if (typeof value === "object" && (value as { masked?: unknown }).masked === true) {
+    return { masked: true }
+  }
+  return dlsDenialSchema.parse(value, path)
+}
 
 export const CHECK_STATUSES = ["ok", "info", "warn", "error"] as const
 export type CheckStatus = (typeof CHECK_STATUSES)[number]
 export const doctorSchema = object({
+  status: optional(literal(...CHECK_STATUSES)),
   checks: array(
     object({
       id: string,
@@ -370,29 +494,34 @@ export const doctorSchema = object({
 export type DoctorReport = Infer<typeof doctorSchema>
 export type DoctorCheck = DoctorReport["checks"][number]
 
+export const REQUEST_SURFACES = ["rest", "auth", "admin", "realtime"] as const
+export type RequestSurface = (typeof REQUEST_SURFACES)[number]
+
+/** One sampled request. Only the path is kept: no query string, headers or bodies. */
 export const logEntrySchema = object({
-  at: string,
-  requestId: optional(string),
+  id: string,
+  at: date,
+  surface: literal(...REQUEST_SURFACES),
   method: string,
   path: string,
   status: number,
   durationMs: number,
-  role: optional(string),
-  collection: optional(string),
-  operation: optional(string),
-  code: optional(string),
-  policy: optional(string),
+  ip: optional(string),
+  requestId: optional(string),
 })
 export type LogEntry = Infer<typeof logEntrySchema>
-export const logsSchema = object({
-  entries: array(logEntrySchema),
-  nextCursor: optional(nullable(string)),
-  summary: optional(object({ requestsPerSecond: number, errorRate: number })),
-})
-export type LogsPage = Infer<typeof logsSchema>
+
+/** A page of the request log, with the sampling settings in force. */
+export interface LogsPage {
+  readonly entries: readonly LogEntry[]
+  readonly next?: string
+  readonly sampleRate: number
+  readonly retentionDays: number
+}
 
 export const auditEntrySchema = object({
   id: string,
+  outcome: optional(literal("ok", "denied", "failed")),
   at: string,
   actor: string,
   action: string,
@@ -407,20 +536,18 @@ export const auditSchema = object({
   nextCursor: optional(nullable(string)),
 })
 
-export const settingsSchema = object({
-  publicUrl: optional(nullable(string)),
-  corsOrigins: array(string),
-  limits: optional(record(number)),
-  realtime: optional(
-    object({
-      mode: optional(string),
-      collections: optional(
-        array(object({ name: string, images: literal("on", "off", "unknown") })),
-      ),
-    }),
-  ),
-  admins: optional(array(adminSchema)),
-})
-export type Settings = Infer<typeof settingsSchema>
+/** Settings changed at runtime; everything else comes from the config file. */
+export interface Settings {
+  /** How many days audit entries are kept; `null` keeps them forever. */
+  readonly auditRetentionDays: number | null
+  /** The share of requests written to the request log, from 0 (off) to 1 (all); 5xx are kept above 0. */
+  readonly requestLogSampleRate: number
+  /** How many days request log entries are kept, 1 to 90. */
+  readonly requestLogRetentionDays: number
+  /** Addresses and CIDR ranges that may reach `/admin` and `/studio`; empty allows every address. */
+  readonly adminAllowlist: readonly string[]
+}
 
 export const realtimeTokenSchema = object({ token: string, publishableKey: string })
+
+export { EMAIL_KINDS, EMAIL_PLACEHOLDERS }

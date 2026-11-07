@@ -31,6 +31,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/ta
 import { t } from "../../i18n/index.ts"
 import { columnsOf, displayValue, formatEjson } from "../../lib/ejson.ts"
 import { FilterPanel } from "./filter-panel.tsx"
+import { hiddenFieldsFor } from "./hidden-fields.ts"
 import { ExportDialog, ImportDialog } from "./transfer-dialogs.tsx"
 import { ViewAsButton, WriteUnlock } from "./view-as-dialog.tsx"
 import { DeleteDocumentDialog, DocumentEditorDialog, useWriteMode } from "./write-dialogs.tsx"
@@ -103,10 +104,17 @@ export function DocumentsPage({ collection }: { readonly collection: string }) {
   }, [])
   const onLiveError = useCallback((error: Error) => setLiveError(error.message), [])
 
+  const published = useQuery({
+    queryKey: keys.policies(collection),
+    queryFn: ({ signal }) => api.policies(collection, signal),
+    enabled: viewAs !== undefined,
+  })
   const resetPage = () => setSkip(0)
   const page = documents.data
   const rows = live && liveDocuments !== undefined ? liveDocuments : (page?.documents ?? [])
-  const hidden = page?.hiddenFields ?? []
+  const hidden =
+    page?.hiddenFields ??
+    (viewAs === undefined ? [] : hiddenFieldsFor(published.data ?? null, viewAs, topFields))
   const columns = [
     ...columnsOf(rows),
     ...hidden.filter((field) => !columnsOf(rows).includes(field)),
@@ -413,7 +421,7 @@ export function DocumentsPage({ collection }: { readonly collection: string }) {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={total === undefined ? rows.length < limit : skip + limit >= total}
+                  disabled={total === undefined ? page?.next === undefined : skip + limit >= total}
                   onClick={() => setSkip(skip + limit)}
                 >
                   {t("data.documents.nextPage")}

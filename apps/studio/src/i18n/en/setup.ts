@@ -13,7 +13,7 @@ export const setup = {
       "Only someone with access to the server can claim it. On its first start the server printed a one time setup token to its logs.",
     token: "Setup token",
     tokenHint:
-      'Look for the line starting with "Setup token" in the server output, for example with docker compose logs canopy.',
+      'It starts with canopy_setup_. Look for "This server has no owner yet" in the server output, for example with docker compose logs canopy.',
     email: "Owner email",
     password: "Password",
     passwordHint: "At least {min} characters.",
@@ -22,6 +22,11 @@ export const setup = {
     mismatch: "The passwords do not match.",
     submit: "Claim and create the owner",
     submitting: "Claiming…",
+    claimed:
+      "The server is yours. Owners always sign in with an authenticator code, so set one up now.",
+    code: "Authenticator code",
+    signIn: "Verify and sign in",
+    signingIn: "Signing in…",
   },
   doctor: {
     description:

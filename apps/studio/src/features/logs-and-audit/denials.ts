@@ -1,12 +1,11 @@
-import type { LogEntry } from "../../api/contract.ts"
+import type { LogEntry, LogsPage, RequestSurface } from "../../api/contract.ts"
 
-/** Denied requests sharing a collection, operation, role, policy and code. */
+/** Denied requests sharing a surface, collection, operation and status. */
 export interface DenialGroup {
+  readonly surface: RequestSurface
   readonly collection: string | undefined
   readonly operation: string | undefined
-  readonly role: string | undefined
-  readonly policy: string | undefined
-  readonly code: string | undefined
+  readonly status: number
   readonly count: number
   /** The newest entry's time. */
   readonly last: string
@@ -17,7 +16,34 @@ export function isDenial(entry: LogEntry): boolean {
   return entry.status === 401 || entry.status === 403
 }
 
-/** Groups denials by collection, operation, role, policy and code, most frequent first. */
+const OPERATIONS: Readonly<Record<string, string>> = {
+  GET: "read",
+  HEAD: "read",
+  POST: "insert",
+  PATCH: "update",
+  PUT: "update",
+  DELETE: "delete",
+}
+
+/**
+ * The collection and operation of a Data API request, read from its path (`/rest/v1/<collection>[/<id>]`)
+ * and method. Other surfaces have neither.
+ */
+export function restTarget(entry: Pick<LogEntry, "surface" | "method" | "path">): {
+  readonly collection: string | undefined
+  readonly operation: string | undefined
+} {
+  const match = /^\/rest\/v1\/([^/?#]+)/.exec(entry.path)
+  if (entry.surface !== "rest" || match?.[1] === undefined || match[1] === "openapi.json") {
+    return { collection: undefined, operation: undefined }
+  }
+  return {
+    collection: decodeURIComponent(match[1]),
+    operation: OPERATIONS[entry.method.toUpperCase()],
+  }
+}
+
+/** Groups denials by surface, collection, operation and status, most frequent first, newest on ties. */
 export function groupDenials(entries: readonly LogEntry[]): DenialGroup[] {
   const groups = new Map<
     string,
@@ -25,20 +51,8 @@ export function groupDenials(entries: readonly LogEntry[]): DenialGroup[] {
   >()
   for (const entry of entries) {
     if (!isDenial(entry)) continue
-    const group = {
-      collection: entry.collection,
-      operation: entry.operation,
-      role: entry.role,
-      policy: entry.policy,
-      code: entry.code,
-    }
-    const key = JSON.stringify([
-      group.collection,
-      group.operation,
-      group.role,
-      group.policy,
-      group.code,
-    ])
+    const group = { surface: entry.surface, ...restTarget(entry), status: entry.status }
+    const key = JSON.stringify([group.surface, group.collection, group.operation, group.status])
     const existing = groups.get(key)
     if (existing === undefined) groups.set(key, { group, count: 1, last: entry.at })
     else {
@@ -51,18 +65,33 @@ export function groupDenials(entries: readonly LogEntry[]): DenialGroup[] {
     .sort((a, b) => b.count - a.count || (a.last < b.last ? 1 : a.last > b.last ? -1 : 0))
 }
 
-export const STATUS_FILTERS = ["all", "success", "clientErrors", "serverErrors"] as const
+/** Status filters the server understands: a class such as `4xx`, or everything. */
+export const STATUS_FILTERS = ["", "2xx", "3xx", "4xx", "5xx"] as const
 export type StatusFilter = (typeof STATUS_FILTERS)[number]
 
-export function matchesStatus(entry: LogEntry, filter: StatusFilter): boolean {
-  switch (filter) {
-    case "all":
-      return true
-    case "success":
-      return entry.status < 400
-    case "clientErrors":
-      return entry.status >= 400 && entry.status < 500
-    case "serverErrors":
-      return entry.status >= 500
+/** What a page of the sampled log says about traffic. */
+export interface LogSummary {
+  /** Requests per second over the page's time span, scaled by the sample rate; undefined when unknown. */
+  readonly estimatedPerSecond: number | undefined
+  /** The share of sampled entries that failed with 5xx (always kept, so an upper bound). */
+  readonly serverErrorShare: number
+  readonly sampled: number
+}
+
+/**
+ * Estimates traffic from sampled entries: count divided by the sample rate over the time they span. Server
+ * errors are kept whenever sampling is on, so they are left out of the estimate.
+ */
+export function summarize(page: Pick<LogsPage, "entries" | "sampleRate">): LogSummary {
+  const sampled = page.entries.length
+  const sampledOk = page.entries.filter((entry) => entry.status < 500)
+  const times = sampledOk.map((entry) => Date.parse(entry.at)).filter(Number.isFinite)
+  const span = times.length < 2 ? 0 : (Math.max(...times) - Math.min(...times)) / 1000
+  return {
+    estimatedPerSecond:
+      page.sampleRate <= 0 || span <= 0 ? undefined : sampledOk.length / page.sampleRate / span,
+    serverErrorShare:
+      sampled === 0 ? 0 : page.entries.filter((entry) => entry.status >= 500).length / sampled,
+    sampled,
   }
 }

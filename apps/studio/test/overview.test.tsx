@@ -10,13 +10,11 @@ function itemState(name: string): string | null | undefined {
 }
 
 describe("overview", () => {
-  it("shows health from the doctor, realtime stats and the logs summary", async () => {
+  it("shows health from the doctor and says what the server does not report", async () => {
     await renderStudio("/")
-    expect(await screen.findByText("replica set (rs0, 1 member)")).toBeTruthy()
+    expect(await screen.findByText("Replica set rs0")).toBeTruthy()
     expect(await screen.findByText("8.0.4")).toBeTruthy()
-    expect(await screen.findByText("0.4.0-mock")).toBeTruthy()
-    expect(await screen.findByText("42.5")).toBeTruthy()
-    expect(screen.getByText("Oplog window")).toBeTruthy()
+    expect(screen.getAllByText("Not reported").length).toBeGreaterThan(0)
   })
 
   it("derives the getting started checklist from the server state", async () => {
@@ -27,7 +25,7 @@ describe("overview", () => {
     expect(itemState("Expose a collection")).toBe("true")
     expect(itemState("Publish a policy")).toBe("true")
     expect(itemState("Create a publishable key")).toBe("true")
-    expect(itemState("Configure CORS origins for your app")).toBe("true")
+    expect(itemState("Fix the errors doctor reports")).toBe("true")
     expect(itemState("Turn on realtime for a collection")).toBe("false")
     const todo = screen.getByRole("link", { name: "Turn on realtime for a collection" })
     expect(todo.getAttribute("href")).toBe("/studio/data")
@@ -35,7 +33,7 @@ describe("overview", () => {
 
   it("marks everything to do on a fresh server", () => {
     const items = checklistOf([{ name: "todos", exposed: false, realtime: false }], [], {
-      corsOrigins: [],
+      checks: [{ id: "replica-set", title: "replica-set", status: "error", message: "standalone" }],
     })
     expect(items.map((item) => item.done)).toEqual([false, false, false, false, false])
     const revoked = checklistOf(

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import type { RealtimeEvent } from "../src/api/contract.ts"
 import { chartSummary } from "../src/features/realtime/lag-chart.tsx"
 import { setTailSourceFactory, type TailSource } from "../src/features/realtime/tail-source.ts"
-import { renderStudio, screen } from "./harness.tsx"
+import { adminOf, OWNER, renderStudio, screen } from "./harness.tsx"
 
 class FakeSource implements TailSource {
   static last: FakeSource | undefined
@@ -61,7 +61,7 @@ const READ_OWN = {
 }
 
 describe("Realtime page", () => {
-  it("shows engine counts and the lag samples as an accessible table", async () => {
+  it("shows engine counts and says the engine does not report lag", async () => {
     await renderStudio("/realtime")
     const stat = (label: string) =>
       screen
@@ -72,9 +72,9 @@ describe("Realtime page", () => {
     expect(stat("Subscriptions")).toBe("4")
     expect(stat("Connections")).toBe("2")
     expect(stat("Sessions")).toBe("3")
-    expect(stat("Change stream lag")).toMatch(/^\d+ ms$/)
-    expect(await screen.findAllByTestId("lag-sample")).toHaveLength(60)
-    expect(screen.getByText(/^60 samples\. Lag ranged from/)).toBeTruthy()
+    expect(stat("Change stream lag")).toBe("")
+    expect(screen.getAllByText("This server does not report change stream lag.").length).toBe(2)
+    expect(screen.queryAllByTestId("lag-sample")).toHaveLength(0)
   })
 
   it("lists connections and observers from the engine", async () => {
@@ -83,7 +83,6 @@ describe("Realtime page", () => {
     const rows = await screen.findAllByTestId("connection")
     expect(rows).toHaveLength(3)
     expect(rows[1]?.textContent).toContain("u_bob")
-    expect(rows[1]?.textContent).toContain("sse")
     expect(within(rows[2] as HTMLElement).getByText("Waiting to resume")).toBeTruthy()
     await user.click(screen.getByRole("tab", { name: "Observers" }))
     const observers = await screen.findAllByTestId("observer")
@@ -147,20 +146,63 @@ describe("Realtime page", () => {
     expect(alice?.textContent).toContain("u_alice (connection s_7f3a, subscription q1)")
     const bob = candidates.find((card) => card.textContent?.includes("obs_todos_bob"))
     expect(bob?.textContent).toContain("Did not match the effective filter")
-    const filtered = within(bob as HTMLElement).getByTestId("filtered-out")
-    expect(filtered.textContent).toContain("u_bob")
-    expect(filtered.textContent).toContain("Policy: read own")
-    const anon = candidates.find((card) => card.textContent?.includes("obs_todos_anon"))
-    expect(within(anon as HTMLElement).getByTestId("filtered-out").textContent).toContain(
-      "No read policy applies to this subscriber",
+    const bobDls = within(bob as HTMLElement).getByTestId("dls-explanation")
+    expect(bobDls.textContent).toContain(
+      "The subscription matched the document, but no permissive read policy did.",
     )
+    expect(bobDls.textContent).toContain('Responsible: "read own"')
+    const policy = within(bobDls).getByTestId("dls-policy")
+    expect(policy.textContent).toContain("read own")
+    expect(policy.textContent).toContain("Did not match")
+    const anon = candidates.find((card) => card.textContent?.includes("obs_todos_anon"))
+    expect(within(anon as HTMLElement).getByTestId("dls-explanation").textContent).toContain(
+      "No read policy covers the subscribers' roles.",
+    )
+  })
+
+  it("names the claim that made a policy drop out", async () => {
+    const tenant = {
+      ...READ_OWN,
+      policies: [
+        {
+          name: "read in my tenant",
+          kind: "permissive" as const,
+          ops: ["read" as const],
+          roles: ["authenticated"],
+          using: '{"orgId":{"$auth":"tenant_id"}}',
+        },
+      ],
+    }
+    const { user, api, mock } = await renderStudio("/realtime", { policies: [tenant] })
+    await api.insertDocument("todos", { title: "Tenant", ownerId: "u_alice", orgId: "o1" })
+    const id = mock.state.events.at(-1)?.id ?? ""
+    await user.click(await screen.findByRole("tab", { name: "Event trace" }))
+    await user.type(screen.getByLabelText("Event id"), id)
+    await user.click(screen.getByRole("button", { name: "Show trace" }))
+    const candidates = await screen.findAllByTestId("trace-candidate")
+    const alice = candidates.find((card) => card.textContent?.includes("obs_todos_alice"))
+    const policy = within(alice as HTMLElement).getByTestId("dls-policy")
+    expect(policy.textContent).toContain("Dropped out: claim")
+    expect(policy.textContent).toContain("tenant_id")
+    expect(policy.textContent).toContain("missing")
+  })
+
+  it("keeps traces from viewers, who lack realtime.inspect", async () => {
+    const { user } = await renderStudio("/realtime", {
+      admins: [adminOf("viewer"), OWNER],
+      signedInAs: adminOf("viewer"),
+    })
+    await user.click(await screen.findByRole("tab", { name: "Event trace" }))
+    await user.type(screen.getByLabelText("Event id"), "evt_any")
+    await user.click(screen.getByRole("button", { name: "Show trace" }))
+    expect(await screen.findByText("Your role cannot see this")).toBeTruthy()
   })
 
   it("opens the trace of an event picked in the tail", async () => {
     restore = setTailSourceFactory((url) => new FakeSource(url))
     const { user, api, mock } = await renderStudio("/realtime", { policies: [READ_OWN] })
     await api.insertDocument("todos", { title: "Picked", ownerId: "u_bob" })
-    const picked = mock.state.events[0] as RealtimeEvent
+    const picked = JSON.parse(JSON.stringify(mock.state.events[0])) as RealtimeEvent
     await user.click(await screen.findByRole("tab", { name: "Event tail" }))
     act(() => FakeSource.last?.push(picked))
     await user.click(await screen.findByRole("button", { name: `Trace event ${picked.id}` }))

@@ -2,7 +2,7 @@ import { type QueryClient, useQuery } from "@tanstack/react-query"
 import { createContext, type ReactNode, useContext } from "react"
 import type { AdminApi } from "../api/client.ts"
 import type { Me } from "../api/contract.ts"
-import { type Permissions, permissionsOf } from "./permissions.ts"
+import { type Permissions, permissionsFrom, permissionsOf } from "./permissions.ts"
 
 const ApiContext = createContext<AdminApi | null>(null)
 
@@ -26,6 +26,7 @@ export function useApi(): AdminApi {
 /** Query keys, so invalidation after a mutation reaches every view of the same data. */
 export const keys = {
   me: ["me"] as const,
+  admins: ["admins"] as const,
   setup: ["setup"] as const,
   collections: ["collections"] as const,
   collectionSchema: (name: string) => ["collections", name, "schema"] as const,
@@ -63,7 +64,14 @@ export function useSession(): Me & { readonly permissions: Permissions } {
   const api = useApi()
   const { data } = useQuery(meQuery(api))
   if (data === undefined) throw new TypeError("useSession is only available after sign in")
-  return { ...data, permissions: permissionsOf(data.admin.role, data.environment ?? "development") }
+  const environment = data.environment ?? "development"
+  return {
+    ...data,
+    permissions:
+      data.grants === undefined
+        ? permissionsOf(data.admin.role, environment)
+        : permissionsFrom(data.grants, environment),
+  }
 }
 
 /** The router context: the API client and the query cache. */

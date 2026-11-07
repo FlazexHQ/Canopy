@@ -3,6 +3,7 @@ import { statusOf } from "../api/client.ts"
 import { meQuery } from "../app/context.tsx"
 import { ViewAsProvider } from "../app/view-as.tsx"
 import { Shell } from "../components/shell.tsx"
+import { PasswordGate } from "../features/session/change-password.tsx"
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ context, location }) => {
@@ -16,10 +17,12 @@ export const Route = createFileRoute("/_app")({
     }
   },
   component: () => (
-    <ViewAsProvider>
-      <Shell>
-        <Outlet />
-      </Shell>
-    </ViewAsProvider>
+    <PasswordGate>
+      <ViewAsProvider>
+        <Shell>
+          <Outlet />
+        </Shell>
+      </ViewAsProvider>
+    </PasswordGate>
   ),
 })

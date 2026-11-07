@@ -5,21 +5,35 @@ import userEvent from "@testing-library/user-event"
 import {
   createMockAdmin,
   type MockAdmin,
+  type MockAdminAccount,
   type MockAdminOptions,
   TEST_SESSION_HEADER,
 } from "../mock/admin.ts"
 import { AdminApi } from "../src/api/client.ts"
-import type { Admin } from "../src/api/contract.ts"
 import { ApiProvider } from "../src/app/context.tsx"
 import { routeTree } from "../src/routeTree.gen.ts"
 
 /** An owner that exists in every harness unless `admins` is given. */
-export const OWNER: Admin & { readonly password: string } = {
+export const OWNER: MockAdminAccount = {
   id: "adm_owner",
   email: "owner@example.com",
   role: "owner",
-  totp: false,
+  totp: true,
   password: "correct horse battery",
+}
+
+/** The authenticator code the mock accepts. */
+export const TOTP_CODE = "123456"
+
+/** An admin of another role, with an enrolled authenticator. */
+export function adminOf(role: MockAdminAccount["role"]): MockAdminAccount {
+  return {
+    id: `adm_${role}`,
+    email: `${role}@example.com`,
+    role,
+    totp: true,
+    password: "correct horse battery",
+  }
 }
 
 /** A `fetch` over the mock that keeps the session like a browser keeps the cookie. */
@@ -38,7 +52,9 @@ export function cookieFetch(mock: MockAdmin): typeof fetch {
 /** Options of {@link renderStudio}. */
 export interface HarnessOptions extends MockAdminOptions {
   /** Signs in as this admin before rendering; `false` starts signed out. */
-  readonly signedInAs?: (Admin & { readonly password: string }) | false
+  readonly signedInAs?: MockAdminAccount | false
+  /** Changes the mock's state before Studio renders. */
+  readonly prepare?: (mock: MockAdmin) => void
 }
 
 export interface Harness extends RenderResult {
@@ -62,8 +78,13 @@ export async function renderStudio(path: string, options: HarnessOptions = {}): 
   })
   const signedInAs = options.signedInAs ?? admins[0] ?? false
   if (signedInAs !== false) {
-    await api.login({ email: signedInAs.email, password: signedInAs.password })
+    await api.login({
+      email: signedInAs.email,
+      password: signedInAs.password,
+      ...(signedInAs.totp === true ? { totp: TOTP_CODE } : {}),
+    })
   }
+  options.prepare?.(mock)
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })

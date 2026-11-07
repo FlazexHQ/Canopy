@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import type { SigningKey } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx"
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
@@ -7,14 +8,6 @@ import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx"
-import { Label } from "../../components/ui/label.tsx"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../components/ui/select.tsx"
 import {
   Table,
   TableBody,
@@ -25,6 +18,7 @@ import {
 } from "../../components/ui/table.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { formatDateTime, t } from "../../i18n/index.ts"
+import { TemplatesTab } from "./templates.tsx"
 import { UsersTab } from "./users.tsx"
 
 function ProvidersTab() {
@@ -99,81 +93,6 @@ function ProvidersTab() {
   )
 }
 
-const SAMPLE = {
-  name: "Alice",
-  link: "https://app.example.com/verify?token=sample",
-  email: "alice@example.com",
-}
-
-/** Fills `{{name}}` placeholders of an email template with test data. */
-export function previewTemplate(text: string): string {
-  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (match, key: string) =>
-    key in SAMPLE ? SAMPLE[key as keyof typeof SAMPLE] : match,
-  )
-}
-
-function TemplatesTab() {
-  const api = useApi()
-  const query = useQuery({
-    queryKey: keys.templates,
-    queryFn: ({ signal }) => api.templates(signal),
-  })
-  const [chosen, setChosen] = useState<string | undefined>(undefined)
-  if (query.isPending) return <LoadingState />
-  if (query.isError) {
-    return (
-      <ErrorState
-        error={query.error}
-        feature={t("auth.features.templates")}
-        onRetry={() => void query.refetch()}
-      />
-    )
-  }
-  if (query.data.length === 0) return <EmptyState>{t("auth.templates.empty")}</EmptyState>
-  const template = query.data.find((entry) => entry.id === chosen) ?? query.data[0]
-  return (
-    <div className="grid gap-4">
-      <div className="grid max-w-xs gap-2">
-        <Label htmlFor="template-choice">{t("auth.templates.choose")}</Label>
-        <Select value={template?.id ?? ""} onValueChange={setChosen}>
-          <SelectTrigger id="template-choice">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {query.data.map((entry) => (
-              <SelectItem key={entry.id} value={entry.id}>
-                {entry.id}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      {template === undefined ? null : (
-        <Card>
-          <CardHeader>
-            <CardTitle>{t("auth.templates.preview")}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-2 text-sm">
-            <p>
-              <span className="text-muted-foreground">{t("auth.templates.subject")}: </span>
-              {previewTemplate(template.subject)}
-            </p>
-            <div>
-              <p className="text-muted-foreground">{t("auth.templates.body")}</p>
-              <p
-                data-testid="template-preview"
-                className="whitespace-pre-wrap rounded-md border p-3"
-              >
-                {previewTemplate(template.body)}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  )
-}
-
 function TokensTab() {
   return (
     <div className="grid gap-4">
@@ -195,20 +114,31 @@ function KeysTab() {
   const { permissions } = useSession()
   const queryClient = useQueryClient()
   const toast = useToast()
-  const [open, setOpen] = useState(false)
+  const [rotating, setRotating] = useState(false)
+  const [revoking, setRevoking] = useState<string | undefined>(undefined)
   const query = useQuery({
     queryKey: keys.signingKeys,
     queryFn: ({ signal }) => api.signingKeys(signal),
   })
+  const failed = (error: unknown) =>
+    toast({ title: t("common.errorTitle"), description: errorMessage(error), variant: "error" })
   const rotate = useMutation({
     mutationFn: () => api.rotateSigningKey(),
-    onSuccess: async ({ kid }) => {
-      setOpen(false)
-      await queryClient.invalidateQueries({ queryKey: keys.signingKeys })
-      toast({ title: t("auth.keys.rotated", { kid }), variant: "success" })
+    onSuccess: (data) => {
+      setRotating(false)
+      queryClient.setQueryData(keys.signingKeys, data)
+      toast({ title: t("auth.keys.rotated"), variant: "success" })
     },
-    onError: (error) =>
-      toast({ title: t("common.errorTitle"), description: errorMessage(error), variant: "error" }),
+    onError: failed,
+  })
+  const revoke = useMutation({
+    mutationFn: (kid: string) => api.revokeSigningKey(kid),
+    onSuccess: (data, kid) => {
+      setRevoking(undefined)
+      queryClient.setQueryData(keys.signingKeys, data)
+      toast({ title: t("auth.keys.revoked", { kid }), variant: "success" })
+    },
+    onError: failed,
   })
   if (query.isPending) return <LoadingState />
   if (query.isError) {
@@ -220,13 +150,24 @@ function KeysTab() {
       />
     )
   }
+  const variant = (state: SigningKey["state"]) =>
+    state === "active"
+      ? "success"
+      : state === "revoked"
+        ? "destructive"
+        : state === "standby"
+          ? "outline"
+          : "secondary"
   return (
     <div className="grid gap-4">
+      <p className="text-sm text-muted-foreground">{t("auth.keys.intro")}</p>
       {permissions.manageSettings ? (
         <div>
-          <Button onClick={() => setOpen(true)}>{t("auth.keys.rotate")}</Button>
+          <Button onClick={() => setRotating(true)}>{t("auth.keys.rotate")}</Button>
         </div>
-      ) : null}
+      ) : (
+        <p className="text-sm text-muted-foreground">{t("auth.keys.readOnly")}</p>
+      )}
       {query.data.length === 0 ? (
         <EmptyState>{t("auth.keys.empty")}</EmptyState>
       ) : (
@@ -235,8 +176,14 @@ function KeysTab() {
             <TableRow>
               <TableHead>{t("auth.keys.kid")}</TableHead>
               <TableHead>{t("auth.keys.alg")}</TableHead>
-              <TableHead>{t("auth.keys.status")}</TableHead>
+              <TableHead>{t("auth.keys.state")}</TableHead>
               <TableHead>{t("auth.keys.created")}</TableHead>
+              <TableHead>{t("auth.keys.expires")}</TableHead>
+              {permissions.manageSettings ? (
+                <TableHead>
+                  <span className="sr-only">{t("common.more")}</span>
+                </TableHead>
+              ) : null}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -245,26 +192,50 @@ function KeysTab() {
                 <TableCell className="font-mono text-xs">{key.kid}</TableCell>
                 <TableCell>{key.alg}</TableCell>
                 <TableCell>
-                  <Badge variant={key.status === "active" ? "success" : "secondary"}>
-                    {t(`auth.keys.${key.status}`)}
-                  </Badge>
+                  <Badge variant={variant(key.state)}>{t(`auth.keys.states.${key.state}`)}</Badge>
                 </TableCell>
-                <TableCell>
-                  {key.createdAt === undefined ? "" : formatDateTime(key.createdAt)}
-                </TableCell>
+                <TableCell>{formatDateTime(key.createdAt)}</TableCell>
+                <TableCell>{formatDateTime(key.expiresAt)}</TableCell>
+                {permissions.manageSettings ? (
+                  <TableCell>
+                    {key.state === "revoked" ? null : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        aria-label={t("auth.keys.revokeLabel", { kid: key.kid })}
+                        onClick={() => setRevoking(key.kid)}
+                      >
+                        {t("auth.keys.revoke")}
+                      </Button>
+                    )}
+                  </TableCell>
+                ) : null}
               </TableRow>
             ))}
           </TableBody>
         </Table>
       )}
       <ConfirmDialog
-        open={open}
-        onOpenChange={setOpen}
+        open={rotating}
+        onOpenChange={setRotating}
         title={t("auth.keys.rotateTitle")}
         description={t("auth.keys.rotateBody")}
         confirmLabel={t("auth.keys.rotate")}
         pending={rotate.isPending}
         onConfirm={() => rotate.mutate()}
+      />
+      <ConfirmDialog
+        open={revoking !== undefined}
+        onOpenChange={(open) => (open ? undefined : setRevoking(undefined))}
+        title={t("auth.keys.revokeTitle", { kid: revoking ?? "" })}
+        description={t("auth.keys.revokeBody")}
+        confirmLabel={t("auth.keys.revoke")}
+        destructive
+        typedConfirmation={revoking ?? ""}
+        pending={revoke.isPending}
+        onConfirm={() => {
+          if (revoking !== undefined) revoke.mutate(revoking)
+        }}
       />
     </div>
   )
@@ -298,6 +269,7 @@ function AuditTab() {
           <TableHead>{t("auth.audit.actor")}</TableHead>
           <TableHead>{t("auth.audit.action")}</TableHead>
           <TableHead>{t("auth.audit.target")}</TableHead>
+          <TableHead>{t("auth.audit.outcome")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -307,6 +279,7 @@ function AuditTab() {
             <TableCell>{entry.actor}</TableCell>
             <TableCell className="font-mono text-xs">{entry.action}</TableCell>
             <TableCell>{entry.target ?? ""}</TableCell>
+            <TableCell>{entry.outcome ?? "ok"}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -321,26 +294,22 @@ export function AuthPage() {
       <Tabs defaultValue="users" className="gap-4">
         <TabsList className="flex-wrap">
           <TabsTrigger value="users">{t("auth.tabs.users")}</TabsTrigger>
-          <TabsTrigger value="providers">{t("auth.tabs.providers")}</TabsTrigger>
           <TabsTrigger value="templates">{t("auth.tabs.templates")}</TabsTrigger>
-          <TabsTrigger value="tokens">{t("auth.tabs.tokens")}</TabsTrigger>
           <TabsTrigger value="keys">{t("auth.tabs.keys")}</TabsTrigger>
+          <TabsTrigger value="providers">{t("auth.tabs.providers")}</TabsTrigger>
           <TabsTrigger value="audit">{t("auth.tabs.audit")}</TabsTrigger>
         </TabsList>
         <TabsContent value="users" className="mt-4">
           <UsersTab />
         </TabsContent>
-        <TabsContent value="providers" className="mt-4">
-          <ProvidersTab />
-        </TabsContent>
         <TabsContent value="templates" className="mt-4">
           <TemplatesTab />
         </TabsContent>
-        <TabsContent value="tokens" className="mt-4">
-          <TokensTab />
-        </TabsContent>
         <TabsContent value="keys" className="mt-4">
           <KeysTab />
+        </TabsContent>
+        <TabsContent value="providers" className="mt-4">
+          <TokensTab />
         </TabsContent>
         <TabsContent value="audit" className="mt-4">
           <AuditTab />

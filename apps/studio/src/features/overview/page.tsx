@@ -2,17 +2,18 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { CheckCircle2Icon, CircleIcon } from "lucide-react"
 import type { ReactNode } from "react"
-import type { ApiKey, CollectionSummary, Settings } from "../../api/contract.ts"
+import type { ApiKey, CollectionSummary, DoctorReport } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
 import { ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx"
 import { formatNumber, formatPercent, type MessageKey, t } from "../../i18n/index.ts"
 import { CheckItem, SEVERITY } from "../doctor/checks.tsx"
+import { summarize } from "../logs-and-audit/denials.ts"
 
 /** One item of the getting started checklist. */
 export interface ChecklistItem {
-  readonly id: "exposed" | "policy" | "key" | "cors" | "realtime"
+  readonly id: "exposed" | "policy" | "key" | "doctor" | "realtime"
   readonly done: boolean
   readonly to: string
 }
@@ -21,7 +22,7 @@ export interface ChecklistItem {
 export function checklistOf(
   collections: readonly CollectionSummary[] | undefined,
   apiKeys: readonly ApiKey[] | undefined,
-  settings: Settings | undefined,
+  doctor: DoctorReport | undefined,
 ): ChecklistItem[] {
   const list = collections ?? []
   return [
@@ -39,7 +40,11 @@ export function checklistOf(
       ),
       to: "/api",
     },
-    { id: "cors", done: (settings?.corsOrigins.length ?? 0) > 0, to: "/settings" },
+    {
+      id: "doctor",
+      done: doctor?.checks.every((check) => check.status !== "error") === true,
+      to: "/doctor",
+    },
     { id: "realtime", done: list.some((c) => c.realtime), to: "/data" },
   ]
 }
@@ -68,17 +73,13 @@ export function OverviewPage() {
     queryFn: ({ signal }) => api.collections(signal),
   })
   const apiKeys = useQuery({ queryKey: keys.apiKeys, queryFn: ({ signal }) => api.apiKeys(signal) })
-  const settings = useQuery({
-    queryKey: keys.settings,
-    queryFn: ({ signal }) => api.settings(signal),
-  })
 
   const notReported = t("overview.notReported")
-  const summary = logs.data?.summary
+  const summary = logs.data === undefined ? undefined : summarize(logs.data)
   const findings = (doctor.data?.checks ?? [])
     .filter((check) => check.status === "error" || check.status === "warn")
     .sort((a, b) => SEVERITY.indexOf(a.status) - SEVERITY.indexOf(b.status))
-  const checklist = checklistOf(collections.data, apiKeys.data, settings.data)
+  const checklist = checklistOf(collections.data, apiKeys.data, doctor.data)
   const done = checklist.filter((item) => item.done).length
 
   return (
@@ -114,12 +115,18 @@ export function OverviewPage() {
               <Metric
                 label={t("overview.requests")}
                 value={
-                  summary === undefined ? notReported : formatNumber(summary.requestsPerSecond)
+                  summary?.estimatedPerSecond === undefined
+                    ? notReported
+                    : formatNumber(Math.round(summary.estimatedPerSecond * 10) / 10)
                 }
               />
               <Metric
                 label={t("overview.errorRate")}
-                value={summary === undefined ? notReported : formatPercent(summary.errorRate)}
+                value={
+                  summary === undefined || summary.sampled === 0
+                    ? notReported
+                    : formatPercent(summary.serverErrorShare)
+                }
               />
             </dl>
           </CardContent>

@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { DatabaseIcon } from "lucide-react"
+import { useState } from "react"
 import type { CollectionSummary } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
+import { ConfirmDialog } from "../../components/confirm-dialog.tsx"
 import { EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
 import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
@@ -24,6 +26,11 @@ const IMAGE_LABEL = {
   unknown: "data.collections.imagesUnknown",
 } as const
 
+interface Toggle {
+  readonly collection: CollectionSummary
+  readonly patch: { readonly exposed?: boolean } | { readonly realtime?: boolean }
+}
+
 /** The collections of the app database with their exposure, realtime and policy status. */
 export function CollectionsPage() {
   const api = useApi()
@@ -35,20 +42,29 @@ export function CollectionsPage() {
     queryFn: ({ signal }) => api.collections(signal),
   })
   const update = useMutation({
-    mutationFn: (input: {
-      readonly name: string
-      readonly patch: { readonly exposed?: boolean; readonly realtime?: boolean }
-    }) => api.updateCollection(input.name, input.patch),
-    onSuccess: (summary) => {
-      queryClient.setQueryData<readonly CollectionSummary[]>(keys.collections, (all) =>
-        all?.map((entry) => (entry.name === summary.name ? summary : entry)),
-      )
-      toast({ title: t("data.collections.updated", { name: summary.name }), variant: "success" })
+    mutationFn: async (input: Toggle & { readonly comment?: string }) => {
+      await api.updateCollection(input.collection.name, {
+        ...input.patch,
+        expectedVersion: input.collection.policyVersion ?? 0,
+        ...(input.comment === undefined ? {} : { comment: input.comment }),
+      })
+      return input.collection.name
+    },
+    onSuccess: async (name) => {
+      setPending(undefined)
+      await queryClient.invalidateQueries({ queryKey: keys.collections })
+      await queryClient.invalidateQueries({ queryKey: keys.policies(name) })
+      toast({ title: t("data.collections.updated", { name }), variant: "success" })
     },
     onError: (error) =>
       toast({ title: t("data.write.failed"), description: errorMessage(error), variant: "error" }),
   })
-  const canToggle = permissions.manageSettings
+  const [pending, setPending] = useState<Toggle | undefined>(undefined)
+  const canToggle = permissions.toggleCollections
+  const toggle = (next: Toggle) => {
+    if (permissions.publishNeedsComment) setPending(next)
+    else update.mutate(next)
+  }
 
   return (
     <div>
@@ -97,9 +113,7 @@ export function CollectionsPage() {
                     checked={collection.exposed}
                     disabled={!canToggle || update.isPending}
                     aria-label={t("data.collections.toggleExposed", { name: collection.name })}
-                    onCheckedChange={(exposed) =>
-                      update.mutate({ name: collection.name, patch: { exposed } })
-                    }
+                    onCheckedChange={(exposed) => toggle({ collection, patch: { exposed } })}
                   />
                 </TableCell>
                 <TableCell>
@@ -107,9 +121,7 @@ export function CollectionsPage() {
                     checked={collection.realtime}
                     disabled={!canToggle || update.isPending}
                     aria-label={t("data.collections.toggleRealtime", { name: collection.name })}
-                    onCheckedChange={(realtime) =>
-                      update.mutate({ name: collection.name, patch: { realtime } })
-                    }
+                    onCheckedChange={(realtime) => toggle({ collection, patch: { realtime } })}
                   />
                 </TableCell>
                 <TableCell>
@@ -139,6 +151,20 @@ export function CollectionsPage() {
           </TableBody>
         </Table>
       )}
+      <ConfirmDialog
+        open={pending !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPending(undefined)
+        }}
+        title={t("data.collections.toggleTitle", { name: pending?.collection.name ?? "" })}
+        description={t("data.collections.toggleDescription")}
+        confirmLabel={t("data.collections.toggleConfirm")}
+        reason={{ label: t("data.collections.comment"), required: true }}
+        pending={update.isPending}
+        onConfirm={({ reason }) => {
+          if (pending !== undefined) update.mutate({ ...pending, comment: reason })
+        }}
+      />
     </div>
   )
 }

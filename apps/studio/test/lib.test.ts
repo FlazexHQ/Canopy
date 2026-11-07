@@ -67,11 +67,16 @@ describe("permissions", () => {
     expect(permissionsOf("developer", "development").createKeys).toBe("publishable")
   })
 
-  it("keeps the danger zone and admin management for owners", () => {
+  it("keeps owners and the danger zone for owners, and lets admins manage other admins", () => {
     for (const role of ["admin", "developer", "viewer"] as const) {
       expect(permissionsOf(role, "development").dangerZone).toBe(false)
-      expect(permissionsOf(role, "development").manageAdmins).toBe(false)
+      expect(permissionsOf(role, "development").manageOwners).toBe(false)
     }
+    expect(permissionsOf("admin", "development").manageAdmins).toBe(true)
+    expect(permissionsOf("developer", "development").manageAdmins).toBe(false)
+    expect(permissionsOf("developer", "production").readUsers).toBe(true)
+    expect(permissionsOf("developer", "development").manageUsers).toBe(false)
+    expect(permissionsOf("viewer", "development").readUsers).toBe(false)
     expect(permissionsOf("owner", "production").dangerZone).toBe(true)
     expect(permissionsOf("admin", "production").publishPolicies).toBe(true)
   })

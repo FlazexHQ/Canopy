@@ -1,5 +1,3 @@
-import type { AppUser, LogEntry, RealtimeConnection } from "../src/api/contract.ts"
-
 const day = 86_400_000
 
 function oid(index: number, prefix = "65f1a2b3c4d5e6f7a8b9"): { $oid: string } {
@@ -49,10 +47,28 @@ export function seedCollections(): Record<string, Record<string, unknown>[]> {
   return { todos, notes, orders, feedback: [] }
 }
 
+/** A realtime connection as the engine's inspector reports it, with the claims its token carried. */
+export interface SeedConnection {
+  readonly sid: string
+  readonly subject: string
+  readonly roles: readonly string[]
+  readonly keyId: string | undefined
+  readonly connected: boolean
+  readonly openedAt: Date
+  readonly tokenExpiresAt: Date | undefined
+  readonly subscriptions: readonly {
+    readonly id: string
+    readonly coll: string
+    readonly observer: string
+  }[]
+  readonly documents: number
+  readonly queuedBytes: number
+  readonly lastSeq: number
+  readonly claims: Readonly<Record<string, unknown>> | null
+}
+
 /** Realtime connections with the claims their tokens carried. */
-export function seedConnections(
-  now: number,
-): (RealtimeConnection & { claims: Record<string, unknown> | null })[] {
+export function seedConnections(now: number): SeedConnection[] {
   return [
     {
       sid: "s_7f3a",
@@ -61,9 +77,8 @@ export function seedConnections(
       claims: { sub: "u_alice", email: "alice@example.com", org_ids: ["o1"] },
       keyId: "key_pk_1",
       connected: true,
-      transport: "websocket",
-      openedAt: new Date(now - 12 * 60_000).toISOString(),
-      tokenExpiresAt: new Date(now + 48 * 60_000).toISOString(),
+      openedAt: new Date(now - 12 * 60_000),
+      tokenExpiresAt: new Date(now + 48 * 60_000),
       subscriptions: [{ id: "q1", coll: "todos", observer: "obs_todos_alice" }],
       documents: 8,
       queuedBytes: 0,
@@ -76,9 +91,8 @@ export function seedConnections(
       claims: { sub: "u_bob", email: "bob@example.com", org_ids: ["o1", "o2"] },
       keyId: "key_pk_1",
       connected: true,
-      transport: "sse",
-      openedAt: new Date(now - 3 * 60_000).toISOString(),
-      tokenExpiresAt: new Date(now + 57 * 60_000).toISOString(),
+      openedAt: new Date(now - 3 * 60_000),
+      tokenExpiresAt: new Date(now + 57 * 60_000),
       subscriptions: [
         { id: "q1", coll: "todos", observer: "obs_todos_bob" },
         { id: "q2", coll: "notes", observer: "obs_notes_bob" },
@@ -94,9 +108,8 @@ export function seedConnections(
       claims: null,
       keyId: "key_pk_1",
       connected: false,
-      transport: "long-poll",
-      openedAt: new Date(now - 40 * 60_000).toISOString(),
-      tokenExpiresAt: null,
+      openedAt: new Date(now - 40 * 60_000),
+      tokenExpiresAt: undefined,
       subscriptions: [{ id: "q1", coll: "todos", observer: "obs_todos_anon" }],
       documents: 0,
       queuedBytes: 0,
@@ -105,136 +118,196 @@ export function seedConnections(
   ]
 }
 
-/** Sampled request logs, including policy denials. */
-export function seedLogs(now: number): LogEntry[] {
-  const entries: LogEntry[] = []
-  const shapes: Omit<LogEntry, "at" | "requestId">[] = [
+/** A sampled request as `canopy.request_log` stores it. */
+export interface SeedLogEntry {
+  readonly _id: { readonly $oid: string }
+  readonly at: Date
+  readonly surface: "rest" | "auth" | "admin" | "realtime"
+  readonly method: string
+  readonly path: string
+  readonly status: number
+  readonly durationMs: number
+  readonly ip?: string
+  readonly requestId?: string
+}
+
+/** Sampled requests, newest first, including denials. */
+export function seedLogs(now: number): SeedLogEntry[] {
+  const shapes: Omit<SeedLogEntry, "_id" | "at" | "requestId">[] = [
     {
+      surface: "rest",
       method: "GET",
       path: "/rest/v1/todos",
       status: 200,
       durationMs: 12,
-      role: "authenticated",
-      collection: "todos",
-      operation: "read",
+      ip: "203.0.113.7",
     },
     {
+      surface: "rest",
       method: "POST",
       path: "/rest/v1/todos",
       status: 201,
       durationMs: 31,
-      role: "authenticated",
-      collection: "todos",
-      operation: "insert",
+      ip: "203.0.113.7",
     },
     {
+      surface: "rest",
       method: "PATCH",
-      path: "/rest/v1/todos/65f1",
+      path: "/rest/v1/todos/65f1a2b3c4d5e6f7a8b90001",
       status: 403,
       durationMs: 9,
-      role: "authenticated",
-      collection: "todos",
-      operation: "update",
-      code: "CANOPY_POLICY_VIOLATION",
-      policy: "edit own",
+      ip: "198.51.100.4",
     },
     {
+      surface: "rest",
       method: "DELETE",
-      path: "/rest/v1/todos/65f2",
+      path: "/rest/v1/todos/65f1a2b3c4d5e6f7a8b90002",
       status: 403,
       durationMs: 7,
-      role: "authenticated",
-      collection: "todos",
-      operation: "delete",
-      code: "CANOPY_POLICY_VIOLATION",
-      policy: "archived is permanent",
+      ip: "198.51.100.4",
     },
     {
+      surface: "rest",
       method: "POST",
       path: "/rest/v1/orders",
       status: 403,
       durationMs: 4,
-      role: "anon",
-      collection: "orders",
-      operation: "insert",
-      code: "CANOPY_FORBIDDEN",
+      ip: "192.0.2.10",
     },
     {
-      method: "GET",
-      path: "/rest/v1/notes",
-      status: 200,
-      durationMs: 15,
-      role: "authenticated",
-      collection: "notes",
-      operation: "read",
+      surface: "auth",
+      method: "POST",
+      path: "/auth/v1/sign-in/email",
+      status: 401,
+      durationMs: 120,
+      ip: "192.0.2.10",
     },
     {
+      surface: "rest",
       method: "GET",
       path: "/rest/v1/orders",
       status: 401,
       durationMs: 2,
-      role: "anon",
-      collection: "orders",
-      operation: "read",
-      code: "CANOPY_UNAUTHORIZED",
+      ip: "192.0.2.10",
+    },
+    {
+      surface: "admin",
+      method: "GET",
+      path: "/admin/v1/collections",
+      status: 200,
+      durationMs: 18,
+      ip: "127.0.0.1",
+    },
+    {
+      surface: "rest",
+      method: "GET",
+      path: "/rest/v1/notes",
+      status: 500,
+      durationMs: 950,
+      ip: "203.0.113.7",
     },
   ]
-  for (let index = 0; index < 40; index += 1) {
-    const shape = shapes[(index * 5) % shapes.length] as Omit<LogEntry, "at" | "requestId">
-    entries.push({
-      ...shape,
-      at: new Date(now - index * 37_000).toISOString(),
+  return Array.from({ length: 36 }, (_, index) => {
+    const shape = shapes[index % shapes.length] as Omit<SeedLogEntry, "_id" | "at" | "requestId">
+    return {
+      _id: { $oid: (0xffffff - index).toString(16).padStart(24, "6") },
+      at: new Date(now - index * 37_000),
       requestId: `req_${(9000 + index).toString(36)}`,
-    })
-  }
-  return entries
+      ...shape,
+    }
+  })
 }
 
-/** App users of the built in auth. */
-export function seedUsers(now: number): AppUser[] {
+/** An app user of built in auth, as `AuthUser` of `@canopy/auth`. */
+export interface SeedUser {
+  readonly id: string
+  readonly email: string | undefined
+  readonly emailVerified: boolean
+  readonly name: string | undefined
+  readonly isAnonymous: boolean
+  readonly roles: readonly string[]
+  readonly appMetadata: Readonly<Record<string, unknown>>
+  readonly userMetadata: Readonly<Record<string, unknown>>
+  readonly banned: boolean
+  readonly banReason: string | undefined
+  readonly banExpires: Date | undefined
+  readonly createdAt: Date
+  readonly updatedAt: Date
+}
+
+/** A session of an app user. */
+export interface SeedSession {
+  readonly id: string
+  readonly userId: string
+  readonly createdAt: Date
+  readonly updatedAt: Date
+  readonly expiresAt: Date
+  readonly ipAddress: string | undefined
+  readonly userAgent: string | undefined
+}
+
+/** App users of built in auth. */
+export function seedUsers(now: number): SeedUser[] {
+  const user = (
+    id: string,
+    email: string,
+    name: string,
+    ageDays: number,
+    extra: Partial<SeedUser>,
+  ): SeedUser => ({
+    id,
+    email,
+    emailVerified: true,
+    name,
+    isAnonymous: false,
+    roles: [],
+    appMetadata: {},
+    userMetadata: {},
+    banned: false,
+    banReason: undefined,
+    banExpires: undefined,
+    createdAt: new Date(now - ageDays * day),
+    updatedAt: new Date(now - ageDays * day),
+    ...extra,
+  })
   return [
-    {
-      id: "u_alice",
-      email: "alice@example.com",
-      name: "Alice Martin",
-      createdAt: new Date(now - 40 * day).toISOString(),
-      lastSignInAt: new Date(now - 2 * 3_600_000).toISOString(),
-      banned: false,
-      roles: ["authenticated"],
+    user("u_alice", "alice@example.com", "Alice Martin", 40, {
       appMetadata: { org_ids: ["o1"] },
       userMetadata: { theme: "dark" },
-      identities: [{ provider: "email", subject: "alice@example.com" }],
-      sessions: [
-        {
-          id: "ses_1",
-          createdAt: new Date(now - 3_600_000).toISOString(),
-          userAgent: "Firefox 146",
-        },
-      ],
-    },
-    {
-      id: "u_bob",
-      email: "bob@example.com",
-      name: "Bob Okafor",
-      createdAt: new Date(now - 12 * day).toISOString(),
-      lastSignInAt: new Date(now - day).toISOString(),
-      banned: false,
-      roles: ["authenticated"],
+    }),
+    user("u_bob", "bob@example.com", "Bob Okafor", 12, {
+      roles: ["editor"],
       appMetadata: { org_ids: ["o1", "o2"] },
-      identities: [{ provider: "google", subject: "10931" }],
-      sessions: [],
+    }),
+    user("u_carol", "carol@example.com", "Carol Singh", 3, {
+      emailVerified: false,
+      banned: true,
+      banReason: "spam",
+      appMetadata: { org_ids: ["o2"] },
+    }),
+  ]
+}
+
+/** Sessions of the seeded users. */
+export function seedSessions(now: number): SeedSession[] {
+  return [
+    {
+      id: "ses_1",
+      userId: "u_alice",
+      createdAt: new Date(now - 3_600_000),
+      updatedAt: new Date(now - 60_000),
+      expiresAt: new Date(now + 6 * day),
+      ipAddress: "203.0.113.7",
+      userAgent: "Firefox 146",
     },
     {
-      id: "u_carol",
-      email: "carol@example.com",
-      name: "Carol Singh",
-      createdAt: new Date(now - 3 * day).toISOString(),
-      lastSignInAt: null,
-      banned: true,
-      roles: ["authenticated"],
-      appMetadata: { org_ids: ["o2"] },
-      identities: [{ provider: "email", subject: "carol@example.com" }],
-      sessions: [],
+      id: "ses_2",
+      userId: "u_alice",
+      createdAt: new Date(now - 2 * day),
+      updatedAt: new Date(now - day),
+      expiresAt: new Date(now + 5 * day),
+      ipAddress: "198.51.100.4",
+      userAgent: "Safari 26",
     },
   ]
 }

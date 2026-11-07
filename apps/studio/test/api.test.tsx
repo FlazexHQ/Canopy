@@ -57,7 +57,8 @@ describe("API keys", () => {
     await waitFor(() => expect(screen.queryByLabelText("Key value")).toBeNull())
     expect(await screen.findByText("Billing worker")).toBeTruthy()
     expect(document.body.textContent).not.toContain(secret)
-    expect(document.body.textContent).toContain(`${secret.slice(0, 15)}…`)
+    expect(stored?.prefix).toBe(secret.slice(10, 18))
+    expect(document.body.textContent).toContain(`${secret.slice(0, 18)}…`)
   })
 
   it("lets developers create publishable keys only", async () => {
@@ -94,14 +95,14 @@ describe("API keys", () => {
   it("revokes a key after confirmation", async () => {
     const { user, mock } = await renderStudio("/api")
     await user.click(await screen.findByRole("button", { name: "Revoke Backend" }))
-    expect(mock.state.apiKeys.find((key) => key.id === "key_sk_1")?.revokedAt).toBeNull()
+    expect(mock.state.apiKeys.find((key) => key.id === "key_sk_1")?.revokedAt).toBeUndefined()
     await user.click(lastDialog().getByRole("button", { name: "Revoke Backend" }))
     await waitFor(() =>
       expect(mock.state.apiKeys.find((key) => key.id === "key_sk_1")?.revokedAt).toBeTruthy(),
     )
     expect(
       mock.state.audit.some(
-        (entry) => entry.action === "api_key.revoke" && entry.target === "key_sk_1",
+        (entry) => entry.action === "key.revoke" && entry.target?.["keyId"] === "key_sk_1",
       ),
     ).toBe(true)
     await waitFor(() => expect(screen.queryByRole("button", { name: "Revoke Backend" })).toBeNull())

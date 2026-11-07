@@ -247,7 +247,7 @@ export function KeysTab() {
                         <CopyButton value={key.key} what={key.name} />
                       </span>
                     ) : (
-                      `${key.prefix}…`
+                      `canopy_${key.kind === "secret" ? "sk" : "pk"}_${key.prefix}…`
                     )}
                   </TableCell>
                   <TableCell>

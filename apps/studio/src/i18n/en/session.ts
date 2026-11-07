@@ -9,4 +9,23 @@ export const session = {
   submitting: "Signing in…",
   setupRequired: "This server has no admin yet.",
   setupLink: "Claim it with the setup token",
+  enroll: {
+    title: "Set up your authenticator app",
+    body: "Owners sign in with a code. Add this account to an authenticator app with the secret below, then enter the code it shows.",
+    secret: "the authenticator secret",
+    open: "Open in an authenticator app",
+  },
+  changePassword: {
+    title: "Choose a new password",
+    description: "Your account was created with a temporary password. Choose your own to continue.",
+    current: "Temporary or current password",
+    next: "New password",
+    confirm: "Confirm the new password",
+    hint: "At least {min} characters.",
+    tooShort: "The password needs at least {min} characters.",
+    mismatch: "The passwords do not match.",
+    submit: "Change password",
+    submitting: "Changing…",
+    done: "Password changed",
+  },
 } as const
