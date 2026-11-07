@@ -56,7 +56,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
   const auth = config.auth
   if (auth?.kind === "builtin")
     throw new TypeError(
-      'built in auth runs in the canopy server, not in canopy-realtime. To accept its tokens here, use external({ jwksUrl: `${publicUrl}/auth/v1/.well-known/jwks.json`, issuer: `${publicUrl}/auth/v1`, audience: publicUrl, rolesClaim: "roles" })',
+      'built in auth runs in the canopy server, not in canopy-realtime. To accept its tokens here, use external() with jwksUrl <public URL>/auth/v1/.well-known/jwks.json, issuer <public URL>/auth/v1, audience <public URL> and rolesClaim "roles"',
     )
   return {
     mongo: new MongoClient(config.mongodb.uri, { appName: "canopy-realtime" }),
