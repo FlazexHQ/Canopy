@@ -13,6 +13,9 @@
     },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "canopy-server": "./dist/bin/canopy-server.js"
+  },
   "files": [
     "dist",
     "src",
