@@ -389,6 +389,7 @@ export const missing: Insert = { status: "done", createdAt: new Date() }
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       target: ts.ScriptTarget.ES2022,
       allowImportingTsExtensions: true,
+      customConditions: ["@canopy/source"],
       skipLibCheck: true,
       types: [],
     })
