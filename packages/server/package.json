@@ -1,0 +1,43 @@
+{
+  "name": "@canopy/server",
+  "version": "0.0.0",
+  "description": "The Canopy server: REST, realtime, auth and policies composed from one config with createCanopy.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/auth": "workspace:*",
+    "@canopy/config": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/realtime": "workspace:*",
+    "@canopy/rest": "workspace:*",
+    "mongodb": "catalog:"
+  },
+  "devDependencies": {
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "jose": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "ws": "catalog:"
+  }
+}

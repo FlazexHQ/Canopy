@@ -36,6 +36,8 @@
     { "path": "packages/client/test" },
     { "path": "packages/react" },
     { "path": "packages/react/test" },
+    { "path": "packages/server" },
+    { "path": "packages/server/test" },
     { "path": "packages/cli" },
     { "path": "packages/cli/test" },
     { "path": "examples/express-dropin" },
