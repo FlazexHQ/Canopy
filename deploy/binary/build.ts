@@ -130,7 +130,9 @@ function main(): void {
     try {
       for (const target of targets) {
         const suffix = target === undefined ? "" : `-${target}`
-        const exe = target?.startsWith("windows") === true ? ".exe" : ""
+        const windows =
+          target === undefined ? process.platform === "win32" : target.startsWith("windows")
+        const exe = windows ? ".exe" : ""
         const file = join(out, `${program.name}${suffix}${exe}`)
         const args = [
           "build",
