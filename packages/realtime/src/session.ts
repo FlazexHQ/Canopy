@@ -76,6 +76,7 @@ export class Session {
   /** Subscriptions moving to another observer, with the keys the new observer has sent so far. */
   private readonly rebinding = new Map<string, Set<string>>()
   private readonly explanations = new Map<string, Record<string, unknown>>()
+  private readonly readied = new Set<string>()
   private readonly diffs: boolean
   private readonly batching: boolean
   private queue: string[] = []
@@ -198,8 +199,9 @@ export class Session {
    * Starts moving a subscription to another observer, for example after a context lookup it depends on
    * changed. The documents the client holds for it stay. The new observer's snapshot then arrives as
    * `added` or `changed` for documents that are new or differ, and when it is ready, every document it no
-   * longer contains is sent as `removed` instead of a second `ready`. The client never sees the
-   * subscription empty.
+   * longer contains is sent as `removed` instead of a second `ready`. A move that starts before the first
+   * `ready` ends with that `ready`, so the client always gets one. The client never sees the subscription
+   * empty.
    */
   rebind(subId: string): void {
     this.rebinding.set(subId, new Set())
@@ -212,16 +214,17 @@ export class Session {
 
   private ready(subId: string, ct: ClusterTime): void {
     const seen = this.rebinding.get(subId)
-    if (seen === undefined) {
-      const explain = this.explanations.get(subId)
-      this.explanations.delete(subId)
-      this.send({ t: "ready", s: subId, ct, ...(explain === undefined ? {} : { explain }) })
-      return
+    if (seen !== undefined) {
+      this.rebinding.delete(subId)
+      for (const [key, entry] of [...this.mergeBox]) {
+        if (entry.subs.has(subId) && !seen.has(key)) this.removed(entry.coll, key, subId, ct)
+      }
+      if (this.readied.has(subId)) return
     }
-    this.rebinding.delete(subId)
-    for (const [key, entry] of [...this.mergeBox]) {
-      if (entry.subs.has(subId) && !seen.has(key)) this.removed(entry.coll, key, subId, ct)
-    }
+    this.readied.add(subId)
+    const explain = this.explanations.get(subId)
+    this.explanations.delete(subId)
+    this.send({ t: "ready", s: subId, ct, ...(explain === undefined ? {} : { explain }) })
   }
 
   /** Called when a subscription ends for any reason other than `unsub`. Set by the server. */
@@ -312,6 +315,7 @@ export class Session {
   /** Removes a subscription from the merge box without messages (used by `unsub` and resync). */
   forget(subId: string): void {
     this.rebinding.delete(subId)
+    this.readied.delete(subId)
     this.explanations.delete(subId)
     for (const [key, entry] of this.mergeBox) {
       if (!entry.subs.delete(subId)) continue
