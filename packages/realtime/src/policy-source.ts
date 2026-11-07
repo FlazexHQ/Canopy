@@ -13,6 +13,12 @@ import {
 import { isDocument, parse } from "@canopy/protocol"
 import type { ChangeStream, Db, MongoClient } from "mongodb"
 
+function moduleSpecifier(file: string, version: number): string {
+  // The query defeats the module cache on reload; Bun ignores it on a file URL but not on a path.
+  const bun = (globalThis as { Bun?: unknown }).Bun !== undefined
+  return bun ? `${file}?v=${version}` : `${pathToFileURL(file).href}?v=${version}`
+}
+
 /** Where policies come from. A source with `watch` supports hot reload. */
 export interface PolicySource {
   load(): Promise<PolicySet>
@@ -63,7 +69,7 @@ export function directoryPolicies(dir: string): PolicySource {
           exported = fromStored(exported)
         }
       } else if (MODULE_EXTENSIONS.has(extension)) {
-        const module: unknown = await import(`${pathToFileURL(file).href}?v=${version}`)
+        const module: unknown = await import(moduleSpecifier(file, version))
         exported = isDocument(module) ? module["default"] : undefined
       } else {
         continue

@@ -12,6 +12,7 @@ import WebSocket from "ws"
 
 const BIN = fileURLToPath(new URL("../src/bin/canopy-server.ts", import.meta.url))
 const POLICIES = fileURLToPath(new URL("./fixtures/policies", import.meta.url))
+const PACKAGE = fileURLToPath(new URL("..", import.meta.url))
 const ISSUER = "https://idp.bin.test/"
 const AUDIENCE = "https://api.bin.test"
 const KEY = "pk_bin_test"
@@ -134,14 +135,16 @@ suite("canopy-server against MongoDB", () => {
   let config: string
   let sign: (sub: string) => Promise<string>
 
-  const boot = async (): Promise<{ run: Running; base: string; metrics: string }> => {
+  const boot = async (
+    policies = POLICIES,
+  ): Promise<{ run: Running; base: string; metrics: string }> => {
     const port = await freePort()
     const metricsPort = await freePort()
     const run = start(["--config", config], {
       MONGODB_URI: MONGODB_URI ?? "",
       CANOPY_DB: database,
       CANOPY_META_DB: metaDatabase,
-      CANOPY_POLICIES: POLICIES,
+      CANOPY_POLICIES: policies,
       CANOPY_PUBLISHABLE_KEYS: KEY,
       CANOPY_CHECKPOINTS: "off",
       CANOPY_DRAIN_WINDOW: "5s",
@@ -272,6 +275,39 @@ suite("canopy-server against MongoDB", () => {
       socket.close()
     } finally {
       expect(await stop(run)).toBe(0)
+    }
+  })
+
+  it("reloads the policy folder when a file changes", async () => {
+    const policies = await mkdtemp(join(PACKAGE, "node_modules", ".cache", "canopy-policies-"))
+    const write = (roles: string) =>
+      writeFile(
+        join(policies, "notes.mjs"),
+        `import { allow, collection } from "@canopy/policy"\n` +
+          `export default collection("notes", { exposed: true, policies: [allow.read(${roles})] })\n`,
+      )
+    await write(`"staff"`)
+    const { run, base } = await boot(policies)
+    try {
+      await mongo.db(database).collection<{ _id: string }>("notes").insertOne({ _id: "public" })
+      const anon = async () => {
+        const response = await fetch(`${base}/rest/v1/notes`, { headers: { apikey: KEY } })
+        expect(response.status).toBe(200)
+        return ((await response.json()) as { data: { _id: string }[] }).data.map((d) => d._id)
+      }
+      expect(await anon()).toEqual([])
+      await write(`"anon"`)
+      const started = Date.now()
+      while (!(await anon()).includes("public")) {
+        if (Date.now() - started > 10_000)
+          throw new Error(`the policies were not reloaded:\n${run.output()}`)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      expect(run.output()).toContain('"msg":"policies reloaded"')
+    } finally {
+      expect(await stop(run)).toBe(0)
+      await mongo.db(database).collection<{ _id: string }>("notes").deleteOne({ _id: "public" })
+      await rm(policies, { recursive: true, force: true })
     }
   })
 
