@@ -81,7 +81,8 @@ Options:
   --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)
   --mongo-image <image>  dev --with-mongo: the image (default ${DEFAULT_MONGO_IMAGE})
   --expect-version <v>   policies push: the version each change was made against, as n (one collection)
-                         or collection=n pairs; policies rollback: the current version
+                         or collection=n pairs (_context=n for the context lookups); policies
+                         rollback: the current version
   --comment <text>       policies push, rollback: recorded in the history and the audit log
   --dry-run              policies push: show what would be published
   --fail-on-drift        policies diff: exit 1 when anything differs

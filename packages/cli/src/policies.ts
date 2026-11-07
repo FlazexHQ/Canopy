@@ -178,7 +178,8 @@ export async function policiesDiff(options: DiffOptions, out: Output): Promise<n
 
 /**
  * Parses `--expect-version`: a bare number for a single collection, or `collection=version` pairs
- * separated by commas. Returns `undefined` with a message for malformed input.
+ * separated by commas, where `_context=<n>` pins the context lookup document. Returns a message for
+ * malformed input.
  */
 export function parseExpectedVersions(
   text: string,
@@ -214,7 +215,8 @@ export interface PushOptions extends MetaOptions {
  * `canopy policies push`: publishes every collection of the policy directory whose content differs from
  * the published version. Each publish is validated and linted against the whole set, recorded in
  * `policy_history` and the audit log, and conditional on the expected version: from `--expect-version`
- * when given (every changed collection must then be listed), otherwise the version read at the start.
+ * when given (every changed collection must then be listed; `_context=<n>` optionally pins the context
+ * lookups too), otherwise the version read at the start.
  * All expectations are checked before anything is published. Prints the resulting versions.
  */
 export async function policiesPush(options: PushOptions, out: Output): Promise<number> {
@@ -261,13 +263,13 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
         out.error(`--expect-version does not name ${missing.join(", ")}, which would be published`)
         return 1
       }
-      const stale = [...parsed].filter(
-        ([name, version]) => (remote.stored.get(name)?.version ?? 0) !== version,
-      )
+      const current = (name: string): number =>
+        name === CONTEXT_DOCUMENT_ID ? contextVersion : (remote.stored.get(name)?.version ?? 0)
+      const stale = [...parsed].filter(([name, version]) => current(name) !== version)
       if (stale.length > 0) {
         for (const [name, version] of stale)
           out.error(
-            `${name} is at version ${remote.stored.get(name)?.version ?? 0} in the database, not ${version}. Someone published in between: run canopy policies diff, then push again.`,
+            `${name} is at version ${current(name)} in the database, not ${version}. Someone published in between: run canopy policies diff, then push again.`,
           )
         return 1
       }

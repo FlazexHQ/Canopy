@@ -52,6 +52,12 @@ describe("--expect-version", () => {
         ["notes", 0],
       ]),
     )
+    expect(parseExpectedVersions("_context=4,todos=3", ["todos"])).toEqual(
+      new Map([
+        ["_context", 4],
+        ["todos", 3],
+      ]),
+    )
     expect(parseExpectedVersions("3", ["todos", "notes"])).toContain("applies to one collection")
     expect(parseExpectedVersions("todos=x", ["todos"])).toContain("Cannot read")
   })
@@ -288,7 +294,31 @@ export default collection("projects", {
     expect(again.lines).not.toContain("published  _context  v2")
 
     await writeFile(join(project, "_context.ts"), lookups(40))
-    expect(await cli(["policies", "push", "--dir", project], capture().out)).toBe(0)
+    const stalePin = capture()
+    expect(
+      await cli(
+        ["policies", "push", "--dir", project, "--expect-version", "_context=0,projects=1"],
+        stalePin.out,
+      ),
+    ).toBe(1)
+    expect(stalePin.errors[0]).toBe(
+      "_context is at version 1 in the database, not 0. Someone published in between: run canopy policies diff, then push again.",
+    )
+    expect(
+      await client
+        .db(meta)
+        .collection("policies")
+        .findOne({ _id: "_context" as never }),
+    ).toMatchObject({ version: 1, lookups: { orgIds: { max: 20 } } })
+    const pinned = capture()
+    expect(
+      await cli(
+        ["policies", "push", "--dir", project, "--expect-version", "_context=1"],
+        pinned.out,
+      ),
+    ).toBe(0)
+    expect(pinned.errors).toEqual([])
+    expect(pinned.lines).toContain("published  _context  v2")
     const history = capture()
     expect(await cli(["policies", "history", "_context"], history.out)).toBe(0)
     expect(history.lines.map((line) => line.split("  ")[0])).toEqual(["v2", "v1"])
