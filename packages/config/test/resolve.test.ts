@@ -7,6 +7,7 @@ import {
   env,
   external,
   formatConfig,
+  isResolvedConfig,
   type Resolution,
   redactUri,
   resolveConfig,
@@ -392,6 +393,13 @@ describe("resolveConfig", () => {
   it("redacts URI passwords only", () => {
     expect(redactUri("mongodb+srv://u:p%40ss@c.test/app")).toBe("mongodb+srv://u:••••@c.test/app")
     expect(redactUri("mongodb://c.test/app")).toBe("mongodb://c.test/app")
+  })
+
+  it("marks resolved configs so they can be told from config input", () => {
+    const input = { mongodb: { uri: URI } }
+    expect(isResolvedConfig(resolve(input).config)).toBe(true)
+    expect(isResolvedConfig(input)).toBe(false)
+    expect(isResolvedConfig({ ...resolve(input).config })).toBe(false)
   })
 
   it("keeps defineConfig an identity function for both forms", () => {

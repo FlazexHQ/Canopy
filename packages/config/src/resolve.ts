@@ -11,6 +11,13 @@ import type {
   Transport,
 } from "./types.ts"
 
+const RESOLVED: unique symbol = Symbol.for("canopy.config.resolved")
+
+/** Whether a value is a config returned by {@link resolveConfig} (or `loadConfig`). */
+export function isResolvedConfig(value: unknown): value is ResolvedConfig {
+  return typeof value === "object" && value !== null && Object.hasOwn(value, RESOLVED)
+}
+
 /** Where a resolved value came from. */
 export type Source =
   | { readonly kind: "default" }
@@ -653,6 +660,7 @@ export function resolveConfig(input: unknown, options: ResolveOptions): Resoluti
     (problem) => !problem.missing || needs === "all" || needs.has(section(problem.path)),
   )
   if (problems.length > 0) throw new ConfigError(options.file, problems)
+  Object.defineProperty(config, RESOLVED, { value: true })
   return { config, sources: resolver.sources, secrets: resolver.secrets }
 }
 

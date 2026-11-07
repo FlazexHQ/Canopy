@@ -11,6 +11,7 @@ export {
   ConfigError,
   type ConfigProblem,
   formatConfig,
+  isResolvedConfig,
   joinPath,
   type Resolution,
   type ResolveOptions,
