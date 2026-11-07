@@ -1087,6 +1087,9 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
         action: "document.delete",
         target: `${name}/${canonicalString(existing["_id"])}`,
         ...(reason === "" ? {} : { comment: reason }),
+        ...(viewAs === undefined
+          ? {}
+          : { impersonating: viewAs.label ?? JSON.stringify(viewAs.claims) }),
         diff: { before: toCanonical(existing) },
       })
       return json(200, { deleted: 1 })
