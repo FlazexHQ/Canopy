@@ -47,13 +47,34 @@ export interface AuthMessage {
   readonly token: string
 }
 
+/**
+ * The caller a `sub` explanation is for: `claims` (absent or `null` for `anon`), custom `roles`, and
+ * context lookup values in `ctx` (resolved from the database when absent).
+ */
+export interface ExplainAs {
+  readonly claims?: Document | null
+  readonly roles?: readonly string[]
+  readonly ctx?: Document
+}
+
+/** Options of a `sub`. */
+export interface SubOptions {
+  readonly buffer?: number
+  /**
+   * Ask for the access report of the subscription in its `ready`: `true` for the connection itself, or a
+   * stated caller. Only `service` connections (a secret key) may ask; others get `nosub` with
+   * `CANOPY_FORBIDDEN`.
+   */
+  readonly explain?: true | ExplainAs
+}
+
 /** `sub`: subscribes to a live query. */
 export interface SubMessage {
   readonly t: "sub"
   readonly id: string
   readonly c: string
   readonly q: SubQuery
-  readonly o?: { readonly buffer?: number }
+  readonly o?: SubOptions
 }
 
 /** `unsub`: ends a subscription. */
@@ -163,6 +184,8 @@ export interface ReadyMessage {
   readonly seq: number
   readonly s: string
   readonly ct: ClusterTime
+  /** The access report the `sub` asked for with `o.explain`, sent with the first `ready` only. */
+  readonly explain?: Document
 }
 
 /** `nosub`: a subscription ended. */
@@ -312,6 +335,29 @@ const isSubId = (value: unknown): value is string => typeof value === "string" &
 const isCollection = (value: unknown): value is string =>
   typeof value === "string" && COLLECTION.test(value)
 
+const MAX_EXPLAIN_ROLES = 32
+
+function decodeExplain(value: unknown): true | ExplainAs | undefined {
+  if (value === undefined || value === false) return undefined
+  if (value === true) return true
+  if (!isDocument(value)) return fail('"o.explain" must be true or { claims, roles, ctx }')
+  for (const key of Object.keys(value))
+    if (key !== "claims" && key !== "roles" && key !== "ctx")
+      fail(`"o.explain" has an unknown field "${key}"`)
+  const claims = value["claims"]
+  if (claims !== undefined && claims !== null && !isDocument(claims))
+    fail('"o.explain.claims" must be an object or null')
+  const roles = optionalField(value, "roles", isStringArray, "a list of role names")
+  if (roles !== undefined && roles.length > MAX_EXPLAIN_ROLES)
+    fail(`"o.explain.roles" may list at most ${MAX_EXPLAIN_ROLES} roles`)
+  const ctx = optionalField(value, "ctx", isDoc, "an object")
+  return {
+    ...(claims === undefined ? {} : { claims }),
+    ...(roles === undefined ? {} : { roles }),
+    ...(ctx === undefined ? {} : { ctx }),
+  }
+}
+
 function wireError(value: unknown): WireError | undefined {
   if (value === undefined) return undefined
   if (!isDocument(value) || !isErrorCode(value["code"]) || typeof value["msg"] !== "string") {
@@ -389,7 +435,17 @@ export function decodeClientMessage(
       const oRaw = optionalField(raw, "o", isDoc, "an object")
       if (oRaw === undefined) return { t: "sub", id, c, q }
       const buffer = optionalField(oRaw, "buffer", isSeq, "a non negative integer")
-      return { t: "sub", id, c, q, o: buffer === undefined ? {} : { buffer } }
+      const explain = decodeExplain(oRaw["explain"])
+      return {
+        t: "sub",
+        id,
+        c,
+        q,
+        o: {
+          ...(buffer === undefined ? {} : { buffer }),
+          ...(explain === undefined ? {} : { explain }),
+        },
+      }
     }
     case "unsub":
       return { t: "unsub", id: field(raw, "id", isSubId, "a subscription id") }
@@ -468,8 +524,16 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
         ...(refetch ? { refetch: true as const } : {}),
       }
     }
-    case "ready":
-      return { t: "ready", seq, s: field(raw, "s", isSubId, "a subscription id"), ct: ct() }
+    case "ready": {
+      const explain = optionalField(raw, "explain", isDoc, "an object")
+      return {
+        t: "ready",
+        seq,
+        s: field(raw, "s", isSubId, "a subscription id"),
+        ct: ct(),
+        ...(explain === undefined ? {} : { explain }),
+      }
+    }
     case "nosub": {
       const err = wireError(raw["err"])
       const s = field(raw, "s", isSubId, "a subscription id")

@@ -62,6 +62,57 @@ describe("client messages", () => {
     })
   })
 
+  it("decodes the explain option of a sub", () => {
+    expect(
+      decodeClientMessage('{"t":"sub","id":"a","c":"x","o":{"explain":true,"buffer":2}}'),
+    ).toEqual({ t: "sub", id: "a", c: "x", q: {}, o: { buffer: 2, explain: true } })
+    expect(
+      decodeClientMessage(
+        '{"t":"sub","id":"a","c":"x","o":{"explain":{"claims":{"sub":"u1"},"roles":["editor"]}}}',
+      ),
+    ).toEqual({
+      t: "sub",
+      id: "a",
+      c: "x",
+      q: {},
+      o: { explain: { claims: { sub: "u1" }, roles: ["editor"] } },
+    })
+    expect(
+      decodeClientMessage('{"t":"sub","id":"a","c":"x","o":{"explain":{"claims":null}}}'),
+    ).toEqual({ t: "sub", id: "a", c: "x", q: {}, o: { explain: { claims: null } } })
+    expect(decodeClientMessage('{"t":"sub","id":"a","c":"x","o":{"explain":false}}')).toEqual({
+      t: "sub",
+      id: "a",
+      c: "x",
+      q: {},
+      o: {},
+    })
+    const roles = JSON.stringify(Array.from({ length: 33 }, (_, i) => `r${i}`))
+    for (const bad of [
+      '{"explain":"yes"}',
+      '{"explain":{"claims":"u1"}}',
+      '{"explain":{"roles":"editor"}}',
+      `{"explain":{"roles":${roles}}}`,
+      '{"explain":{"as":{}}}',
+    ])
+      expect(() => decodeClientMessage(`{"t":"sub","id":"a","c":"x","o":${bad}}`)).toThrow(
+        ProtocolError,
+      )
+    const ready = decodeServerMessage(
+      '{"t":"ready","seq":2,"s":"s1","ct":"1","explain":{"collection":"x","granted":true}}',
+    )
+    expect(ready).toEqual({
+      t: "ready",
+      seq: 2,
+      s: "s1",
+      ct: "1",
+      explain: { collection: "x", granted: true },
+    })
+    expect(() =>
+      decodeServerMessage('{"t":"ready","seq":2,"s":"s1","ct":"1","explain":"text"}'),
+    ).toThrow(ProtocolError)
+  })
+
   it("returns undefined for unknown but well formed types", () => {
     expect(decodeClientMessage('{"t":"future","x":1}')).toBeUndefined()
   })

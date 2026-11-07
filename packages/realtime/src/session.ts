@@ -75,6 +75,7 @@ export class Session {
   private readonly mergeBox = new Map<string, MergeEntry>()
   /** Subscriptions moving to another observer, with the keys the new observer has sent so far. */
   private readonly rebinding = new Map<string, Set<string>>()
+  private readonly explanations = new Map<string, Record<string, unknown>>()
   private readonly diffs: boolean
   private readonly batching: boolean
   private queue: string[] = []
@@ -204,10 +205,17 @@ export class Session {
     this.rebinding.set(subId, new Set())
   }
 
+  /** Sends `report` with the next `ready` of the subscription (the answer to `sub.o.explain`). */
+  explainOnReady(subId: string, report: Record<string, unknown>): void {
+    this.explanations.set(subId, report)
+  }
+
   private ready(subId: string, ct: ClusterTime): void {
     const seen = this.rebinding.get(subId)
     if (seen === undefined) {
-      this.send({ t: "ready", s: subId, ct })
+      const explain = this.explanations.get(subId)
+      this.explanations.delete(subId)
+      this.send({ t: "ready", s: subId, ct, ...(explain === undefined ? {} : { explain }) })
       return
     }
     this.rebinding.delete(subId)
@@ -304,6 +312,7 @@ export class Session {
   /** Removes a subscription from the merge box without messages (used by `unsub` and resync). */
   forget(subId: string): void {
     this.rebinding.delete(subId)
+    this.explanations.delete(subId)
     for (const [key, entry] of this.mergeBox) {
       if (!entry.subs.delete(subId)) continue
       if (entry.subs.size === 0) this.mergeBox.delete(key)

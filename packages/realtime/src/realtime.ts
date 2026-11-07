@@ -10,12 +10,16 @@ import {
   type Compiled,
   ContextResolver,
   deniedPaths,
+  explainAccess,
+  explainContext,
   type FieldAccess,
+  formatAccessReport,
   onceVariableIssue,
   PolicyEngine,
   type PolicySet,
   projectReadable,
   type RequestContext,
+  Role,
   toFilter,
   usesNow,
 } from "@canopy/policy"
@@ -27,6 +31,7 @@ import {
   canonicalString,
   decodeClientMessage,
   ErrorCode,
+  type ExplainAs,
   encodeMessage,
   type HelloMessage,
   type MutMessage,
@@ -602,6 +607,11 @@ export class Realtime {
       if (plan.key === sub.observer.key) continue
       if (sub.observer.detach(sub.listener)) this.lingerObserver(sub.observer)
       const observer = this.observerFor(plan)
+      if (!this.observerOrigins.has(observer))
+        this.observerOrigins.set(observer, {
+          filter: plan.userFilter,
+          context: this.contextOf(state),
+        })
       const next: SubscriptionState = { ...sub, observer }
       this.queries.set(next, stored)
       state.subs.set(sub.id, next)
@@ -1186,6 +1196,52 @@ export class Realtime {
     }
   }
 
+  private readonly explanations = new WeakMap<SubMessage, Record<string, unknown>>()
+
+  /**
+   * The access report a `sub` asked for with `o.explain`: for the connection itself (`true`) or for a
+   * stated caller, whose context lookups are resolved unless `ctx` is given. It names the policies, their
+   * outcomes and the effective filter; a policy that dropped out is described by its variable's name and
+   * kind, never by the value that made it fail.
+   */
+  private async explainSubscription(
+    state: SessionState,
+    message: SubMessage,
+    explain: true | ExplainAs,
+  ): Promise<Record<string, unknown>> {
+    const engine = this.engine
+    const coll = message.c
+    if (!engine.isRealtime(coll))
+      throw new CanopyError(ErrorCode.NotFound, `No realtime collection ${coll}`)
+    const parsed = parseQuery(message.q, { ...DEFAULT_LIMITS, maxLimit: this.limits.maxWindow })
+    let context: RequestContext
+    if (explain === true) context = this.contextOf(state)
+    else {
+      context = explainContext({
+        claims: explain.claims ?? null,
+        roles: explain.roles ?? [],
+        ...(explain.ctx === undefined ? {} : { ctx: explain.ctx }),
+      })
+      const names = engine.contextNames([coll], context.roles)
+      if (explain.ctx === undefined && names.length > 0)
+        context = {
+          ...context,
+          ctx: (await this.contexts.resolve(engine.set.contexts, names, context)).ctx,
+        }
+    }
+    const report = explainAccess(engine, {
+      collection: coll,
+      op: "read",
+      context,
+      filter: parsed.filter.filter,
+    })
+    return {
+      ...report,
+      effectiveFilter: toFilter(report.effective),
+      text: formatAccessReport(report),
+    }
+  }
+
   private subscribe(state: SessionState, message: SubMessage): void {
     if (state.subs.has(message.id)) this.dropSubscription(state, message.id)
     state.pendingSubs.delete(message.id)
@@ -1198,6 +1254,35 @@ export class Realtime {
           msg: `At most ${this.limits.maxSubscriptionsPerConnection} subscriptions per connection`,
         },
       })
+      return
+    }
+    const explain = message.o?.explain
+    if (explain !== undefined && !this.explanations.has(message)) {
+      if (!state.principal.context.roles.has(Role.Service)) {
+        state.session.send({
+          t: "nosub",
+          s: message.id,
+          err: {
+            code: ErrorCode.Forbidden,
+            msg: "Explanations are only available with a secret key",
+          },
+        })
+        return
+      }
+      state.pendingSubs.set(message.id, message)
+      this.explainSubscription(state, message, explain).then(
+        (report) => {
+          if (state.pendingSubs.get(message.id) !== message) return
+          state.pendingSubs.delete(message.id)
+          this.explanations.set(message, report)
+          if (this.sessions.has(state.session.sid)) this.subscribe(state, message)
+        },
+        (error: unknown) => {
+          if (state.pendingSubs.get(message.id) !== message) return
+          state.pendingSubs.delete(message.id)
+          state.session.send({ t: "nosub", s: message.id, err: toCanopyError(error).toWire() })
+        },
+      )
       return
     }
     const names = this.engine.isRealtime(message.c)
@@ -1236,6 +1321,11 @@ export class Realtime {
         context: this.contextOf(state),
       })
     const listener = state.session.listener(message.c, message.id, project, coverageOf(projection))
+    const report = this.explanations.get(message)
+    if (report !== undefined) {
+      this.explanations.delete(message)
+      state.session.explainOnReady(message.id, report)
+    }
     const sub: SubscriptionState = { id: message.id, coll: message.c, observer, listener }
     this.queries.set(sub, { msg: message })
     state.subs.set(message.id, sub)
