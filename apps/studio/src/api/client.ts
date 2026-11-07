@@ -950,10 +950,6 @@ export class AdminApi {
     return this.request("GET", "/auth/providers", providersSchema, { signal })
   }
 
-  saveProviders(providers: Providers): Promise<Providers> {
-    return this.request("PUT", "/auth/providers", providersSchema, { body: providers })
-  }
-
   /** Every email kind with the template in force and the version of the set. */
   async templates(
     signal?: AbortSignal,

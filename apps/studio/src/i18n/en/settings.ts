@@ -85,14 +85,13 @@ export const settings = {
     description: "Only owners see these actions. Each one is audited.",
     revokeSessions: "Revoke all sessions",
     revokeSessionsBody:
-      "Every app user and admin session ends, including yours, and every realtime connection closes.",
+      "Every app user and admin session ends, including yours, and the realtime connections of signed in users close. Admin API tokens stay valid.",
     revokeSessionsPhrase: "revoke all sessions",
     revokeSessionsDone: "All sessions were revoked",
     rotateMasterKey: "Rotate the master key",
     rotateMasterKeyBody:
-      "Stored secrets are encrypted again with a new master key. Update CANOPY_MASTER_KEY on every node afterwards.",
+      "Stored secrets are encrypted again with the current master key. Set the new key in CANOPY_MASTER_KEY and the old one in CANOPY_MASTER_KEY_PREVIOUS on every node first, and remove CANOPY_MASTER_KEY_PREVIOUS afterwards.",
     rotateMasterKeyPhrase: "rotate master key",
-    rotateMasterKeyDone: "The master key was rotated",
-    notAvailable: "This server does not offer this action yet.",
+    rotateMasterKeyDone: "Stored secrets now use the current master key",
   },
 } as const

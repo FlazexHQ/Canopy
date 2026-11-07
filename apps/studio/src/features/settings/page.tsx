@@ -1,7 +1,6 @@
 import { CanopyError } from "@canopy/protocol"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useId, useState } from "react"
-import { statusOf } from "../../api/client.ts"
 import { ADMIN_ROLES, type Admin, type AdminRole, type Settings } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx"
@@ -792,12 +791,7 @@ function DangerZone() {
     },
     onError: (error) => {
       setAction(undefined)
-      toast({
-        title: statusOf(error) === 404 ? t("common.notAvailableTitle") : t("common.errorTitle"),
-        description:
-          statusOf(error) === 404 ? t("settings.danger.notAvailable") : errorMessage(error),
-        variant: "error",
-      })
+      toast({ title: t("common.errorTitle"), description: errorMessage(error), variant: "error" })
     },
   })
   const phrase =

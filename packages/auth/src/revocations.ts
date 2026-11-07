@@ -8,6 +8,7 @@ import type { Revocation } from "./provider.ts"
 export class RevocationSet {
   private readonly sessions = new Map<string, number>()
   private readonly users = new Map<string, { at: number; expiresAt: number }>()
+  private everyone: { at: number; expiresAt: number } | undefined
   private readonly now: () => number
 
   constructor(options: { readonly now?: () => number } = {}) {
@@ -25,6 +26,13 @@ export class RevocationSet {
       return
     }
     const at = revocation.at.getTime()
+    if (revocation.kind === "all") {
+      this.everyone = {
+        at: Math.max(this.everyone?.at ?? 0, at),
+        expiresAt: Math.max(this.everyone?.expiresAt ?? 0, expiresAt),
+      }
+      return
+    }
     const current = this.users.get(revocation.sub)
     this.users.set(revocation.sub, {
       at: Math.max(current?.at ?? 0, at),
@@ -40,13 +48,12 @@ export class RevocationSet {
       const until = this.sessions.get(sid)
       if (until !== undefined && until > now) return true
     }
-    if (typeof claims.sub === "string") {
-      const user = this.users.get(claims.sub)
-      if (user !== undefined && user.expiresAt > now) {
-        if (typeof claims.iat !== "number" || claims.iat * 1000 <= user.at) return true
-      }
-    }
-    return false
+    const issuedBefore = (entry: { at: number; expiresAt: number } | undefined): boolean =>
+      entry !== undefined &&
+      entry.expiresAt > now &&
+      (typeof claims.iat !== "number" || claims.iat * 1000 <= entry.at)
+    if (issuedBefore(this.everyone)) return true
+    return typeof claims.sub === "string" && issuedBefore(this.users.get(claims.sub))
   }
 
   /** Drops expired entries. */
@@ -54,9 +61,10 @@ export class RevocationSet {
     const now = this.now()
     for (const [sid, until] of this.sessions) if (until <= now) this.sessions.delete(sid)
     for (const [sub, entry] of this.users) if (entry.expiresAt <= now) this.users.delete(sub)
+    if (this.everyone !== undefined && this.everyone.expiresAt <= now) this.everyone = undefined
   }
 
   get size(): number {
-    return this.sessions.size + this.users.size
+    return this.sessions.size + this.users.size + (this.everyone === undefined ? 0 : 1)
   }
 }

@@ -14,6 +14,22 @@ function clock(start = T0): { now: () => number; advance(ms: number): void } {
 }
 
 describe("RevocationSet", () => {
+  it("refuses every token issued at or before a revocation of everyone, until it expires", () => {
+    const time = clock()
+    const set = new RevocationSet({ now: time.now })
+    set.add({ kind: "all", sub: "*", at: new Date(T0), expiresAt: new Date(T0 + 600_000) })
+    expect(set.has({ sub: "u1", iat: T0 / 1000 })).toBe(true)
+    expect(set.has({ sub: "u2", sid: "s9", iat: T0 / 1000 - 60 })).toBe(true)
+    expect(set.has({ iat: T0 / 1000 - 1 })).toBe(true)
+    expect(set.has({ sub: "u1" })).toBe(true)
+    expect(set.has({ sub: "u1", iat: T0 / 1000 + 1 })).toBe(false)
+    expect(set.size).toBe(1)
+    time.advance(600_000)
+    expect(set.has({ sub: "u1", iat: T0 / 1000 })).toBe(false)
+    set.prune()
+    expect(set.size).toBe(0)
+  })
+
   it("refuses tokens of a revoked session, whatever their issue time", () => {
     const time = clock()
     const set = new RevocationSet({ now: time.now })

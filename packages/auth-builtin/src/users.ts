@@ -112,6 +112,10 @@ export interface UserAdminHooks {
    * not be written, so other nodes keep accepting those tokens until they expire.
    */
   revokeUser(sub: string): Promise<boolean>
+  /** Revokes every access token issued until now, of every user. Resolves like {@link revokeUser}. */
+  revokeEveryone(): Promise<boolean>
+  /** Deletes every session of every user. Returns how many there were. */
+  deleteAllSessions(): Promise<number>
   /** Sends an invite link to `email`, landing on `redirectTo`. */
   sendInvite(email: string, redirectTo: string): Promise<void>
 }
@@ -323,6 +327,16 @@ export class EngineUserAdmin implements UserAdmin {
     if (sessionId !== undefined && chosen.length === 0) throw new NotFoundError("No such session")
     for (const session of chosen) await context.internalAdapter.deleteSession(session.token)
     return chosen.length
+  }
+
+  async revokeAllSessions(): Promise<number> {
+    const count = await this.hooks.deleteAllSessions()
+    if (!(await this.hooks.revokeEveryone()))
+      throw new CanopyError(
+        ErrorCode.Unavailable,
+        "Every session ended, but the revocation could not be written; other nodes accept existing access tokens until they expire",
+      )
+    return count
   }
 
   async invite(input: InviteInput): Promise<AuthUser> {

@@ -4,6 +4,7 @@ import {
   CanopyError,
   canonicalString,
   ErrorCode,
+  ForbiddenError,
   InvalidQueryError,
   isDocument,
   sha256Hex,
@@ -367,6 +368,8 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
       }
       const credentials = credentialsFromHeaders(request.headers)
       const principal = await options.authenticator.authenticate(credentials.key, credentials.token)
+      if (principal.readOnly === true)
+        throw new ForbiddenError("A view token only follows data over realtime")
       const current = engine()
       const names = current.contextNames(lookupScope(segments), principal.context.roles)
       const context =

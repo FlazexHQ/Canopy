@@ -565,6 +565,59 @@ suite("admin API", () => {
     ).toBe(403)
   })
 
+  it("issues read only view tokens with a publishable key, never to viewers as service", async () => {
+    const issued = await owner.call("POST", "/realtime/token", { as: { user: "alice" } })
+    expect(issued.status).toBe(200)
+    const body = (await issued.json()) as {
+      token: string
+      publishableKey: string
+      expiresAt: string
+    }
+    expect(body.publishableKey).toBe("pk_admin_test")
+    const lifetime = Date.parse(body.expiresAt) - Date.now()
+    expect(lifetime).toBeGreaterThan(0)
+    expect(lifetime).toBeLessThanOrEqual(300_000)
+    const overRest = await fetch(`${base}/rest/v1/notes`, {
+      headers: { apikey: body.publishableKey, authorization: `Bearer ${body.token}` },
+    })
+    expect(overRest.status).toBe(403)
+    expect((await owner.call("POST", "/realtime/token", {})).status).toBe(200)
+    expect((await owner.call("POST", "/realtime/token", { as: { role: "service" } })).status).toBe(
+      422,
+    )
+    expect((await clients.viewer?.call("POST", "/realtime/token", {}))?.status).toBe(403)
+    expect(
+      (await clients.viewer?.call("POST", "/realtime/token", { as: { user: "alice" } }))?.status,
+    ).toBe(403)
+    const audit = (await (await owner.call("GET", "/audit?action=realtime.token")).json()) as {
+      data: { details?: { as?: unknown } }[]
+    }
+    expect(audit.data.map((entry) => entry.details?.as)).toContainEqual({ user: "alice" })
+  })
+
+  it("lists the sign in methods of the config without secrets", async () => {
+    const providers = await owner.call("GET", "/auth/providers")
+    expect(providers.status).toBe(200)
+    expect(await providers.json()).toEqual({ mode: "external", providers: [] })
+    expect((await clients.developer?.call("GET", "/auth/providers"))?.status).toBe(403)
+  })
+
+  it("rotates the master key only for owners, with the phrase, and only with a master key", async () => {
+    const confirm = { "x-canopy-confirm": "rotate master key" }
+    expect(
+      (await clients.admin?.call("POST", "/settings/rotate-master-key", undefined, confirm))
+        ?.status,
+    ).toBe(403)
+    const unconfirmed = await owner.call("POST", "/settings/rotate-master-key", undefined, {
+      "x-canopy-confirm": "rotate the key",
+    })
+    expect(unconfirmed.status).toBe(422)
+    expect(await unconfirmed.json()).toMatchObject({ details: { reason: "confirmation" } })
+    const noKey = await owner.call("POST", "/settings/rotate-master-key", undefined, confirm)
+    expect(noKey.status).toBe(422)
+    expect(((await noKey.json()) as { detail: string }).detail).toContain("no master key")
+  })
+
   it("streams the realtime tail and serves traces to inspectors", async () => {
     const response = await owner.call("GET", "/realtime/tail")
     expect(response.headers.get("content-type")).toBe("text/event-stream")
@@ -772,6 +825,34 @@ suite("admin API", () => {
     const second = await loginBearer("owner@example.com", PASSWORD, nextCode())
     expect((await second.call("POST", "/logout")).status).toBe(204)
     expect((await second.call("GET", "/me")).status).toBe(401)
+  })
+
+  it("revokes every admin session, the owner's included, only for owners with the phrase", async () => {
+    const confirm = { "x-canopy-confirm": "revoke all sessions" }
+    const admin = clients.admin as Client
+    expect(
+      (await admin.call("POST", "/settings/revoke-all-sessions", undefined, confirm)).status,
+    ).toBe(403)
+    expect(
+      (
+        await owner.call("POST", "/settings/revoke-all-sessions", undefined, {
+          "x-canopy-confirm": "revoke all",
+        })
+      ).status,
+    ).toBe(422)
+    expect((await admin.call("GET", "/me")).status).toBe(200)
+    const other = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    expect(
+      (await owner.call("POST", "/settings/revoke-all-sessions", undefined, confirm)).status,
+    ).toBe(204)
+    for (const client of [owner, other, admin])
+      expect((await client.call("GET", "/me")).status).toBe(401)
+    expect(await meta.collection("admin_sessions").countDocuments()).toBe(0)
+    owner = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    const audit = (await (
+      await owner.call("GET", "/audit?action=danger.revoke_all_sessions")
+    ).json()) as { data: { details?: { adminSessions?: number } }[] }
+    expect(audit.data[0]?.details?.adminSessions).toBeGreaterThanOrEqual(3)
   })
 
   describe("in production with a private admin listener", () => {

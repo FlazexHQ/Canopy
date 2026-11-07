@@ -18,6 +18,10 @@ export {
   type JwtAuthOptions,
   type KeyOptions,
   type Principal,
+  VIEW_TOKEN_AUDIENCE,
+  VIEW_TOKEN_CLAIM,
+  VIEW_TOKEN_ISSUER,
+  type ViewTokenVerification,
 } from "./authenticator.ts"
 export { addressMatches, isAddressRule, resolveClientAddress } from "./client-address.ts"
 export type {

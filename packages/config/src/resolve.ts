@@ -195,6 +195,7 @@ const ROOT: Spec = obj({
   environment: oneOf(...ENVIRONMENTS),
   publicUrl: url,
   masterKey: str,
+  previousMasterKeys: list,
   auth: { t: "auth" },
   keys: obj({ publishable: list, secret: list }),
   policies: { t: "policies" },
@@ -229,6 +230,7 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_ENV", "environment", oneOf(...ENVIRONMENTS)],
   ["CANOPY_PUBLIC_URL", "publicUrl", url],
   ["CANOPY_MASTER_KEY", "masterKey", str],
+  ["CANOPY_MASTER_KEY_PREVIOUS", "previousMasterKeys", list],
   ["CANOPY_JWT_JWKS_URL", "auth.jwksUrl", url],
   ["CANOPY_JWT_ISSUER", "auth.issuer", str],
   ["CANOPY_JWT_AUDIENCE", "auth.audience", str],
@@ -252,7 +254,7 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_DEV_INSECURE", "dev.insecure", bool],
 ]
 
-const SECRET_PATHS = new Set(["masterKey", "keys.secret"])
+const SECRET_PATHS = new Set(["masterKey", "previousMasterKeys", "keys.secret"])
 
 /** The sections each command needs. Unset variables elsewhere are not reported. */
 const NEEDS: Readonly<Record<Command, ReadonlySet<string> | "all">> = {
@@ -925,6 +927,8 @@ function normalize(
       production,
       publicUrl,
       masterKey: get(tree, "masterKey") as string | undefined,
+      rotatingMasterKey:
+        ((get(tree, "previousMasterKeys") as string[] | undefined) ?? []).length > 0,
       cors,
       defaulted,
     })
@@ -957,6 +961,7 @@ function normalize(
     mongodb,
     publicUrl,
     masterKey,
+    previousMasterKeys: (get(tree, "previousMasterKeys") as string[] | undefined) ?? [],
     auth,
     keys: {
       publishable: (defaulted("keys.publishable", []) as string[]) ?? [],
@@ -1013,6 +1018,7 @@ function normalizeBuiltin(
     readonly production: boolean
     readonly publicUrl: string | undefined
     readonly masterKey: string | undefined
+    readonly rotatingMasterKey: boolean
     readonly cors: ResolvedConfig["cors"]
     readonly defaulted: (path: string, value: unknown) => unknown
   },
@@ -1026,6 +1032,11 @@ function normalizeBuiltin(
       )
   resolver.secrets.add("auth.secret")
   const secret = (raw["secret"] as string | undefined) ?? context.masterKey
+  if (raw["secret"] === undefined && context.rotatingMasterKey)
+    resolver.problem(
+      "auth.secret",
+      "Built in auth uses the master key as its secret, so rotating the master key would make its signing keys unreadable.\nSet auth.secret to the previous master key first.",
+    )
   if (secret !== undefined && secret.length < 32)
     resolver.problem("auth.secret", "The auth secret needs at least 32 characters.")
   if (secret === undefined && production)

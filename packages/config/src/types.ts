@@ -276,6 +276,11 @@ export interface CanopyConfigInput {
   readonly publicUrl?: Value<string>
   /** The key encryption key of stored secrets. Required in production for the `canopy` server. */
   readonly masterKey?: Value<string>
+  /**
+   * Master keys being rotated out. Stored secrets sealed with one of them still open, and
+   * `POST /admin/v1/settings/rotate-master-key` seals them again with `masterKey`.
+   */
+  readonly previousMasterKeys?: Value<readonly string[]>
   readonly auth?: AuthInput
   readonly keys?: {
     readonly publishable?: Value<readonly string[]>
@@ -410,6 +415,7 @@ export interface ResolvedConfig {
   }
   readonly publicUrl: string | undefined
   readonly masterKey: string | undefined
+  readonly previousMasterKeys: readonly string[]
   readonly auth: ResolvedExternalAuth | ResolvedBuiltinAuth | undefined
   readonly keys: { readonly publishable: readonly string[]; readonly secret: readonly string[] }
   readonly policies:

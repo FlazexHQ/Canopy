@@ -3,6 +3,7 @@ import { ErrorCode, ForbiddenError, UnauthorizedError } from "@canopy/protocol"
 import {
   createLocalJWKSet,
   createRemoteJWKSet,
+  decodeJwt,
   type JSONWebKeySet,
   type JWTPayload,
   type JWTVerifyGetKey,
@@ -42,10 +43,27 @@ export interface KeyOptions {
   readonly secret?: readonly string[]
 }
 
+/** The issuer of view tokens, which let Studio follow data live as an impersonated caller. */
+export const VIEW_TOKEN_ISSUER = "urn:canopy:studio"
+/** The audience of view tokens. */
+export const VIEW_TOKEN_AUDIENCE = "urn:canopy:view-as"
+/** The claim of a view token holding the impersonated `{ roles, claims }`. */
+export const VIEW_TOKEN_CLAIM = "canopy_view"
+
+/** How view tokens are verified: the server's own key, never the identity provider's. */
+export interface ViewTokenVerification {
+  readonly key: Parameters<typeof jwtVerify>[1]
+}
+
 /** Options of an {@link Authenticator} beyond JWTs and config keys. */
 export interface AuthenticatorOptions {
   /** Stored keys, checked after the keys of the config. */
   readonly store?: ApiKeyStore
+  /**
+   * Accepts view tokens signed with this key (EdDSA only), giving read only principals. A view token may
+   * carry `service` alone, for Studio following data as the service role.
+   */
+  readonly viewTokens?: ViewTokenVerification
 }
 
 /** A verified caller. */
@@ -57,6 +75,8 @@ export interface Principal {
   readonly expiresAt: number | undefined
   /** The stored key the caller used, so its revocation can end the caller's connections. */
   readonly keyId?: string
+  /** Set for view tokens: the caller may read and subscribe, never write. */
+  readonly readOnly?: true
 }
 
 const DEFAULT_ALGORITHMS = ["EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256"]
@@ -69,6 +89,7 @@ export class Authenticator {
   private readonly keys: KeyOptions
   private readonly store: ApiKeyStore | undefined
   private readonly algorithms: string[]
+  private readonly viewTokens: ViewTokenVerification | undefined
 
   constructor(
     options: JwtAuthOptions | undefined,
@@ -78,6 +99,7 @@ export class Authenticator {
     this.options = options
     this.keys = keys
     this.store = extra.store
+    this.viewTokens = extra.viewTokens
     this.algorithms = [...(options?.algorithms ?? DEFAULT_ALGORITHMS)]
     for (const algorithm of this.algorithms) {
       if (FORBIDDEN_ALGORITHMS.has(algorithm))
@@ -133,6 +155,8 @@ export class Authenticator {
         ...keyId,
       }
     }
+    if (this.viewTokens !== undefined && issuerOf(token) === VIEW_TOKEN_ISSUER)
+      return { ...(await this.verifyViewToken(token, this.viewTokens)), ...keyId }
     if (this.keySet === undefined || this.options === undefined)
       throw new UnauthorizedError("User tokens are not accepted")
     let payload: JWTPayload
@@ -196,6 +220,61 @@ export class Authenticator {
       ...keyId,
     }
   }
+
+  private async verifyViewToken(
+    token: string,
+    verification: ViewTokenVerification,
+  ): Promise<Principal> {
+    let payload: JWTPayload
+    try {
+      payload = (
+        await jwtVerify(token, verification.key, {
+          algorithms: ["EdDSA"],
+          issuer: VIEW_TOKEN_ISSUER,
+          audience: VIEW_TOKEN_AUDIENCE,
+          requiredClaims: ["exp"],
+        })
+      ).payload
+    } catch (error: unknown) {
+      if (error instanceof joseErrors.JWTExpired)
+        throw new UnauthorizedError("The view token has expired", { cause: error }, true)
+      throw new UnauthorizedError("Invalid view token", { cause: error })
+    }
+    const view = payload[VIEW_TOKEN_CLAIM]
+    if (!isRecord(view) || !Array.isArray(view["roles"]))
+      throw new UnauthorizedError("Invalid view token")
+    const claims = view["claims"] === null ? null : view["claims"]
+    if (claims !== null && !isRecord(claims)) throw new UnauthorizedError("Invalid view token")
+    const roles = new Set<string>()
+    for (const role of view["roles"]) {
+      if (typeof role !== "string" || role === Role.Public)
+        throw new UnauthorizedError("Invalid view token")
+      roles.add(role)
+    }
+    if (claims !== null) roles.add(Role.Authenticated)
+    const alone = (role: string): boolean => !roles.has(role) || roles.size === 1
+    if (roles.size === 0 || !alone(Role.Anon) || !alone(Role.Service))
+      throw new UnauthorizedError("Invalid view token")
+    const subject = typeof claims?.["sub"] === "string" ? claims["sub"] : [...roles].join(",")
+    return {
+      context: { roles, claims, now: new Date() },
+      subject,
+      expiresAt: expiry(payload),
+      readOnly: true,
+    }
+  }
+}
+
+function issuerOf(token: string): string | undefined {
+  try {
+    return decodeJwt(token).iss
+  } catch {
+    return undefined
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function service(keyId: string | undefined): Principal {

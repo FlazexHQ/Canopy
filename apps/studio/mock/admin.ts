@@ -90,11 +90,6 @@ export interface MockAdminOptions {
   readonly builtinAuth?: boolean
   /** Whether realtime is on (`/realtime/*`). @default true */
   readonly realtime?: boolean
-  /**
-   * Serves endpoints Studio has screens for but the server does not offer yet (`/logs`,
-   * `/auth/providers`, the danger zone). Off by default, so the mock answers 404 like the server.
-   */
-  readonly extras?: boolean
   /** `false` turns the Data API off, so there is no OpenAPI document. */
   readonly rest?: boolean
   /** Publishes a policy for these collections at start. */
@@ -250,8 +245,16 @@ export interface MockState {
 }
 
 /** The mock: a `fetch` style handler for `/admin/v1/*` and `/rest/v1/openapi.json`. */
+/**
+ * Requests that matched no route of any mock, oldest first. The real server has every route the mock has,
+ * so a request here is one Studio sends to an endpoint that does not exist; the test setup fails on it.
+ */
+export const unmatchedRequests: string[] = []
+
 export interface MockAdmin {
   readonly state: MockState
+  /** Every route as `METHOD path`, with `:name` parameters, for the contract test against the server. */
+  readonly routes: readonly string[]
   fetch(request: Request): Promise<Response>
   /** Stops the synthetic event timer. */
   close(): void
@@ -563,7 +566,6 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
   const totpCode = options.totpCode ?? "123456"
   const builtinAuth = options.builtinAuth !== false
   const realtimeOn = options.realtime !== false
-  const extras = options.extras === true
   const clientIp = options.clientIp ?? "127.0.0.1"
 
   const state: MockState = {
@@ -2153,6 +2155,40 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
     return [...seen.values()]
   }
 
+  route(
+    "POST",
+    "realtime/token",
+    "documents.read",
+    async (context) => {
+      requireRealtime()
+      const body = (await context.body()) ?? {}
+      const as = isDocument(body) ? body["as"] : undefined
+      if (as !== undefined) {
+        if (!can(context.admin.role, "documents.viewAs", environment))
+          fail(ErrorCode.Forbidden, `The ${context.admin.role} role may not do this`)
+        impersonate(as)
+      } else if (context.admin.role === "viewer") {
+        fail(ErrorCode.Forbidden, "Viewers follow live data only as another caller")
+      }
+      const key = state.apiKeys.find(
+        (candidate) =>
+          candidate.kind === "publishable" &&
+          candidate.revokedAt === undefined &&
+          candidate.key !== undefined,
+      )?.key
+      if (key === undefined)
+        fail(ErrorCode.NotFound, "No publishable key: create one to follow data live")
+      context.audit({ action: "realtime.token", details: { as: as ?? { role: "service" } } })
+      return respond({
+        token: `view_${crypto.randomUUID()}`,
+        publishableKey: key,
+        expiresAt: new Date(now() + 300_000).toISOString(),
+      })
+    },
+    "realtime.token",
+    true,
+  )
+
   route("GET", "realtime/stats", "realtime.stats", () => {
     requireRealtime()
     return respond({
@@ -2506,39 +2542,37 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
     true,
   )
 
-  if (extras) {
-    route("GET", "auth/providers", "settings.read", () =>
-      respond({
-        mode: "builtin",
-        providers: [
-          { id: "email", enabled: true, configured: true },
-          {
-            id: "google",
-            enabled: true,
-            clientId: "1234.apps.googleusercontent.com",
-            configured: true,
-          },
-          { id: "github", enabled: false, configured: false },
-        ],
-      }),
-    )
-    for (const [path, phrase, action] of [
-      ["settings/revoke-all-sessions", "revoke all sessions", "danger.revoke_all_sessions"],
-      ["settings/rotate-master-key", "rotate master key", "danger.rotate_master_key"],
-    ] as const) {
-      route(
-        "POST",
-        path,
-        "admins.manageOwners",
-        (context) => {
-          if (context.request.headers.get("x-canopy-confirm") !== phrase) {
-            fail(ErrorCode.ValidationFailed, `Confirm with the phrase ${phrase}`)
-          }
-          return noContent()
+  route("GET", "auth/providers", "settings.read", () =>
+    respond({
+      mode: "builtin",
+      providers: [
+        { id: "email", enabled: true, configured: true },
+        {
+          id: "google",
+          enabled: true,
+          clientId: "1234.apps.googleusercontent.com",
+          configured: true,
         },
-        action,
-      )
-    }
+        { id: "github", enabled: false, configured: false },
+      ],
+    }),
+  )
+  for (const [path, phrase, action] of [
+    ["settings/revoke-all-sessions", "revoke all sessions", "danger.revoke_all_sessions"],
+    ["settings/rotate-master-key", "rotate master key", "danger.rotate_master_key"],
+  ] as const) {
+    route(
+      "POST",
+      path,
+      "admins.manageOwners",
+      (context) => {
+        if (context.request.headers.get("x-canopy-confirm") !== phrase) {
+          fail(ErrorCode.ValidationFailed, `Confirm with the phrase ${phrase}`)
+        }
+        return noContent()
+      },
+      action,
+    )
   }
 
   const sessionOf = (request: Request): SessionState | undefined => {
@@ -2578,6 +2612,7 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
       if (allowedMethods > 0) {
         return fail(ErrorCode.InvalidQuery, `${request.method} is not allowed here`)
       }
+      unmatchedRequests.push(`${request.method} ${url.pathname}`)
       return fail(ErrorCode.NotFound, `No admin endpoint ${request.method} ${url.pathname}`)
     }
     const current = found.route
@@ -2692,6 +2727,7 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
 
   return {
     state,
+    routes: routes.map((route) => `${route.method} ${route.path.join("/")}`),
     async fetch(request) {
       const url = new URL(request.url)
       try {

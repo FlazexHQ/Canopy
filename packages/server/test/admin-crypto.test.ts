@@ -271,4 +271,21 @@ describe("secret box", () => {
     expect(box.seal("s", "c")).toBe("plain:s")
     expect(new SecretBox("k").open("plain:s", "c")).toBe("s")
   })
+
+  it("opens secrets of a previous master key and tells which ones to seal again", () => {
+    const old = new SecretBox("a".repeat(44))
+    const sealedOld = old.seal("secret", "totp:a@b.c")
+    const rotated = new SecretBox("b".repeat(44), ["a".repeat(44)])
+    expect(rotated.open(sealedOld, "totp:a@b.c")).toBe("secret")
+    expect(rotated.isCurrent(sealedOld, "totp:a@b.c")).toBe(false)
+    const sealedNew = rotated.seal("secret", "totp:a@b.c")
+    expect(rotated.isCurrent(sealedNew, "totp:a@b.c")).toBe(true)
+    expect(rotated.isCurrent("plain:secret", "totp:a@b.c")).toBe(false)
+    expect(new SecretBox(undefined).isCurrent("plain:secret", "totp:a@b.c")).toBe(true)
+    expect(() => new SecretBox("b".repeat(44)).open(sealedOld, "totp:a@b.c")).toThrow(
+      /cannot be decrypted/,
+    )
+    expect(() => rotated.open(sealedOld, "totp:x@b.c")).toThrow(/cannot be decrypted/)
+    expect(new SecretBox(undefined, ["a".repeat(44)]).open(sealedOld, "totp:a@b.c")).toBe("secret")
+  })
 })

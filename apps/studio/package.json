@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@canopy/matcher": "workspace:*",
+    "@canopy/server": "workspace:*",
     "@canopy/studio": "workspace:*",
     "@playwright/test": "catalog:",
     "@tailwindcss/vite": "catalog:",

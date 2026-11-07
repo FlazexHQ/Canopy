@@ -4,7 +4,7 @@ import type { AuthLogger } from "./logger.ts"
 
 /** A document of `canopy.revocations` written by built in auth. */
 export interface RevocationDocument {
-  kind: "session" | "user"
+  kind: "session" | "user" | "all"
   sub: string
   sid?: string
   at: Date
@@ -32,7 +32,7 @@ export interface RevocationStoreOptions {
 }
 
 const PIPELINE = [
-  { $match: { operationType: "insert", "fullDocument.kind": { $in: ["session", "user"] } } },
+  { $match: { operationType: "insert", "fullDocument.kind": { $in: ["session", "user", "all"] } } },
 ]
 const MAX_REWATCH_MS = 30_000
 
@@ -95,7 +95,7 @@ export class RevocationStore {
       if (first !== null) this.apply(first)
       const now = new Date()
       for await (const document of this.options.collection.find({
-        kind: { $in: ["session", "user"] },
+        kind: { $in: ["session", "user", "all"] },
         expiresAt: { $gt: now },
       }))
         this.emit(toRevocation(document))

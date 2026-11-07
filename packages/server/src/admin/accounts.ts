@@ -693,6 +693,32 @@ export class AdminAccounts {
     return doc === null ? undefined : view(doc)
   }
 
+  /** Ends every admin session, the caller's included. Admin API tokens are not sessions and stay. */
+  async endAllSessions(): Promise<number> {
+    return (await this.sessions.deleteMany({})).deletedCount
+  }
+
+  /**
+   * Seals every stored admin secret again with the current master key, for a secret still sealed with a
+   * previous one (or in plain text from before a master key was set). Returns how many changed.
+   */
+  async resealSecrets(): Promise<number> {
+    let changed = 0
+    for await (const user of this.users.find({ totp: { $exists: true } })) {
+      const totp = user.totp
+      if (totp === undefined) continue
+      const context = `totp:${user.email}`
+      if (this.secrets.isCurrent(totp.secret, context)) continue
+      const resealed = this.secrets.seal(this.secrets.open(totp.secret, context), context)
+      const result = await this.users.updateOne(
+        { _id: user._id, "totp.secret": totp.secret },
+        { $set: { "totp.secret": resealed } },
+      )
+      changed += result.modifiedCount
+    }
+    return changed
+  }
+
   /**
    * Clears an admin's TOTP secret and ends their sessions, for a lost authenticator. Owners must enroll a
    * new one at their next login. `session` is checked like other account changes; bootstrap tools pass

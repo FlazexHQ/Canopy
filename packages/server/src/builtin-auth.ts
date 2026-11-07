@@ -124,7 +124,7 @@ export function revokes(revocation: Revocation, principal: Principal): boolean {
   const claims = principal.context.claims
   if (claims === null) return false
   if (revocation.kind === "session") return claims["sid"] === revocation.sid
-  if (principal.subject !== revocation.sub) return false
+  if (revocation.kind === "user" && principal.subject !== revocation.sub) return false
   const iat = claims["iat"]
   return typeof iat !== "number" || iat * 1000 <= revocation.at.getTime()
 }

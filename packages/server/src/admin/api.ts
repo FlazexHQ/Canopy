@@ -54,6 +54,7 @@ import {
   array,
   boolean,
   document,
+  type Infer,
   integer,
   object,
   oneOf,
@@ -61,6 +62,7 @@ import {
   string,
   unknownValue,
 } from "../schema.ts"
+import type { ViewIdentity, ViewTokens } from "../view-tokens.ts"
 import { type AdminAccounts, type AdminSession, actorOf, csrfHash } from "./accounts.ts"
 import { EMAIL_KINDS, type EmailTemplateStore } from "./email-templates.ts"
 import {
@@ -102,6 +104,8 @@ export interface AdminApiOptions {
   readonly contexts: ContextResolver
   readonly writes: WritePath
   readonly realtime: Realtime | undefined
+  /** Signs the view tokens of `POST /admin/v1/realtime/token`; without it the route answers `404`. */
+  readonly viewTokens?: ViewTokens
   /** Change stream lag samples for `GET /admin/v1/realtime/stats`. */
   readonly lag?: LagSampler
   readonly logger: Logger
@@ -131,6 +135,8 @@ export interface AdminAuth {
 
 /** The admin API: a Web standard handler for `/admin/v1/*`. */
 export interface AdminApi {
+  /** Every route as `METHOD path` with `:name` parameters, such as `GET users/:id`. */
+  readonly routes: readonly string[]
   /** `info.ip` is the peer address, used for login limits and the audit log. */
   fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
 }
@@ -168,6 +174,76 @@ const asInput = object({
   user: optional(string({ min: 1, max: 500 })),
   claims: optional(document()),
 })
+
+const SOCIAL_PROVIDERS = ["google", "github", "apple", "microsoft", "discord"] as const
+
+interface ProviderView {
+  readonly id: string
+  readonly enabled: boolean
+  readonly configured: boolean
+  readonly clientId?: string
+  readonly issuer?: string
+}
+
+/** The sign in methods of a config, without secrets. */
+function providersOf(auth: ResolvedConfig["auth"]): Record<string, unknown> {
+  if (auth === undefined) return { mode: "external", providers: [] }
+  if (auth.kind !== "builtin")
+    return {
+      mode: "external",
+      providers: [],
+      external: {
+        issuer: auth.issuer,
+        audience: auth.audience,
+        ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
+        ...(auth.algorithms === undefined ? {} : { algorithms: [...auth.algorithms] }),
+      },
+    }
+  const builtin = (id: string, enabled: boolean): ProviderView => ({
+    id,
+    enabled,
+    configured: true,
+  })
+  const providers: ProviderView[] = [
+    builtin("email", auth.emailPassword !== false),
+    builtin("magic-link", auth.magicLink),
+    builtin("email-otp", auth.emailOtp),
+    builtin("anonymous", auth.anonymous),
+  ]
+  for (const id of new Set([...SOCIAL_PROVIDERS, ...Object.keys(auth.providers)])) {
+    const configured = auth.providers[id]
+    providers.push(
+      configured === undefined
+        ? { id, enabled: false, configured: false }
+        : { id, enabled: true, configured: true, clientId: configured.clientId },
+    )
+  }
+  for (const oidc of auth.oidc)
+    providers.push({
+      id: oidc.id,
+      enabled: true,
+      configured: true,
+      clientId: oidc.clientId,
+      issuer: oidc.discoveryUrl,
+    })
+  return { mode: "builtin", providers }
+}
+
+/** The roles and claims an `as` input impersonates. Refuses `service` and `anon` mixed with other roles. */
+function viewIdentity(as: Infer<typeof asInput>): ViewIdentity {
+  const roles = new Set<string>([...(as.role === undefined ? [] : [as.role]), ...(as.roles ?? [])])
+  let claims: Record<string, unknown> | null = null
+  if (as.user !== undefined || as.claims !== undefined) {
+    claims = { ...(as.claims ?? {}), ...(as.user === undefined ? {} : { sub: as.user }) }
+    roles.add(Role.Authenticated)
+  }
+  if (roles.size === 0) throw new ValidationError("as needs a role, a user or claims")
+  if (roles.has(Role.Service))
+    throw new ValidationError("Impersonating service is not allowed; act as service directly")
+  if (roles.has(Role.Anon) && roles.size > 1)
+    throw new ValidationError("anon cannot be combined with other roles")
+  return { roles: [...roles], claims }
+}
 
 function mask(
   original: Record<string, unknown>,
@@ -237,20 +313,9 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     readonly as: unknown
   }> => {
     const as = asInput.parse(input, "as")
-    const roles = new Set<string>([
-      ...(as.role === undefined ? [] : [as.role]),
-      ...(as.roles ?? []),
-    ])
-    let claims: Record<string, unknown> | null = null
-    if (as.user !== undefined || as.claims !== undefined) {
-      claims = { ...(as.claims ?? {}), ...(as.user === undefined ? {} : { sub: as.user }) }
-      roles.add(Role.Authenticated)
-    }
-    if (roles.size === 0) throw new ValidationError("as needs a role, a user or claims")
-    if (roles.has(Role.Service))
-      throw new ValidationError("Impersonating service is not allowed; act as service directly")
-    if (roles.has(Role.Anon) && roles.size > 1)
-      throw new ValidationError("anon cannot be combined with other roles")
+    const identity = viewIdentity(as)
+    const roles = new Set(identity.roles)
+    const claims = identity.claims === null ? null : { ...identity.claims }
     const base: RequestContext = { roles, claims, now: new Date() }
     const names = engine.contextNames([collection], roles)
     const context =
@@ -259,6 +324,17 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
         : { ...base, ctx: (await options.contexts.resolve(engine.set.contexts, names, base)).ctx }
     const subject = typeof claims?.["sub"] === "string" ? claims["sub"] : [...roles].join(",")
     return { context, subject, as }
+  }
+
+  const anyPublishableKey = async (): Promise<string> => {
+    const configured = config.keys.publishable[0]
+    if (configured !== undefined) return configured
+    const stored = (await keys.list()).find(
+      (key) => key.kind === "publishable" && key.revokedAt === undefined && key.key !== undefined,
+    )
+    if (stored?.key === undefined)
+      throw new NotFoundError("No publishable key: create one to follow data live")
+    return stored.key
   }
 
   const routes: Route[] = []
@@ -1416,6 +1492,12 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     "user.sessions.revoke",
   )
 
+  /**
+   * `GET /admin/v1/auth/providers`: how users sign in, read from the config (providers are configured there,
+   * not in Studio). Client secrets are never returned.
+   */
+  route("GET", "auth/providers", "settings.read", async () => json(providersOf(config.auth)))
+
   route("GET", "auth/keys", "settings.read", async () => json({ data: authOf().keys.list() }))
 
   route(
@@ -1564,6 +1646,36 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     if (trace === undefined) throw new NotFoundError("The event is no longer in the trace buffer")
     return json(context.session.user.role === "viewer" ? maskTrace(trace, options.engine()) : trace)
   })
+  /**
+   * `POST /admin/v1/realtime/token`: a read only view token and a publishable key, so Studio can follow
+   * documents live. With `as` the token impersonates that caller (needs `documents.viewAs`); without it the
+   * token reads as `service`, which viewers may not do since their reads are masked.
+   */
+  route(
+    "POST",
+    "realtime/token",
+    "documents.read",
+    async (context) => {
+      engineOf()
+      if (options.viewTokens === undefined) throw new NotFoundError("View tokens are not available")
+      const body = object({ as: optional(asInput) }).parse((await context.body()) ?? {}, "body")
+      let identity: ViewIdentity = { roles: [Role.Service], claims: null }
+      if (body.as !== undefined) {
+        require(context, "documents.viewAs")
+        identity = viewIdentity(body.as)
+      } else if (context.session.user.role === "viewer") {
+        throw new ForbiddenError("Viewers follow live data only as another caller")
+      }
+      const publishableKey = await anyPublishableKey()
+      const { token, expiresAt } = await options.viewTokens.mint(identity)
+      await context.audit({
+        action: "realtime.token",
+        details: { as: body.as ?? { role: Role.Service }, expiresAt: expiresAt.toISOString() },
+      })
+      return json({ token, publishableKey, expiresAt: expiresAt.toISOString() })
+    },
+    "realtime.token",
+  )
   route("GET", "realtime/tail", "realtime.inspect", async (context) => {
     const engine = engineOf()
     const encoder = new TextEncoder()
@@ -1750,6 +1862,55 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       return json(await settings.update(patch, context.actor, context.origin))
     },
     "settings.update",
+  )
+
+  const confirmPhrase = (context: Context, phrase: string): void => {
+    if (context.request.headers.get("x-canopy-confirm") !== phrase)
+      throw new ValidationError(`Confirm with the phrase "${phrase}" in x-canopy-confirm`, {
+        details: { reason: "confirmation" },
+      })
+  }
+
+  /**
+   * `POST /admin/v1/settings/revoke-all-sessions`: ends every admin session (the caller's included) and,
+   * with built in auth, every app user session, revoking the access tokens issued until now so their
+   * realtime connections close. Admin API tokens stay valid.
+   */
+  route(
+    "POST",
+    "settings/revoke-all-sessions",
+    "admins.manageOwners",
+    async (context) => {
+      confirmPhrase(context, "revoke all sessions")
+      const users = options.auth === undefined ? 0 : await options.auth.users.revokeAllSessions()
+      const admins = await accounts.endAllSessions()
+      await context.audit({
+        action: "danger.revoke_all_sessions",
+        details: { userSessions: users, adminSessions: admins },
+      })
+      return new Response(null, { status: 204 })
+    },
+    "danger.revoke_all_sessions",
+  )
+
+  /**
+   * `POST /admin/v1/settings/rotate-master-key`: seals every stored secret again with the current master
+   * key. Rotate by setting the new key in `CANOPY_MASTER_KEY` and the old one in
+   * `CANOPY_MASTER_KEY_PREVIOUS` on every node, calling this, then removing `CANOPY_MASTER_KEY_PREVIOUS`.
+   */
+  route(
+    "POST",
+    "settings/rotate-master-key",
+    "admins.manageOwners",
+    async (context) => {
+      confirmPhrase(context, "rotate master key")
+      if (config.masterKey === undefined)
+        throw new ValidationError("There is no master key: set CANOPY_MASTER_KEY first")
+      const resealed = await accounts.resealSecrets()
+      await context.audit({ action: "danger.rotate_master_key", details: { resealed } })
+      return new Response(null, { status: 204 })
+    },
+    "danger.rotate_master_key",
   )
 
   const match = (
@@ -1954,6 +2115,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
   }
 
   return {
+    routes: routes.map((route) => `${route.method} ${route.path.join("/")}`),
     async fetch(request, info = {}) {
       const requestId = request.headers.get("x-request-id")?.slice(0, 128) ?? randomUUID()
       const origin: RequestOrigin = {

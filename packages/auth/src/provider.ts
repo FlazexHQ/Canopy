@@ -110,16 +110,21 @@ export interface UserAdmin {
   listSessions(id: string): Promise<readonly AuthSession[]>
   /** Ends one session, or every session of the user without `sessionId`. Returns how many ended. */
   revokeSessions(id: string, sessionId?: string): Promise<number>
+  /**
+   * Ends every session of every user and revokes every access token issued until now. Returns how many
+   * sessions ended.
+   */
+  revokeAllSessions(): Promise<number>
   invite(input: InviteInput): Promise<AuthUser>
 }
 
 /**
  * A revoked session or user. Access tokens stay valid until they expire, so verifiers keep these and refuse
  * matching tokens: `session` refuses tokens with the same `sid`, `user` refuses tokens of `sub` issued at or
- * before `at`.
+ * before `at`, and `all` refuses every token issued at or before `at` (its `sub` is `*`).
  */
 export interface Revocation {
-  readonly kind: "session" | "user"
+  readonly kind: "session" | "user" | "all"
   readonly sub: string
   readonly sid?: string
   readonly at: Date

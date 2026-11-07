@@ -238,6 +238,9 @@ class BetterAuthProvider implements BuiltinAuth {
       engine,
       minPasswordLength: settings.emailPassword.minPasswordLength,
       revokeUser: (sub) => this.revoke({ kind: "user", sub }),
+      revokeEveryone: () => this.revoke({ kind: "all", sub: "*" }),
+      deleteAllSessions: async () =>
+        (await authDb.collection(AUTH_COLLECTIONS.sessions).deleteMany({})).deletedCount,
       sendInvite: async (email, redirectTo) => {
         if (!this.isAllowedRedirect(redirectTo))
           throw new UnauthorizedError("The invite redirect is not in the allowlist")
@@ -321,7 +324,7 @@ class BetterAuthProvider implements BuiltinAuth {
   }
 
   private revoke(input: {
-    readonly kind: "session" | "user"
+    readonly kind: "session" | "user" | "all"
     readonly sub: string
     readonly sid?: string
   }): Promise<boolean> {

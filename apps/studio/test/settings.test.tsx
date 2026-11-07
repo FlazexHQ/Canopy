@@ -99,7 +99,7 @@ describe("Settings", () => {
   })
 
   it("requires the exact phrase before revoking all sessions", async () => {
-    const { user, mock } = await renderStudio("/settings", { extras: true })
+    const { user, mock } = await renderStudio("/settings")
     await user.click(await screen.findByRole("button", { name: "Revoke all sessions" }))
     const confirm = lastDialog().getByRole("button", {
       name: "Revoke all sessions",
@@ -118,15 +118,16 @@ describe("Settings", () => {
     )
   })
 
-  it("says when the server does not offer a danger zone action", async () => {
-    const { user } = await renderStudio("/settings")
+  it("seals stored secrets again with the current master key after the typed phrase", async () => {
+    const { user, mock } = await renderStudio("/settings")
     await user.click(await screen.findByRole("button", { name: "Rotate the master key" }))
     await user.type(
       lastDialog().getByLabelText("Type rotate master key to confirm"),
       "rotate master key",
     )
     await user.click(lastDialog().getByRole("button", { name: "Rotate the master key" }))
-    expect(await screen.findByText("This server does not offer this action yet.")).toBeTruthy()
+    await screen.findByText("Stored secrets now use the current master key")
+    expect(mock.state.audit.some((entry) => entry.action === "danger.rotate_master_key")).toBe(true)
   })
 
   it("keeps settings from viewers, who lack settings.read", async () => {

@@ -55,6 +55,7 @@ import { migrateMeta } from "./migrations.ts"
 import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
 import { RequestLog, surfaceOf } from "./request-log.ts"
+import { ViewTokens } from "./view-tokens.ts"
 
 /** How often each node rereads the runtime settings (the admin allowlist, request log sampling). */
 const SETTINGS_REFRESH_MS = 10_000
@@ -278,7 +279,11 @@ export async function createCanopy(
   const auth = builtinAuth?.verification ?? jwtOptions(config)
   const keys = { publishable: config.keys.publishable, secret: config.keys.secret }
   const apiKeys = new ApiKeys(meta, { logger })
-  const authenticator = new Authenticator(auth, keys, { store: apiKeys })
+  const viewTokens = new ViewTokens(config.masterKey)
+  const authenticator = new Authenticator(auth, keys, {
+    store: apiKeys,
+    viewTokens: viewTokens.verification,
+  })
   const source: PolicySource =
     options.policies !== undefined
       ? staticPolicies(options.policies)
@@ -408,7 +413,7 @@ export async function createCanopy(
     client: mongo,
     meta,
     audit,
-    secrets: new SecretBox(config.masterKey),
+    secrets: new SecretBox(config.masterKey, config.previousMasterKeys),
     environment: config.environment,
   })
   const adminTokens = new AdminTokens({ meta, accounts, audit })
@@ -438,6 +443,7 @@ export async function createCanopy(
               policies: engine,
             }),
           realtime,
+          viewTokens,
           ...(lag === undefined ? {} : { lag }),
           logger,
           ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),

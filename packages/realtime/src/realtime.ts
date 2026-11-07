@@ -984,6 +984,10 @@ export class Realtime {
       refuse(ErrorCode.Unavailable, "Mutations over the socket are not enabled on this server")
       return
     }
+    if (state.principal.readOnly === true) {
+      refuse(ErrorCode.Forbidden, "A view token may not write")
+      return
+    }
     if (state.pendingMutations >= this.limits.maxPendingMutations) {
       refuse(
         ErrorCode.RateLimited,
