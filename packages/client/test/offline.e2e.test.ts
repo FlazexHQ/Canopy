@@ -231,7 +231,13 @@ suite("offline queue and persistence", () => {
     const handle = stale[0]?.retry()
     expect(handle?.mutationId).not.toBe(retried)
     await handle
+    expect(client.staleMutations.map((entry) => entry.mutationId)).toEqual([dropped])
     stale[1]?.discard()
+    expect(client.staleMutations).toEqual([])
+    expect(reported.slice(1).map((list) => list.map((entry) => entry.mutationId))).toEqual([
+      [dropped],
+      [],
+    ])
     expect((await rows().findOne({ _id: 1 }))?.["n"]).toBe(1)
     await sleep(50)
     expect(await persist.entries("mutations")).toEqual([])

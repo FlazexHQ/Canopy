@@ -71,6 +71,8 @@ export interface CanopyErrorOptions {
   readonly cause?: unknown
 }
 
+const BRAND: unique symbol = Symbol.for("canopy.error")
+
 /**
  * The root of every error Canopy throws. `code` is stable and safe to branch on; `message` is for humans.
  */
@@ -83,6 +85,7 @@ export class CanopyError extends Error {
     this.name = "CanopyError"
     this.code = code
     this.details = options.details
+    Object.defineProperty(this, BRAND, { value: true })
   }
 
   /** The HTTP status used when this error is returned as Problem Details. */
@@ -115,6 +118,14 @@ export class ForbiddenError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions) {
     super(ErrorCode.Forbidden, message, options)
     this.name = "ForbiddenError"
+  }
+}
+
+/** Raised when a collection or document does not exist or is not visible to the caller. */
+export class NotFoundError extends CanopyError {
+  constructor(message: string, options?: CanopyErrorOptions) {
+    super(ErrorCode.NotFound, message, options)
+    this.name = "NotFoundError"
   }
 }
 
@@ -175,6 +186,8 @@ export function errorFromWire(error: WireError): CanopyError {
       return new UnauthorizedError(error.msg, {}, true)
     case ErrorCode.Forbidden:
       return new ForbiddenError(error.msg)
+    case ErrorCode.NotFound:
+      return new NotFoundError(error.msg)
     case ErrorCode.PolicyViolation:
       return new PolicyViolationError(error.msg)
     case ErrorCode.InvalidQuery:
@@ -190,6 +203,20 @@ export function errorFromWire(error: WireError): CanopyError {
     default:
       return new CanopyError(error.code, error.msg)
   }
+}
+
+/**
+ * Whether `error` is a {@link CanopyError}, optionally with a given code: `isCanopyError(e, "CANOPY_CONFLICT")`.
+ * It narrows `error.code` and works across duplicate copies of the package, where `instanceof` does not.
+ */
+export function isCanopyError<C extends ErrorCode = ErrorCode>(
+  error: unknown,
+  code?: C,
+): error is CanopyError & { readonly code: C } {
+  if (typeof error !== "object" || error === null) return false
+  if (!(error instanceof CanopyError) && (error as { [BRAND]?: unknown })[BRAND] !== true)
+    return false
+  return code === undefined || (error as { code?: unknown }).code === code
 }
 
 /** Converts any thrown value into a {@link CanopyError}, mapping unknown failures to `CANOPY_INTERNAL`. */
