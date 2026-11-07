@@ -13,6 +13,14 @@ export {
   type ApiKeysOptions,
 } from "./api-keys.ts"
 export {
+  type Actor,
+  type AuditEntry,
+  type AuditInput,
+  AuditLog,
+  type AuditQuery,
+  type RequestOrigin,
+} from "./audit.ts"
+export {
   type Canopy,
   type CreateCanopyOptions,
   createCanopy,
@@ -27,3 +35,15 @@ export {
   migrateMeta,
   migrationStatus,
 } from "./migrations.ts"
+export {
+  collectionName,
+  definitionFromInput,
+  type PolicyCheck,
+  type PolicyHistoryEntry,
+  type PolicyInput,
+  PolicyStore,
+  type PolicyStoreOptions,
+  type PublishInput,
+  type PublishResult,
+  policyInput,
+} from "./policy-store.ts"
