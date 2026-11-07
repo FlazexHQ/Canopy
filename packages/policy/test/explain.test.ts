@@ -10,6 +10,7 @@ import {
   explainContext,
   formatAccessReport,
   OPERATIONS,
+  onceVariableIssue,
   PolicyEngine,
   toFilter,
 } from "../src/index.ts"
@@ -209,5 +210,37 @@ describe("explainAccess", () => {
       ),
       { numRuns: 500 },
     )
+  })
+})
+
+describe("onceVariableIssue", () => {
+  it("reports each distinct issue once, without values, through the engine hook", () => {
+    const messages: string[] = []
+    const hooked = new PolicyEngine(createPolicySet([todos, coerced]), {
+      onVariableIssue: onceVariableIssue((message) => messages.push(message)),
+    })
+    const secret = explainContext({ claims: { sub: "SECRET_VALUE" }, now: NOW })
+    for (let i = 0; i < 3; i += 1) {
+      hooked.using("todos", "read", secret)
+      hooked.using("accounts", "read", secret)
+    }
+    expect(messages).toEqual([
+      'policy "read shared in my orgs" on todos did not match: claim org_ids is missing or null (fails closed)',
+      'policy "own account" on accounts did not match: claim sub cannot be converted to the requested type (fails closed)',
+    ])
+    expect(messages.join("\n")).not.toContain("SECRET_VALUE")
+  })
+
+  it("forgets old issues beyond the limit instead of growing", () => {
+    const messages: string[] = []
+    const hook = onceVariableIssue((message) => messages.push(message), 2)
+    const issue = (policy: string) =>
+      ({ collection: "c", policy, variable: "$auth:sub", kind: "missing" }) as const
+    hook(issue("a"))
+    hook(issue("b"))
+    hook(issue("a"))
+    hook(issue("c"))
+    hook(issue("a"))
+    expect(messages).toHaveLength(4)
   })
 })

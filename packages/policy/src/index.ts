@@ -50,6 +50,8 @@ export {
   explainAccess,
   explainContext,
   formatAccessReport,
+  onceVariableIssue,
+  type PolicyVariableIssue,
 } from "./explain.ts"
 export {
   canAccess,

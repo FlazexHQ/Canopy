@@ -195,3 +195,31 @@ export function explainContext(options: {
     now: options.now ?? new Date(),
   }
 }
+
+/** A variable issue together with the policy it made drop out, as {@link EngineHooks} reports it. */
+export type PolicyVariableIssue = VariableIssue & {
+  readonly collection: string
+  readonly policy: string
+}
+
+/**
+ * Builds an `onVariableIssue` hook for development servers that reports each distinct issue once: the
+ * collection, the policy, the variable and the kind of problem, never the claim or context value. At most
+ * `limit` distinct issues are remembered (default 1000), so a flood of new ones cannot grow memory.
+ */
+export function onceVariableIssue(
+  report: (message: string, issue: PolicyVariableIssue) => void,
+  limit = 1000,
+): (issue: PolicyVariableIssue) => void {
+  const seen = new Set<string>()
+  return (issue) => {
+    const key = `${issue.collection}\u0000${issue.policy}\u0000${issue.variable}\u0000${issue.kind}`
+    if (seen.has(key)) return
+    if (seen.size >= limit) seen.clear()
+    seen.add(key)
+    report(
+      `policy "${issue.policy}" on ${issue.collection} did not match: ${describeIssue(issue)}`,
+      issue,
+    )
+  }
+}

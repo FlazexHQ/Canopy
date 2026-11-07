@@ -84,6 +84,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
     resumeWindowMs: realtime.resumeWindowMs,
     nodeId: config.server.nodeId,
     logger,
+    logVariableIssues: config.environment === "development",
   }
 }
 

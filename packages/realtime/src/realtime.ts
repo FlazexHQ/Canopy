@@ -10,6 +10,7 @@ import {
   ContextResolver,
   deniedPaths,
   type FieldAccess,
+  onceVariableIssue,
   PolicyEngine,
   type PolicySet,
   projectReadable,
@@ -149,6 +150,11 @@ export interface RealtimeOptions {
   readonly authenticator?: Authenticator
   /** How many recent event traces {@link Realtime.trace} keeps. Defaults to 0 (tracing off). */
   readonly traceCapacity?: number
+  /**
+   * Logs a debug line the first time a policy drops out because of a variable issue, naming the policy, the
+   * variable and the kind of issue but never the value. For development; off by default.
+   */
+  readonly logVariableIssues?: boolean
 }
 
 /** A connection, for the realtime inspector. */
@@ -401,10 +407,24 @@ export class Realtime {
     return this.engine
   }
 
+  private readonly variableIssueLog = onceVariableIssue((message, issue) =>
+    this.logger.debug(
+      {
+        coll: issue.collection,
+        policy: issue.policy,
+        variable: issue.variable,
+        kind: issue.kind,
+      },
+      message,
+    ),
+  )
+
   private createEngine(set: PolicySet): PolicyEngine {
     return new PolicyEngine(set, {
-      onVariableIssue: (issue) =>
-        this.metrics.variableErrors.inc({ coll: issue.collection, kind: issue.kind }),
+      onVariableIssue: (issue) => {
+        this.metrics.variableErrors.inc({ coll: issue.collection, kind: issue.kind })
+        if (this.options.logVariableIssues === true) this.variableIssueLog(issue)
+      },
       onEvaluationError: (error, coll, op) => {
         this.metrics.denials.inc({ surface: "realtime", coll, op })
         this.logger.error({ err: error, coll, op }, "policy evaluation failed, denying")
