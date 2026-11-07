@@ -289,8 +289,10 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   })
 
   it("reloads the policy folder when a file changes", async () => {
-    await mkdir(join(PACKAGE, "node_modules", ".cache"), { recursive: true })
-    const policies = await mkdtemp(join(PACKAGE, "node_modules", ".cache", "canopy-policies-"))
+    // Inside the package so the policy file resolves @canopy/policy, but not under node_modules, where
+    // Deno caches modules by path and ignores the query that forces a fresh import on reload.
+    await mkdir(join(PACKAGE, "test", ".tmp"), { recursive: true })
+    const policies = await mkdtemp(join(PACKAGE, "test", ".tmp", "canopy-policies-"))
     const write = (roles: string) =>
       writeFile(
         join(policies, "notes.mjs"),
