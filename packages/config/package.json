@@ -1,0 +1,39 @@
+{
+  "name": "@canopy/config",
+  "version": "0.0.0",
+  "description": "The Canopy config file: defineConfig, env() markers, identity provider presets, and a loader that validates everything at once.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./load": {
+      "types": "./dist/load.d.ts",
+      "@canopy/source": "./src/load.ts",
+      "default": "./dist/load.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

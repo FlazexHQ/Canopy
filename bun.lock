@@ -128,6 +128,18 @@
         "vitest": "catalog:",
       },
     },
+    "packages/config": {
+      "name": "@canopy/config",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/matcher": {
       "name": "@canopy/matcher",
       "version": "0.0.0",
@@ -354,6 +366,7 @@
 
     "@canopy/example-todo-react": ["@canopy/example-todo-react@workspace:examples/todo-react"],
 
+    "@canopy/config": ["@canopy/config@workspace:packages/config"],
     "@canopy/matcher": ["@canopy/matcher@workspace:packages/matcher"],
 
     "@canopy/policy": ["@canopy/policy@workspace:packages/policy"],

@@ -23,6 +23,8 @@
     { "path": "packages/policy/test" },
     { "path": "packages/schema" },
     { "path": "packages/schema/test" },
+    { "path": "packages/config" },
+    { "path": "packages/config/test" },
     { "path": "packages/auth" },
     { "path": "packages/auth/test" },
     { "path": "packages/realtime" },
