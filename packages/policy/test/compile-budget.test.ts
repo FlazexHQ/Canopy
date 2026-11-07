@@ -47,7 +47,7 @@ function schema(dir: string): string {
     `interface Database {\n${Array.from({ length: COLLECTIONS }, (_, c) => `  c${c}: { Document: Doc${c}; Insert: Doc${c} }`).join("\n")}\n}`,
     `interface Claims { sub: string; org_ids: string[]; app_metadata: { tenant_id: string } }`,
     `const base = createPolicyKit<{ database: Database; claims: Claims; roles: "staff"; context: {} }>()`,
-    `const contexts = base.context({ ids: { from: "c0", where: { f0: base.auth("sub") }, select: "f2", max: 10, ttl: "PT1M" } })`,
+    `const contexts = base.context({ ids: { from: "c0", where: { f0: base.auth("sub") }, select: "f2", max: 10, ttl: "1m" } })`,
     `const { allow, restrict, auth, ctx, now, collection } = createPolicyKit<{ database: Database; claims: Claims; roles: "staff"; context: typeof contexts }>()`,
   )
   for (let c = 0; c < COLLECTIONS; c += 1) {

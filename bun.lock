@@ -95,6 +95,7 @@
       "dependencies": {
         "@canopy/config": "workspace:*",
         "@canopy/policy": "workspace:*",
+        "@canopy/protocol": "workspace:*",
         "@canopy/query": "workspace:*",
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",

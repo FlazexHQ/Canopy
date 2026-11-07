@@ -6,6 +6,7 @@ import {
   type Claim,
   type Ctx,
   collection,
+  context,
   createPolicyKit,
   ctx,
   now,
@@ -59,9 +60,9 @@ const contexts = base.context({
     where: { userId: base.auth("sub") },
     select: "projectId",
     max: 100,
-    ttl: "PT1M",
+    ttl: "1m",
   },
-  orgIds: { from: "memberships", where: {}, select: "orgIds", max: 100, ttl: "PT1M" },
+  orgIds: { from: "memberships", where: {}, select: "orgIds", max: 100, ttl: "1m" },
 })
 
 const kit = createPolicyKit<{
@@ -195,11 +196,15 @@ function checks(): void {
 
   context({
     // @ts-expect-error unknown collection in from
-    a: { from: "membership", where: {}, select: "projectId", max: 1, ttl: "PT1M" },
+    a: { from: "membership", where: {}, select: "projectId", max: 1, ttl: "1m" },
+  })
+  context({
+    // @ts-expect-error an ISO 8601 duration is not a ttl
+    a: { from: "memberships", where: {}, select: "projectId", max: 1, ttl: "PT1M" },
   })
   context({
     // @ts-expect-error unknown select field
-    a: { from: "memberships", where: {}, select: "project", max: 1, ttl: "PT1M" },
+    a: { from: "memberships", where: {}, select: "project", max: 1, ttl: "1m" },
   })
   context({
     // @ts-expect-error typo in a lookup's where clause
@@ -208,7 +213,7 @@ function checks(): void {
       where: { usrId: auth("sub") },
       select: "projectId",
       max: 1,
-      ttl: "PT1M",
+      ttl: "1m",
     },
   })
 }
@@ -226,6 +231,9 @@ function untypedChecks(): void {
     fields: { read: { default: { omit: ["whatever"] }, custom: { only: ["*"] } } },
     immutable: ["anything"],
   })
+  const ttl: string = String(untypedChecks.length)
+  context({ a: { from: "anything", where: { x: auth("y") }, select: "z", max: 1, ttl: "5m" } })
+  context({ b: { from: "anything", where: {}, select: "z", max: 1, ttl } })
 }
 
 describe("typed policies", () => {
@@ -301,9 +309,9 @@ describe("typed policies", () => {
         where: { userId: { $auth: "sub" } },
         select: "projectId",
         max: 100,
-        ttl: "PT1M",
+        ttl: "1m",
       },
-      orgIds: { from: "memberships", where: {}, select: "orgIds", max: 100, ttl: "PT1M" },
+      orgIds: { from: "memberships", where: {}, select: "orgIds", max: 100, ttl: "1m" },
     })
   })
 })

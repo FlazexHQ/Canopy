@@ -4,6 +4,7 @@ import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
 import { dev } from "./dev.ts"
+import { policiesExplain } from "./explain.ts"
 import { genTypes } from "./gen-types.ts"
 import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
@@ -19,6 +20,8 @@ Commands:
   doctor                 Check MongoDB, change streams, policies and indexes
   policies lint          Validate and lint the policy directory
   policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB
+  policies explain <collection>
+                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)
   gen types              Generate the Database types from validators, config and sampled documents
   config print           Print the resolved config with secrets masked
   realtime enable-images <collection...>
@@ -47,6 +50,11 @@ Options:
   --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)
   --mongo-image <image>  dev --with-mongo: the image (default ${DEFAULT_MONGO_IMAGE})
   --yes                  realtime, indexes create: apply without asking
+  --as <claims>          policies explain: the caller's claims as JSON (default: anon)
+  --roles <a,b>          policies explain: custom roles of the caller
+  --op <op>              policies explain: read, insert, update or delete (default read)
+  --filter <json>        policies explain: the caller's read filter
+  --ctx <json>           policies explain: context lookup values instead of resolving them
   --help                 Show this help`
 
 const GLOBAL_FLAGS = ["help", "config", "dir", "mongodb-uri", "database"]
@@ -54,6 +62,7 @@ const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
   doctor: [],
   "policies lint": [],
   "policies test": [],
+  "policies explain": ["as", "roles", "op", "filter", "ctx"],
   "gen types": ["out", "role", "check", "infer-enums", "sample"],
   "config print": ["sources"],
   init: [],
@@ -148,7 +157,11 @@ export async function run(
     return 1
   }
   const takesCollections = name.startsWith("realtime ")
-  if (rest.length > 0 && !takesCollections) {
+  if (name === "policies explain" && rest.length !== 1) {
+    out.error("policies explain needs exactly one collection")
+    return 1
+  }
+  if (rest.length > 0 && !takesCollections && name !== "policies explain") {
     out.error(`Unexpected argument ${rest.join(" ")} for ${name}`)
     return 1
   }
@@ -196,6 +209,31 @@ export async function run(
   if (name === "policies lint") return policiesLint({ dir }, out)
   if (name === "policies test")
     return policiesTest({ dir, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag }) }, out)
+  if (name === "policies explain") {
+    const bare = ["as", "roles", "op", "filter", "ctx"].find((flag) => flags.get(flag) === true)
+    if (bare !== undefined) {
+      out.error(`--${bare} needs a value`)
+      return 1
+    }
+    const explainOptions = ["as", "roles", "op", "filter", "ctx"].flatMap((flag) => {
+      const value = text(flags, flag)
+      return value === undefined ? [] : [[flag, value] as const]
+    })
+    return policiesExplain(
+      {
+        dir,
+        collection: rest[0] ?? "",
+        ...Object.fromEntries(explainOptions),
+        ...(uriFlag === undefined
+          ? {}
+          : {
+              mongodbUri: uriFlag,
+              database: text(flags, "database") ?? env["CANOPY_DB"] ?? databaseOf(uriFlag),
+            }),
+      },
+      out,
+    )
+  }
   if (uri === undefined) {
     out.error(`${name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`)
     return 1

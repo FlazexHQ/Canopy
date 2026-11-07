@@ -29,7 +29,7 @@ const contexts = context({
     where: { userId: auth("sub") },
     select: "projectId",
     max: 500,
-    ttl: "PT1M",
+    ttl: "1m",
   },
 })
 
@@ -98,7 +98,7 @@ describe("the Register declaration", () => {
       where: { userId: { $auth: "sub" } },
       select: "projectId",
       max: 500,
-      ttl: "PT1M",
+      ttl: "1m",
     })
   })
 })

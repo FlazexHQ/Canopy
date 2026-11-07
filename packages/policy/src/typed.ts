@@ -335,7 +335,18 @@ type LookupProblems<T extends PolicyTypes, L> = L extends {
       : `from: unknown collection '${F}'`
   : never
 
+type TtlProblem<L> = L extends { readonly ttl: infer D extends string }
+  ? string extends D
+    ? never
+    : D extends `${bigint}${"s" | "m" | "h" | "d"}`
+      ? never
+      : "ttl must look like 30s, 5m, 1h or 1d"
+  : never
+
 /** Turns invalid context lookups into an error type. */
 export type CheckLookups<T extends PolicyTypes, L> = {
-  readonly [N in keyof L]: Problem<"Invalid context lookup", LookupProblems<T, L[N]>>
+  readonly [N in keyof L]: Problem<
+    "Invalid context lookup",
+    LookupProblems<T, L[N]> | TtlProblem<L[N]>
+  >
 }
