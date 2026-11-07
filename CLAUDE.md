@@ -95,9 +95,11 @@ Engineering standards from `docs/plan/11-engineering.md` §5:
 bun install --frozen-lockfile
 bun run typecheck                          # tsc -b: root config files plus every referenced package
 bun run lint                               # biome check . (bunx biome ci . in CI)
+bun run lint:exports                       # knip: exports and types nothing imports
 bun run format                             # biome format --write .
 bun run test:all                           # vitest run over packages/* and apps/* (Node); bun --bun vitest run for Bun
 bun run test                               # turbo run test (per package, cached)
+bun run test:coverage                      # V8 coverage, with floors for matcher, query, policy and realtime
 bun run db:up                              # single node replica set from deploy/compose/dev.yaml on localhost:27017
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
@@ -111,8 +113,8 @@ CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test
 tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
 by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
-`tsc -b` and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
-sets on MongoDB 7.0 and 8.0; `nightly.yml` runs the long differential and simulation runs, the browser tests on
+`tsc -b`, Knip and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
+sets on MongoDB 7.0 and 8.0 (with V8 coverage and its floors on 8.0 under Node); `nightly.yml` runs the long differential and simulation runs, the browser tests on
 Windows and macOS, Linux arm64, Alpine (musl) and Deno. Actions are pinned to commit SHAs. Without Docker (the
 Windows and macOS runners), `bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder>` downloads
 the official binaries and starts a replica set on localhost:27017. MongoDB 8 does not start on Linux kernels

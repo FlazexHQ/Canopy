@@ -28,6 +28,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
       - run: bun run typecheck
+      - name: Unused exports
+        run: bun run lint:exports
       - name: Bundle size budgets
         run: bunx size-limit
       - run: bun --bun vitest run
@@ -138,8 +140,8 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Integration and differential tests (Node)
-        run: node node_modules/vitest/vitest.mjs run
+      - name: Integration and differential tests (Node, with coverage on MongoDB 8.0)
+        run: node node_modules/vitest/vitest.mjs run ${{ matrix.mongo == '8.0.34' && '--coverage --testTimeout=60000' || '' }}
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       - name: Integration and differential tests (Bun)
