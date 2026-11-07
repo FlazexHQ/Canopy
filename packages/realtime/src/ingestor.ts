@@ -198,38 +198,46 @@ export class Ingestor {
         await this.process(batch)
         this.token = stream.resumeToken
       } catch (error: unknown) {
-        if (!this.running) return
-        if (this.reopenRequested) {
-          this.reopenRequested = false
-          this.options.metrics.restarts.inc({ reason: "reopen" })
-          await this.open()
-          continue
-        }
-        const code = errorCode(error)
-        if (code !== undefined && HISTORY_LOST.has(code)) {
-          this.options.metrics.restarts.inc({ reason: "history_lost" })
-          this.options.logger.error(
-            { err: error },
-            "change stream history lost, restarting from now",
-          )
-          this.token = undefined
-          await this.open()
-          this.options.handlers.onRestart("history_lost")
-          continue
-        }
-        this.options.metrics.restarts.inc({ reason: "error" })
-        this.options.logger.warn({ err: error }, "change stream failed, reopening")
-        await new Promise((resolve) => setTimeout(resolve, 500))
         try {
-          await this.open()
-        } catch (reopenError: unknown) {
-          this.options.logger.error({ err: reopenError }, "change stream could not be reopened")
-          this.token = undefined
-          await new Promise((resolve) => setTimeout(resolve, 2000))
-          await this.open().catch(() => {})
-          this.options.handlers.onRestart("reopen_failed")
+          await this.recover(error)
+        } catch (recoverError: unknown) {
+          if (!this.running) return
+          this.options.logger.error({ err: recoverError }, "change stream could not be reopened")
+          await new Promise((resolve) => setTimeout(resolve, 1000))
         }
       }
+    }
+  }
+
+  /** Reopens the stream after `next()` failed: on request, after lost history, or after an error. */
+  private async recover(error: unknown): Promise<void> {
+    if (!this.running) return
+    if (this.reopenRequested) {
+      this.reopenRequested = false
+      this.options.metrics.restarts.inc({ reason: "reopen" })
+      await this.open()
+      return
+    }
+    const code = errorCode(error)
+    if (code !== undefined && HISTORY_LOST.has(code)) {
+      this.options.metrics.restarts.inc({ reason: "history_lost" })
+      this.options.logger.error({ err: error }, "change stream history lost, restarting from now")
+      this.token = undefined
+      await this.open()
+      this.options.handlers.onRestart("history_lost")
+      return
+    }
+    this.options.metrics.restarts.inc({ reason: "error" })
+    this.options.logger.warn({ err: error }, "change stream failed, reopening")
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    try {
+      await this.open()
+    } catch (reopenError: unknown) {
+      this.options.logger.error({ err: reopenError }, "change stream could not be reopened")
+      this.token = undefined
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await this.open().catch(() => {})
+      this.options.handlers.onRestart("reopen_failed")
     }
   }
 
