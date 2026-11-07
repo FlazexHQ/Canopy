@@ -54,6 +54,10 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
       "realtime is turned off in the config, so canopy-realtime has nothing to serve",
     )
   const auth = config.auth
+  if (auth?.kind === "builtin")
+    throw new TypeError(
+      'built in auth runs in the canopy server, not in canopy-realtime. To accept its tokens here, use external({ jwksUrl: `${publicUrl}/auth/v1/.well-known/jwks.json`, issuer: `${publicUrl}/auth/v1`, audience: publicUrl, rolesClaim: "roles" })',
+    )
   return {
     mongo: new MongoClient(config.mongodb.uri, { appName: "canopy-realtime" }),
     database: config.mongodb.database,

@@ -80,8 +80,146 @@ export interface SupabaseInput {
   readonly rolesClaim?: Value<string>
 }
 
+/** Delivery of auth emails through an SMTP relay. STARTTLS is required unless `requireTls` is false. */
+export interface SmtpTransportInput {
+  readonly kind: "smtp"
+  readonly host: Value<string>
+  /** @default 587, or 465 with `secure` */
+  readonly port?: Value<number>
+  /** Implicit TLS (port 465). */
+  readonly secure?: Value<boolean>
+  /** @default true */
+  readonly requireTls?: Value<boolean>
+  readonly user?: Value<string>
+  readonly pass?: Value<string>
+}
+
+/** Delivery through Resend. */
+export interface ResendTransportInput {
+  readonly kind: "resend"
+  readonly apiKey: Value<string>
+}
+
+/** Delivery through Postmark. */
+export interface PostmarkTransportInput {
+  readonly kind: "postmark"
+  readonly serverToken: Value<string>
+  /** @default "outbound" */
+  readonly messageStream?: Value<string>
+}
+
+/** Delivery through Amazon SES (the v2 `SendEmail` API). */
+export interface SesTransportInput {
+  readonly kind: "ses"
+  readonly region: Value<string>
+  readonly accessKeyId: Value<string>
+  readonly secretAccessKey: Value<string>
+  readonly sessionToken?: Value<string>
+}
+
+/** Writes emails, links included, to the log. Development only. */
+export interface LogTransportInput {
+  readonly kind: "log"
+}
+
+/** How built in auth sends email. */
+export type EmailTransportInput =
+  | SmtpTransportInput
+  | ResendTransportInput
+  | PostmarkTransportInput
+  | SesTransportInput
+  | LogTransportInput
+
+/** Client credentials of a named OAuth provider. */
+export interface OAuthClientInput {
+  readonly clientId: Value<string>
+  readonly clientSecret: Value<string>
+}
+
+/** A generic OpenID Connect provider, found through its discovery document. */
+export interface OidcProviderInput {
+  /** Used in `/auth/v1/sign-in/social` and the callback path. Lower case letters, digits, `_` and `-`. */
+  readonly id: string
+  readonly discoveryUrl: Value<string>
+  readonly clientId: Value<string>
+  readonly clientSecret: Value<string>
+  /** @default ["openid", "email", "profile"] */
+  readonly scopes?: readonly string[]
+}
+
+/**
+ * A claims hook as the config stores it. `@canopy/server` exports `builtin()` with the hook fully typed
+ * (it receives the user, the session and the app database); import it from there.
+ */
+export type ClaimsHookFunction = (input: never) => unknown
+
+/** Canopy issues the user tokens itself (users live in the `canopy_auth` database). */
+export interface BuiltinAuthInput<Hook extends ClaimsHookFunction = ClaimsHookFunction> {
+  readonly kind: "builtin"
+  /** Signs cookies and encrypts signing keys, at least 32 characters. @default the master key */
+  readonly secret?: Value<string>
+  /** 5 to 60 minutes. @default "10m" */
+  readonly accessTokenTtl?: Value<number | string>
+  /** @default "EdDSA" */
+  readonly algorithm?: Value<"EdDSA" | "ES256">
+  readonly keyRotation?: {
+    /** How long a key signs. @default "30d" */
+    readonly interval?: Value<number | string>
+    /** How long a retired key keeps verifying. @default "30d" */
+    readonly grace?: Value<number | string>
+  }
+  /** Origins that redirects, OAuth callbacks and cross origin calls may use. @default the CORS origins */
+  readonly redirectUrls?: Value<readonly string[]>
+  /** `false` turns email and password sign in off. @default true */
+  readonly emailPassword?:
+    | boolean
+    | {
+        /** At least 10. @default 10 */
+        readonly minPasswordLength?: Value<number>
+        /** @default true */
+        readonly requireEmailVerification?: Value<boolean>
+      }
+  /** @default true */
+  readonly magicLink?: Value<boolean>
+  /** @default true */
+  readonly emailOtp?: Value<boolean>
+  /** @default false */
+  readonly anonymous?: Value<boolean>
+  readonly providers?: {
+    readonly google?: OAuthClientInput
+    readonly github?: OAuthClientInput
+    readonly apple?: OAuthClientInput
+    readonly microsoft?: OAuthClientInput & { readonly tenantId?: Value<string> }
+    readonly discord?: OAuthClientInput
+  }
+  readonly oidc?: readonly OidcProviderInput[]
+  /** Runs when a token is minted; must finish within 200 ms. */
+  readonly claims?: Hook
+  /** Required in production. In development, emails are written to the log when it is left out. */
+  readonly email?: { readonly from: Value<string>; readonly transport: EmailTransportInput }
+  /** Proxies (addresses or IPv4 CIDR ranges) whose `X-Forwarded-For` is trusted. */
+  readonly trustedProxies?: Value<readonly string[]>
+  /** Attempts per email address and route. @default { max: 10, window: "1m" } */
+  readonly identifierLimit?: {
+    readonly max?: Value<number>
+    readonly window?: Value<number | string>
+  }
+  readonly session?: {
+    /** @default "7d" */
+    readonly expiresIn?: Value<number | string>
+    /** @default "1d" */
+    readonly updateAge?: Value<number | string>
+  }
+}
+
 /** Where user tokens come from. */
-export type AuthInput = ExternalAuthInput | Auth0Input | ClerkInput | FirebaseInput | SupabaseInput
+export type AuthInput =
+  | ExternalAuthInput
+  | Auth0Input
+  | ClerkInput
+  | FirebaseInput
+  | SupabaseInput
+  | BuiltinAuthInput
 
 /** Policies from a directory of files, or from the `canopy` meta database. */
 export type PoliciesInput =
@@ -183,6 +321,7 @@ export function defineConfig(
 
 /** Verified JWTs from an identity provider, ready for the authenticator. */
 export interface ResolvedExternalAuth {
+  readonly kind?: "external"
   readonly jwksUrl?: string
   readonly jwks?: { readonly keys: readonly Readonly<Record<string, unknown>>[] }
   readonly issuer: string
@@ -191,6 +330,63 @@ export interface ResolvedExternalAuth {
   readonly rolesClaim?: string
   readonly allowServiceRoleFromJwt?: boolean
   readonly clockToleranceSeconds?: number
+}
+
+/** How resolved built in auth sends email. */
+export type ResolvedEmailTransport =
+  | {
+      readonly kind: "smtp"
+      readonly host: string
+      readonly port?: number
+      readonly secure?: boolean
+      readonly requireTls?: boolean
+      readonly user?: string
+      readonly pass?: string
+    }
+  | { readonly kind: "resend"; readonly apiKey: string }
+  | { readonly kind: "postmark"; readonly serverToken: string; readonly messageStream?: string }
+  | {
+      readonly kind: "ses"
+      readonly region: string
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly sessionToken?: string
+    }
+  | { readonly kind: "log" }
+
+/** Built in auth with every default applied. */
+export interface ResolvedBuiltinAuth {
+  readonly kind: "builtin"
+  /** `undefined` in development without a secret or master key; the server then makes one per process. */
+  readonly secret: string | undefined
+  readonly accessTokenTtlSeconds: number
+  readonly algorithm: "EdDSA" | "ES256"
+  readonly keyRotation: { readonly intervalSeconds: number; readonly graceSeconds: number }
+  readonly redirectUrls: readonly string[]
+  readonly emailPassword:
+    | false
+    | { readonly minPasswordLength: number; readonly requireEmailVerification: boolean }
+  readonly magicLink: boolean
+  readonly emailOtp: boolean
+  readonly anonymous: boolean
+  readonly providers: Readonly<
+    Record<
+      string,
+      { readonly clientId: string; readonly clientSecret: string; readonly tenantId?: string }
+    >
+  >
+  readonly oidc: readonly {
+    readonly id: string
+    readonly discoveryUrl: string
+    readonly clientId: string
+    readonly clientSecret: string
+    readonly scopes?: readonly string[]
+  }[]
+  readonly claims: ClaimsHookFunction | undefined
+  readonly email: { readonly from: string; readonly transport: ResolvedEmailTransport }
+  readonly trustedProxies: readonly string[]
+  readonly identifierLimit: { readonly max: number; readonly windowSeconds: number }
+  readonly session: { readonly expiresInSeconds: number; readonly updateAgeSeconds: number }
 }
 
 /** A validated config with every default applied. */
@@ -206,7 +402,7 @@ export interface ResolvedConfig {
   }
   readonly publicUrl: string | undefined
   readonly masterKey: string | undefined
-  readonly auth: ResolvedExternalAuth | undefined
+  readonly auth: ResolvedExternalAuth | ResolvedBuiltinAuth | undefined
   readonly keys: { readonly publishable: readonly string[]; readonly secret: readonly string[] }
   readonly policies:
     | { readonly dir: string; readonly watch: boolean }

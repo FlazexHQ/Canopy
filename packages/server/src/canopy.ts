@@ -122,6 +122,8 @@ export interface Canopy extends AsyncDisposable {
 function jwtOptions(config: ResolvedConfig): JwtAuthOptions | undefined {
   const auth = config.auth
   if (auth === undefined) return undefined
+  if (auth.kind === "builtin")
+    throw new TypeError("built in auth is not available in this build yet")
   return {
     issuer: auth.issuer,
     audience: auth.audience,

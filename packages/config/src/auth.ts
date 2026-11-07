@@ -1,8 +1,15 @@
 import type {
   Auth0Input,
+  BuiltinAuthInput,
+  ClaimsHookFunction,
   ClerkInput,
   ExternalAuthInput,
   FirebaseInput,
+  LogTransportInput,
+  PostmarkTransportInput,
+  ResendTransportInput,
+  SesTransportInput,
+  SmtpTransportInput,
   SupabaseInput,
 } from "./types.ts"
 
@@ -37,3 +44,29 @@ export const external: {
     }),
   },
 )
+
+/**
+ * Built in auth: Canopy stores users in `canopy_auth` and issues EdDSA access tokens. Import `builtin` from
+ * `@canopy/server` for a claims hook typed with the app database.
+ */
+export function builtin<Hook extends ClaimsHookFunction = ClaimsHookFunction>(
+  options: Without<BuiltinAuthInput<Hook>> = {},
+): BuiltinAuthInput<Hook> {
+  return { kind: "builtin", ...options }
+}
+
+/** Email delivery for built in auth. */
+export const email: {
+  smtp(options: Without<SmtpTransportInput>): SmtpTransportInput
+  resend(options: Without<ResendTransportInput>): ResendTransportInput
+  postmark(options: Without<PostmarkTransportInput>): PostmarkTransportInput
+  ses(options: Without<SesTransportInput>): SesTransportInput
+  /** Writes emails to the log; refused in production. */
+  log(): LogTransportInput
+} = {
+  smtp: (options) => ({ kind: "smtp", ...options }),
+  resend: (options) => ({ kind: "resend", ...options }),
+  postmark: (options) => ({ kind: "postmark", ...options }),
+  ses: (options) => ({ kind: "ses", ...options }),
+  log: () => ({ kind: "log" }),
+}

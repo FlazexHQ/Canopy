@@ -92,7 +92,7 @@ function summary(
     )
   }
   lines.push(
-    `  Auth      ${config.auth === undefined ? "API keys only (no identity provider configured)" : config.auth.issuer}`,
+    `  Auth      ${config.auth === undefined ? "API keys only (no identity provider configured)" : config.auth.kind === "builtin" ? "built in (users in the auth database)" : config.auth.issuer}`,
   )
   lines.push(
     `  Policies  ${set.collections.size} collections, ${policies} policies from ${source}, ${errors} lint errors`,

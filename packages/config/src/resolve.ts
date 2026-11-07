@@ -6,7 +6,9 @@ import type {
   FullDocumentMode,
   IdType,
   LogLevel,
+  ResolvedBuiltinAuth,
   ResolvedConfig,
+  ResolvedEmailTransport,
   ResolvedExternalAuth,
   Transport,
 } from "./types.ts"
@@ -98,6 +100,13 @@ type Spec =
   | { readonly t: "origins" }
   | { readonly t: "auth" }
   | { readonly t: "policies" }
+  | { readonly t: "function" }
+  | { readonly t: "objects"; readonly of: Spec }
+  | {
+      readonly t: "tagged"
+      readonly kinds: Readonly<Record<string, Readonly<Record<string, Spec>>>>
+      readonly hint: string
+    }
 
 const str: Spec = { t: "string" }
 const url: Spec = { t: "url" }
@@ -114,7 +123,55 @@ const TRANSPORTS = ["websocket", "sse", "long-poll"] as const
 const ID_TYPES = ["auto", "objectId", "string", "uuid", "number"] as const
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const
 
+const OAUTH_CLIENT = { clientId: str, clientSecret: str }
+
+const EMAIL_TRANSPORTS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
+  smtp: { kind: str, host: str, port: int, secure: bool, requireTls: bool, user: str, pass: str },
+  resend: { kind: str, apiKey: str },
+  postmark: { kind: str, serverToken: str, messageStream: str },
+  ses: { kind: str, region: str, accessKeyId: str, secretAccessKey: str, sessionToken: str },
+  log: { kind: str },
+}
+
 const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
+  builtin: {
+    kind: str,
+    secret: str,
+    accessTokenTtl: duration,
+    algorithm: oneOf("EdDSA", "ES256"),
+    keyRotation: obj({ interval: duration, grace: duration }),
+    redirectUrls: list,
+    emailPassword: {
+      t: "toggle",
+      of: obj({ minPasswordLength: int, requireEmailVerification: bool }),
+    },
+    magicLink: bool,
+    emailOtp: bool,
+    anonymous: bool,
+    providers: obj({
+      google: obj(OAUTH_CLIENT),
+      github: obj(OAUTH_CLIENT),
+      apple: obj(OAUTH_CLIENT),
+      microsoft: obj({ ...OAUTH_CLIENT, tenantId: str }),
+      discord: obj(OAUTH_CLIENT),
+    }),
+    oidc: {
+      t: "objects",
+      of: obj({ id: str, discoveryUrl: url, clientId: str, clientSecret: str, scopes: list }),
+    },
+    claims: { t: "function" },
+    email: obj({
+      from: str,
+      transport: {
+        t: "tagged",
+        kinds: EMAIL_TRANSPORTS,
+        hint: "Use email.smtp(), email.resend(), email.postmark(), email.ses() or email.log().",
+      },
+    }),
+    trustedProxies: list,
+    identifierLimit: obj({ max: int, window: duration }),
+    session: obj({ expiresIn: duration, updateAge: duration }),
+  },
   external: {
     kind: str,
     jwksUrl: url,
@@ -391,6 +448,8 @@ class Resolver {
           : wrong('"*" or a list of origins')
       case "raw":
         return isPlainObject(value) ? value : wrong("an object")
+      case "function":
+        return typeof value === "function" ? value : wrong("a function")
       default:
         return wrong("a value")
     }
@@ -399,7 +458,15 @@ class Resolver {
   /** Walks the config file against the spec, resolving `env()` markers. */
   walk(spec: Spec, value: unknown, path: string): unknown {
     if (isEnvMarker(value)) {
-      if (spec.t === "object" || spec.t === "record" || spec.t === "auth" || spec.t === "policies")
+      if (
+        spec.t === "object" ||
+        spec.t === "record" ||
+        spec.t === "auth" ||
+        spec.t === "policies" ||
+        spec.t === "objects" ||
+        spec.t === "tagged" ||
+        spec.t === "function"
+      )
         return this.checkLiteral(spec, value, path)
       const text = this.options.env[value.name]
       if (value.secret) this.secrets.add(path)
@@ -450,11 +517,33 @@ class Resolver {
         if (fields === undefined) {
           this.problem(
             `${path}.kind`,
-            `Received ${describe(kind)}.\nUse external(), external.auth0(), external.clerk(), external.firebase() or external.supabase().`,
+            `Received ${describe(kind)}.\nUse builtin(), external(), external.auth0(), external.clerk(), external.firebase() or external.supabase().`,
           )
           return undefined
         }
         return this.walkObject(fields, value, path)
+      }
+      case "tagged": {
+        if (!isPlainObject(value)) return this.checkLiteral({ t: "raw" }, value, path)
+        const kind = value["kind"]
+        const fields = typeof kind === "string" ? spec.kinds[kind] : undefined
+        if (fields === undefined) {
+          this.problem(`${path}.kind`, `Received ${describe(kind)}.\n${spec.hint}`)
+          return undefined
+        }
+        return this.walkObject(fields, value, path)
+      }
+      case "objects": {
+        if (!Array.isArray(value)) {
+          this.problem(path, `Received ${describe(value)}.\nExpected a list.`)
+          return undefined
+        }
+        return value.map((item, index) => this.walk(spec.of, item, `${path}.${index}`))
+      }
+      case "function": {
+        const checked = this.checkLiteral(spec, value, path)
+        if (checked !== undefined) this.sources.set(path, { kind: "file" })
+        return checked
       }
       case "policies": {
         if (!isPlainObject(value)) return this.checkLiteral({ t: "raw" }, value, path)
@@ -718,9 +807,9 @@ function normalize(
       )
   }
 
-  let auth: ResolvedExternalAuth | undefined
+  let auth: ResolvedExternalAuth | ResolvedBuiltinAuth | undefined
   const rawAuth = tree["auth"]
-  if (isPlainObject(rawAuth)) {
+  if (isPlainObject(rawAuth) && rawAuth["kind"] !== "builtin") {
     const issuer = rawAuth["issuer"]
     const audience = rawAuth["audience"]
     const jwksUrl = rawAuth["jwksUrl"]
@@ -829,6 +918,15 @@ function normalize(
       'Any origin ("*") is refused in production. List the allowed origins.',
     )
 
+  if (isPlainObject(rawAuth) && rawAuth["kind"] === "builtin")
+    auth = normalizeBuiltin(resolver, rawAuth, {
+      production,
+      publicUrl,
+      masterKey: get(tree, "masterKey") as string | undefined,
+      cors,
+      defaulted,
+    })
+
   const port = (path: string, fallback: number): number => {
     const value = defaulted(path, fallback) as number
     if (value < 0 || value > 65_535)
@@ -885,6 +983,227 @@ function normalize(
   }
 }
 
+const EXTERNAL_ONLY = [
+  "jwksUrl",
+  "jwks",
+  "issuer",
+  "audience",
+  "algorithms",
+  "rolesClaim",
+  "allowServiceRoleFromJwt",
+  "clockToleranceSeconds",
+]
+const MINUTE = 60_000
+const DAY = 86_400_000
+const PROVIDER_IDS = ["google", "github", "apple", "microsoft", "discord"]
+
+function isHttps(value: string): boolean {
+  const parsed = new URL(value)
+  return parsed.protocol === "https:" || isLocalHost(parsed.hostname)
+}
+
+/** Validates built in auth and applies its defaults. Durations arrive in milliseconds. */
+function normalizeBuiltin(
+  resolver: Resolver,
+  raw: Record<string, unknown>,
+  context: {
+    readonly production: boolean
+    readonly publicUrl: string | undefined
+    readonly masterKey: string | undefined
+    readonly cors: ResolvedConfig["cors"]
+    readonly defaulted: (path: string, value: unknown) => unknown
+  },
+): ResolvedBuiltinAuth {
+  const { production, defaulted } = context
+  for (const key of EXTERNAL_ONLY)
+    if (raw[key] !== undefined)
+      resolver.problem(
+        `auth.${key}`,
+        "Applies to external identity providers only; built in auth issues its own tokens.\nRemove it (or the CANOPY_JWT_* variable that sets it).",
+      )
+  resolver.secrets.add("auth.secret")
+  const secret = (raw["secret"] as string | undefined) ?? context.masterKey
+  if (secret !== undefined && secret.length < 32)
+    resolver.problem("auth.secret", "The auth secret needs at least 32 characters.")
+  if (secret === undefined && production)
+    resolver.problem(
+      "auth.secret",
+      "Built in auth needs a secret: set CANOPY_MASTER_KEY or auth.secret.",
+      true,
+    )
+  if (context.publicUrl === undefined && production)
+    resolver.problem(
+      "publicUrl",
+      "Built in auth needs the external URL for token issuers and links (CANOPY_PUBLIC_URL).",
+      true,
+    )
+  else if (context.publicUrl !== undefined && production && !isHttps(context.publicUrl))
+    resolver.problem("publicUrl", "Built in auth needs an https public URL in production.")
+
+  const ttl = defaulted("auth.accessTokenTtl", 10 * MINUTE) as number
+  if (ttl < 5 * MINUTE || ttl > 60 * MINUTE)
+    resolver.problem("auth.accessTokenTtl", "Access tokens live between 5 and 60 minutes.")
+  const interval = defaulted("auth.keyRotation.interval", 30 * DAY) as number
+  const grace = defaulted("auth.keyRotation.grace", 30 * DAY) as number
+  if (interval < 60 * MINUTE)
+    resolver.problem("auth.keyRotation.interval", "Keys sign for at least an hour.")
+  if (grace < ttl)
+    resolver.problem(
+      "auth.keyRotation.grace",
+      "The grace period must cover the access token lifetime, or tokens stop verifying early.",
+    )
+
+  const corsOrigins =
+    context.cors !== undefined && context.cors.origins !== "*" ? context.cors.origins : []
+  const redirectUrls = (raw["redirectUrls"] as string[] | undefined) ?? [...corsOrigins]
+  for (const entry of redirectUrls) {
+    if (!URL.canParse(entry) || !/^https?:$/.test(new URL(entry).protocol))
+      resolver.problem("auth.redirectUrls", `${JSON.stringify(entry)} is not an http(s) URL.`)
+    else if (production && !isHttps(entry))
+      resolver.problem(
+        "auth.redirectUrls",
+        `${JSON.stringify(entry)} must use https in production.`,
+      )
+  }
+
+  const rawPassword = raw["emailPassword"]
+  let emailPassword: ResolvedBuiltinAuth["emailPassword"] = false
+  if (rawPassword !== false) {
+    const minPasswordLength = defaulted("auth.emailPassword.minPasswordLength", 10) as number
+    if (minPasswordLength < 10 || minPasswordLength > 128)
+      resolver.problem("auth.emailPassword.minPasswordLength", "Use 10 to 128 characters.")
+    emailPassword = {
+      minPasswordLength,
+      requireEmailVerification: defaulted(
+        "auth.emailPassword.requireEmailVerification",
+        true,
+      ) as boolean,
+    }
+  }
+
+  const providers: Record<string, { clientId: string; clientSecret: string; tenantId?: string }> =
+    {}
+  const rawProviders = raw["providers"]
+  if (isPlainObject(rawProviders)) {
+    for (const id of PROVIDER_IDS) {
+      const provider = rawProviders[id]
+      if (!isPlainObject(provider)) continue
+      resolver.secrets.add(`auth.providers.${id}.clientSecret`)
+      const clientId = provider["clientId"]
+      const clientSecret = provider["clientSecret"]
+      if (typeof clientId !== "string" || typeof clientSecret !== "string") {
+        resolver.problem(`auth.providers.${id}`, "Set clientId and clientSecret.", true)
+        continue
+      }
+      providers[id] = {
+        clientId,
+        clientSecret,
+        ...(typeof provider["tenantId"] === "string" ? { tenantId: provider["tenantId"] } : {}),
+      }
+    }
+  }
+
+  const oidc: ResolvedBuiltinAuth["oidc"][number][] = []
+  const rawOidc = raw["oidc"]
+  const ids = new Set<string>(PROVIDER_IDS)
+  if (Array.isArray(rawOidc)) {
+    rawOidc.forEach((item: unknown, index) => {
+      const path = `auth.oidc.${index}`
+      resolver.secrets.add(`${path}.clientSecret`)
+      if (!isPlainObject(item)) return
+      const { id, discoveryUrl, clientId, clientSecret, scopes } = item
+      if (typeof id !== "string" || !/^[a-z0-9][a-z0-9_-]*$/.test(id)) {
+        resolver.problem(`${path}.id`, "Use lower case letters, digits, _ and -.")
+        return
+      }
+      if (ids.has(id)) {
+        resolver.problem(`${path}.id`, `The provider id ${JSON.stringify(id)} is used twice.`)
+        return
+      }
+      ids.add(id)
+      if (
+        typeof discoveryUrl !== "string" ||
+        typeof clientId !== "string" ||
+        typeof clientSecret !== "string"
+      ) {
+        resolver.problem(path, "Set discoveryUrl, clientId and clientSecret.", true)
+        return
+      }
+      if (production && !isHttps(discoveryUrl))
+        resolver.problem(`${path}.discoveryUrl`, "Use https in production.")
+      oidc.push({
+        id,
+        discoveryUrl,
+        clientId,
+        clientSecret,
+        ...(Array.isArray(scopes) ? { scopes: scopes as string[] } : {}),
+      })
+    })
+  }
+
+  let email: ResolvedBuiltinAuth["email"] = {
+    from: "Canopy <auth@localhost>",
+    transport: { kind: "log" },
+  }
+  const rawEmail = raw["email"]
+  for (const key of ["pass", "apiKey", "serverToken", "secretAccessKey", "sessionToken"])
+    resolver.secrets.add(`auth.email.transport.${key}`)
+  if (isPlainObject(rawEmail)) {
+    const transport = rawEmail["transport"]
+    if (typeof rawEmail["from"] !== "string")
+      resolver.problem("auth.email.from", "Set the sender address.", true)
+    if (!isPlainObject(transport)) {
+      if (!resolver.problems.some((problem) => problem.path.startsWith("auth.email.transport")))
+        resolver.problem("auth.email.transport", "Set a transport such as email.resend().", true)
+    } else {
+      if (transport["kind"] === "log" && production)
+        resolver.problem("auth.email.transport", "email.log() is refused in production.")
+      email = {
+        from: typeof rawEmail["from"] === "string" ? rawEmail["from"] : email.from,
+        transport: transport as unknown as ResolvedEmailTransport,
+      }
+    }
+  } else if (production) {
+    resolver.problem(
+      "auth.email",
+      "Built in auth sends verification, reset and sign in emails; configure auth.email.",
+      true,
+    )
+  }
+
+  const claims = raw["claims"]
+  return {
+    kind: "builtin",
+    secret,
+    accessTokenTtlSeconds: Math.round(ttl / 1000),
+    algorithm: defaulted("auth.algorithm", "EdDSA") as "EdDSA" | "ES256",
+    keyRotation: {
+      intervalSeconds: Math.round(interval / 1000),
+      graceSeconds: Math.round(grace / 1000),
+    },
+    redirectUrls,
+    emailPassword,
+    magicLink: defaulted("auth.magicLink", true) as boolean,
+    emailOtp: defaulted("auth.emailOtp", true) as boolean,
+    anonymous: defaulted("auth.anonymous", false) as boolean,
+    providers,
+    oidc,
+    claims: typeof claims === "function" ? (claims as ResolvedBuiltinAuth["claims"]) : undefined,
+    email,
+    trustedProxies: (defaulted("auth.trustedProxies", []) as string[]) ?? [],
+    identifierLimit: {
+      max: defaulted("auth.identifierLimit.max", 10) as number,
+      windowSeconds: Math.round(
+        (defaulted("auth.identifierLimit.window", MINUTE) as number) / 1000,
+      ),
+    },
+    session: {
+      expiresInSeconds: Math.round((defaulted("auth.session.expiresIn", 7 * DAY) as number) / 1000),
+      updateAgeSeconds: Math.round((defaulted("auth.session.updateAge", DAY) as number) / 1000),
+    },
+  }
+}
+
 /** Joins a possibly relative POSIX or Windows path onto a base directory, without `node:path`. */
 export function joinPath(base: string, path: string): string {
   if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return path
@@ -913,6 +1232,10 @@ export function formatConfig(
 ): string {
   const lines: string[] = []
   const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value) && value.length > 0 && value.every(isPlainObject)) {
+      for (const [index, item] of value.entries()) visit(item, `${path}.${index}`)
+      return
+    }
     if (isPlainObject(value) && !(path === "auth.jwks")) {
       const entries = Object.entries(value).filter(([, item]) => item !== undefined)
       if (entries.length === 0 && path !== "") lines.push(`${path} = {}`)
@@ -926,6 +1249,7 @@ export function formatConfig(
       [...resolution.secrets].some((secret) => path.startsWith(`${secret}.`))
     )
       shown = Array.isArray(value) ? `[${value.map(() => '"••••"').join(", ")}]` : '"••••"'
+    else if (typeof value === "function") shown = "[function]"
     else if (path === "mongodb.uri" && typeof value === "string")
       shown = JSON.stringify(redactUri(value))
     else shown = JSON.stringify(value)
@@ -945,6 +1269,7 @@ function sourceOf(sources: ReadonlyMap<string, Source>, path: string): string {
   const key = [
     path,
     path.replace(/Ms$/, ""),
+    path.replace(/Seconds$/, ""),
     path.replace(/^rest\.mutationTtlMs$/, "rest.mutationTtl"),
   ].find((candidate) => sources.has(candidate))
   const source = key === undefined ? undefined : sources.get(key)
