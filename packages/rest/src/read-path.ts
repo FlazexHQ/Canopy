@@ -472,22 +472,43 @@ export class ReadPath {
     })
   }
 
+  private async currentClusterTime(): Promise<ClusterTime | undefined> {
+    const session = this.client.startSession()
+    try {
+      await this.db.command({ ping: 1 }, { session })
+      return toCt(session.operationTime)
+    } finally {
+      await session.endSession()
+    }
+  }
+
   private async inSnapshot<T extends object>(
     service: boolean,
     read: (session: ClientSession) => Promise<T>,
   ): Promise<T & { readonly ct: ClusterTime }> {
-    const session = this.client.startSession({ snapshot: true })
+    const attempt = async (): Promise<{ result: T; ct: ClusterTime | undefined }> => {
+      const session = this.client.startSession({ snapshot: true })
+      try {
+        const result = await read(session)
+        const internal = session as unknown as { snapshotTime?: unknown }
+        return { result, ct: toCt(internal.snapshotTime) ?? toCt(session.operationTime) }
+      } finally {
+        await session.endSession()
+      }
+    }
     try {
-      const result = await read(session)
-      const internal = session as unknown as { snapshotTime?: unknown }
-      const ct = toCt(internal.snapshotTime) ?? toCt(session.operationTime)
+      const first = await attempt()
+      if (first.ct !== undefined) return { ...first.result, ct: first.ct }
+      // A read of a collection that does not exist yet carries no snapshot time. Take a cluster time T
+      // first, then read again: a result still without a snapshot time is empty as of T.
+      const before = await this.currentClusterTime()
+      const second = await attempt()
+      const ct = second.ct ?? before
       if (ct === undefined)
         throw new CanopyError(ErrorCode.Internal, "The read has no cluster time")
-      return { ...result, ct }
+      return { ...second.result, ct }
     } catch (error: unknown) {
       throw fromDriverError(error, service)
-    } finally {
-      await session.endSession()
     }
   }
 }
