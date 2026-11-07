@@ -115,6 +115,11 @@ export abstract class Observer {
     return this.state === "live" && !this.refreshing && this.buffered.length === 0
   }
 
+  /** Whether the observer is waiting to start, loading its snapshot, live, or failed. */
+  get status(): "idle" | "loading" | "live" | "failed" {
+    return this.state
+  }
+
   /** The number of attached subscriptions. */
   get size(): number {
     return this.listeners.size + this.waiting.size

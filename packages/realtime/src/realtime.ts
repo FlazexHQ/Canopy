@@ -53,6 +53,7 @@ import {
   type ObservedQuery,
   type Observer,
   type ObserverLimits,
+  type ObserverType,
   PollingObserver,
   WindowObserver,
 } from "./observers.ts"
@@ -141,6 +142,95 @@ export interface RealtimeOptions {
   readonly contexts?: ContextResolver
   /** How long to wait before retrying a context lookup that failed with an error or a timeout. Defaults to 5 s. */
   readonly contextRetryMs?: number
+  /**
+   * Verifies `hello` credentials. Pass the server's authenticator to share its key store; otherwise one is
+   * built from `auth` and `keys`.
+   */
+  readonly authenticator?: Authenticator
+  /** How many recent event traces {@link Realtime.trace} keeps. Defaults to 0 (tracing off). */
+  readonly traceCapacity?: number
+}
+
+/** A connection, for the realtime inspector. */
+export interface ConnectionInfo {
+  readonly sid: string
+  readonly subject: string
+  readonly roles: readonly string[]
+  /** The stored API key the connection authenticated with. */
+  readonly keyId: string | undefined
+  /** False while the session waits for the client to resume. */
+  readonly connected: boolean
+  readonly openedAt: Date
+  readonly tokenExpiresAt: Date | undefined
+  readonly subscriptions: readonly {
+    readonly id: string
+    readonly coll: string
+    readonly observer: string
+  }[]
+  /** Documents held for the client. */
+  readonly documents: number
+  readonly queuedBytes: number
+  readonly lastSeq: number
+}
+
+/** A shared observer, for the realtime inspector. */
+export interface ObserverInfo {
+  readonly key: string
+  readonly coll: string
+  readonly type: ObserverType
+  readonly status: Observer["status"]
+  readonly subscribers: number
+  /** The effective filter: the subscription's filter and the read policies. */
+  readonly filter: Record<string, unknown>
+  readonly sort: Readonly<Record<string, 1 | -1>> | undefined
+  readonly limit: number | undefined
+  readonly clusterTime: ClusterTime
+}
+
+/** Engine wide counts, for the realtime inspector. */
+export interface RealtimeStats {
+  /** Sessions with a socket attached. */
+  readonly connections: number
+  /** Every session, including those waiting for a resume. */
+  readonly sessions: number
+  readonly subscriptions: number
+  readonly observers: Readonly<Record<ObserverType, number>>
+  readonly subjects: number
+  readonly policyVersion: string
+  /** The cluster time the change stream has reached. */
+  readonly streamPosition: ClusterTime
+  readonly collections: readonly string[]
+}
+
+/** One change event as the tail shows it: no field values, only names. */
+export interface EventSummary {
+  readonly id: string
+  readonly ct: ClusterTime
+  readonly wallTime: Date | undefined
+  readonly coll: string
+  readonly op: NormalizedEvent["op"]
+  readonly docId: unknown
+  /** The fields an update set or removed, when the event carries a diff. */
+  readonly fields: readonly string[] | undefined
+}
+
+/** How one candidate observer handled an event. */
+export interface ObserverOutcome {
+  readonly observer: string
+  readonly type: ObserverType
+  /** `entered`, `updated` and `left` reach subscribers; `unmatched` means the effective filter excluded it. */
+  readonly outcome: "entered" | "updated" | "left" | "unmatched"
+  readonly subscribers: readonly {
+    readonly sid: string
+    readonly sub: string
+    readonly subject: string
+  }[]
+}
+
+/** The route of one event through the engine. */
+export interface EventTrace extends EventSummary {
+  readonly policyVersion: string
+  readonly candidates: readonly ObserverOutcome[]
 }
 
 /** A connection from any transport. */
@@ -159,6 +249,7 @@ interface SubscriptionState {
 interface SessionState {
   readonly session: Session
   readonly key: string
+  readonly openedAt: Date
   principal: Principal
   readonly subs: Map<string, SubscriptionState>
   expiryTimer: ReturnType<typeof setTimeout> | undefined
@@ -233,6 +324,9 @@ export class Realtime {
   private timeTimer: ReturnType<typeof setInterval> | undefined
   private watched: string[] = []
   private closing = false
+  private eventCounter = 0
+  private readonly tails = new Set<(event: EventSummary) => void>()
+  private readonly traces = new Map<string, EventTrace>()
 
   /** Use {@link createRealtime}. */
   constructor(options: RealtimeOptions, set: PolicySet, source: PolicySource) {
@@ -246,7 +340,7 @@ export class Realtime {
       pollMaxMs: 2000,
     }
     this.logger = redacting(options.logger ?? silentLogger)
-    this.auth = new Authenticator(options.auth, options.keys)
+    this.auth = options.authenticator ?? new Authenticator(options.auth, options.keys)
     this.source = source
     this.engine = this.createEngine(set)
     const db = options.mongo.db(options.database)
@@ -697,6 +791,7 @@ export class Realtime {
     const state: SessionState = {
       session,
       key: hello.key,
+      openedAt: new Date(),
       principal,
       subs: new Map(),
       expiryTimer: undefined,
@@ -1213,16 +1308,31 @@ export class Realtime {
         })
     }
     let last: ClusterTime = "0"
+    const tracing = (this.options.traceCapacity ?? 0) > 0
+    const observed = tracing || this.tails.size > 0
+    let subscribers: Map<Observer, ObserverOutcome["subscribers"][number][]> | undefined
     for (const event of events) {
       const started = performance.now()
       const candidates = this.registry.candidates(event)
       this.metrics.candidates.observe(candidates.size)
+      const outcomes: ObserverOutcome[] = []
       for (const observer of candidates) {
         this.metrics.matchEvaluations.inc()
+        const before = tracing && observer.has(event.key)
         observer.apply(event)
+        if (!tracing) continue
+        const after = observer.has(event.key)
+        subscribers ??= this.subscribersByObserver()
+        outcomes.push({
+          observer: observer.key,
+          type: observer.type,
+          outcome: before ? (after ? "updated" : "left") : after ? "entered" : "unmatched",
+          subscribers: subscribers.get(observer) ?? [],
+        })
       }
       this.metrics.fanoutLatency.observe((performance.now() - started) / 1000)
       last = event.ct
+      if (observed) this.record(event, outcomes, tracing)
     }
     for (const observer of this.registry.all()) observer.advance(last)
     this.echoes.processed(events)
@@ -1244,6 +1354,159 @@ export class Realtime {
     }
     this.ingestor.reopen()
     this.resyncAll(event.kind)
+  }
+
+  private subscribersByObserver(): Map<Observer, ObserverOutcome["subscribers"][number][]> {
+    const out = new Map<Observer, ObserverOutcome["subscribers"][number][]>()
+    for (const state of this.sessions.values()) {
+      for (const sub of state.subs.values()) {
+        const list = out.get(sub.observer) ?? []
+        if (list.length < 100)
+          list.push({ sid: state.session.sid, sub: sub.id, subject: state.principal.subject })
+        out.set(sub.observer, list)
+      }
+    }
+    return out
+  }
+
+  private record(event: NormalizedEvent, outcomes: ObserverOutcome[], tracing: boolean): void {
+    this.eventCounter += 1
+    const summary: EventSummary = {
+      id: `${this.options.nodeId ?? "n1"}.${this.eventCounter.toString(36)}`,
+      ct: event.ct,
+      wallTime: event.wallTime,
+      coll: event.coll,
+      op: event.op,
+      docId: event.id,
+      fields:
+        event.diff === undefined
+          ? undefined
+          : [...Object.keys(event.diff.set), ...event.diff.unset],
+    }
+    if (tracing) {
+      this.traces.set(summary.id, {
+        ...summary,
+        policyVersion: this.engine.version,
+        candidates: outcomes,
+      })
+      const capacity = this.options.traceCapacity ?? 0
+      for (const id of this.traces.keys()) {
+        if (this.traces.size <= capacity) break
+        this.traces.delete(id)
+      }
+    }
+    for (const listener of this.tails) {
+      try {
+        listener(summary)
+      } catch (error: unknown) {
+        this.logger.warn({ err: error }, "event tail listener failed")
+      }
+    }
+  }
+
+  /** Engine wide counts. */
+  stats(): RealtimeStats {
+    const observers: Record<ObserverType, number> = { filter: 0, window: 0, polling: 0 }
+    for (const observer of this.registry.all()) observers[observer.type] += 1
+    let connections = 0
+    let subscriptions = 0
+    for (const state of this.sessions.values()) {
+      if (state.socket !== undefined) connections += 1
+      subscriptions += state.subs.size
+    }
+    return {
+      connections,
+      sessions: this.sessions.size,
+      subscriptions,
+      observers,
+      subjects: this.subjects.size,
+      policyVersion: this.engine.version,
+      streamPosition: this.ingestor.position,
+      collections: [...this.watched],
+    }
+  }
+
+  /** Every session, connected or waiting for a resume. */
+  connections(): ConnectionInfo[] {
+    return [...this.sessions.values()].map((state) => ({
+      sid: state.session.sid,
+      subject: state.principal.subject,
+      roles: [...state.principal.context.roles].sort(),
+      keyId: state.principal.keyId,
+      connected: state.socket !== undefined,
+      openedAt: state.openedAt,
+      tokenExpiresAt:
+        state.principal.expiresAt === undefined ? undefined : new Date(state.principal.expiresAt),
+      subscriptions: [...state.subs.values()].map((sub) => ({
+        id: sub.id,
+        coll: sub.coll,
+        observer: sub.observer.key,
+      })),
+      documents: state.session.documents,
+      queuedBytes: state.session.queuedBytes,
+      lastSeq: state.session.lastSeq,
+    }))
+  }
+
+  /** Every shared observer. */
+  observers(): ObserverInfo[] {
+    return [...this.registry.all()].map((observer) => ({
+      key: observer.key,
+      coll: observer.query.coll,
+      type: observer.type,
+      status: observer.status,
+      subscribers: observer.size,
+      filter: observer.query.filter,
+      sort: observer.query.sort,
+      limit: observer.query.limit,
+      clusterTime: observer.clusterTime,
+    }))
+  }
+
+  /** Calls `listener` with a summary of every change event processed from now on. Returns an unsubscribe. */
+  tail(listener: (event: EventSummary) => void): () => void {
+    this.tails.add(listener)
+    return () => {
+      this.tails.delete(listener)
+    }
+  }
+
+  /** The trace of a recent event, while it is within `traceCapacity`. */
+  trace(id: string): EventTrace | undefined {
+    return this.traces.get(id)
+  }
+
+  /** The most recent traced events, newest first. */
+  recentEvents(limit = 50): EventSummary[] {
+    const out: EventSummary[] = []
+    for (const trace of [...this.traces.values()].reverse()) {
+      if (out.length >= limit) break
+      const { policyVersion: _version, candidates: _candidates, ...summary } = trace
+      out.push(summary)
+    }
+    return out
+  }
+
+  /**
+   * Ends every session whose principal matches, connected or waiting for a resume: the client gets `err`
+   * and the socket closes with `code` (4003 for a revoked key or a banned user, which clients do not retry).
+   * Returns the number of sessions ended.
+   */
+  closeConnections(
+    matches: (principal: Principal) => boolean,
+    code: number = CloseCode.Forbidden,
+    reason = "forbidden",
+  ): number {
+    let count = 0
+    for (const state of [...this.sessions.values()]) {
+      if (!matches(state.principal)) continue
+      count += 1
+      state.session.send({ t: "err", code: ErrorCode.Forbidden, msg: reason })
+      state.session.close(code, reason)
+      state.socket = undefined
+      this.destroySession(state)
+    }
+    return count
   }
 
   /**
@@ -1269,6 +1532,7 @@ export class Realtime {
     }
     for (const observer of [...this.registry.all()]) this.destroyObserver(observer)
     this.stopWatching?.()
+    this.tails.clear()
     this.stopContexts()
     if (this.ownsContexts) this.contexts.close()
     if (this.timeTimer !== undefined) clearInterval(this.timeTimer)

@@ -44,12 +44,18 @@ export {
 } from "./policy-source.ts"
 export {
   type ConnectionHandler,
+  type ConnectionInfo,
   createRealtime,
   DEFAULT_REALTIME_LIMITS,
+  type EventSummary,
+  type EventTrace,
+  type ObserverInfo,
+  type ObserverOutcome,
   type PolicyOption,
   Realtime,
   type RealtimeLimits,
   type RealtimeOptions,
+  type RealtimeStats,
 } from "./realtime.ts"
 export { indexableConjunct, ObserverRegistry, referencedTopFields } from "./registry.ts"
 export { type RealtimeSocket, Session } from "./session.ts"
