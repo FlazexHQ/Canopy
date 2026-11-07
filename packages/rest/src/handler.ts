@@ -12,6 +12,7 @@ import {
 import type { QueryLimits } from "@canopy/query"
 import type { MongoClient } from "mongodb"
 import { mongoContextReader } from "./context-reader.ts"
+import { explainRoute } from "./explain-route.ts"
 import {
   type CorsOptions,
   type Encoding,
@@ -305,6 +306,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     _count: count,
     _distinct: distinct,
     _aggregate: aggregate,
+    _explain: explainRoute({ engine, contexts, reads, body }),
   }
 
   /** Picks the route of a path and method, or the methods the path allows. */
