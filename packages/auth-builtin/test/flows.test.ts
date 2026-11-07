@@ -233,10 +233,7 @@ describeMongo("built in auth flows", () => {
     expect(authorize.searchParams.get("code_challenge_method")).toBe("S256")
     const atIdp = await fetch(authorize, { redirect: "manual" })
     const callback = atIdp.headers.get("location") ?? ""
-    expect(
-      callback.startsWith(`${h.url}/auth/v1/oauth2/callback/mock`) ||
-        callback.startsWith(`${h.url}/auth/v1/callback/mock`),
-    ).toBe(true)
+    expect(callback.startsWith(`${h.url}/auth/v1/callback/mock?`)).toBe(true)
     const back = await client.get(callback)
     expect(back.status).toBe(302)
     expect(back.headers.get("location")).toBe(`${APP_ORIGIN}/after`)
