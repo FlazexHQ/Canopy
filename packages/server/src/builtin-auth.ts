@@ -114,7 +114,7 @@ export async function startBuiltinAuth(
         ? {}
         : { templates: templates.mailerTemplates(engine.defaultTemplates) }),
     },
-    trustedProxies: auth.trustedProxies,
+    trustedProxies: [...config.server.trustedProxies, ...auth.trustedProxies],
     identifierLimit: auth.identifierLimit,
     session: auth.session,
     logger,

@@ -71,6 +71,7 @@ describe("resolveConfig", () => {
       metricsPort: 9464,
       adminListen: undefined,
       nodeId: "n1",
+      trustedProxies: [],
     })
     expect(config.cors).toBeUndefined()
   })
@@ -94,6 +95,14 @@ describe("resolveConfig", () => {
     expect(config.realtime !== false && config.realtime.resumeWindowMs).toBe(300_000)
     expect(config.dev.insecure).toBe(true)
     expect(config.publicUrl).toBeUndefined()
+  })
+
+  it("reads the trusted proxies from CANOPY_TRUSTED_PROXIES", () => {
+    const { config } = resolve(
+      { mongodb: { uri: URI } },
+      { CANOPY_TRUSTED_PROXIES: "10.0.0.0/8, fd00::/8" },
+    )
+    expect(config.server.trustedProxies).toEqual(["10.0.0.0/8", "fd00::/8"])
   })
 
   it("reports every unset variable and invalid value at once", () => {

@@ -5,6 +5,7 @@ import {
   type RequestInfo,
   type Revocation,
   RevocationSet,
+  resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
 import { ErrorCode, UnauthorizedError } from "@canopy/protocol"
@@ -21,7 +22,7 @@ import {
   type EngineUser,
   keyMinter,
 } from "./engine.ts"
-import { IdentifierGuard, type IdentifierLimitDocument, resolveClientAddress } from "./guard.ts"
+import { IdentifierGuard, type IdentifierLimitDocument } from "./guard.ts"
 import { ensureAuthIndexes } from "./indexes.ts"
 import { KeyRing, type SigningKeyDocument, type SigningKeyInfo } from "./keyring.ts"
 import type { LeaseDocument } from "./lease.ts"

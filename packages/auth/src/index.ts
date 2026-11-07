@@ -19,6 +19,7 @@ export {
   type KeyOptions,
   type Principal,
 } from "./authenticator.ts"
+export { addressMatches, isAddressRule, resolveClientAddress } from "./client-address.ts"
 export type {
   AccessTokenClaims,
   AuthProvider,

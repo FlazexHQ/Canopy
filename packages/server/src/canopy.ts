@@ -1,5 +1,5 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
-import { Authenticator, type JwtAuthOptions } from "@canopy/auth"
+import { Authenticator, type JwtAuthOptions, resolveClientAddress } from "@canopy/auth"
 import type { BuiltinAuth } from "@canopy/auth-builtin"
 import {
   type CanopyConfigInput,
@@ -447,11 +447,19 @@ export async function createCanopy(
     path === "/studio" ||
     path.startsWith("/studio/")
   const privateAdmin = config.server.adminListen !== undefined
+  const trustedProxies = [
+    ...config.server.trustedProxies,
+    ...(config.auth?.kind === "builtin" ? config.auth.trustedProxies : []),
+  ]
   const adminFetch = async (
     request: Request,
-    info: { readonly ip?: string } = {},
+    peer: { readonly ip?: string } = {},
   ): Promise<Response> => {
     const path = new URL(request.url).pathname
+    const info =
+      peer.ip === undefined
+        ? {}
+        : { ip: resolveClientAddress(request.headers, peer.ip, trustedProxies) }
     if (!addressAllowed(info.ip, settings.current.adminAllowlist))
       return secure(
         problem(

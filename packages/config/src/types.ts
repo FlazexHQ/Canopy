@@ -295,6 +295,11 @@ export interface CanopyConfigInput {
     readonly adminListen?: Value<string>
     /** @default "n1" */
     readonly nodeId?: Value<string>
+    /**
+     * Proxies (addresses or CIDR ranges, IPv4 or IPv6) whose `X-Forwarded-For` is trusted, so the admin
+     * allowlist, the audit log and built in auth see the client address behind them.
+     */
+    readonly trustedProxies?: Value<readonly string[]>
   }
   readonly log?: { readonly level?: Value<LogLevel> }
   /** Where `canopy gen types` writes, relative to the config file. */
@@ -431,6 +436,7 @@ export interface ResolvedConfig {
     readonly metricsPort: number
     readonly adminListen: string | undefined
     readonly nodeId: string
+    readonly trustedProxies: readonly string[]
   }
   readonly log: { readonly level: LogLevel }
   readonly types: { readonly out: string; readonly role: string | undefined }

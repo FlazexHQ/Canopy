@@ -1,3 +1,4 @@
+export { resolveClientAddress } from "@canopy/auth"
 export { type AuditActor, type AuditDocument, type AuditEvent, AuditLog } from "./audit.ts"
 export { type EmailOptions, Mailer } from "./email/mailer.ts"
 export { type AwsCredentials, ses, signV4 } from "./email/ses.ts"
@@ -25,7 +26,7 @@ export {
   type SocialProviderId,
   type SocialProviderOptions,
 } from "./engine.ts"
-export { IdentifierGuard, resolveClientAddress } from "./guard.ts"
+export { IdentifierGuard } from "./guard.ts"
 export { AUTH_INDEXES, ensureAuthIndexes } from "./indexes.ts"
 export {
   type KeyMaterial,

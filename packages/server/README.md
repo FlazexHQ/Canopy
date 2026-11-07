@@ -124,8 +124,12 @@ seconds; the node that saves a change applies it at once.
 `4xx`), `before` and `limit`. An entry holds the method, path, status, duration, peer address and request
 id; query strings, headers and bodies are never stored, so filters and tokens stay out of the log.
 
-The allowlist checks the socket peer address; forwarded headers are not trusted, so behind a proxy list the
-proxy's address and restrict the admin surface at the proxy as well. A request from an address that is
+The allowlist checks the client address. Behind a reverse proxy, list the proxy in `server.trustedProxies`
+(or `CANOPY_TRUSTED_PROXIES`, comma separated addresses or CIDR ranges, IPv4 or IPv6): when the socket peer
+is a trusted proxy, the client address is the rightmost `X-Forwarded-For` hop that is not one. A peer that
+is not a trusted proxy is checked by its own address and its `X-Forwarded-For` is ignored, so clients
+cannot choose their address. The same address goes into the audit log, and built in auth uses the same
+list (together with `auth.trustedProxies`) for its rate limits. A request from an address that is
 not listed, or whose address is unknown, gets `403`. Saving a list that does not include your own address
 is refused, so it cannot lock you out. If it does anyway (an address change), clear it in the meta
 database: `db.settings.updateOne({ _id: "settings" }, { $set: { adminAllowlist: [] } })`.

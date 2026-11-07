@@ -213,7 +213,7 @@ const ROOT: Spec = obj({
   },
   collections: { t: "record", of: obj({ idType: oneOf(...ID_TYPES) }) },
   cors: obj({ origins: { t: "origins" } }),
-  server: obj({ port: int, metricsPort: int, adminListen: str, nodeId: str }),
+  server: obj({ port: int, metricsPort: int, adminListen: str, nodeId: str, trustedProxies: list }),
   log: obj({ level: oneOf(...LOG_LEVELS) }),
   types: obj({ out: str, role: str }),
   dev: obj({ insecure: bool }),
@@ -246,6 +246,7 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["METRICS_PORT", "server.metricsPort", int],
   ["CANOPY_ADMIN_LISTEN", "server.adminListen", str],
   ["CANOPY_NODE_ID", "server.nodeId", str],
+  ["CANOPY_TRUSTED_PROXIES", "server.trustedProxies", list],
   ["CANOPY_LOG_LEVEL", "log.level", oneOf(...LOG_LEVELS)],
   ["CANOPY_DEV_INSECURE", "dev.insecure", bool],
 ]
@@ -970,6 +971,7 @@ function normalize(
       metricsPort: port("server.metricsPort", 9464),
       adminListen: get(tree, "server.adminListen") as string | undefined,
       nodeId: defaulted("server.nodeId", "n1") as string,
+      trustedProxies: (defaulted("server.trustedProxies", []) as string[]) ?? [],
     },
     log: { level: defaulted("log.level", "info") as LogLevel },
     types: {
