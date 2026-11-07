@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -279,6 +279,7 @@ suite("canopy-server against MongoDB", () => {
   })
 
   it("reloads the policy folder when a file changes", async () => {
+    await mkdir(join(PACKAGE, "node_modules", ".cache"), { recursive: true })
     const policies = await mkdtemp(join(PACKAGE, "node_modules", ".cache", "canopy-policies-"))
     const write = (roles: string) =>
       writeFile(

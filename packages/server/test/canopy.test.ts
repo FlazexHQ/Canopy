@@ -75,6 +75,7 @@ suite("createCanopy against MongoDB", () => {
     canopy = await createCanopy(config(), {
       env: {},
       policies: createPolicySet([notes, tasks], lookups),
+      onSetupToken: false,
     })
     server = createServer(
       canopy.node({
@@ -224,7 +225,7 @@ suite("createCanopy against MongoDB", () => {
   it("leaves out the sections the config turns off and keeps a shared client open", async () => {
     const restOnly = await createCanopy(
       { ...config(), realtime: false },
-      { env: {}, mongo, policies: createPolicySet([notes]) },
+      { env: {}, mongo, policies: createPolicySet([notes]), onSetupToken: false },
     )
     expect(restOnly.realtime).toBeUndefined()
     await db.collection<Doc>("notes").insertOne({ _id: "r", ownerId: "alice" })
@@ -246,7 +247,7 @@ suite("createCanopy against MongoDB", () => {
 
     const realtimeOnly = await createCanopy(
       { ...config(), rest: false },
-      { env: {}, mongo, policies: createPolicySet([notes]) },
+      { env: {}, mongo, policies: createPolicySet([notes]), onSetupToken: false },
     )
     expect(realtimeOnly.rest).toBeUndefined()
     expect((await realtimeOnly.fetch(new Request("http://canopy.test/rest/v1/notes"))).status).toBe(

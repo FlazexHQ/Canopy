@@ -68,9 +68,11 @@ export interface CreateCanopyOptions {
   readonly studio?: FetchHandler
   /**
    * Receives the one time setup token of an unclaimed server. Defaults to a warning in the log (or on
-   * standard error when no logger is given).
+   * standard error when no logger is given). `false` keeps it quiet, for tests and embedders that claim
+   * the server themselves or never use the admin API; the token can still be read with
+   * `admin.accounts.createSetupToken()`.
    */
-  readonly onSetupToken?: (token: string) => void
+  readonly onSetupToken?: ((token: string) => void) | false
 }
 
 /** The admin surface: `/admin/v1` and `/studio`. */
@@ -392,7 +394,7 @@ export async function createCanopy(
           logger,
           ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),
         })
-  if (adminApi !== undefined) {
+  if (adminApi !== undefined && options.onSetupToken !== false) {
     const token = await accounts.createSetupToken()
     if (token !== undefined) {
       const announce =

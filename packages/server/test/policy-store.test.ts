@@ -322,7 +322,7 @@ suite("policy lifecycle", () => {
           realtime: { checkpoints: "off" },
           policies: { source: "database" },
         }),
-        { env: {} },
+        { env: {}, onSetupToken: false },
       )
       server = createServer(canopy.node())
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))

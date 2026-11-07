@@ -41,7 +41,7 @@ suite("stored API keys", () => {
         keys: { publishable: ["pk_from_config"], secret: ["sk_from_config"] },
         realtime: { checkpoints: "off" },
       }),
-      { env: {}, policies: createPolicySet([notes]) },
+      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
     )
     server = createServer(canopy.node())
     await canopy.attach(server)
