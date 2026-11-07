@@ -335,14 +335,26 @@ the admin API and the Node bridges.
 
 #### Progress (2026-11-07, stopped here)
 
-Done on `master` (written without running the test suites): R1, R2 with T3 and T5, R3, R4, R5 with D3 and
-part of T2, R6 with D1 (new package `@canopy/node-http`), D2, D4, D5, X1, X2 and the dead Studio code of X3.
-Two findings were wrong: `wireApiKeys` is validated item by item in `apps/studio/src/api/client.ts`, and
-`styleSingleton` is the API of the shimmed `react-style-singleton`, so both stay. Left off in X4 (deciding
-whether `ZERO_CT`, `BsonTypeTag`, `NumericKind` and `PolicyInput` stay public). Still open: the rest of D6
-(one schema layer for Studio), D7, C1 to C6, T1, T2 on Windows CI, T4, T6, T7, the unused export check
-in CI, and O1 to O4. Next step: run `bun run typecheck`, `bun run lint` and the full suite against a
-replica set, since none of these changes have been run yet.
+Done on `master`: R1, R2 with T3 and T5, R3, R4, R5 with D3 and part of T2, R6 with D1 (new package
+`@canopy/node-http`), D2, D4, D5, D6, X1, X2, X3, X4, C1 (`packages/server/src/admin/routes/`), C2, C3,
+C4, C5, T7 and the unused export check (Knip, `bun run lint:exports`). The full suite passes against a
+MongoDB 8.0.34 replica set on Node and on Bun (127 files, 1262 tests), and every CI job is green.
+
+- Two findings were wrong: `wireApiKeys` was validated item by item in `apps/studio/src/api/client.ts`
+  (it now validates the list itself), and `styleSingleton` is the API of the shimmed
+  `react-style-singleton`, so it stays.
+- X4: `ZERO_CT` stays public and replaces the literal zero cluster times in the client and the realtime
+  engine; `PolicyInput` stays as the type of the exported `policyInput` validator; `BsonTypeTag`,
+  `NumericKind`, `withRegexEngine` and `RegexEngine` are removed.
+- R5: log lines start with `level`, `time` and `msg` again, as the drain checks and the Compose smoke test
+  expect; fields with those names are dropped instead of moved behind them.
+- D6: `apps/studio/src/api/wire.ts` holds every schema the client parses with; `contract.ts` holds only
+  types. Exporting the admin response types from `packages/server` is still the better end state.
+- T7: measured against MongoDB 8.0 on Node: `matcher` 85.4 % lines and 73.7 % branches, `policy` 94.0 and
+  84.8, `query` 88.7 and 80.3, `realtime` 82.5 and 71.7 (87.5 % lines and 76.4 % branches overall). The
+  floors in `vitest.config.ts` sit just under these; the target stays 90 % lines and 80 % branches.
+
+Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O1 to O4.
 
 ### 3.4 Phase 4: GraphQL, ecosystem and developer experience → v0.5 (7 weeks)
 
