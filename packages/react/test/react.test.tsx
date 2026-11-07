@@ -1,8 +1,16 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type RowSchema, type WebSocketLike } from "@canopy/client"
+import { memoryPersister } from "@canopy/client/persist"
 import { act, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
 import { afterEach, describe, expect, it } from "vitest"
-import { CanopyProvider, createReactDb, type ReactDb, useCanopyStatus } from "../src/index.tsx"
+import {
+  CanopyProvider,
+  createReactDb,
+  type ReactDb,
+  useCanopyStatus,
+  useMutationError,
+  useStaleMutations,
+} from "../src/index.tsx"
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -40,7 +48,7 @@ interface Todo extends Record<string, unknown> {
 
 const counter = { renders: 0 }
 
-function List({ db }: { readonly db: ReactDb<{ todos: Todo }> }): ReactNode {
+function List({ db }: { readonly db: ReactDb<RowSchema<{ todos: Todo }>> }): ReactNode {
   counter.renders += 1
   const { data, status } = db.todos.useQuery({ done: false }, { sort: { title: 1 } })
   const connection = useCanopyStatus()
@@ -55,6 +63,26 @@ function List({ db }: { readonly db: ReactDb<{ todos: Todo }> }): ReactNode {
 
 function Status(): ReactNode {
   return <span>{useCanopyStatus()}</span>
+}
+
+function Failures(): ReactNode {
+  const failure = useMutationError()
+  const stale = useStaleMutations()
+  return (
+    <div>
+      <p>{failure.error === undefined ? "none" : `${failure.error.name} ${failure.mutationId}`}</p>
+      <button type="button" id="clear" onClick={failure.clear} />
+      <ol data-count={stale.length}>
+        {stale.map((entry) => (
+          <li key={entry.mutationId}>
+            <button type="button" onClick={() => entry.discard()}>
+              {entry.mutationId}
+            </button>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
 }
 
 const tick = async (): Promise<void> => {
@@ -75,7 +103,7 @@ describe("@canopy/react", () => {
       publishableKey: "pk",
       WebSocket: FakeSocket,
     })
-    const db = createReactDb<{ todos: Todo }>(client)
+    const db = createReactDb<RowSchema<{ todos: Todo }>>(client)
     const container = document.createElement("div")
     document.body.append(container)
     containers.push(container)
@@ -160,7 +188,7 @@ describe("@canopy/react", () => {
       publishableKey: "pk",
       WebSocket: FakeSocket,
     })
-    const db = createReactDb<{ todos: Todo }>(client)
+    const db = createReactDb<RowSchema<{ todos: Todo }>>(client)
     const live = client.live("todos", {})
     const states: number[] = []
     const stop = live.subscribe((state) => states.push(state.data.length))
@@ -219,5 +247,87 @@ describe("@canopy/react", () => {
       console.error = original
     }
     expect(String(errors[0])).toContain("CanopyProvider")
+  })
+
+  it("reports rolled back and stale mutations through hooks", async () => {
+    FakeSocket.all = []
+    const persist = memoryPersister()
+    const staleId = "0192f6a1-7c2e-7b1a-9d3e-00000000c001"
+    const update = { $set: { title: "old" } }
+    await persist.set(
+      "mutations",
+      `alice\u0000${staleId}`,
+      JSON.stringify({
+        m: { t: "mut", id: staleId, c: "todos", op: "update", args: { id: 1, update } },
+        ids: [1],
+        layers: [{ kind: "update", coll: "todos", id: 1, update }],
+        at: Date.now() - 21 * 3_600_000,
+      }),
+    )
+    const token = `e30.${btoa(JSON.stringify({ sub: "alice", exp: 4_000_000_000 }))}.sig`
+    const client = new CanopyClient({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: FakeSocket,
+      persist,
+      auth: { getToken: () => token },
+    })
+    const container = document.createElement("div")
+    document.body.append(container)
+    containers.push(container)
+    const root = createRoot(container)
+    await act(async () => {
+      root.render(
+        <CanopyProvider client={client}>
+          <Failures />
+        </CanopyProvider>,
+      )
+    })
+    for (let i = 0; i < 5 && FakeSocket.all.length === 0; i += 1) await tick()
+    const socket = FakeSocket.all[0] as FakeSocket
+    await tick()
+    expect(container.querySelector("ol")?.dataset["count"]).toBe("1")
+    expect(container.querySelector("li")?.textContent).toBe(staleId)
+    await act(async () => {
+      socket.push({
+        t: "welcome",
+        seq: 0,
+        sid: "n1.y",
+        v: 1,
+        resumed: false,
+        hb: 25000,
+        pv: "",
+        ct: "1",
+        caps: [],
+        limits: { subs: 100 },
+      })
+    })
+    await tick()
+    const handle = client.insert("todos", { _id: 9, title: "t" })
+    await tick()
+    expect(container.querySelector("p")?.textContent).toBe("none")
+    await act(async () => {
+      socket.push({
+        t: "ack",
+        seq: 1,
+        m: handle.mutationId,
+        ok: false,
+        err: { code: "CANOPY_CONFLICT", msg: "changed first" },
+      })
+    })
+    await tick()
+    expect(container.querySelector("p")?.textContent).toBe(`ConflictError ${handle.mutationId}`)
+    await expect(handle).rejects.toMatchObject({ code: "CANOPY_CONFLICT" })
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("#clear")?.click()
+    })
+    expect(container.querySelector("p")?.textContent).toBe("none")
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("li button")?.click()
+    })
+    expect(container.querySelector("ol")?.dataset["count"]).toBe("0")
+    expect(await persist.entries("mutations")).toEqual([])
+    await act(async () => root.unmount())
+    client.close()
   })
 })

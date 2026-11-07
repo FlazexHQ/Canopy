@@ -1,4 +1,4 @@
-import { type CanopyClient, createClient } from "@canopy/client"
+import { type CanopyClient, createClient, type RowSchema } from "@canopy/client"
 import { CanopyProvider, createReactDb, useCanopyStatus } from "@canopy/react"
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { createTicket, updateTicket } from "./api.ts"
@@ -159,7 +159,7 @@ function Board({
   readonly client: CanopyClient
   readonly session: Session
 }): ReactNode {
-  const db = useMemo(() => createReactDb<Collections>(client), [client])
+  const db = useMemo(() => createReactDb<RowSchema<Collections>>(client), [client])
   const tickets = db.tickets.useQuery({}, { sort: { updatedAt: -1 }, limit: 100 })
   const [problem, setProblem] = useState<string>()
   const now = useNow(15_000)

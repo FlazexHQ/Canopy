@@ -4,7 +4,13 @@ import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { type CanopyClient, createClient, type Document, type QueryState } from "@canopy/client"
+import {
+  type CanopyClient,
+  createClient,
+  type Document,
+  type QueryState,
+  type RowSchema,
+} from "@canopy/client"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -64,7 +70,7 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
   let sidecarLog = ""
   let appUrl: string
   let sidecarUrl: string
-  const clients: CanopyClient[] = []
+  const clients: Pick<CanopyClient, "close">[] = []
 
   const tokenFor = async (user: string): Promise<string> => {
     const response = await fetch(`${appUrl}/dev/token`, {
@@ -95,14 +101,14 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
 
   const watch = async (user: string): Promise<() => QueryState<Ticket>> => {
     const token = await tokenFor(user)
-    const client = createClient({
+    const client = createClient<RowSchema<{ tickets: Ticket }>>({
       url: sidecarUrl,
       publishableKey: KEY,
       auth: { getToken: () => token },
     })
     clients.push(client)
     let state: QueryState<Ticket> | undefined
-    client.live<Ticket>("tickets", {}, { sort: { updatedAt: -1 } }).subscribe((next) => {
+    client.live("tickets", {}, { sort: { updatedAt: -1 } }).subscribe((next) => {
       state = next
     })
     await until(() => state?.status === "ready", `${user}'s first snapshot`)

@@ -342,10 +342,24 @@ export interface Database {
     }
   }
 }
+
+export type Todos = Database["todos"]["Row"]
 `)
     expect(generateTypes([{ ...todos, name: "b" }, todos])).toBe(
       generateTypes([todos, { ...todos, name: "b" }]),
     )
+  })
+
+  it("emits one row alias per collection, skipping clashes and names that are not identifiers", () => {
+    const named = (name: string) => ({ ...todos, name })
+    const out = generateTypes(
+      ["todo_items", "todo-items", "audit_log", "2fa", "database", "x.y"].map(named),
+    )
+    const aliases = out.split("\n").filter((line) => line.startsWith("export type"))
+    expect(aliases).toEqual([
+      'export type AuditLog = Database["audit_log"]["Row"]',
+      'export type XY = Database["x.y"]["Row"]',
+    ])
   })
 
   it("produces TypeScript that compiles and rejects wrong rows", () => {
@@ -357,8 +371,8 @@ export interface Database {
     writeFileSync(
       usage,
       `import { Long, ObjectId } from "@canopy/protocol"
-import type { Database } from "./canopy.gen.ts"
-type Row = Database["todos"]["Row"]
+import type { Database, Todos } from "./canopy.gen.ts"
+type Row = Todos
 type Insert = Database["todos"]["Insert"]
 export const row: Row = { _id: new ObjectId(), title: "t", status: "done", createdAt: new Date(), "odd-name": new Long(1n) }
 export const insert: Insert = { title: "t", status: "active", createdAt: new Date(), mixed: ["a", 1] }

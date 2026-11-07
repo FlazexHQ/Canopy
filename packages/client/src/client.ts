@@ -23,6 +23,19 @@ import {
   uuidv7,
 } from "@canopy/protocol"
 import { type CachedDocument, type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
+import type {
+  CollectionName,
+  Filter,
+  IdOf,
+  InsertOf,
+  Projected,
+  Projection,
+  RowOf,
+  Schema,
+  Sort,
+  UntypedSchema,
+  UpdateFilter,
+} from "./types.ts"
 
 /**
  * The connection status an application sees. `fallback` means connected through a transport below
@@ -170,9 +183,15 @@ export interface MutationHandle extends Promise<MutationResult> {
 }
 
 /** Options of single document writes. */
-export interface WriteOptions {
+export interface WriteOptions<Row = Document> {
   /** A compare and set precondition: the write is rolled back with `ConflictError` when it fails. */
-  readonly where?: Document
+  readonly where?: Filter<Row>
+}
+
+/** Options of `replace`. */
+export interface ReplaceOptions<Row = Document> extends WriteOptions<Row> {
+  /** Inserts the document when no visible document has the `_id`. */
+  readonly upsert?: boolean
 }
 
 interface PendingMutation {
@@ -186,10 +205,14 @@ interface PendingMutation {
 }
 
 /** A live query description. */
-export interface LiveQueryOptions {
-  readonly sort?: Readonly<Record<string, 1 | -1>>
+export interface LiveQueryOptions<Row = Document> {
+  readonly sort?: Sort<Row>
   readonly limit?: number
-  readonly fields?: Readonly<Record<string, 0 | 1>>
+  readonly fields?: Projection<Row>
+}
+
+function asDocument(value: object): Document {
+  return value as Document
 }
 
 /** A live query: a value that stays current. */
@@ -243,7 +266,7 @@ interface Subscription {
  * The Canopy client: a document cache with live queries over `canopy.v1`, automatic reconnection
  * with full jitter backoff, resume by sequence number and resync reconciliation.
  */
-export class CanopyClient {
+export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   readonly store: Store = new Store()
   /**
    * Settles once the update engine is loaded. It is a separate chunk, fetched right after the client is
@@ -340,8 +363,11 @@ export class CanopyClient {
 
   private staleMutation(persist: Persister, key: string, record: PersistedMutation): StaleMutation {
     const forget = (): void => {
+      const before = this.stale.length
       this.stale = this.stale.filter((entry) => entry.mutationId !== record.m.id)
       void persist.delete("mutations", key).catch(() => {})
+      if (this.stale.length !== before)
+        for (const listener of this.staleListeners) listener(this.stale)
     }
     return {
       mutationId: record.m.id,
@@ -357,9 +383,14 @@ export class CanopyClient {
     }
   }
 
+  /** The persisted mutations that were too old to replay and are not retried or discarded yet. */
+  get staleMutations(): readonly StaleMutation[] {
+    return this.stale
+  }
+
   /**
    * Calls `listener` with the persisted mutations that are too old to replay (at once when some are
-   * already known).
+   * already known), and again whenever one is retried or discarded.
    */
   onStaleMutations(listener: (mutations: readonly StaleMutation[]) => void): () => void {
     this.staleListeners.add(listener)
@@ -428,8 +459,8 @@ export class CanopyClient {
   }
 
   /** Inserts a document. The optimistic copy, with a client generated `_id`, is visible at once. */
-  insert(collection: string, doc: Document): MutationHandle {
-    const id = doc["_id"] ?? this.newId(collection)
+  insert<C extends CollectionName<DB>>(collection: C, doc: InsertOf<DB, C>): MutationHandle {
+    const id = asDocument(doc)["_id"] ?? this.newId(collection)
     const full = { ...doc, _id: id }
     return this.mutate(
       collection,
@@ -441,8 +472,14 @@ export class CanopyClient {
   }
 
   /** Inserts several documents in one mutation. */
-  insertMany(collection: string, docs: readonly Document[]): MutationHandle {
-    const full = docs.map((doc) => ({ ...doc, _id: doc["_id"] ?? this.newId(collection) }))
+  insertMany<C extends CollectionName<DB>>(
+    collection: C,
+    docs: readonly InsertOf<DB, C>[],
+  ): MutationHandle {
+    const full = docs.map((doc) => ({
+      ...asDocument(doc),
+      _id: asDocument(doc)["_id"] ?? this.newId(collection),
+    }))
     return this.mutate(
       collection,
       "insertMany",
@@ -453,35 +490,37 @@ export class CanopyClient {
   }
 
   /** Updates one document with update operators. */
-  update(
-    collection: string,
-    id: unknown,
-    update: Document,
-    options: WriteOptions = {},
+  update<C extends CollectionName<DB>>(
+    collection: C,
+    id: IdOf<RowOf<DB, C>>,
+    changes: UpdateFilter<RowOf<DB, C>>,
+    options: WriteOptions<RowOf<DB, C>> = {},
   ): MutationHandle {
+    const update = asDocument(changes)
     return this.mutate(
       collection,
       "update",
-      { id, update, ...(options.where === undefined ? {} : { where: options.where }) },
+      { id, update, ...(options.where === undefined ? {} : { where: asDocument(options.where) }) },
       [{ kind: "update", coll: collection, id, update }],
       [id],
     )
   }
 
   /** Replaces one document. With `upsert`, a missing document is inserted. */
-  replace(
-    collection: string,
-    id: unknown,
-    doc: Document,
-    options: WriteOptions & { readonly upsert?: boolean } = {},
+  replace<C extends CollectionName<DB>>(
+    collection: C,
+    id: IdOf<RowOf<DB, C>>,
+    replacement: InsertOf<DB, C>,
+    options: ReplaceOptions<RowOf<DB, C>> = {},
   ): MutationHandle {
+    const doc = asDocument(replacement)
     return this.mutate(
       collection,
       "replace",
       {
         id,
         doc,
-        ...(options.where === undefined ? {} : { where: options.where }),
+        ...(options.where === undefined ? {} : { where: asDocument(options.where) }),
         ...(options.upsert === undefined ? {} : { upsert: options.upsert }),
       },
       [{ kind: "replace", coll: collection, id, doc, upsert: options.upsert === true }],
@@ -490,18 +529,28 @@ export class CanopyClient {
   }
 
   /** Deletes one document. */
-  delete(collection: string, id: unknown, options: WriteOptions = {}): MutationHandle {
+  delete<C extends CollectionName<DB>>(
+    collection: C,
+    id: IdOf<RowOf<DB, C>>,
+    options: WriteOptions<RowOf<DB, C>> = {},
+  ): MutationHandle {
     return this.mutate(
       collection,
       "delete",
-      { id, ...(options.where === undefined ? {} : { where: options.where }) },
+      { id, ...(options.where === undefined ? {} : { where: asDocument(options.where) }) },
       [{ kind: "delete", coll: collection, id }],
       [id],
     )
   }
 
   /** Updates every visible document matching `filter`. The optimistic change covers cached documents. */
-  updateMany(collection: string, filter: Document, update: Document): MutationHandle {
+  updateMany<C extends CollectionName<DB>>(
+    collection: C,
+    where: Filter<RowOf<DB, C>>,
+    changes: UpdateFilter<RowOf<DB, C>>,
+  ): MutationHandle {
+    const filter = asDocument(where)
+    const update = asDocument(changes)
     return this.mutate(
       collection,
       "updateMany",
@@ -512,7 +561,11 @@ export class CanopyClient {
   }
 
   /** Deletes every visible document matching `filter`. */
-  deleteMany(collection: string, filter: Document): MutationHandle {
+  deleteMany<C extends CollectionName<DB>>(
+    collection: C,
+    where: Filter<RowOf<DB, C>>,
+  ): MutationHandle {
+    const filter = asDocument(where)
     return this.mutate(
       collection,
       "deleteMany",
@@ -667,27 +720,30 @@ export class CanopyClient {
   }
 
   /** Starts a query builder for a collection. */
-  from<T extends Document = Document>(collection: string): QueryBuilder<T> {
-    return new QueryBuilder<T>(this, collection, {}, {})
+  from<C extends CollectionName<DB>>(collection: C): QueryBuilder<RowOf<DB, C>, InsertOf<DB, C>> {
+    return new QueryBuilder(this as unknown as AnyClient, collection, {}, {})
   }
 
   /** Returns a live query; identical queries share one server subscription. */
-  live<T extends Document = Document>(
-    collection: string,
-    filter: Document,
-    options: LiveQueryOptions = {},
-  ): LiveQuery<T> {
+  live<C extends CollectionName<DB>, Out = RowOf<DB, C>>(
+    collection: C,
+    where: Filter<RowOf<DB, C>>,
+    options: LiveQueryOptions<RowOf<DB, C>> = {},
+  ): LiveQuery<Out> {
+    const filter = asDocument(where)
+    const sort = options.sort as Readonly<Record<string, 1 | -1>> | undefined
+    const fields = options.fields as Readonly<Record<string, 0 | 1>> | undefined
     const query: SubQuery = {
       filter,
-      ...(options.sort === undefined ? {} : { sort: options.sort }),
+      ...(sort === undefined ? {} : { sort: sort }),
       ...(options.limit === undefined ? {} : { limit: options.limit }),
-      ...(options.fields === undefined ? {} : { fields: options.fields }),
+      ...(fields === undefined ? {} : { fields: fields }),
     }
     const key = `${collection}\u0000${encodeMessage({ t: "sub", id: "k", c: collection, q: query })}`
     return {
       getState: () => {
         const sub = this.byQuery.get(key)
-        return (sub === undefined ? LOADING_STATE : this.store.state(sub.id)) as QueryState<T>
+        return (sub === undefined ? LOADING_STATE : this.store.state(sub.id)) as QueryState<Out>
       },
       subscribe: (listener) => {
         let sub = this.byQuery.get(key)
@@ -698,11 +754,11 @@ export class CanopyClient {
           this.subscriptions.set(sub.id, sub)
           this.store.addQuery(sub.id, collection, {
             filter,
-            ...(options.sort === undefined ? {} : { sort: options.sort }),
+            ...(sort === undefined ? {} : { sort: sort }),
             ...(options.limit === undefined ? {} : { limit: options.limit }),
-            ...(options.fields === undefined
+            ...(fields === undefined
               ? {}
-              : { project: (doc: Document) => compileProjection(options.fields).apply(doc) }),
+              : { project: (doc: Document) => compileProjection(fields).apply(doc) }),
           })
           this.send({ t: "sub", id: sub.id, c: collection, q: query })
           if (this.options.cacheDocuments === true) this.cache(sub, key)
@@ -710,9 +766,9 @@ export class CanopyClient {
         sub.refs += 1
         const current = sub
         const stop = this.store.listen(current.id, () =>
-          listener(this.store.state(current.id) as QueryState<T>),
+          listener(this.store.state(current.id) as QueryState<Out>),
         )
-        listener(this.store.state(current.id) as QueryState<T>)
+        listener(this.store.state(current.id) as QueryState<Out>)
         return () => {
           stop()
           current.refs -= 1
@@ -1061,19 +1117,27 @@ export class CanopyClient {
   }
 }
 
-/** An immutable query builder: `from('todos').find({ done: false }).sort({ at: -1 }).limit(20)`. */
-export class QueryBuilder<T extends Document = Document> implements LiveQuery<T> {
-  private readonly client: CanopyClient
+type AnyClient = CanopyClient<UntypedSchema>
+
+/**
+ * An immutable query builder: `from('todos').find({ done: false }).sort({ at: -1 }).limit(20)`. `Row` is the
+ * collection's document type, `Insert` what inserts accept, and `Out` the documents the query returns
+ * (narrowed by `fields`).
+ */
+export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = Row>
+  implements LiveQuery<Out>
+{
+  private readonly client: AnyClient
   private readonly collection: string
   private readonly filter: Document
-  private readonly options: LiveQueryOptions
-  private cached: LiveQuery<T> | undefined
+  private readonly options: LiveQueryOptions<Row>
+  private cached: LiveQuery<Out> | undefined
 
   constructor(
-    client: CanopyClient,
+    client: AnyClient,
     collection: string,
     filter: Document,
-    options: LiveQueryOptions,
+    options: LiveQueryOptions<Row>,
   ) {
     this.client = client
     this.collection = collection
@@ -1081,82 +1145,103 @@ export class QueryBuilder<T extends Document = Document> implements LiveQuery<T>
     this.options = options
   }
 
-  find(filter: Document): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.client, this.collection, filter, this.options)
+  private with<Next = Out>(
+    filter: Document,
+    options: LiveQueryOptions<Row>,
+  ): QueryBuilder<Row, Insert, Next> {
+    return new QueryBuilder<Row, Insert, Next>(this.client, this.collection, filter, options)
   }
 
-  sort(sort: Readonly<Record<string, 1 | -1>>): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.client, this.collection, this.filter, { ...this.options, sort })
+  find(filter: Filter<Row>): QueryBuilder<Row, Insert, Out> {
+    return this.with(asDocument(filter), this.options)
   }
 
-  limit(limit: number): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.client, this.collection, this.filter, {
-      ...this.options,
-      limit,
-    })
+  sort(sort: Sort<Row>): QueryBuilder<Row, Insert, Out> {
+    return this.with(this.filter, { ...this.options, sort })
+  }
+
+  limit(limit: number): QueryBuilder<Row, Insert, Out> {
+    return this.with(this.filter, { ...this.options, limit })
+  }
+
+  /** Narrows the returned fields. The result type follows the projection. */
+  fields<const F extends Projection<Row>>(fields: F): QueryBuilder<Row, Insert, Projected<Row, F>> {
+    return this.with<Projected<Row, F>>(this.filter, { ...this.options, fields })
   }
 
   /** Inserts a document into this collection. */
-  insert(doc: Document): MutationHandle {
-    return this.client.insert(this.collection, doc)
+  insert(doc: Insert): MutationHandle {
+    return this.client.insert(this.collection, asDocument(doc as object))
   }
 
   /** Inserts several documents into this collection. */
-  insertMany(docs: readonly Document[]): MutationHandle {
-    return this.client.insertMany(this.collection, docs)
+  insertMany(docs: readonly Insert[]): MutationHandle {
+    return this.client.insertMany(
+      this.collection,
+      docs.map((doc) => asDocument(doc as object)),
+    )
   }
 
   /** Updates one document of this collection. */
-  update(id: unknown, update: Document, options?: WriteOptions): MutationHandle {
-    return this.client.update(this.collection, id, update, options)
+  update(id: IdOf<Row>, update: UpdateFilter<Row>, options?: WriteOptions<Row>): MutationHandle {
+    return this.client.update(
+      this.collection,
+      id,
+      asDocument(update),
+      options as WriteOptions | undefined,
+    )
   }
 
   /** Replaces one document of this collection. */
-  replace(
-    id: unknown,
-    doc: Document,
-    options?: WriteOptions & { readonly upsert?: boolean },
-  ): MutationHandle {
-    return this.client.replace(this.collection, id, doc, options)
+  replace(id: IdOf<Row>, doc: Insert, options?: ReplaceOptions<Row>): MutationHandle {
+    return this.client.replace(
+      this.collection,
+      id,
+      asDocument(doc as object),
+      options as ReplaceOptions | undefined,
+    )
   }
 
   /** Deletes one document of this collection. */
-  delete(id: unknown, options?: WriteOptions): MutationHandle {
-    return this.client.delete(this.collection, id, options)
+  delete(id: IdOf<Row>, options?: WriteOptions<Row>): MutationHandle {
+    return this.client.delete(this.collection, id, options as WriteOptions | undefined)
   }
 
   /** Updates every visible document of this collection matching `filter`. */
-  updateMany(filter: Document, update: Document): MutationHandle {
-    return this.client.updateMany(this.collection, filter, update)
+  updateMany(filter: Filter<Row>, update: UpdateFilter<Row>): MutationHandle {
+    return this.client.updateMany(this.collection, asDocument(filter), asDocument(update))
   }
 
   /** Deletes every visible document of this collection matching `filter`. */
-  deleteMany(filter: Document): MutationHandle {
-    return this.client.deleteMany(this.collection, filter)
+  deleteMany(filter: Filter<Row>): MutationHandle {
+    return this.client.deleteMany(this.collection, asDocument(filter))
   }
 
-  fields(fields: Readonly<Record<string, 0 | 1>>): QueryBuilder<T> {
-    return new QueryBuilder<T>(this.client, this.collection, this.filter, {
-      ...this.options,
-      fields,
-    })
-  }
-
-  private live(): LiveQuery<T> {
-    this.cached ??= this.client.live<T>(this.collection, this.filter, this.options)
+  private live(): LiveQuery<Out> {
+    this.cached ??= this.client.live<string, Out>(
+      this.collection,
+      this.filter,
+      this.options as LiveQueryOptions,
+    )
     return this.cached
   }
 
-  getState(): QueryState<T> {
+  getState(): QueryState<Out> {
     return this.live().getState()
   }
 
-  subscribe(listener: (state: QueryState<T>) => void): () => void {
+  subscribe(listener: (state: QueryState<Out>) => void): () => void {
     return this.live().subscribe(listener)
   }
 }
 
 /** Creates a client and starts connecting. */
-export function createClient(options: ClientOptions): CanopyClient {
-  return new CanopyClient(options)
+/**
+ * Creates a client and starts connecting. Pass the generated `Database` type to check every query and
+ * write against your collections: `createClient<Database>({ ... })`.
+ */
+export function createClient<DB extends Schema<DB> = UntypedSchema>(
+  options: ClientOptions,
+): CanopyClient<DB> {
+  return new CanopyClient<DB>(options)
 }

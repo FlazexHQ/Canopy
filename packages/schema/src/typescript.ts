@@ -87,10 +87,37 @@ function objectType(shape: ObjectShape, indent: string, optionalId: boolean): st
   return `{\n${lines.join("\n")}\n${indent}}`
 }
 
+/** `todo_items` and `todo-items` become `TodoItems`; names that are not valid identifiers give `undefined`. */
+function pascalCase(name: string): string | undefined {
+  const words = name.split(/[^A-Za-z0-9]+/).filter((word) => word !== "")
+  const joined = words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join("")
+  return /^[A-Z][A-Za-z0-9]*$/.test(joined) ? joined : undefined
+}
+
+/**
+ * One `export type Todos = Database["todos"]["Row"]` alias per collection, skipping names that are not
+ * identifiers and names that two collections (or `Database`) would share.
+ */
+function rowAliases(names: readonly string[]): string[] {
+  const byAlias = new Map<string, string[]>()
+  for (const name of [...names].sort()) {
+    const alias = pascalCase(name)
+    if (alias === undefined || alias === "Database") continue
+    byAlias.set(alias, [...(byAlias.get(alias) ?? []), name])
+  }
+  const lines = [...byAlias]
+    .filter(([, owners]) => owners.length === 1)
+    .map(
+      ([alias, owners]) => `export type ${alias} = Database[${JSON.stringify(owners[0])}]["Row"]`,
+    )
+  return lines.length === 0 ? [] : ["", ...lines]
+}
+
 /**
  * Emits the `Database` interface the SDK is typed with: per collection a `Row` (a stored document) and an
- * `Insert` (the same with `_id` optional). The output depends only on the schemas, so it is stable to
- * commit and to compare in CI.
+ * `Insert` (the same with `_id` optional), followed by a short row alias per collection
+ * (`export type Todos = Database["todos"]["Row"]`). The output depends only on the schemas, so it is stable
+ * to commit and to compare in CI.
  */
 export function generateTypes(
   schemas: readonly CollectionSchema[],
@@ -115,5 +142,6 @@ export function generateTypes(
           `import type { ${used.join(", ")} } from ${JSON.stringify(options.importFrom ?? "@canopy/client")}`,
           "",
         ]
-  return `${[...header, ...imports, "export interface Database {", ...body, "}"].join("\n")}\n`
+  const aliases = rowAliases(schemas.map((schema) => schema.name))
+  return `${[...header, ...imports, "export interface Database {", ...body, "}", ...aliases].join("\n")}\n`
 }
