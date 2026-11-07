@@ -1,7 +1,10 @@
 import { BSONRegExp } from "@canopy/protocol"
 import { describe, expect, it } from "vitest"
 import * as full from "../src/index.ts"
-import * as lite from "../src/lite.ts"
+import * as liteFilters from "../src/lite.ts"
+import * as liteUpdates from "../src/update-lite.ts"
+
+const lite = { ...liteFilters, ...liteUpdates }
 
 const docs = [
   { _id: 1, a: 1, tags: ["x", "y"], name: "alpha", nested: { b: [1, 2, 3] } },

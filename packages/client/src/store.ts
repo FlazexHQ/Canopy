@@ -1,5 +1,4 @@
 import {
-  applyUpdate,
   type CompiledFilter,
   compileFilter,
   compileSort,
@@ -118,13 +117,8 @@ export interface QuerySpec {
 const TOMBSTONE_MS = 60_000
 const PROVISIONAL_MS = 5000
 
-function safeUpdate(doc: Document, update: Document): Document {
-  try {
-    return applyUpdate(doc, update)
-  } catch {
-    return doc
-  }
-}
+/** Applies MongoDB update operators to a copy of a document. */
+export type Updater = (doc: Document, update: Document) => Document
 
 /**
  * The normalized document cache with optimistic layers. Server state only moves forward: a message older
@@ -143,12 +137,35 @@ export class Store {
   private scheduled = false
   private timer: ReturnType<typeof setTimeout> | undefined
   private readonly now: () => number
+  private updater: Updater | undefined
 
   /** Called when a layer acknowledged without echo times out, so the affected queries can be refetched. */
   onRefetch: ((coll: string) => void) | undefined
 
-  constructor(now: () => number = Date.now) {
+  /**
+   * `updater` folds update layers. The client loads it lazily, to keep the update engine out of the entry
+   * chunk; until then update layers leave documents as the server has them.
+   */
+  constructor(now: () => number = Date.now, updater?: Updater) {
     this.now = now
+    this.updater = updater
+  }
+
+  /** Installs the update engine and re-renders every query, so pending update layers show. */
+  useUpdater(updater: Updater): void {
+    this.updater = updater
+    this.version += 1
+    for (const query of this.queries.values()) query.dirty = true
+    this.schedule()
+  }
+
+  private applyLayer(doc: Document, update: Document): Document {
+    if (this.updater === undefined) return doc
+    try {
+      return this.updater(doc, update)
+    } catch {
+      return doc
+    }
   }
 
   /** Registers a live query. */
@@ -258,7 +275,7 @@ export class Store {
         case "update":
           if (key === entry.key) {
             touched = true
-            if (doc !== undefined) doc = safeUpdate(doc, layer.update)
+            if (doc !== undefined) doc = this.applyLayer(doc, layer.update)
           }
           break
         case "replace":
@@ -276,7 +293,7 @@ export class Store {
         case "updateMany":
           if (doc !== undefined && matcher?.matches(doc) === true) {
             touched = true
-            doc = safeUpdate(doc, layer.update)
+            doc = this.applyLayer(doc, layer.update)
           }
           break
         case "deleteMany":

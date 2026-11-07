@@ -3,7 +3,14 @@
     "name": "@canopy/client",
     "gzip": true,
     "path": "packages/client/dist/index.js",
-    "limit": "24.5 kB"
+    "limit": "20.5 kB",
+    "ignore": ["@canopy/matcher/update"]
+  },
+  {
+    "name": "@canopy/matcher/update, loaded lazily by the client (with the modules it shares with the core)",
+    "gzip": true,
+    "path": "packages/matcher/dist/update-lite.js",
+    "limit": "12.5 kB"
   },
   {
     "name": "@canopy/client/fallback",

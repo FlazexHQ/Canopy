@@ -245,6 +245,11 @@ interface Subscription {
  */
 export class CanopyClient {
   readonly store: Store = new Store()
+  /**
+   * Settles once the update engine is loaded. It is a separate chunk, fetched right after the client is
+   * created; update layers made before it arrives show once it has.
+   */
+  readonly updateEngine: Promise<void>
   private readonly options: ClientOptions
   private readonly socketUrl: string
   private readonly httpUrl: string
@@ -289,6 +294,10 @@ export class CanopyClient {
     base.pathname = `${base.pathname.replace(/\/$/, "")}/realtime/v1`
     this.socketUrl = base.toString()
     this.store.onRefetch = (coll) => this.refetch(coll)
+    this.updateEngine = import("@canopy/matcher/update").then(
+      (engine) => this.store.useUpdater((doc, update) => engine.applyUpdate(doc, update)),
+      () => {},
+    )
     if (options.persist !== undefined) {
       this.restoring = this.restore(options.persist)
         .catch(() => {})

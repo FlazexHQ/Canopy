@@ -167,6 +167,7 @@ describe("@canopy/react", () => {
     const handle = db.todos.insert({ _id: 7, title: "t" })
     expect(handle.id).toBe(7)
     expect(client.store.view("todos", 7)).toEqual({ _id: 7, title: "t" })
+    await client.updateEngine
     db.todos.update(7, { $set: { title: "u" } })
     expect(client.store.view("todos", 7)).toEqual({ _id: 7, title: "u" })
     db.todos.delete(7)

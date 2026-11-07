@@ -42,4 +42,5 @@ export {
   type QueryState,
   type QueryStatus,
   Store,
+  type Updater,
 } from "./store.ts"

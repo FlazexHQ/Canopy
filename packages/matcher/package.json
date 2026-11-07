@@ -16,6 +16,11 @@
       "@canopy/source": "./src/lite.ts",
       "default": "./dist/lite.js"
     },
+    "./update": {
+      "types": "./dist/update-lite.d.ts",
+      "@canopy/source": "./src/update-lite.ts",
+      "default": "./dist/update-lite.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

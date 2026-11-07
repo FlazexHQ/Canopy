@@ -11,7 +11,7 @@ function ids(store: Store, query: string): unknown[] {
 }
 
 function setup(spec: Parameters<Store["addQuery"]>[2] = {}): Store {
-  const store = new Store()
+  const store = new Store(Date.now, applyUpdate)
   store.addQuery("q", "todos", spec)
   return store
 }
@@ -21,6 +21,29 @@ afterEach(() => {
 })
 
 describe("optimistic layers", () => {
+  it("shows update layers once the lazily loaded update engine arrives", async () => {
+    const store = new Store()
+    store.addQuery("q", "todos", { filter: { done: true } })
+    store.addQuery("all", "todos", {})
+    store.added("todos", 1, { _id: 1, done: false, n: 1 }, "10", ["all"])
+    store.addLayer("m1", { kind: "update", coll: "todos", id: 1, update: { $set: { done: true } } })
+    store.addLayer("m2", { kind: "insert", coll: "todos", id: 2, doc: { _id: 2, done: true } })
+    await flush()
+    expect(store.view("todos", 1)).toEqual({ _id: 1, done: false, n: 1 })
+    expect(ids(store, "q")).toEqual([2])
+    let notified = 0
+    store.listen("q", () => {
+      notified += 1
+    })
+    store.useUpdater(applyUpdate)
+    await flush()
+    expect(store.view("todos", 1)).toEqual({ _id: 1, done: true, n: 1 })
+    expect(ids(store, "q")).toEqual([1, 2])
+    expect(notified).toBeGreaterThan(0)
+    store.dropLayer("m1")
+    expect(store.view("todos", 1)).toEqual({ _id: 1, done: false, n: 1 })
+  })
+
   it("shows an optimistic insert in matching queries only, and removes it on rollback", () => {
     const store = setup({ filter: { status: "active" } })
     store.addQuery("done", "todos", { filter: { status: "done" } })
@@ -180,7 +203,7 @@ describe("acks without echo", () => {
   it("stops predicting confirmed documents after the grace period", () => {
     vi.useFakeTimers()
     let now = 0
-    const store = new Store(() => now)
+    const store = new Store(() => now, applyUpdate)
     store.addQuery("q", "todos", { filter: {} })
     store.confirm("todos", 1, { _id: 1 }, "30")
     expect(ids(store, "q")).toEqual([1])
@@ -267,7 +290,7 @@ describe("rebase convergence", () => {
   it("always shows the server state with the pending layers folded on top, and converges", () => {
     fc.assert(
       fc.property(fc.array(step, { maxLength: 40 }), (steps) => {
-        const store = new Store()
+        const store = new Store(Date.now, applyUpdate)
         store.addQuery("q", "todos", { filter: {} })
         let server: Document = { _id: 1, n: 1, tags: [] }
         let ct = 1
