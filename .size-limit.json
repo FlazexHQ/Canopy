@@ -3,7 +3,7 @@
     "name": "@canopy/client",
     "gzip": true,
     "path": "packages/client/dist/index.js",
-    "limit": "20.5 kB",
+    "limit": "20.75 kB",
     "ignore": ["@canopy/matcher/update"]
   },
   {
@@ -29,6 +29,13 @@
     "gzip": true,
     "path": "packages/client/dist/persist.js",
     "limit": "2 kB"
+  },
+  {
+    "name": "@canopy/client/auth",
+    "gzip": true,
+    "path": "packages/client/dist/auth.js",
+    "ignore": ["@canopy/protocol"],
+    "limit": "3 kB"
   },
   {
     "name": "@canopy/react",

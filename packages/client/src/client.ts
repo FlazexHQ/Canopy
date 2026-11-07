@@ -76,7 +76,7 @@ export interface FallbackTransport {
 }
 
 /** Where a {@link Persister} keeps an entry. */
-export type PersistScope = "mutations" | "docs"
+export type PersistScope = "mutations" | "docs" | "auth"
 
 /**
  * Durable string storage for the offline queue and the document cache, such as `indexedDbPersister()`
@@ -112,15 +112,25 @@ export type FallbackSource =
   | { readonly transports: readonly FallbackTransport[] }
   | (() => Promise<{ readonly transports: readonly FallbackTransport[] }>)
 
+/** Supplies access tokens; the client asks again at 80 % of each token's lifetime. */
+export interface TokenSource {
+  readonly getToken: () => string | null | undefined | Promise<string | null | undefined>
+  /** Fetches a new token, skipping any cache; used after the server closed the socket with 4001. */
+  readonly refresh?: () => string | null | undefined | Promise<string | null | undefined>
+  /** Called when the user changes, so the client reconnects as the new user instead of resuming. */
+  readonly onChange?: (listener: () => void) => () => void
+}
+
 /** Options for {@link createClient}. */
 export interface ClientOptions {
   /** The Canopy base URL, for example `https://api.example.com`. The socket connects to `/realtime/v1`. */
   readonly url: string
   readonly publishableKey: string
-  /** Bring your own identity provider: returns the current user token, or `null` for anon. */
-  readonly auth?: {
-    readonly getToken: () => string | null | undefined | Promise<string | null | undefined>
-  }
+  /**
+   * Where user tokens come from: `createAuth()` from `@canopy/client/auth` for built in auth, or your own
+   * identity provider. `getToken` returns the current access token, or `null` for anon.
+   */
+  readonly auth?: TokenSource
   /** Overrides the global `WebSocket`, for runtimes without one. */
   readonly WebSocket?: WebSocketConstructor
   /** Maximum reconnect delay in milliseconds. Defaults to 30 s. */
@@ -307,6 +317,8 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   private readonly saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private lastAttemptAt = 0
   private stopLifecycle: (() => void) | undefined
+  private stopAuth: (() => void) | undefined
+  private staleToken = false
 
   constructor(options: ClientOptions) {
     this.options = options
@@ -330,6 +342,26 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
         })
     }
     this.watchLifecycle()
+    this.stopAuth = options.auth?.onChange?.(() => this.reidentify())
+    this.connect()
+  }
+
+  /** The token source passed as `auth`, such as the `createAuth()` handle. */
+  get auth(): TokenSource | undefined {
+    return this.options.auth
+  }
+
+  /** Starts a fresh session as the current user: the server refuses `auth` frames that switch subject. */
+  private reidentify(): void {
+    this.sid = undefined
+    const socket = this.socket
+    if (socket !== undefined) {
+      this.detach()
+      socket.close(1000)
+    }
+    clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    this.attempt = 0
     this.connect()
   }
 
@@ -859,8 +891,15 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 
   private async hello(socket: WebSocketLike): Promise<void> {
-    const token = (await this.options.auth?.getToken()) ?? undefined
+    const source = this.options.auth
+    const stale = this.staleToken && source?.refresh !== undefined
+    this.staleToken = false
+    const token = (await (stale ? source?.refresh?.() : source?.getToken())) ?? undefined
     if (this.socket !== socket || socket.readyState !== 1) return
+    if (this.restoring === undefined) {
+      const sub = claims(token).sub
+      this.scope = typeof sub === "string" ? sub : "anon"
+    }
     const message: ClientMessage = {
       t: "hello",
       v: PROTOCOL_VERSION,
@@ -1059,6 +1098,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       return
     }
     if (!reaction.resume) this.sid = undefined
+    if (reaction.refreshToken) this.staleToken = true
     if (!welcomed && code === 1006 && this.options.fallback !== undefined) {
       const now = Date.now()
       this.failures = [...this.failures.filter((at) => now - at < 10_000), now]
@@ -1102,6 +1142,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       if (timer !== undefined) clearInterval(timer)
     for (const timer of this.saveTimers.values()) clearTimeout(timer)
     this.stopLifecycle?.()
+    this.stopAuth?.()
     if (this.socket !== undefined && this.socket.readyState === 1)
       this.socket.send(encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")

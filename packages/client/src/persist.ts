@@ -1,6 +1,6 @@
 import type { Persister, PersistScope } from "./client.ts"
 
-const SCOPES: readonly PersistScope[] = ["mutations", "docs"]
+const SCOPES: readonly PersistScope[] = ["mutations", "docs", "auth"]
 
 function settle<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -10,7 +10,7 @@ function settle<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 /**
- * Stores the offline queue and the document cache in IndexedDB, one object store per scope, in the
+ * Stores the offline queue, the document cache and the auth session in IndexedDB, one object store per scope, in the
  * database `name` (`canopy` by default). Use one name per app and environment.
  */
 export function indexedDbPersister(
@@ -20,7 +20,7 @@ export function indexedDbPersister(
   const database = (): Promise<IDBDatabase> => {
     opened ??= new Promise((resolve, reject) => {
       const factory = options.indexedDB ?? globalThis.indexedDB
-      const request = factory.open(options.name ?? "canopy", 1)
+      const request = factory.open(options.name ?? "canopy", 2)
       request.onupgradeneeded = () => {
         for (const scope of SCOPES)
           if (!request.result.objectStoreNames.contains(scope))

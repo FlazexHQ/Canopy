@@ -26,6 +26,11 @@
       "@canopy/source": "./src/persist.ts",
       "default": "./dist/persist.js"
     },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "@canopy/source": "./src/auth.ts",
+      "default": "./dist/auth.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -46,6 +51,7 @@
     "@canopy/policy": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@canopy/server": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "fake-indexeddb": "catalog:",

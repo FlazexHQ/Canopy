@@ -128,7 +128,7 @@ export class Client {
     const url = path.startsWith("http") ? path : `${this.base}${path}`
     const own = new URL(url).origin === new URL(this.base).origin
     const headers: Record<string, string> = {
-      origin: this.origin,
+      ...(this.origin === "" ? {} : { origin: this.origin }),
       "x-forwarded-for": this.ip,
       ...extra,
     }

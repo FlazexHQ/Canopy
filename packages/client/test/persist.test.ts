@@ -93,3 +93,43 @@ describe("AsyncStorage persister", () => {
     expect(storage.map.get("unrelated")).toBe("x")
   })
 })
+
+describe.each(kinds)("%s persister, auth scope", (_name, make) => {
+  it("keeps the auth session apart from the other scopes", async () => {
+    const persister = make()
+    await persister.set("auth", "session", "s")
+    await persister.set("mutations", "session", "m")
+    expect(await persister.get("auth", "session")).toBe("s")
+    expect(await persister.entries("auth")).toEqual([["session", "s"]])
+    await persister.delete("auth", "session")
+    expect(await persister.get("auth", "session")).toBeUndefined()
+    expect(await persister.get("mutations", "session")).toBe("m")
+  })
+})
+
+describe("indexedDbPersister upgrades", () => {
+  it("adds the auth store to a database created by the first version, keeping its data", async () => {
+    const factory = new IDBFactory()
+    await new Promise<void>((resolve, reject) => {
+      const request = factory.open("canopy", 1)
+      request.onupgradeneeded = () => {
+        request.result.createObjectStore("mutations")
+        request.result.createObjectStore("docs")
+      }
+      request.onsuccess = () => {
+        const db = request.result
+        const tx = db.transaction("mutations", "readwrite")
+        tx.objectStore("mutations").put("kept", "m1")
+        tx.oncomplete = () => {
+          db.close()
+          resolve()
+        }
+      }
+      request.onerror = () => reject(request.error)
+    })
+    const persister = indexedDbPersister({ indexedDB: factory })
+    expect(await persister.get("mutations", "m1")).toBe("kept")
+    await persister.set("auth", "session", "token")
+    expect(await persister.get("auth", "session")).toBe("token")
+  })
+})

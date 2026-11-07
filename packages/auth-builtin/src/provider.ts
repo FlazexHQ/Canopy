@@ -429,6 +429,13 @@ class BetterAuthProvider implements BuiltinAuth {
     )
     const headers = new Headers(request.headers)
     headers.set(CLIENT_IP_HEADER, ip)
+    if (!headers.has("cookie") && !headers.has("origin") && !headers.has("referer")) {
+      // Without cookies, an Origin or a Referer this is not a browser request (browsers send Origin on every
+      // POST), so there is nothing to forge; Node's fetch still adds Sec-Fetch-Mode, which the engine would
+      // otherwise answer with "missing Origin".
+      for (const name of ["sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest", "sec-fetch-user"])
+        headers.delete(name)
+    }
 
     if (path === "/token" && request.method === "GET") return this.token(headers, ip)
     if (path === "/settings" && request.method === "GET") return json(this.settingsBody)

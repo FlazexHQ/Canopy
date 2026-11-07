@@ -36,6 +36,7 @@ export {
   QueryBuilder,
   type ReplaceOptions,
   type StaleMutation,
+  type TokenSource,
   type WebSocketConstructor,
   type WebSocketLike,
   type WriteOptions,

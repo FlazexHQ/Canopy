@@ -15,6 +15,7 @@
     { "path": ".." },
     { "path": "../../testing" },
     { "path": "../../realtime" },
-    { "path": "../../rest" }
+    { "path": "../../rest" },
+    { "path": "../../server" }
   ]
 }

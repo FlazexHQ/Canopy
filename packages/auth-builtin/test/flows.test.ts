@@ -325,6 +325,13 @@ describeMongo("built in auth flows", () => {
     client.origin = "https://evil.example"
     const out = await client.post("/auth/v1/sign-out", {})
     expect(out.status).toBe(403)
+    client.origin = ""
+    const bare = await client.post(
+      "/auth/v1/sign-out",
+      {},
+      { "sec-fetch-mode": "cors", "sec-fetch-site": "cross-site" },
+    )
+    expect(bare.status).toBe(403)
     client.origin = APP_ORIGIN
     expect((await tokenFor(client)).reply.status).toBe(200)
   })
