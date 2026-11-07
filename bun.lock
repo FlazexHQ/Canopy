@@ -363,6 +363,9 @@
     "packages/server": {
       "name": "@canopy/server",
       "version": "0.0.0",
+      "bin": {
+        "canopy-server": "./dist/bin/canopy-server.js",
+      },
       "dependencies": {
         "@canopy/auth": "workspace:*",
         "@canopy/auth-builtin": "workspace:*",

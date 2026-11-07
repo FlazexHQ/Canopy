@@ -36,11 +36,20 @@ Fixed decisions (do not change without the user saying so):
 
 - TypeScript **6.x** is the compiler of record, even though TS 7 exists (ADR 0001, plan 11 §11).
 - The monorepo is set up **by hand**. Never run `bun init`, `create-*`, or any other scaffolder or generator.
-- **Bun is primary.** Supported runtimes, in priority order: **Bun, Node.js, Deno** (Cloudflare Workers only for
-  the edge). Package managers, in priority order: **Bun, pnpm, Yarn, npm**. The repository itself uses Bun
+- **Bun is primary.** Supported runtimes, in priority order: **Bun, Node.js (24 and 26 LTS), Deno** (Cloudflare
+  Workers only for the edge). Package managers, in priority order: **Bun, pnpm, Yarn, npm**. The repository itself uses Bun
   workspaces with `bun.lock` as the only lockfile; published packages, examples and quickstarts must install
   and run with all four. Shared code stays portable across all three runtimes; Bun specific APIs live only
   behind adapters with a Node counterpart. Details: ADR 0001, ADR 0002, `docs/plan/01-architecture.md` §8.
+- **All platforms.** Every runtime must work natively on **Windows** (10, 11, Server 2022+, not only WSL),
+  **Linux** (Debian, Ubuntu, Fedora, RHEL, Arch, Alpine and other glibc or musl distributions) and **macOS**
+  (Apple silicon and Intel), on x64 and arm64. This covers the repository's own scripts and hooks, published
+  packages, the CLI, the sidecar, examples and quickstarts (the container image alone is Linux only). So: build
+  paths with `node:path` or `URL` and import files through `pathToFileURL`; keep `package.json` scripts free of
+  inline env assignment, POSIX utilities and shell globs (use a TypeScript script instead); spawn processes
+  with argument arrays, handling `.cmd` shims on Windows; accept CRLF in parsed text; match file name case
+  exactly; never rely on POSIX permission bits for security; handle `SIGINT`, `SIGTERM` and `SIGBREAK`; avoid
+  native dependencies without prebuilt binaries for every platform. Full rules: `docs/plan/01-architecture.md` §8.
 - Open decisions (name, license, auth engine, minimum MongoDB) live in `docs/plan/12-roadmap.md` §7.
   Check whether they are settled before assuming an answer.
 
