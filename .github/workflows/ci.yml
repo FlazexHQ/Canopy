@@ -137,6 +137,29 @@ jobs:
           done
           docker logs sidecar
           exit 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Build the standalone executables
+        run: bun deploy/binary/build.ts --target linux-x64 --out "$RUNNER_TEMP/binaries"
+      - name: The executables run without node_modules
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          binaries/canopy-linux-x64 policies lint --dir policies
+          MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary \
+            CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
+            binaries/canopy-server-linux-x64 > server.log 2>&1 &
+          for attempt in $(seq 60); do
+            if curl -fsS localhost:18090/readyz; then break; fi
+            sleep 1
+          done
+          curl -fsS -X POST localhost:18090/rest/v1/notes -H "apikey: sk_ci" \
+            -H "content-type: application/json" -d '{"ownerId":"user_1"}'
+          kill -TERM %1
+          wait %1
+          grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
       - if: failure()
         run: docker compose -f deploy/compose/canopy.yaml logs
       - if: always()
