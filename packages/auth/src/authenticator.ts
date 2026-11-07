@@ -9,6 +9,7 @@ import {
   errors as joseErrors,
   jwtVerify,
 } from "jose"
+import { type ApiKeyRecord, type ApiKeyStore, apiKeyKind } from "./api-keys.ts"
 
 /** How user tokens are verified (bring your own identity provider). */
 export interface JwtAuthOptions {
@@ -34,6 +35,12 @@ export interface KeyOptions {
   readonly secret?: readonly string[]
 }
 
+/** Options of an {@link Authenticator} beyond JWTs and config keys. */
+export interface AuthenticatorOptions {
+  /** Stored keys, checked after the keys of the config. */
+  readonly store?: ApiKeyStore
+}
+
 /** A verified caller. */
 export interface Principal {
   readonly context: RequestContext
@@ -41,6 +48,8 @@ export interface Principal {
   readonly subject: string
   /** Token expiry in milliseconds since the epoch, if the caller sent a token. */
   readonly expiresAt: number | undefined
+  /** The stored key the caller used, so its revocation can end the caller's connections. */
+  readonly keyId?: string
 }
 
 const DEFAULT_ALGORITHMS = ["EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256"]
@@ -51,11 +60,17 @@ export class Authenticator {
   private readonly keySet: JWTVerifyGetKey | undefined
   private readonly options: JwtAuthOptions | undefined
   private readonly keys: KeyOptions
+  private readonly store: ApiKeyStore | undefined
   private readonly algorithms: string[]
 
-  constructor(options: JwtAuthOptions | undefined, keys: KeyOptions = {}) {
+  constructor(
+    options: JwtAuthOptions | undefined,
+    keys: KeyOptions = {},
+    extra: AuthenticatorOptions = {},
+  ) {
     this.options = options
     this.keys = keys
+    this.store = extra.store
     this.algorithms = [...(options?.algorithms ?? DEFAULT_ALGORITHMS)]
     for (const algorithm of this.algorithms) {
       if (FORBIDDEN_ALGORITHMS.has(algorithm))
@@ -85,21 +100,28 @@ export class Authenticator {
    * Throws {@link UnauthorizedError} or {@link ForbiddenError}.
    */
   async authenticate(key: string, token: string | undefined): Promise<Principal> {
-    if (this.keys.secret?.includes(key) === true) {
-      return {
-        context: { roles: new Set([Role.Service]), claims: null, now: new Date() },
-        subject: "service",
-        expiresAt: undefined,
-      }
+    if (this.keys.secret?.includes(key) === true) return service(undefined)
+    let stored: ApiKeyRecord | undefined
+    if (this.store !== undefined && apiKeyKind(key) !== undefined) {
+      stored = await this.store.find(key)
+      if (stored?.revoked === true) throw new ForbiddenError("The API key was revoked")
+      if (stored !== undefined) this.store.used?.(stored)
+      if (stored?.kind === "secret") return service(stored.id)
     }
-    if (this.keys.publishable !== undefined && !this.keys.publishable.includes(key)) {
+    if (
+      stored === undefined &&
+      this.keys.publishable !== undefined &&
+      !this.keys.publishable.includes(key)
+    ) {
       throw new UnauthorizedError("Unknown API key")
     }
+    const keyId = stored === undefined ? {} : { keyId: stored.id }
     if (token === undefined || token === "") {
       return {
         context: { roles: new Set([Role.Anon]), claims: null, now: new Date() },
         subject: "anon",
         expiresAt: undefined,
+        ...keyId,
       }
     }
     if (this.keySet === undefined || this.options === undefined)
@@ -150,6 +172,7 @@ export class Authenticator {
             context: { roles: new Set([Role.Service]), claims: payload, now: new Date() },
             subject: String(payload.sub ?? "service"),
             expiresAt: expiry(payload),
+            ...keyId,
           }
         }
         roles.add(role)
@@ -159,7 +182,17 @@ export class Authenticator {
       context: { roles, claims: payload, now: new Date() },
       subject: typeof payload.sub === "string" ? payload.sub : "unknown",
       expiresAt: expiry(payload),
+      ...keyId,
     }
+  }
+}
+
+function service(keyId: string | undefined): Principal {
+  return {
+    context: { roles: new Set([Role.Service]), claims: null, now: new Date() },
+    subject: "service",
+    expiresAt: undefined,
+    ...(keyId === undefined ? {} : { keyId }),
   }
 }
 
