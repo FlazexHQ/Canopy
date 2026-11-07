@@ -18,6 +18,8 @@ export interface LoadOptions {
    * win, real variables always win). `canopy dev` turns this on; servers do not.
    */
   readonly envFiles?: boolean
+  /** Import the config file again even if it was loaded before, so edits are seen (`canopy dev`). */
+  readonly fresh?: boolean
 }
 
 /** A loaded config: the resolution plus the file it came from. */
@@ -139,7 +141,8 @@ export async function loadConfig(options: LoadOptions): Promise<LoadedConfig> {
   }
   let input: unknown = {}
   if (file !== undefined) {
-    const module: unknown = await import(pathToFileURL(file).href)
+    const url = pathToFileURL(file).href
+    const module: unknown = await import(options.fresh === true ? `${url}?v=${Date.now()}` : url)
     const exported =
       typeof module === "object" && module !== null && "default" in module
         ? module.default
