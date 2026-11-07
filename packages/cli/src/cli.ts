@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
@@ -8,8 +9,16 @@ import { policiesExplain } from "./explain.ts"
 import { genTypes } from "./gen-types.ts"
 import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
+import { keysCreate, keysList, keysRevoke, migrate } from "./keys.ts"
 import { DEFAULT_MONGO_IMAGE, startLocalMongo } from "./local-mongo.ts"
 import { messageOf, type Output } from "./output.ts"
+import {
+  policiesDiff,
+  policiesHistory,
+  policiesPull,
+  policiesPush,
+  policiesRollback,
+} from "./policies.ts"
 import { realtimeImages } from "./realtime-images.ts"
 
 const USAGE = `Usage: canopy <command> [options]
@@ -22,6 +31,20 @@ Commands:
   policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB
   policies explain <collection>
                          Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)
+  policies diff [collection...]
+                         Compare the policy directory with the published policies
+  policies push [collection...]
+                         Publish changed collections (versioned, audited, conditional)
+  policies pull [collection...]
+                         Write the published policies into the policy directory as TypeScript
+  policies history <collection>
+                         List the published versions of a collection
+  policies rollback <collection> <version>
+                         Republish an earlier version as a new one (asks first)
+  keys list              List the API keys of the project
+  keys create            Create a key: --kind publishable|secret --name <name>
+  keys revoke <id>       Revoke a key for good (asks first)
+  migrate                Bring the meta database up to date (--status lists the migrations)
   gen types              Generate the Database types from validators, config and sampled documents
   config print           Print the resolved config with secrets masked
   realtime enable-images <collection...>
@@ -49,7 +72,17 @@ Options:
   --port <n>             dev: the port to serve on (default: the config's server.port)
   --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)
   --mongo-image <image>  dev --with-mongo: the image (default ${DEFAULT_MONGO_IMAGE})
-  --yes                  realtime, indexes create: apply without asking
+  --expect-version <v>   policies push: the version each change was made against, as n (one collection)
+                         or collection=n pairs; policies rollback: the current version
+  --comment <text>       policies push, rollback: recorded in the history and the audit log
+  --dry-run              policies push: show what would be published
+  --fail-on-drift        policies diff: exit 1 when anything differs
+  --force                policies pull: replace existing files
+  --limit <n>            policies history: how many versions (default 50)
+  --kind <kind>          keys create: publishable or secret
+  --name <name>          keys create: a label for the key
+  --status               migrate: list the migrations instead of running them
+  --yes                  realtime, indexes create, policies rollback, keys revoke: apply without asking
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
   --roles <a,b>          policies explain: custom roles of the caller
   --op <op>              policies explain: read, insert, update or delete (default read)
@@ -58,25 +91,83 @@ Options:
   --help                 Show this help`
 
 const GLOBAL_FLAGS = ["help", "config", "dir", "mongodb-uri", "database"]
-const COMMAND_FLAGS: Readonly<Record<string, readonly string[]>> = {
-  doctor: [],
-  "policies lint": [],
-  "policies test": [],
-  "policies explain": ["as", "roles", "op", "filter", "ctx"],
-  "gen types": ["out", "role", "check", "infer-enums", "sample"],
-  "config print": ["sources"],
-  init: [],
-  dev: ["with-mongo", "port", "mongo-port", "mongo-image"],
-  "realtime enable-images": ["yes"],
-  "realtime disable-images": ["yes"],
-  "indexes advise": [],
-  "indexes create": ["yes"],
+
+/** Flags that never take a value, so a word after them stays a positional argument. */
+const BOOLEAN_FLAGS = new Set([
+  "help",
+  "check",
+  "infer-enums",
+  "sources",
+  "with-mongo",
+  "yes",
+  "dry-run",
+  "fail-on-drift",
+  "force",
+  "status",
+])
+
+interface CommandSpec {
+  readonly flags: readonly string[]
+  /** The fewest and most positional arguments after the command name. */
+  readonly args?: readonly [number, number]
+  /** What the arguments are, for the error when their number is wrong. */
+  readonly needs?: string
 }
 
-const SINGLE = new Set(["doctor", "init", "dev"])
+const ANY = [0, Number.POSITIVE_INFINITY] as const
 
-/** Parses `--name value` flags. */
-export function parseArgs(argv: readonly string[]): {
+const COMMANDS: Readonly<Record<string, CommandSpec>> = {
+  doctor: { flags: [] },
+  "policies lint": { flags: [] },
+  "policies test": { flags: [] },
+  "policies explain": {
+    flags: ["as", "roles", "op", "filter", "ctx"],
+    args: [1, 1],
+    needs: "exactly one collection",
+  },
+  "policies diff": { flags: ["fail-on-drift"], args: ANY },
+  "policies push": { flags: ["expect-version", "comment", "dry-run"], args: ANY },
+  "policies pull": { flags: ["force"], args: ANY },
+  "policies history": { flags: ["limit"], args: [1, 1], needs: "exactly one collection" },
+  "policies rollback": {
+    flags: ["expect-version", "comment", "yes"],
+    args: [2, 2],
+    needs: "a collection and a version",
+  },
+  "gen types": { flags: ["out", "role", "check", "infer-enums", "sample"] },
+  "config print": { flags: ["sources"] },
+  init: { flags: [] },
+  dev: { flags: ["with-mongo", "port", "mongo-port", "mongo-image"] },
+  "realtime enable-images": { flags: ["yes"], args: ANY },
+  "realtime disable-images": { flags: ["yes"], args: ANY },
+  "indexes advise": { flags: [] },
+  "indexes create": { flags: ["yes"] },
+  "keys list": { flags: [] },
+  "keys create": { flags: ["kind", "name"] },
+  "keys revoke": { flags: ["yes"], args: [1, 1], needs: "the id of one key" },
+  migrate: { flags: ["status"] },
+}
+
+const SINGLE = new Set(["doctor", "init", "dev", "migrate"])
+
+/** Commands that only use the meta database, not the app database. */
+const META_ONLY = new Set([
+  "policies diff",
+  "policies push",
+  "policies pull",
+  "policies history",
+  "policies rollback",
+  "keys list",
+  "keys create",
+  "keys revoke",
+  "migrate",
+])
+
+/** Parses `--name value` flags. Flags in `booleans` never take the next word as their value. */
+export function parseArgs(
+  argv: readonly string[],
+  booleans: ReadonlySet<string> = BOOLEAN_FLAGS,
+): {
   positional: string[]
   flags: Map<string, string | true>
 } {
@@ -91,7 +182,7 @@ export function parseArgs(argv: readonly string[]): {
     const [name, inline] = arg.slice(2).split("=", 2)
     const next = argv[index + 1]
     if (inline !== undefined) flags.set(name ?? "", inline)
-    else if (next !== undefined && !next.startsWith("--")) {
+    else if (next !== undefined && !next.startsWith("--") && !booleans.has(name ?? "")) {
       flags.set(name ?? "", next)
       index += 1
     } else flags.set(name ?? "", true)
@@ -143,11 +234,12 @@ export async function run(
   const first = positional[0] ?? ""
   const name = SINGLE.has(first) ? first : positional.slice(0, 2).join(" ")
   const rest = positional.slice(name.split(" ").length)
-  const allowed = COMMAND_FLAGS[name]
-  if (allowed === undefined) {
+  const spec = COMMANDS[name]
+  if (spec === undefined) {
     out.error(`Unknown command: ${positional.join(" ")}\n\n${USAGE}`)
     return 1
   }
+  const allowed = spec.flags
   for (const flag of flags.keys()) {
     if (GLOBAL_FLAGS.includes(flag) || allowed.includes(flag)) continue
     const near = closest(flag, [...GLOBAL_FLAGS, ...allowed])
@@ -156,13 +248,13 @@ export async function run(
     )
     return 1
   }
-  const takesCollections = name.startsWith("realtime ")
-  if (name === "policies explain" && rest.length !== 1) {
-    out.error("policies explain needs exactly one collection")
-    return 1
-  }
-  if (rest.length > 0 && !takesCollections && name !== "policies explain") {
-    out.error(`Unexpected argument ${rest.join(" ")} for ${name}`)
+  const [fewest, most] = spec.args ?? [0, 0]
+  if (rest.length < fewest || rest.length > most) {
+    out.error(
+      spec.needs === undefined
+        ? `Unexpected argument ${rest.slice(most).join(" ")} for ${name}`
+        : `${name} needs ${spec.needs}`,
+    )
     return 1
   }
   const uriFlag = text(flags, "mongodb-uri")
@@ -180,9 +272,9 @@ export async function run(
       ? "print"
       : name === "doctor"
         ? "doctor"
-        : name === "gen types" || name.startsWith("realtime ") || name.startsWith("indexes ")
-          ? "gen"
-          : "policies"
+        : name === "policies lint" || name === "policies test" || name === "policies explain"
+          ? "policies"
+          : "gen"
   let loaded: LoadedConfig
   try {
     const file = text(flags, "config")
@@ -202,8 +294,10 @@ export async function run(
     out.log(formatConfig(loaded, { sources: flags.has("sources") }).trimEnd())
     return 0
   }
-  const dir =
-    text(flags, "dir") ?? ("dir" in config.policies ? config.policies.dir : "./canopy/policies")
+  const dir = resolve(
+    cwd,
+    text(flags, "dir") ?? ("dir" in config.policies ? config.policies.dir : "./canopy/policies"),
+  )
   const dirGiven = flags.has("dir") || "dir" in config.policies
   const uri = uriFlag ?? (config.mongodb.uri === "" ? undefined : config.mongodb.uri)
   if (name === "policies lint") return policiesLint({ dir }, out)
@@ -238,6 +332,15 @@ export async function run(
     out.error(`${name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file`)
     return 1
   }
+  if (META_ONLY.has(name))
+    return runMeta(
+      name,
+      rest,
+      flags,
+      { mongodbUri: uri, metaDatabase: env["CANOPY_META_DB"] ?? config.mongodb.metaDatabase },
+      dir,
+      out,
+    )
   const database =
     text(flags, "database") ??
     (uriFlag === undefined ? config.mongodb.database : (env["CANOPY_DB"] ?? databaseOf(uri)))
@@ -247,7 +350,7 @@ export async function run(
   }
   if (name === "doctor")
     return doctor({ mongodbUri: uri, database, ...(dirGiven ? { dir } : {}) }, out)
-  if (takesCollections)
+  if (name.startsWith("realtime "))
     return realtimeImages(
       {
         mongodbUri: uri,
@@ -289,6 +392,89 @@ export async function run(
     },
     out,
   )
+}
+
+function count(value: string | undefined, flag: string, out: Output): number | undefined | false {
+  if (value === undefined) return undefined
+  if (!/^\d+$/.test(value)) {
+    out.error(`--${flag} needs a whole number`)
+    return false
+  }
+  return Number(value)
+}
+
+async function runMeta(
+  name: string,
+  args: readonly string[],
+  flags: Map<string, string | true>,
+  meta: { readonly mongodbUri: string; readonly metaDatabase: string },
+  dir: string,
+  out: Output,
+): Promise<number> {
+  const comment = text(flags, "comment")
+  const withComment = comment === undefined ? {} : { comment }
+  switch (name) {
+    case "policies diff":
+      return policiesDiff(
+        { ...meta, dir, collections: args, failOnDrift: flags.has("fail-on-drift") },
+        out,
+      )
+    case "policies push": {
+      const expectVersion = text(flags, "expect-version")
+      return policiesPush(
+        {
+          ...meta,
+          dir,
+          collections: args,
+          dryRun: flags.has("dry-run"),
+          ...withComment,
+          ...(expectVersion === undefined ? {} : { expectVersion }),
+        },
+        out,
+      )
+    }
+    case "policies pull":
+      return policiesPull({ ...meta, dir, collections: args, force: flags.has("force") }, out)
+    case "policies history": {
+      const limit = count(text(flags, "limit"), "limit", out)
+      if (limit === false) return 1
+      return policiesHistory(
+        { ...meta, collection: args[0] ?? "", ...(limit === undefined ? {} : { limit }) },
+        out,
+      )
+    }
+    case "policies rollback": {
+      const version = count(args[1], "version", out)
+      const expectVersion = count(text(flags, "expect-version"), "expect-version", out)
+      if (version === false || version === undefined || expectVersion === false) return 1
+      return policiesRollback(
+        {
+          ...meta,
+          collection: args[0] ?? "",
+          version,
+          yes: flags.has("yes"),
+          ...withComment,
+          ...(expectVersion === undefined ? {} : { expectVersion }),
+        },
+        out,
+      )
+    }
+    case "keys list":
+      return keysList(meta, out)
+    case "keys create": {
+      const kind = text(flags, "kind")
+      const keyName = text(flags, "name")
+      if ((kind !== "publishable" && kind !== "secret") || keyName === undefined) {
+        out.error("keys create needs --kind publishable|secret and --name <name>")
+        return 1
+      }
+      return keysCreate({ ...meta, kind, name: keyName }, out)
+    }
+    case "keys revoke":
+      return keysRevoke({ ...meta, id: args[0] ?? "", yes: flags.has("yes") }, out)
+    default:
+      return migrate({ ...meta, status: flags.has("status") }, out)
+  }
 }
 
 async function runDev(
