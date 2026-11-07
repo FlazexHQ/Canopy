@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { afterAll, describe, expect, it } from "vitest"
@@ -86,6 +86,8 @@ const fetch = adminApi({
   from_env: "env@example.com",
   from_prompt: "prompt@example.com",
   t: "t@example.com",
+  tok_w: "w@example.com",
+  tok_c: "c@example.com",
 }).fetch
 
 describe("canopy login", () => {
@@ -161,7 +163,7 @@ describe("canopy login", () => {
       expect(await login({ url, token, env, platform, run: tool.run, fetch }, out)).toBe(0)
       expect(lines[0]).toContain(
         platform === "win32"
-          ? "the token is in the credentials file (in your Windows user profile)"
+          ? "the token is in the credentials file (in your Windows user profile, not encrypted)"
           : "the token is in the credentials file (mode 0600)",
       )
     }
@@ -172,12 +174,63 @@ describe("canopy login", () => {
       "https://b.example": "tok_b",
     })
     if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600)
-    expect(tool.calls.map((call) => call.program)).toEqual(["secret-tool"])
+    expect(tool.calls.map((call) => call.program)).toEqual(["secret-tool", "powershell.exe"])
 
     const out = capture()
     await logout({ url: "https://a.example", env, platform: "win32", run: tool.run }, out.out)
     expect(out.lines).toEqual(["Logged out of https://a.example."])
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ "https://b.example": "tok_b" })
+  })
+
+  it("encrypts tokens for the Windows account with DPAPI, passing them on standard input", async () => {
+    await mkdir(scratch, { recursive: true })
+    const config = await mkdtemp(join(scratch, "dpapi-"))
+    const env = { APPDATA: config }
+    const calls: { args: readonly string[]; input: string | undefined }[] = []
+    let readable = true
+    const run = async (program: string, args: readonly string[], input?: string) => {
+      expect(program).toBe("powershell.exe")
+      calls.push({ args, input })
+      const script = args.at(-1) ?? ""
+      if (script.includes("::Protect("))
+        return { code: 0, stdout: `${Buffer.from(`sealed:${input}`).toString("base64")}\r\n` }
+      if (!readable) return { code: 1, stdout: "" }
+      const text = Buffer.from(input ?? "", "base64").toString("utf8")
+      return { code: 0, stdout: text.replace(/^sealed:/, "") }
+    }
+    const { lines, out } = capture()
+    expect(
+      await login(
+        { url: "https://w.example", token: "tok_w", env, platform: "win32", run, fetch },
+        out,
+      ),
+    ).toBe(0)
+    expect(lines[0]).toContain("encrypted for your Windows account")
+    const file = credentialsFile(env, "win32")
+    const stored = JSON.parse(await readFile(file, "utf8")) as Record<string, string>
+    expect(stored["https://w.example"]).toBe(
+      `dpapi:${Buffer.from("sealed:tok_w").toString("base64")}`,
+    )
+    expect(await readFile(file, "utf8")).not.toContain("tok_w")
+    expect(calls.every((call) => !call.args.join(" ").includes("tok_w"))).toBe(true)
+    expect(calls[0]?.input).toBe("tok_w")
+    expect(await readToken("https://w.example", { env, platform: "win32", run })).toBe("tok_w")
+    readable = false
+    await expect(readToken("https://w.example", { env, platform: "win32", run })).rejects.toThrow(
+      /run canopy login again/,
+    )
+  })
+
+  it("refuses to overwrite a credentials file it cannot parse", async () => {
+    await mkdir(scratch, { recursive: true })
+    const file = join(await mkdtemp(join(scratch, "corrupt-")), "c.json")
+    await writeFile(file, "{ not json")
+    const env = { CANOPY_CREDENTIALS: file }
+    await expect(
+      login({ url: "https://c.example", token: "tok_c", env, fetch }, capture().out),
+    ).rejects.toThrow(/is not valid JSON/)
+    expect(await readFile(file, "utf8")).toBe("{ not json")
+    await expect(readToken("https://c.example", { env })).rejects.toThrow(/is not valid JSON/)
   })
 
   it("takes the token from the environment or a hidden prompt, and refuses plain http", async () => {

@@ -91,10 +91,13 @@ export async function login(options: LoginOptions, out: Output): Promise<number>
   })
   if (options.environment !== undefined)
     await saveEnvironment(options.environment, url, options.env, options.platform)
+  const who = `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment})`
   out.log(
     where === "keychain"
-      ? `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); the token is in the OS keychain.`
-      : `Logged in to ${url} as ${identity.email} (${identity.role}, ${identity.environment}); no keychain was available, so the token is in the credentials file (${(options.platform ?? process.platform) === "win32" ? "in your Windows user profile" : "mode 0600"}).`,
+      ? `${who}; the token is in the OS keychain.`
+      : where === "protected"
+        ? `${who}; the token is in the credentials file, encrypted for your Windows account.`
+        : `${who}; no keychain was available, so the token is in the credentials file (${(options.platform ?? process.platform) === "win32" ? "in your Windows user profile, not encrypted" : "mode 0600"}).`,
   )
   if (options.environment !== undefined)
     out.log(

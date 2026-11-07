@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
-import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises"
+import { randomBytes } from "node:crypto"
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -35,8 +36,11 @@ export const runTool: ToolRunner = (program, args, input) =>
 
 const SERVICE = "canopy"
 
-/** Where an admin token is kept. */
-export type CredentialStore = "keychain" | "file"
+/**
+ * Where an admin token is kept: the OS keychain (macOS, Linux), the credentials file encrypted for the
+ * Windows account with DPAPI (`protected`), or the credentials file in plain text.
+ */
+export type CredentialStore = "keychain" | "protected" | "file"
 
 /** Options of the credential functions. */
 export interface CredentialOptions {
@@ -62,8 +66,9 @@ function configDir(
 /**
  * The fallback file: `$CANOPY_CREDENTIALS`, else `credentials.json` in the per user config folder
  * (`$XDG_CONFIG_HOME/canopy`, `%APPDATA%\canopy` on Windows, `~/.config/canopy` elsewhere). It holds tokens
- * in plain text, so it is only as safe as the account that owns it: it is written with mode 0600 on Linux
- * and macOS, and on Windows it relies on the user profile being readable only by its owner.
+ * in plain text on Linux and macOS (with mode 0600) when no keychain is available. On Windows each token is
+ * encrypted for the signed in account with DPAPI, unless `$CANOPY_CREDENTIALS` names the file or PowerShell
+ * cannot run.
  */
 export function credentialsFile(
   env: Readonly<Record<string, string | undefined>>,
@@ -82,15 +87,35 @@ export function projectKey(url: string): string {
   return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`
 }
 
+function errorCode(error: unknown): string | undefined {
+  return error instanceof Error && "code" in error && typeof error.code === "string"
+    ? error.code
+    : undefined
+}
+
+/**
+ * Reads a JSON file of strings. A missing file is empty; an unreadable or corrupt one throws, so the next
+ * write does not replace the entries of other projects.
+ */
 async function readFileStore(path: string): Promise<Record<string, string>> {
   let text: string
   try {
     text = await readFile(path, "utf8")
-  } catch {
-    return {}
+  } catch (error: unknown) {
+    if (errorCode(error) === "ENOENT") return {}
+    throw new Error(
+      `Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    )
   }
-  const parsed: unknown = JSON.parse(text)
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch (error: unknown) {
+    throw new Error(`${path} is not valid JSON; fix or remove it`, { cause: error })
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new Error(`${path} must hold a JSON object; fix or remove it`)
   return Object.fromEntries(
     Object.entries(parsed).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -100,10 +125,67 @@ async function readFileStore(path: string): Promise<Record<string, string>> {
 
 async function writeFileStore(path: string, tokens: Record<string, string>): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const temporary = `${path}.${process.pid}.tmp`
+  const temporary = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`
   await writeFile(temporary, `${JSON.stringify(tokens, null, 2)}\n`, { mode: 0o600 })
   await chmod(temporary, 0o600)
-  await rename(temporary, path)
+  await renameWithRetry(temporary, path)
+}
+
+const BUSY = new Set(["EPERM", "EACCES", "EBUSY"])
+
+/**
+ * Renames over an existing file. On Windows the rename fails while another process (an indexer, an
+ * antivirus scanner, a second `canopy`) has the target open, so busy errors are retried for about 3 s.
+ */
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error: unknown) {
+      const code = errorCode(error)
+      if (code === undefined || !BUSY.has(code) || attempt >= 10) {
+        await rm(from, { force: true })
+        throw error
+      }
+      await new Promise((resolve) => setTimeout(resolve, Math.min(20 * 2 ** attempt, 500)))
+    }
+  }
+}
+
+const PROTECTED_PREFIX = "dpapi:"
+const POWERSHELL = "powershell.exe"
+
+function dpapiScript(verb: "Protect" | "Unprotect"): string {
+  const [input, output] =
+    verb === "Protect"
+      ? ["[Text.Encoding]::UTF8.GetBytes($text)", "[Convert]::ToBase64String($bytes)"]
+      : ["[Convert]::FromBase64String($text)", "[Text.Encoding]::UTF8.GetString($bytes)"]
+  return [
+    "$ErrorActionPreference = 'Stop'",
+    "Add-Type -AssemblyName System.Security",
+    "$text = [Console]::In.ReadToEnd().Trim()",
+    `$bytes = [Security.Cryptography.ProtectedData]::${verb}(${input}, $null, 'CurrentUser')`,
+    `[Console]::Out.Write(${output})`,
+  ].join("; ")
+}
+
+/**
+ * Encrypts or decrypts `input` for the signed in Windows account with DPAPI, through Windows PowerShell.
+ * The secret travels on standard input, never on the command line. `undefined` when that fails.
+ */
+async function dpapi(
+  run: ToolRunner,
+  verb: "Protect" | "Unprotect",
+  input: string,
+): Promise<string | undefined> {
+  const result = await run(
+    POWERSHELL,
+    ["-NoProfile", "-NonInteractive", "-Command", dpapiScript(verb)],
+    input,
+  )
+  const output = result.stdout.trim()
+  return result.code === 0 && output !== "" ? output : undefined
 }
 
 function keychainCommands(
@@ -155,11 +237,16 @@ export async function saveToken(
       return "keychain"
     }
   }
-  const path = credentialsFile(options.env, options.platform)
+  const platform = options.platform ?? process.platform
+  const path = credentialsFile(options.env, platform)
   const tokens = await readFileStore(path)
-  tokens[account] = token
+  const sealed =
+    platform === "win32" && options.env["CANOPY_CREDENTIALS"] === undefined
+      ? await dpapi(run, "Protect", token)
+      : undefined
+  tokens[account] = sealed === undefined ? token : `${PROTECTED_PREFIX}${sealed}`
   await writeFileStore(path, tokens)
-  return "file"
+  return sealed === undefined ? "file" : "protected"
 }
 
 async function forgetFileToken(
@@ -193,7 +280,14 @@ export async function readToken(
     if (lookup !== undefined && lookup.code === 0 && lookup.stdout.trim() !== "")
       return lookup.stdout.trim()
   }
-  return (await readFileStore(credentialsFile(options.env, platform)))[account]
+  const stored = (await readFileStore(credentialsFile(options.env, platform)))[account]
+  if (stored === undefined || !stored.startsWith(PROTECTED_PREFIX)) return stored
+  const token = await dpapi(run, "Unprotect", stored.slice(PROTECTED_PREFIX.length))
+  if (token === undefined)
+    throw new Error(
+      `The token for ${account} is encrypted for another Windows account, or this one cannot read it any more; run canopy login again`,
+    )
+  return token
 }
 
 /** Removes the admin token of a project from both stores. Returns whether one was found. */
