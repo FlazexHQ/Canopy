@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { ResolvedConfig } from "@canopy/config"
 import {
+  type ContextDefinitions,
   type ContextResolver,
   fieldAccess,
   OPERATIONS,
@@ -37,7 +38,13 @@ import type { MongoClient } from "mongodb"
 import type { ApiKeys } from "../api-keys.ts"
 import type { Actor, AuditInput, AuditLog, RequestOrigin } from "../audit.ts"
 import { migrationStatus } from "../migrations.ts"
-import { collectionName, definitionFromInput, type PolicyStore } from "../policy-store.ts"
+import {
+  collectionName,
+  contextsInput,
+  definitionFromInput,
+  hashContexts,
+  type PolicyStore,
+} from "../policy-store.ts"
 import {
   array,
   boolean,
@@ -809,7 +816,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     const op: Operation = body.op
     const filterInput = body.filter === undefined ? {} : body.filter
     if (!isDocument(filterInput)) throw new ValidationError("filter must be a document")
-    const filter = parse(JSON.stringify(filterInput)) as Record<string, unknown>
+    const filter = filterInput
     const explain = engine.explain(collection, op, as.context, "using")
     const check =
       op === "insert" || op === "update"
@@ -916,6 +923,86 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
       )
     },
     "policy.rollback",
+  )
+
+  // Context lookups
+
+  route("GET", "contexts", "policies.read", async () => {
+    const stored = await policies.getContexts()
+    return json({
+      stored: stored ?? null,
+      version: stored?.version ?? 0,
+      writable: policies.isWritable,
+    })
+  })
+
+  route("POST", "contexts/validate", "policies.simulate", async (context) => {
+    const body = contextsInput.parse(await context.body())
+    const { findings } = await policies.checkContexts(body.lookups as ContextDefinitions)
+    return json({
+      valid: findings.every((finding) => finding.severity !== "error"),
+      hash: hashContexts(body.lookups as ContextDefinitions),
+      findings,
+    })
+  })
+
+  route(
+    "POST",
+    "contexts/publish",
+    "policies.publish",
+    async (context) => {
+      const body = object({
+        lookups: document(),
+        expectedVersion: integer({ min: 0 }),
+        comment: optional(string({ max: 2000 })),
+        commitSha: optional(string({ min: 7, max: 64, pattern: /^[0-9a-f]+$/ })),
+      }).parse(await context.body())
+      if (production && (body.comment === undefined || body.comment.trim() === ""))
+        throw new ValidationError("Publishing in production needs a comment")
+      return json(
+        await policies.publishContexts({
+          lookups: body.lookups as ContextDefinitions,
+          expectedVersion: body.expectedVersion,
+          actor: context.actor,
+          origin: context.origin,
+          ...(body.comment === undefined ? {} : { comment: body.comment }),
+          ...(body.commitSha === undefined ? {} : { commitSha: body.commitSha }),
+        }),
+      )
+    },
+    "context.publish",
+  )
+
+  route("GET", "contexts/history", "policies.read", async (context) => {
+    const limit = Number(context.url.searchParams.get("limit") ?? "50")
+    return json({
+      data: await policies.versions("_context", { limit: Number.isFinite(limit) ? limit : 50 }),
+    })
+  })
+
+  route(
+    "POST",
+    "contexts/rollback",
+    "policies.publish",
+    async (context) => {
+      const body = object({
+        version: integer({ min: 1 }),
+        expectedVersion: integer({ min: 0 }),
+        comment: optional(string({ max: 2000 })),
+      }).parse(await context.body())
+      if (production && (body.comment === undefined || body.comment.trim() === ""))
+        throw new ValidationError("Publishing in production needs a comment")
+      return json(
+        await policies.rollbackContexts({
+          version: body.version,
+          expectedVersion: body.expectedVersion,
+          actor: context.actor,
+          origin: context.origin,
+          ...(body.comment === undefined ? {} : { comment: body.comment }),
+        }),
+      )
+    },
+    "context.rollback",
   )
 
   // API keys
@@ -1336,5 +1423,7 @@ const selfAudited: ReadonlySet<string> = new Set([
   "collection.update",
   "policy.publish",
   "policy.rollback",
+  "context.publish",
+  "context.rollback",
   "settings.update",
 ])

@@ -252,6 +252,61 @@ export default collection("open", { exposed: true, policies: [allow.insert("anon
     ).toBeNull()
   })
 
+  it("pushes context lookups before the collections that use them, with history and rollback", async () => {
+    const project = await mkdtemp(join(scratch, "ctx-"))
+    const lookups = (max: number) => `import { auth, context } from "@canopy/policy"
+export default context({
+  orgIds: { from: "members", where: { userId: auth("sub") }, select: "orgId", max: ${max}, ttl: "5m" },
+})
+`
+    await writeFile(join(project, "_context.ts"), lookups(20))
+    await writeFile(
+      join(project, "projects.ts"),
+      `import { allow, collection, ctx } from "@canopy/policy"
+export default collection("projects", {
+  exposed: true,
+  policies: [allow.read("authenticated").where({ orgId: { $in: ctx("orgIds") } }).named("org")],
+})
+`,
+    )
+    const dry = capture()
+    expect(await cli(["policies", "push", "--dir", project, "--dry-run"], dry.out)).toBe(0)
+    expect(dry.lines).toContain("would publish  _context  v1")
+    const pushed = capture()
+    expect(await cli(["policies", "push", "--dir", project], pushed.out)).toBe(0)
+    expect(pushed.errors).toEqual([])
+    expect(pushed.lines.slice(0, 1)).toEqual(["published  _context  v1"])
+    expect(pushed.lines).toContain("published  projects  v1")
+    const stored = await client
+      .db(meta)
+      .collection("policies")
+      .findOne({ _id: "_context" as never })
+    expect(stored).toMatchObject({ version: 1, lookups: { orgIds: { from: "members", max: 20 } } })
+    const again = capture()
+    expect(await cli(["policies", "push", "--dir", project], again.out)).toBe(0)
+    expect(again.lines).toContain("unchanged  _context  v1")
+    expect(again.lines).not.toContain("published  _context  v2")
+
+    await writeFile(join(project, "_context.ts"), lookups(40))
+    expect(await cli(["policies", "push", "--dir", project], capture().out)).toBe(0)
+    const history = capture()
+    expect(await cli(["policies", "history", "_context"], history.out)).toBe(0)
+    expect(history.lines.map((line) => line.split("  ")[0])).toEqual(["v2", "v1"])
+    expect(await cli(["policies", "rollback", "_context", "1", "--yes"], capture().out)).toBe(0)
+    const rolled = await client
+      .db(meta)
+      .collection("policies")
+      .findOne({ _id: "_context" as never })
+    expect(rolled).toMatchObject({ version: 3, lookups: { orgIds: { max: 20 } } })
+    const diff = capture()
+    expect(await cli(["policies", "diff", "--dir", project, "--fail-on-drift"], diff.out)).toBe(1)
+    expect(diff.lines).toContain("changed        context lookups (_context)")
+    await client
+      .db(meta)
+      .collection("policies")
+      .deleteMany({ _id: { $in: ["_context", "projects"] } as never })
+  })
+
   it("creates, lists and revokes API keys, showing a secret only once", async () => {
     const publishable = capture()
     expect(

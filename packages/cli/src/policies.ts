@@ -2,6 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises"
 import { userInfo } from "node:os"
 import { join, resolve } from "node:path"
 import {
+  CONTEXT_DOCUMENT_ID,
   type CollectionPolicies,
   type ContextDefinitions,
   hashCollection,
@@ -242,10 +243,9 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
       const def = local.collections.get(name)
       return def !== undefined && remote.stored.get(name)?.hash !== hashCollection(def)
     })
-    if (options.collections.length === 0 && !sameContexts(local.contexts, remote.contexts))
-      out.log(
-        "warn  the context lookups (_context) differ from the database; push publishes collections only",
-      )
+    const contextsChanged =
+      options.collections.length === 0 && !sameContexts(local.contexts, remote.contexts)
+    const contextVersion = (await policies.getContexts())?.version ?? 0
     let expected = new Map(changed.map((name) => [name, remote.stored.get(name)?.version ?? 0]))
     if (options.expectVersion !== undefined) {
       const parsed = parseExpectedVersions(
@@ -276,12 +276,31 @@ export async function policiesPush(options: PushOptions, out: Output): Promise<n
     const versions = new Map(names.map((name) => [name, remote.stored.get(name)?.version ?? 0]))
     for (const name of names)
       if (!changed.includes(name)) out.log(`unchanged  ${name}  v${versions.get(name) ?? 0}`)
+    if (!contextsChanged && options.collections.length === 0 && contextVersion > 0)
+      out.log(`unchanged  _context  v${contextVersion}`)
     if (options.dryRun === true) {
+      if (contextsChanged) out.log(`would publish  _context  v${contextVersion + 1}`)
       for (const name of changed)
         out.log(`would publish  ${name}  v${(expected.get(name) ?? 0) + 1}`)
       return 0
     }
     const actor = cliActor()
+    if (contextsChanged) {
+      try {
+        const result = await policies.publishContexts({
+          lookups: local.contexts,
+          expectedVersion: contextVersion,
+          actor,
+          ...(options.comment === undefined ? {} : { comment: options.comment }),
+        })
+        out.log(`published  _context  v${result.stored.version}`)
+      } catch (error: unknown) {
+        out.error(`_context: ${messageOf(error)}`)
+        if (error instanceof CanopyError && error.code === ErrorCode.Conflict)
+          out.error("Someone published in between: run canopy policies diff, then push again.")
+        return 1
+      }
+    }
     for (const name of changed) {
       const definition = local.collections.get(name)
       if (definition === undefined) continue
@@ -437,13 +456,16 @@ export async function policiesRollback(options: RollbackOptions, out: Output): P
     const expected = options.expectVersion ?? current
     const question = `Republish ${options.collection} v${options.version} as v${current + 1}?`
     if (!(await confirmed(out, question, options.yes))) return 1
-    const result = await policies.rollback({
-      collection: options.collection,
+    const input = {
       version: options.version,
       expectedVersion: expected,
       actor: cliActor(),
       ...(options.comment === undefined ? {} : { comment: options.comment }),
-    })
+    }
+    const result =
+      options.collection === CONTEXT_DOCUMENT_ID
+        ? await policies.rollbackContexts(input)
+        : await policies.rollback({ ...input, collection: options.collection })
     out.log(
       `published  ${options.collection}  v${result.stored.version}  (rollback of v${options.version})`,
     )

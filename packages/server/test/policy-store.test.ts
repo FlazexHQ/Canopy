@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { MONGODB_URI } from "@canopy/testing"
-import { type Db, MongoClient } from "mongodb"
+import { type Db, MongoClient, ObjectId } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
   type Actor,
@@ -209,6 +209,88 @@ suite("policy lifecycle", () => {
       [5, "admin:alice@example.com"],
       [4, "cli"],
     ])
+  })
+
+  it("keeps BSON types of clauses given as decoded values", async () => {
+    const id = new ObjectId("65a1b2c3d4e5f6a7b8c9d0e1")
+    const def = definitionFromInput("posts", {
+      ...readAll,
+      policies: [{ ...readAll.policies[0], using: { orgId: id } }],
+    })
+    expect(def.policies[0]?.using?.["orgId"]).toBeInstanceOf(Object)
+    const { stored } = await store.publish({ definition: def, expectedVersion: 0, actor: alice })
+    expect(stored.policies[0]?.using).toBe('{"orgId":{"$oid":"65a1b2c3d4e5f6a7b8c9d0e1"}}')
+  })
+
+  it("publishes context lookups with versions, history, audit and rollback", async () => {
+    const lookups = {
+      orgIds: {
+        from: "members",
+        where: { userId: { $auth: "sub" } },
+        select: "orgId",
+        max: 50,
+        ttl: "5m",
+      },
+    }
+    const usesCtx = {
+      exposed: true,
+      realtime: false,
+      policies: [
+        {
+          name: "org",
+          kind: "permissive",
+          ops: ["read"],
+          roles: ["authenticated"],
+          using: { orgId: { $in: { $ctx: "orgIds" } } },
+        },
+      ],
+    }
+    await expect(publish(usesCtx, 0)).rejects.toMatchObject({ code: "CANOPY_VALIDATION_FAILED" })
+    const first = await store.publishContexts({
+      lookups,
+      expectedVersion: 0,
+      actor: alice,
+      comment: "orgs",
+    })
+    expect(first.stored).toMatchObject({ _id: "_context", version: 1, lookups })
+    expect(first.stored.hash).toMatch(/^sha256:[0-9a-f]{64}$/)
+    expect((await store.all()).contexts).toEqual(lookups)
+    await publish(usesCtx, 0)
+    await expect(
+      store.publishContexts({ lookups: {}, expectedVersion: 1, actor: alice }),
+    ).rejects.toMatchObject({ code: "CANOPY_VALIDATION_FAILED" })
+    await expect(
+      store.publishContexts({ lookups, expectedVersion: 0, actor: alice }),
+    ).rejects.toMatchObject({ code: "CANOPY_CONFLICT", details: { currentVersion: 1 } })
+    await expect(
+      store.publishContexts({
+        lookups: { ...lookups, bad: { ...lookups.orgIds, max: 0 } },
+        expectedVersion: 1,
+        actor: alice,
+      }),
+    ).rejects.toMatchObject({ code: "CANOPY_VALIDATION_FAILED" })
+    const wider = { orgIds: { ...lookups.orgIds, max: 100 } }
+    const second = await store.publishContexts({ lookups: wider, expectedVersion: 1, actor: alice })
+    expect(second.stored.version).toBe(2)
+    const rolled = await store.rollbackContexts({ version: 1, expectedVersion: 2, actor: alice })
+    expect(rolled.stored).toMatchObject({ version: 3, lookups, hash: first.stored.hash })
+    expect(
+      (await store.versions("_context")).map((entry) => [entry.version, entry.rollbackOf]),
+    ).toEqual([
+      [3, 1],
+      [2, undefined],
+      [1, undefined],
+    ])
+    expect((await audit.list({ action: "context.publish" })).map((entry) => entry.target)).toEqual([
+      { collection: "_context", version: 2 },
+      { collection: "_context", version: 1 },
+    ])
+    expect((await audit.list({ action: "context.rollback" }))[0]?.details).toEqual({
+      rollbackOf: 1,
+    })
+    await expect(
+      store.rollback({ collection: "_context", version: 1, expectedVersion: 3, actor: alice }),
+    ).rejects.toMatchObject({ code: "CANOPY_VALIDATION_FAILED" })
   })
 
   it("refuses to publish when policies come from a directory", async () => {

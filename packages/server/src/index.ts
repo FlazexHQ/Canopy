@@ -52,13 +52,18 @@ export {
 } from "./migrations.ts"
 export {
   collectionName,
+  contextsInput,
   definitionFromInput,
+  hashContexts,
   type PolicyCheck,
   type PolicyHistoryEntry,
   type PolicyInput,
   PolicyStore,
   type PolicyStoreOptions,
+  type PublishContextsInput,
+  type PublishContextsResult,
   type PublishInput,
   type PublishResult,
   policyInput,
+  type StoredContextLookups,
 } from "./policy-store.ts"
