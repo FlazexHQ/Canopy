@@ -44,6 +44,14 @@ export {
   toFilter,
 } from "./engine.ts"
 export {
+  type AccessReport,
+  describeIssue,
+  type ExplainRequest,
+  explainAccess,
+  explainContext,
+  formatAccessReport,
+} from "./explain.ts"
+export {
   canAccess,
   deniedPaths,
   documentPaths,

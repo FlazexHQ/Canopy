@@ -93,7 +93,10 @@ export interface ExplainedPolicy {
   readonly kind: PolicyDefinition["kind"]
   readonly applies: boolean
   readonly reason: string
+  /** The resolved clause, when the policy applies. */
   readonly resolved?: Record<string, unknown>
+  /** The variable that made the policy drop out, when one did. */
+  readonly issue?: VariableIssue
 }
 
 /** A human readable account of how a decision was reached, used by Studio and `canopy policies test`. */
@@ -393,6 +396,7 @@ export class PolicyEngine {
                 name: policy.name,
                 kind: policy.kind,
                 applies: false,
+                issue: resolved.issue,
                 reason: `variable ${resolved.issue.variable} is ${resolved.issue.kind === "missing" ? "missing or null" : `invalid (${resolved.issue.kind})`}`,
               },
         )
