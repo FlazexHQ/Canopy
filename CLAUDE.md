@@ -111,8 +111,14 @@ CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test
 tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
 by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
-`tsc -b` and Vitest on Bun and on Node 24 and 26, and the full suite against replica sets on MongoDB 7.0 and 8.0;
-`nightly.yml` runs the long differential and simulation runs. Actions are pinned to commit SHAs.
+`tsc -b` and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
+sets on MongoDB 7.0 and 8.0; `nightly.yml` runs the long differential and simulation runs, the browser tests on
+Windows and macOS, Linux arm64, Alpine (musl) and Deno. Actions are pinned to commit SHAs. Without Docker (the
+Windows and macOS runners), `bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder>` downloads
+the official binaries and starts a replica set on localhost:27017. MongoDB 8 does not start on Linux kernels
+6.19 to 7.0.13 (SERVER-121912), which is why the Docker MongoDB jobs run on `ubuntu-22.04` for now; locally,
+`CANOPY_MONGO_IMAGE=mongo:7.0.45 bun run db:up` works on such a kernel. Under Deno, Vitest needs
+`--pool=threads`.
 
 Package layout: library code in `src/` (built by the package `tsconfig.json`), tests in `test/` with their own
 `tsconfig.json` on the server variant (so tests may use `node:` modules and the driver). Workspace packages export
