@@ -1,7 +1,7 @@
 {
   "name": "@canopy/cli",
   "version": "0.0.0",
-  "description": "The canopy command line: doctor, policy lint and test, and type generation.",
+  "description": "The canopy command line: init, dev, doctor, policies, type generation, indexes and realtime images.",
   "license": "UNLICENSED",
   "type": "module",
   "exports": {
@@ -32,6 +32,7 @@
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
     "@canopy/schema": "workspace:*",
+    "@canopy/server": "workspace:*",
     "mongodb": "catalog:"
   },
   "devDependencies": {

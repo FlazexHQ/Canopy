@@ -14,6 +14,8 @@
     { "path": "../policy" },
     { "path": "../schema" },
     { "path": "../rest" },
-    { "path": "../config" }
+    { "path": "../config" },
+    { "path": "../realtime" },
+    { "path": "../server" }
   ]
 }

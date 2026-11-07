@@ -17,14 +17,11 @@ import {
 import { directoryPolicies } from "@canopy/realtime"
 import { MongoClient } from "mongodb"
 import { mongoBackend } from "./mongo-backend.ts"
+import type { Output } from "./output.ts"
 
 export { type GenTypesOptions, genTypes } from "./gen-types.ts"
 
-/** Where command output goes. */
-export interface Output {
-  log(line: string): void
-  error(line: string): void
-}
+export type { Output } from "./output.ts"
 
 /** Options shared by the policy commands. */
 export interface PolicyCommandOptions {

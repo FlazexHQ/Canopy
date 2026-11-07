@@ -61,7 +61,7 @@ describe("canopy cli", () => {
     expect(lines.at(-1)).toBe("11 cases on memory, 0 failed")
   })
 
-  const scratch = fileURLToPath(new URL("./.tmp/", import.meta.url))
+  const scratch = fileURLToPath(new URL("./.tmp/cli/", import.meta.url))
   afterAll(async () => {
     await rm(scratch, { recursive: true, force: true })
   })
@@ -112,6 +112,25 @@ describe("canopy cli", () => {
     expect(await run(["config", "print"], {}, out, root)).toBe(1)
     expect(errors[0]).toContain("realtime.fullDocument")
     expect(errors[0]).toContain("mongodb.uri")
+  })
+
+  it("refuses stray arguments and bad ports before doing anything", async () => {
+    const stray = capture()
+    expect(await run(["init", "now"], {}, stray.out)).toBe(1)
+    expect(stray.errors).toEqual(["Unexpected argument now for init"])
+    const badPort = capture()
+    expect(await run(["dev", "--with-mongo", "--mongo-port", "x"], {}, badPort.out)).toBe(1)
+    expect(badPort.errors).toEqual(["--mongo-port needs a port number between 0 and 65535"])
+    const flag = capture()
+    expect(await run(["indexes", "advise", "--yes"], {}, flag.out)).toBe(1)
+    expect(flag.errors).toEqual(["Unknown option --yes for indexes advise."])
+  })
+
+  it("lists the commands in the usage", async () => {
+    const { lines, out } = capture()
+    expect(await run(["--help"], {}, out)).toBe(0)
+    for (const command of ["init", "dev", "realtime enable-images", "indexes create"])
+      expect(lines[0]).toContain(`  ${command} `)
   })
 
   it("shows usage for unknown commands", async () => {

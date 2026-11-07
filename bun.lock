@@ -99,6 +99,7 @@
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",
         "@canopy/schema": "workspace:*",
+        "@canopy/server": "workspace:*",
         "mongodb": "catalog:",
       },
       "devDependencies": {
