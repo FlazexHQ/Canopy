@@ -248,10 +248,7 @@ export async function createCanopy(
     settings: { sampleRate: 0, retentionDays: DEFAULT_SETTINGS.requestLogRetentionDays },
   })
   const settings = new SettingsStore(meta, audit, { requestLog })
-  const current = await diagnosed(() => settings.refresh())
-  await requestLog.setRetention(current.requestLogRetentionDays).catch((error: unknown) => {
-    logger.warn({ err: error }, "could not set the request log retention")
-  })
+  await diagnosed(() => settings.refresh())
   const settingsTimer = setInterval(() => {
     settings.refresh().then(
       () => {},

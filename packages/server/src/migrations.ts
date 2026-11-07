@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
 import type { Logger } from "@canopy/realtime"
 import { type Db, type IndexDescription, MongoServerError } from "mongodb"
+import { DEFAULT_SETTINGS } from "./admin/settings.ts"
 
 /** One forward only, idempotent change to the meta database. */
 export interface MetaMigration {
@@ -75,7 +76,8 @@ async function createIndexes(
 
 /**
  * The meta database migrations. Indexes that already exist with other options (for example the TTL of
- * `mutations`, which the write path sets from the config) are kept as they are.
+ * `mutations`, which the write path sets from the config, or the request log TTL an admin changed in the
+ * settings) are kept as they are.
  */
 export const META_MIGRATIONS: readonly MetaMigration[] = [
   {
@@ -119,6 +121,24 @@ export const META_MIGRATIONS: readonly MetaMigration[] = [
         await createCollection(meta, name)
         await createIndexes(meta, name, indexes)
       }
+    },
+  },
+  {
+    version: 2,
+    name: "create-request-log",
+    async up(meta) {
+      const settings = await meta
+        .collection<{ _id: string; requestLogRetentionDays?: unknown }>("settings")
+        .findOne({ _id: "settings" })
+      const stored = settings?.requestLogRetentionDays
+      const days =
+        typeof stored === "number" && Number.isInteger(stored) && stored > 0
+          ? stored
+          : DEFAULT_SETTINGS.requestLogRetentionDays
+      await createCollection(meta, "request_log")
+      await createIndexes(meta, "request_log", [
+        { key: { at: 1 }, name: "ttl_at", expireAfterSeconds: days * 86_400 },
+      ])
     },
   },
 ]
