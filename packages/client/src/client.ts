@@ -251,6 +251,9 @@ function claims(token: string | null | undefined): { exp?: unknown; sub?: unknow
   }
 }
 
+/** The longest delay timers keep (2147483647 ms, about 24.8 days); longer ones fire after 1 ms instead. */
+const MAX_TIMER_MS = 2_147_483_647
+
 function tokenExpiry(token: string): number | undefined {
   const exp = claims(token).exp
   return typeof exp === "number" ? exp * 1000 : undefined
@@ -919,7 +922,15 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     if (token === undefined || this.options.auth === undefined) return
     const expiry = tokenExpiry(token)
     if (expiry === undefined) return
-    const lifetime = expiry - Date.now()
+    this.refreshAt(Date.now() + Math.max(1000, (expiry - Date.now()) * 0.8))
+  }
+
+  private refreshAt(at: number): void {
+    const remaining = at - Date.now()
+    if (remaining > MAX_TIMER_MS) {
+      this.refreshTimer = setTimeout(() => this.refreshAt(at), MAX_TIMER_MS)
+      return
+    }
     this.refreshTimer = setTimeout(
       () => {
         Promise.resolve(this.options.auth?.getToken())
@@ -929,7 +940,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
           })
           .catch(() => {})
       },
-      Math.max(1000, lifetime * 0.8),
+      Math.max(0, remaining),
     )
   }
 

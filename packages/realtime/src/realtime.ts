@@ -74,6 +74,9 @@ import { ObserverRegistry } from "./registry.ts"
 import { type Coverage, FULL_COVERAGE, type RealtimeSocket, Session } from "./session.ts"
 import { MongoSnapshotReader } from "./snapshot.ts"
 
+/** The longest delay timers keep (2147483647 ms, about 24.8 days); longer ones fire after 1 ms instead. */
+const MAX_TIMER_MS = 2_147_483_647
+
 /** Per connection and per node limits. All are configurable. */
 export interface RealtimeLimits {
   readonly maxSubscriptionsPerConnection: number
@@ -915,28 +918,29 @@ export class Realtime {
     const expiresAt = state.principal.expiresAt
     if (expiresAt === undefined) return
     const delay = Math.max(0, expiresAt - Date.now())
-    state.expiryTimer = setTimeout(
-      () => {
-        state.session.send({
-          t: "err",
-          code: ErrorCode.TokenExpired,
-          msg: "The token has expired; send auth with a new one",
-        })
-        state.graceTimer = setTimeout(() => {
-          for (const id of [...state.subs.keys()]) {
-            this.dropSubscription(state, id)
-            state.session.send({
-              t: "nosub",
-              s: id,
-              err: { code: ErrorCode.TokenExpired, msg: "The token expired" },
-            })
-          }
-          state.session.close(CloseCode.Unauthorized, "token expired")
-          this.destroySession(state)
-        }, this.options.expiryGraceMs ?? 30_000)
-      },
-      Math.min(delay, 2 ** 31 - 1),
-    )
+    if (delay > MAX_TIMER_MS) {
+      state.expiryTimer = setTimeout(() => this.armExpiry(state), MAX_TIMER_MS)
+      return
+    }
+    state.expiryTimer = setTimeout(() => {
+      state.session.send({
+        t: "err",
+        code: ErrorCode.TokenExpired,
+        msg: "The token has expired; send auth with a new one",
+      })
+      state.graceTimer = setTimeout(() => {
+        for (const id of [...state.subs.keys()]) {
+          this.dropSubscription(state, id)
+          state.session.send({
+            t: "nosub",
+            s: id,
+            err: { code: ErrorCode.TokenExpired, msg: "The token expired" },
+          })
+        }
+        state.session.close(CloseCode.Unauthorized, "token expired")
+        this.destroySession(state)
+      }, this.options.expiryGraceMs ?? 30_000)
+    }, delay)
   }
 
   private dispatch(state: SessionState, socket: RealtimeSocket, message: ClientMessage): void {
