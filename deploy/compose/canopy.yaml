@@ -1,0 +1,80 @@
+# Canopy as one server next to a single node replica set. From the repository root:
+#   docker compose -f deploy/compose/canopy.yaml up -d --build --wait
+# The server listens on http://localhost:8080 (REST on /rest/v1, realtime on /realtime/v1) and serves
+# Prometheus metrics on http://localhost:9464/metrics. Policies are read from ./policies (CANOPY_POLICY_DIR
+# picks another folder) and reloaded when they change.
+#
+# Settings come from the environment of `docker compose` (or an .env file next to this one):
+#   CANOPY_PUBLISHABLE_KEYS  Publishable keys for browsers (the anon role). Default: pk_dev
+#   CANOPY_SECRET_KEYS       Secret keys for servers (the service role). Default: sk_dev_change_me
+#   CANOPY_JWT_JWKS_URL, CANOPY_JWT_ISSUER, CANOPY_JWT_AUDIENCE, CANOPY_JWT_ROLES_CLAIM
+#                            Your identity provider. Without them only API keys authenticate.
+#   CANOPY_DB                The app database. Default: app
+#   CANOPY_ENV               development (default) or production. Production needs CANOPY_MASTER_KEY.
+#   CANOPY_LOG_LEVEL         debug, info (default), warn or error.
+#   CANOPY_PORT, CANOPY_METRICS_PORT, CANOPY_MONGO_PORT
+#                            Host ports. Defaults: 8080, 9464, 27017.
+# Inside the network the replica set member is mongo:27017. From the host, connect with
+# mongodb://localhost:27017/?directConnection=true.
+
+name: canopy
+
+services:
+  mongo:
+    image: ${CANOPY_MONGO_IMAGE:-mongo:8.0.34}
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports: ["${CANOPY_MONGO_PORT:-27017}:27017"]
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 2s
+      timeout: 10s
+      retries: 30
+      start_period: 5s
+
+  canopy:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/canopy.Dockerfile
+    image: ${CANOPY_IMAGE:-canopy:dev}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "${CANOPY_PORT:-8080}:8080"
+      - "${CANOPY_METRICS_PORT:-9464}:9464"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
+      CANOPY_DB: ${CANOPY_DB:-app}
+      CANOPY_ENV: ${CANOPY_ENV:-development}
+      CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:-}
+      CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:-pk_dev}
+      CANOPY_SECRET_KEYS: ${CANOPY_SECRET_KEYS:-sk_dev_change_me}
+      CANOPY_JWT_JWKS_URL: ${CANOPY_JWT_JWKS_URL:-}
+      CANOPY_JWT_ISSUER: ${CANOPY_JWT_ISSUER:-}
+      CANOPY_JWT_AUDIENCE: ${CANOPY_JWT_AUDIENCE:-}
+      CANOPY_JWT_ROLES_CLAIM: ${CANOPY_JWT_ROLES_CLAIM:-}
+      CANOPY_LOG_LEVEL: ${CANOPY_LOG_LEVEL:-info}
+      CANOPY_POLICIES: /app/policies
+    volumes:
+      - ${CANOPY_POLICY_DIR:-./policies}:/app/policies:ro
+    stop_grace_period: 40s
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "const r = await fetch('http://127.0.0.1:8080/readyz'); process.exit(r.ok ? 0 : 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+
+volumes:
+  mongo-data: {}

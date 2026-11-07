@@ -111,6 +111,39 @@ jobs:
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
+  images:
+    name: Docker images and compose stack
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the canopy-realtime sidecar image
+        run: docker build -f deploy/docker/canopy-realtime.Dockerfile -t canopy-realtime:ci .
+      - name: Build the canopy image and start the compose stack
+        run: docker compose -f deploy/compose/canopy.yaml up -d --build --wait --wait-timeout 180
+        env:
+          CANOPY_IMAGE: canopy:ci
+      - name: Smoke test the compose stack
+        run: deploy/compose/canopy-smoke.sh
+      - name: The sidecar image starts and reports ready
+        run: |
+          docker run -d --name sidecar --network canopy_default -p 18080:8080 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
+            canopy-realtime:ci
+          for attempt in $(seq 60); do
+            if curl -fsS localhost:18080/readyz; then exit 0; fi
+            sleep 1
+          done
+          docker logs sidecar
+          exit 1
+      - if: failure()
+        run: docker compose -f deploy/compose/canopy.yaml logs
+      - if: always()
+        run: |
+          docker rm -f sidecar || true
+          docker compose -f deploy/compose/canopy.yaml down --volumes
+
   changeset:
     name: Changeset present
     if: github.event_name == 'pull_request'
