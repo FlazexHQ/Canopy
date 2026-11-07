@@ -352,7 +352,7 @@ describe("Documents page", () => {
   })
 
   it("disables live updates with an explanation when the server issues no realtime tokens", async () => {
-    await renderStudio("/data/todos")
+    await renderStudio("/data/todos", { viewTokens: false })
     await grid()
     const toggle = await screen.findByRole("switch", { name: "Live" })
     await waitFor(() =>

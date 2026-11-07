@@ -1,3 +1,4 @@
+// @vitest-environment node
 import type { ResolvedConfig } from "@canopy/server"
 import { createAdminApi } from "@canopy/server"
 import { MongoClient } from "mongodb"

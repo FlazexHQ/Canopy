@@ -90,6 +90,8 @@ export interface MockAdminOptions {
   readonly builtinAuth?: boolean
   /** Whether realtime is on (`/realtime/*`). @default true */
   readonly realtime?: boolean
+  /** Whether the server can sign view tokens; without them `POST /realtime/token` answers `404`. @default true */
+  readonly viewTokens?: boolean
   /** `false` turns the Data API off, so there is no OpenAPI document. */
   readonly rest?: boolean
   /** Publishes a policy for these collections at start. */
@@ -2161,6 +2163,7 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
     "documents.read",
     async (context) => {
       requireRealtime()
+      if (options.viewTokens === false) fail(ErrorCode.NotFound, "View tokens are not available")
       const body = (await context.body()) ?? {}
       const as = isDocument(body) ? body["as"] : undefined
       if (as !== undefined) {

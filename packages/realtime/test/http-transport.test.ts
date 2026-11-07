@@ -318,7 +318,18 @@ suite("SSE and long-poll transports", () => {
     await socket.until(() => socket.closeCode !== undefined)
     expect(socket.closeCode).toBe(1000)
     await engine.db.collection("todos").insertOne({ _id: 5 as never, ownerId: "alice" })
-    expect(await poll(sid, socket.lastSeq, 5)).toEqual([
+    // The snapshot is taken at the change stream's position, so on a slow runner it can predate the
+    // deletes of beforeEach and the session first receives them as removals.
+    const frames: Frame[] = []
+    let after = socket.lastSeq
+    const started = Date.now()
+    while (!frames.some((frame) => frame.t === "added")) {
+      if (Date.now() - started > 10_000) throw new Error("no added frame")
+      const batch = await poll(sid, after, 2)
+      frames.push(...batch)
+      for (const frame of batch) if (frame.seq !== undefined) after = Math.max(after, frame.seq)
+    }
+    expect(frames.filter((frame) => frame.t !== "removed")).toEqual([
       expect.objectContaining({ t: "added", id: 5 }),
     ])
   })

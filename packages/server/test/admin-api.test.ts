@@ -91,7 +91,6 @@ suite("admin API", () => {
   let secret: Uint8Array
   let owner: Client
   const clients: Partial<Record<"admin" | "developer" | "viewer", Client>> = {}
-  let now = Date.now()
 
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(`${base}/admin/v1${path}`, {
@@ -111,9 +110,15 @@ suite("admin API", () => {
     return bearer(base, ((await response.json()) as { token: string }).token)
   }
 
-  const nextCode = (): string => {
-    now += 30_000
-    return totp(secret, now)
+  /**
+   * A code the server accepts at the real time. It remembers the last TOTP step each admin used and refuses
+   * it again, so logging the owner in more than once within one 30 s step needs that step forgotten first.
+   */
+  const nextCode = async (): Promise<string> => {
+    await meta
+      .collection("admin_users")
+      .updateOne({ email: "owner@example.com" }, { $unset: { "totp.lastStep": "" } })
+    return totp(secret, Date.now())
   }
 
   beforeAll(async () => {
@@ -169,7 +174,7 @@ suite("admin API", () => {
     expect(
       ((await noCode.json()) as { details: Record<string, unknown> }).details["totpRequired"],
     ).toBe(true)
-    owner = await loginBearer("owner@example.com", PASSWORD, totp(secret, now))
+    owner = await loginBearer("owner@example.com", PASSWORD, totp(secret, Date.now()))
     const me = await (await owner.call("GET", "/me")).json()
     expect(me).toMatchObject({
       user: { role: "owner", totpEnabled: true },
@@ -822,7 +827,7 @@ suite("admin API", () => {
     const id = users.data.find((u) => u.email === "viewer@example.com")?.id
     expect((await owner.call("PATCH", `/admins/${id}`, { disabled: true })).status).toBe(200)
     expect((await viewer.call("GET", "/me")).status).toBe(401)
-    const second = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    const second = await loginBearer("owner@example.com", PASSWORD, await nextCode())
     expect((await second.call("POST", "/logout")).status).toBe(204)
     expect((await second.call("GET", "/me")).status).toBe(401)
   })
@@ -841,14 +846,14 @@ suite("admin API", () => {
       ).status,
     ).toBe(422)
     expect((await admin.call("GET", "/me")).status).toBe(200)
-    const other = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    const other = await loginBearer("owner@example.com", PASSWORD, await nextCode())
     expect(
       (await owner.call("POST", "/settings/revoke-all-sessions", undefined, confirm)).status,
     ).toBe(204)
     for (const client of [owner, other, admin])
       expect((await client.call("GET", "/me")).status).toBe(401)
     expect(await meta.collection("admin_sessions").countDocuments()).toBe(0)
-    owner = await loginBearer("owner@example.com", PASSWORD, nextCode())
+    owner = await loginBearer("owner@example.com", PASSWORD, await nextCode())
     const audit = (await (
       await owner.call("GET", "/audit?action=danger.revoke_all_sessions")
     ).json()) as { data: { details?: { adminSessions?: number } }[] }

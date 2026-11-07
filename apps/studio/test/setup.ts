@@ -7,6 +7,7 @@ import { unmatchedRequests } from "../mock/admin.ts"
 afterEach(() => {
   const unmatched = unmatchedRequests.splice(0)
   expect(unmatched, "Studio called admin endpoints that do not exist").toEqual([])
+  if (typeof document === "undefined") return
   cleanup()
   localStorage.clear()
   document.documentElement.className = ""
