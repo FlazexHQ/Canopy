@@ -23,6 +23,7 @@ export {
 } from "./admin/accounts.ts"
 export { type AdminApi, type AdminApiOptions, createAdminApi } from "./admin/api.ts"
 export { API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE, STUDIO_CSP } from "./admin/http.ts"
+export { type LagPoint, LagSampler, type LagSamplerOptions } from "./admin/lag.ts"
 export { ADMIN_ROLES, type AdminRole, can, isAdminRole, type Permission } from "./admin/rbac.ts"
 export { SecretBox } from "./admin/secrets.ts"
 export { type Settings, SettingsStore } from "./admin/settings.ts"

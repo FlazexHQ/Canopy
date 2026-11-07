@@ -587,6 +587,19 @@ suite("admin API", () => {
     const trace = await owner.call("GET", `/realtime/trace/${id}`)
     expect(trace.status).toBe(200)
     expect((await clients.viewer?.call("GET", `/realtime/trace/${id}`))?.status).toBe(403)
+    canopy.admin.lag?.sample()
+    const stats = (await (await clients.viewer?.call("GET", "/realtime/stats"))?.json()) as {
+      lagMs: number
+      eventsPerSecond: number
+      history: { t: number; lagMs: number; eventsPerSecond: number }[]
+    }
+    expect(stats.eventsPerSecond).toBeGreaterThan(0)
+    expect(stats.lagMs).toBeGreaterThanOrEqual(0)
+    expect(stats.history.at(-1)).toEqual({
+      t: expect.any(Number),
+      lagMs: stats.lagMs,
+      eventsPerSecond: stats.eventsPerSecond,
+    })
   })
 
   it("rolls back, changes collection flags and reports the doctor", async () => {

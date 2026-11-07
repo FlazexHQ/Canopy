@@ -78,6 +78,7 @@ import {
   setCookie,
 } from "./http.ts"
 import { addressAllowed } from "./ip.ts"
+import type { LagSampler } from "./lag.ts"
 import { ADMIN_ROLES, can, type Permission } from "./rbac.ts"
 import { type SettingsStore, settingsPatch } from "./settings.ts"
 import { AdminTokens, roleAtMost } from "./tokens.ts"
@@ -101,6 +102,8 @@ export interface AdminApiOptions {
   readonly contexts: ContextResolver
   readonly writes: WritePath
   readonly realtime: Realtime | undefined
+  /** Change stream lag samples for `GET /admin/v1/realtime/stats`. */
+  readonly lag?: LagSampler
   readonly logger: Logger
   /** Origins allowed to send state changing requests, besides the request's own origin. */
   readonly origins?: readonly string[]
@@ -1535,7 +1538,16 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     if (realtime === undefined) throw new NotFoundError("Realtime is turned off")
     return realtime
   }
-  route("GET", "realtime/stats", "realtime.stats", async () => json(engineOf().stats()))
+  route("GET", "realtime/stats", "realtime.stats", async () => {
+    const stats = engineOf().stats()
+    const history = options.lag?.history() ?? []
+    const last = history.at(-1)
+    return json({
+      ...stats,
+      ...(last === undefined ? {} : { lagMs: last.lagMs, eventsPerSecond: last.eventsPerSecond }),
+      ...(options.lag === undefined ? {} : { history }),
+    })
+  })
   route("GET", "realtime/connections", "realtime.inspect", async () =>
     json({ data: engineOf().connections() }),
   )

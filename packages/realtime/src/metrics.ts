@@ -53,6 +53,13 @@ export class Counter {
     return this.series.get(key(labels))?.value ?? 0
   }
 
+  /** The sum over every label set. */
+  total(): number {
+    let sum = 0
+    for (const entry of this.series.values()) sum += entry.value
+    return sum
+  }
+
   render(): string {
     const lines = [`# HELP ${this.name} ${this.help}`, `# TYPE ${this.name} counter`]
     for (const entry of this.series.values())

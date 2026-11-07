@@ -44,6 +44,7 @@ import { type AdminApi, createAdminApi } from "./admin/api.ts"
 import { EmailTemplateStore } from "./admin/email-templates.ts"
 import { problem, STUDIO_CSP, secure } from "./admin/http.ts"
 import { addressAllowed } from "./admin/ip.ts"
+import { LagSampler } from "./admin/lag.ts"
 import { SecretBox } from "./admin/secrets.ts"
 import { DEFAULT_SETTINGS, SettingsStore } from "./admin/settings.ts"
 import { AdminTokens } from "./admin/tokens.ts"
@@ -100,6 +101,8 @@ export interface AdminSurface {
   readonly settings: SettingsStore
   /** Sampled request logs, served by `GET /admin/v1/logs`. */
   readonly requestLog: RequestLog
+  /** Change stream lag samples, when realtime is on. */
+  readonly lag: LagSampler | undefined
   /**
    * Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address; when it is one of
    * `server.trustedProxies`, the client address comes from `X-Forwarded-For`. The client address is checked
@@ -409,6 +412,8 @@ export async function createCanopy(
     environment: config.environment,
   })
   const adminTokens = new AdminTokens({ meta, accounts, audit })
+  const lag =
+    realtime === undefined || options.admin === false ? undefined : new LagSampler(realtime.metrics)
   const adminApi =
     options.admin === false
       ? undefined
@@ -433,6 +438,7 @@ export async function createCanopy(
               policies: engine,
             }),
           realtime,
+          ...(lag === undefined ? {} : { lag }),
           logger,
           ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),
           ...(builtinAuth === undefined || emailTemplates === undefined
@@ -502,6 +508,7 @@ export async function createCanopy(
     audit,
     settings,
     requestLog,
+    lag,
     fetch: adminFetch,
     node: () => nodeBridge(adminFetch),
     async listen() {
@@ -734,6 +741,7 @@ export async function createCanopy(
       closing = true
       stopWatching?.()
       clearInterval(settingsTimer)
+      lag?.stop()
       for (const server of adminServers.splice(0)) {
         server.closeAllConnections()
         await new Promise<void>((resolve) => server.close(() => resolve()))
