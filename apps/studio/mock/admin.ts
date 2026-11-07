@@ -1,3 +1,4 @@
+import { addressAllowed, isAddressRule } from "@canopy/auth/address"
 import { applyUpdate, compileFilter, compileSort } from "@canopy/matcher"
 import {
   type CollectionPolicies,
@@ -28,7 +29,6 @@ import {
 import type { AdminRole, EmailKind } from "../src/api/contract.ts"
 import { EMAIL_KINDS } from "../src/api/wire.ts"
 import { ADMIN_PERMISSIONS, type AdminPermission, can } from "../src/app/permissions.ts"
-import { addressAllowed, isAllowRule } from "../src/lib/ip.ts"
 import {
   type SeedConnection,
   type SeedLogEntry,
@@ -2517,7 +2517,7 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
         }
         const rules = allowlist as string[]
         for (const rule of rules) {
-          if (!isAllowRule(rule)) {
+          if (!isAddressRule(rule)) {
             fail(ErrorCode.ValidationFailed, `${rule} is not an IP address or CIDR range`, {
               path: "adminAllowlist",
             })

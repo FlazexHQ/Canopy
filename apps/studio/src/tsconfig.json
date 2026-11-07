@@ -13,6 +13,7 @@
   },
   "include": [".", "../mock", "../test"],
   "references": [
+    { "path": "../../../packages/auth" },
     { "path": "../../../packages/client" },
     { "path": "../../../packages/matcher" },
     { "path": "../../../packages/policy" },

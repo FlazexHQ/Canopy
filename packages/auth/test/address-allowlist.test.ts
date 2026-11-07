@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { addressAllowed, isAllowRule } from "../src/admin/ip.ts"
+import { addressAllowed, isAddressRule } from "../src/index.ts"
 
 describe("admin IP allowlist", () => {
   it("allows everyone with an empty list and refuses unknown addresses otherwise", () => {
@@ -39,7 +39,7 @@ describe("admin IP allowlist", () => {
 
   it("validates rules", () => {
     for (const rule of ["10.0.0.0/8", "1.2.3.4", "::/0", "2001:db8::/32", "::ffff:1.2.3.4"])
-      expect(isAllowRule(rule)).toBe(true)
+      expect(isAddressRule(rule)).toBe(true)
     for (const rule of [
       "10.0.0.0/33",
       "2001:db8::/129",
@@ -51,6 +51,6 @@ describe("admin IP allowlist", () => {
       "10.0.0.0/x",
       "",
     ])
-      expect(isAllowRule(rule)).toBe(false)
+      expect(isAddressRule(rule)).toBe(false)
   })
 })

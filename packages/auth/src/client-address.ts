@@ -101,6 +101,15 @@ export function addressMatches(address: string, rules: readonly string[]): boole
   return false
 }
 
+/**
+ * Whether `address` may pass an allowlist of `rules`. An empty list allows every address; otherwise an
+ * unknown or unparsable address is refused, so the check fails closed.
+ */
+export function addressAllowed(address: string | undefined, rules: readonly string[]): boolean {
+  if (rules.length === 0) return true
+  return address !== undefined && addressMatches(address, rules)
+}
+
 function normalize(address: string): string {
   const trimmed = address.trim()
   return trimmed.toLowerCase().startsWith("::ffff:") && trimmed.includes(".")

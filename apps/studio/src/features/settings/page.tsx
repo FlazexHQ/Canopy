@@ -1,3 +1,4 @@
+import { isAddressRule } from "@canopy/auth/address"
 import { CanopyError } from "@canopy/protocol"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useId, useState } from "react"
@@ -42,7 +43,6 @@ import {
   TableRow,
 } from "../../components/ui/table.tsx"
 import { formatDateTime, t } from "../../i18n/index.ts"
-import { isAllowRule } from "../../lib/ip.ts"
 
 /** Whether a value is a browser origin: a scheme and host with an optional port, no path. */
 export function isOrigin(value: string): boolean {
@@ -286,7 +286,7 @@ function AllowlistCard({
   const dirty = JSON.stringify(rules) !== JSON.stringify(settings.adminAllowlist)
   const add = () => {
     const value = draft.trim()
-    if (!isAllowRule(value)) {
+    if (!isAddressRule(value)) {
       setProblem(t("settings.allowlist.invalid", { value }))
       return
     }

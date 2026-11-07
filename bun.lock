@@ -21,6 +21,7 @@
       "name": "@canopy/studio-app",
       "version": "0.0.0",
       "dependencies": {
+        "@canopy/auth": "workspace:*",
         "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",

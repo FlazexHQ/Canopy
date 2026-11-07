@@ -23,7 +23,12 @@ export {
   VIEW_TOKEN_ISSUER,
   type ViewTokenVerification,
 } from "./authenticator.ts"
-export { addressMatches, isAddressRule, resolveClientAddress } from "./client-address.ts"
+export {
+  addressAllowed,
+  addressMatches,
+  isAddressRule,
+  resolveClientAddress,
+} from "./client-address.ts"
 export type {
   AccessTokenClaims,
   AuthProvider,

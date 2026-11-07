@@ -1,5 +1,10 @@
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
-import { Authenticator, type JwtAuthOptions, resolveClientAddress } from "@canopy/auth"
+import {
+  Authenticator,
+  addressAllowed,
+  type JwtAuthOptions,
+  resolveClientAddress,
+} from "@canopy/auth"
 import type { BuiltinAuth } from "@canopy/auth-builtin"
 import {
   type CanopyConfigInput,
@@ -44,7 +49,6 @@ import { AdminAccounts } from "./admin/accounts.ts"
 import { type AdminApi, createAdminApi } from "./admin/api.ts"
 import { EmailTemplateStore } from "./admin/email-templates.ts"
 import { problem, STUDIO_CSP, secure } from "./admin/http.ts"
-import { addressAllowed } from "./admin/ip.ts"
 import { LagSampler } from "./admin/lag.ts"
 import { SecretBox } from "./admin/secrets.ts"
 import { DEFAULT_SETTINGS, SettingsStore } from "./admin/settings.ts"

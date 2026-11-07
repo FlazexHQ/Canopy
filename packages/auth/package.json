@@ -11,6 +11,11 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./address": {
+      "types": "./dist/client-address.d.ts",
+      "@canopy/source": "./src/client-address.ts",
+      "default": "./dist/client-address.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

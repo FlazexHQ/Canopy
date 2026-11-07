@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import type { UserAdmin } from "@canopy/auth"
+import { addressAllowed, type UserAdmin } from "@canopy/auth"
 import type { ResolvedConfig } from "@canopy/config"
 import {
   type ContextDefinitions,
@@ -79,7 +79,6 @@ import {
   secure,
   setCookie,
 } from "./http.ts"
-import { addressAllowed } from "./ip.ts"
 import type { LagSampler } from "./lag.ts"
 import { ADMIN_ROLES, can, type Permission } from "./rbac.ts"
 import { type SettingsStore, settingsPatch } from "./settings.ts"

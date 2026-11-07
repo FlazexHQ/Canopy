@@ -1,3 +1,4 @@
+import { addressAllowed, isAddressRule } from "@canopy/auth/address"
 import { waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 import {
@@ -6,7 +7,6 @@ import {
   retentionOf,
   sampleRateOf,
 } from "../src/features/settings/page.tsx"
-import { addressAllowed, isAllowRule } from "../src/lib/ip.ts"
 import { adminOf, renderStudio, screen } from "./harness.tsx"
 
 const lastDialog = () => {
@@ -151,8 +151,8 @@ describe("Settings", () => {
   })
 
   it("matches addresses like the server", () => {
-    expect(isAllowRule("2001:db8::/32")).toBe(true)
-    expect(isAllowRule("10.0.0.0/33")).toBe(false)
+    expect(isAddressRule("2001:db8::/32")).toBe(true)
+    expect(isAddressRule("10.0.0.0/33")).toBe(false)
     expect(addressAllowed("::ffff:10.1.2.3", ["10.0.0.0/8"])).toBe(true)
     expect(addressAllowed("11.0.0.1", ["10.0.0.0/8"])).toBe(false)
     expect(addressAllowed(undefined, ["10.0.0.0/8"])).toBe(false)

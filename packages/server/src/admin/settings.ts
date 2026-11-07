@@ -1,9 +1,9 @@
+import { isAddressRule } from "@canopy/auth"
 import { ValidationError } from "@canopy/protocol"
 import type { Collection, Db } from "mongodb"
 import type { Actor, AuditLog, RequestOrigin } from "../audit.ts"
 import type { RequestLog } from "../request-log.ts"
 import { array, integer, nullable, number, object, optional, string } from "../schema.ts"
-import { isAllowRule } from "./ip.ts"
 
 /** Settings changed at runtime through the admin API, stored in `canopy.settings`. */
 export interface Settings {
@@ -101,7 +101,7 @@ export class SettingsStore {
   }
 
   async update(patch: Partial<Settings>, actor: Actor, origin: RequestOrigin): Promise<Settings> {
-    const invalid = (patch.adminAllowlist ?? []).filter((rule) => !isAllowRule(rule))
+    const invalid = (patch.adminAllowlist ?? []).filter((rule) => !isAddressRule(rule))
     if (invalid.length > 0)
       throw new ValidationError(
         `adminAllowlist has entries that are not addresses or CIDR ranges: ${invalid.join(", ")}`,
