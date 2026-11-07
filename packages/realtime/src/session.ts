@@ -245,8 +245,9 @@ export class Session {
       if (!known) this.send({ t: "added", c: coll, id, ct, s: [subId] })
       return
     }
+    const before = entry.doc
     entry.doc = merged
-    if (known) this.sendChange(coll, id, ct, entry.doc, merged)
+    if (known) this.sendChange(coll, id, ct, before, merged)
     else this.send({ t: "added", c: coll, id, d: merged, ct, s: [subId] })
   }
 
