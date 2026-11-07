@@ -42,6 +42,8 @@
     { "path": "packages/studio/test" },
     { "path": "packages/cli" },
     { "path": "packages/cli/test" },
+    { "path": "apps/studio" },
+    { "path": "apps/studio/src" },
     { "path": "examples/express-dropin" },
     { "path": "examples/express-dropin/web" },
     { "path": "examples/todo-react" },

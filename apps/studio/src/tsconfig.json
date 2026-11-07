@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../../tsconfig.web.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "../node_modules/.cache/web-types",
+    "tsBuildInfoFile": "../node_modules/.cache/web-types/.tsbuildinfo",
+    "types": ["vite/client"]
+  },
+  "include": [".", "../mock", "../test"],
+  "references": [
+    { "path": "../../../packages/client" },
+    { "path": "../../../packages/matcher" },
+    { "path": "../../../packages/policy" },
+    { "path": "../../../packages/protocol" },
+    { "path": "../../../packages/react" }
+  ]
+}

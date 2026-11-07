@@ -1,0 +1,40 @@
+export const shell = {
+  skipToContent: "Skip to content",
+  mainNavigation: "Main navigation",
+  nav: {
+    overview: "Overview",
+    data: "Data",
+    policies: "Policies",
+    realtime: "Realtime",
+    auth: "Auth",
+    api: "API",
+    logs: "Logs and audit",
+    settings: "Settings",
+    doctor: "Doctor",
+  },
+  environment: {
+    development: "Development",
+    production: "Production",
+  },
+  theme: {
+    label: "Theme",
+    system: "System",
+    light: "Light",
+    dark: "Dark",
+  },
+  account: "Account",
+  signedInAs: "Signed in as {email}",
+  signOut: "Sign out",
+  viewAs: {
+    banner: "Viewing as {who}",
+    readOnly: "read only",
+    writesUnlocked: "writes unlocked: {reason}",
+    stop: "Stop viewing as",
+  },
+  notFound: {
+    title: "Page not found",
+    body: "This page does not exist in Studio.",
+    home: "Go to the overview",
+  },
+  sessionExpired: "Your session ended. Sign in again to continue.",
+} as const
