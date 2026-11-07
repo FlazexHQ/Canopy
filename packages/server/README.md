@@ -108,6 +108,28 @@ next to them.
 
 Logs are JSON lines on stderr, with secrets redacted; `CANOPY_LOG_LEVEL` sets the level.
 
+## Admin settings, request logs and the IP allowlist
+
+`PATCH /admin/v1/settings` (owners and admins) changes these at runtime. Each node rereads them every 10
+seconds; the node that saves a change applies it at once.
+
+| Setting                   | Default | What                                                                                                                                                          |
+| ------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `requestLogSampleRate`    | `0.01`  | The share of REST, auth, admin and realtime HTTP requests kept in `canopy.request_log`, from `0` (off) to `1`. Server errors are kept whenever it is above 0. |
+| `requestLogRetentionDays` | `7`     | How long request log entries are kept (1 to 90 days, a TTL index).                                                                                            |
+| `auditRetentionDays`      | `null`  | How long audit entries are kept; `null` keeps them forever.                                                                                                   |
+| `adminAllowlist`          | `[]`    | Addresses and CIDR ranges (IPv4 or IPv6) that may reach `/admin` and `/studio`, on the public and the private listener. Empty allows all.                     |
+
+`GET /admin/v1/logs` lists the sampled requests, newest first, filtered by `surface`, `status` (`404` or
+`4xx`), `before` and `limit`. An entry holds the method, path, status, duration, peer address and request
+id; query strings, headers and bodies are never stored, so filters and tokens stay out of the log.
+
+The allowlist checks the socket peer address; forwarded headers are not trusted, so behind a proxy list the
+proxy's address and restrict the admin surface at the proxy as well. A request from an address that is
+not listed, or whose address is unknown, gets `403`. Saving a list that does not include your own address
+is refused, so it cannot lock you out. If it does anyway (an address change), clear it in the meta
+database: `db.settings.updateOne({ _id: "settings" }, { $set: { adminAllowlist: [] } })`.
+
 ## Shutdown
 
 On SIGTERM or SIGINT the server fails readiness, tells every realtime client to reconnect within

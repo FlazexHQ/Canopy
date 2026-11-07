@@ -13,6 +13,7 @@ import {
   CloseCode,
   DiagnosticError,
   diagnoseMongoError,
+  ForbiddenError,
   formatDiagnostic,
   mongoTarget,
 } from "@canopy/protocol"
@@ -40,15 +41,20 @@ import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
 import { type AdminApi, createAdminApi } from "./admin/api.ts"
 import { EmailTemplateStore } from "./admin/email-templates.ts"
-import { STUDIO_CSP, secure } from "./admin/http.ts"
+import { problem, STUDIO_CSP, secure } from "./admin/http.ts"
+import { addressAllowed } from "./admin/ip.ts"
 import { SecretBox } from "./admin/secrets.ts"
-import { SettingsStore } from "./admin/settings.ts"
+import { DEFAULT_SETTINGS, SettingsStore } from "./admin/settings.ts"
 import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
 import { BUILTIN_APP_NAME, revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
+import { RequestLog, surfaceOf } from "./request-log.ts"
+
+/** How often each node rereads the runtime settings (the admin allowlist, request log sampling). */
+const SETTINGS_REFRESH_MS = 10_000
 
 /** Options of {@link createCanopy}. */
 export interface CreateCanopyOptions {
@@ -82,7 +88,14 @@ export interface AdminSurface {
   readonly accounts: AdminAccounts
   readonly policies: PolicyStore
   readonly audit: AuditLog
-  /** Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address. */
+  /** Runtime settings; `refresh()` rereads them at once instead of at the next periodic refresh. */
+  readonly settings: SettingsStore
+  /** Sampled request logs, served by `GET /admin/v1/logs`. */
+  readonly requestLog: RequestLog
+  /**
+   * Serves `/admin` and `/studio`; anything else is `404`. `info.ip` is the peer address, checked against
+   * the `adminAllowlist` setting (forwarded headers are not trusted here).
+   */
   fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** The same as a `node:http` listener. */
   node(): (request: IncomingMessage, response: ServerResponse) => void
@@ -230,6 +243,22 @@ export async function createCanopy(
     : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const audit = new AuditLog(meta)
+  const requestLog = new RequestLog(meta, {
+    logger,
+    settings: { sampleRate: 0, retentionDays: DEFAULT_SETTINGS.requestLogRetentionDays },
+  })
+  const settings = new SettingsStore(meta, audit, { requestLog })
+  const current = await diagnosed(() => settings.refresh())
+  await requestLog.setRetention(current.requestLogRetentionDays).catch((error: unknown) => {
+    logger.warn({ err: error }, "could not set the request log retention")
+  })
+  const settingsTimer = setInterval(() => {
+    settings.refresh().then(
+      () => {},
+      (error: unknown) => logger.warn({ err: error }, "could not refresh the settings"),
+    )
+  }, SETTINGS_REFRESH_MS)
+  settingsTimer.unref?.()
   const emailTemplates =
     config.auth?.kind === "builtin" ? new EmailTemplateStore({ meta, audit }) : undefined
   await emailTemplates?.load()
@@ -383,7 +412,8 @@ export async function createCanopy(
           audit,
           policies: policyStore,
           keys: apiKeys,
-          settings: new SettingsStore(meta, audit),
+          settings,
+          requestLog,
           engine,
           contexts,
           writes:
@@ -425,6 +455,14 @@ export async function createCanopy(
     info: { readonly ip?: string } = {},
   ): Promise<Response> => {
     const path = new URL(request.url).pathname
+    if (!addressAllowed(info.ip, settings.current.adminAllowlist))
+      return secure(
+        problem(
+          new ForbiddenError("This address may not use the admin surface"),
+          path,
+          request.headers.get("x-request-id")?.slice(0, 128) ?? "",
+        ),
+      )
     if (adminApi !== undefined && (path === "/admin/v1" || path.startsWith("/admin/v1/")))
       return adminApi.fetch(request, info)
     if (options.studio !== undefined && (path === "/studio" || path.startsWith("/studio/")))
@@ -436,6 +474,8 @@ export async function createCanopy(
     accounts,
     policies: policyStore,
     audit,
+    settings,
+    requestLog,
     fetch: adminFetch,
     node: () => nodeBridge(adminFetch),
     async listen() {
@@ -447,6 +487,7 @@ export async function createCanopy(
       const port = Number(separator < 0 ? listen : listen.slice(separator + 1))
       const bridge = nodeBridge(adminFetch)
       const server = createServer((request, response) => {
+        logNode(request, response)
         const hostHeader = (request.headers.host ?? "").toLowerCase()
         const name = hostHeader.replace(/:\d+$/, "").replace(/^\[|\]$/g, "")
         const allowed = new Set([host.toLowerCase(), "localhost", "127.0.0.1", "::1"])
@@ -506,10 +547,61 @@ export async function createCanopy(
     return builtinAuth.handler(request, info.ip === undefined ? {} : { clientAddress: info.ip })
   }
 
+  const logResponse = (
+    request: Request,
+    response: Response,
+    started: number,
+    ip: string | undefined,
+  ): Response => {
+    const path = new URL(request.url).pathname
+    const surface = surfaceOf(path)
+    if (surface === undefined) return response
+    const requestId = response.headers.get("x-request-id")
+    requestLog.record({
+      surface,
+      method: request.method,
+      path,
+      status: response.status,
+      durationMs: performance.now() - started,
+      ...(ip === undefined ? {} : { ip }),
+      ...(requestId === null ? {} : { requestId }),
+    })
+    return response
+  }
+  /** Records a `node:http` request in the request log once its response is written. */
+  const logNode = (request: IncomingMessage, response: ServerResponse): void => {
+    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    const surface = surfaceOf(path)
+    if (surface === undefined) return
+    const started = performance.now()
+    response.once("finish", () => {
+      const ip = request.socket.remoteAddress
+      const requestId = response.getHeader("x-request-id")
+      requestLog.record({
+        surface,
+        method: request.method ?? "GET",
+        path,
+        status: response.statusCode,
+        durationMs: performance.now() - started,
+        ...(ip === undefined ? {} : { ip }),
+        ...(typeof requestId === "string" ? { requestId } : {}),
+      })
+    })
+  }
+
   const fetch = async (
     request: Request,
     fallback?: FetchHandler,
     info: { readonly ip?: string } = {},
+  ): Promise<Response> => {
+    const started = performance.now()
+    return logResponse(request, await route(request, fallback, info), started, info.ip)
+  }
+
+  const route = async (
+    request: Request,
+    fallback: FetchHandler | undefined,
+    info: { readonly ip?: string },
   ): Promise<Response> => {
     const path = new URL(request.url).pathname
     if (isAdmin(path)) return privateAdmin ? plain(404, "Not found") : adminFetch(request, info)
@@ -536,6 +628,7 @@ export async function createCanopy(
       const admin = nodeBridge(adminFetch)
       const authListener = nodeBridge(authFetch)
       return (request, response) => {
+        logNode(request, response)
         const path = new URL(request.url ?? "/", "http://localhost").pathname
         if (isAuth(path)) return authListener(request, response)
         if (isAdmin(path)) {
@@ -590,10 +683,22 @@ export async function createCanopy(
           const path = new URL(request.url).pathname
           if (isAdmin(path) || isAuth(path))
             return fetch(request, bunOptions.fallback, peer(request, server))
-          if (rest !== undefined && isRest(path)) return rest.fetch(request)
+          if (rest !== undefined && isRest(path)) {
+            const started = performance.now()
+            const ip = peer(request, server).ip
+            return rest
+              .fetch(request)
+              .then((response) => logResponse(request, response, started, ip))
+          }
           if (!transports.has("websocket") && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)
-          return handlers.fetch(request, server as never)
+          const started = performance.now()
+          const result = handlers.fetch(request, server as never)
+          if (result === undefined || surfaceOf(path) !== "realtime") return result
+          const ip = peer(request, server).ip
+          return Promise.resolve(result).then((response) =>
+            logResponse(request, response, started, ip),
+          )
         },
         websocket: handlers.websocket,
       }
@@ -602,6 +707,7 @@ export async function createCanopy(
       if (closing) return
       closing = true
       stopWatching?.()
+      clearInterval(settingsTimer)
       for (const server of adminServers.splice(0)) {
         server.closeAllConnections()
         await new Promise<void>((resolve) => server.close(() => resolve()))

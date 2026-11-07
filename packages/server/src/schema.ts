@@ -54,6 +54,22 @@ export function integer(
   }
 }
 
+/** A finite number within bounds. */
+export function number(
+  options: { readonly min?: number; readonly max?: number } = {},
+): Schema<number> {
+  return {
+    parse(value, path = "") {
+      if (typeof value !== "number" || !Number.isFinite(value)) fail(path, "must be a number")
+      if (options.min !== undefined && value < options.min)
+        fail(path, `must be at least ${options.min}`)
+      if (options.max !== undefined && value > options.max)
+        fail(path, `must be at most ${options.max}`)
+      return value
+    },
+  }
+}
+
 /** A boolean. */
 export function boolean(): Schema<boolean> {
   return {

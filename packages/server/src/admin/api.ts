@@ -48,6 +48,7 @@ import {
   hashContexts,
   type PolicyStore,
 } from "../policy-store.ts"
+import type { RequestLog, RequestSurface } from "../request-log.ts"
 import {
   array,
   boolean,
@@ -75,6 +76,7 @@ import {
   secure,
   setCookie,
 } from "./http.ts"
+import { addressAllowed } from "./ip.ts"
 import { ADMIN_ROLES, can, type Permission } from "./rbac.ts"
 import { type SettingsStore, settingsPatch } from "./settings.ts"
 import { maskTrace } from "./trace.ts"
@@ -88,6 +90,8 @@ export interface AdminApiOptions {
   readonly policies: PolicyStore
   readonly keys: ApiKeys
   readonly settings: SettingsStore
+  /** Serves `GET /admin/v1/logs`; without it the route answers `404`. */
+  readonly requestLog?: RequestLog
   /** The policies in force. */
   readonly engine: () => PolicyEngine
   readonly contexts: ContextResolver
@@ -1578,6 +1582,43 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     return json({ data: entries, next: entries.length === 0 ? null : String(entries.at(-1)?._id) })
   })
 
+  const SURFACES: readonly RequestSurface[] = ["rest", "auth", "admin", "realtime"]
+  /**
+   * `GET /admin/v1/logs`: sampled requests, newest first, as `{ data, next }`. Filters: `surface` (rest,
+   * auth, admin, realtime), `status` (an exact code or a class such as `5xx`), `before` (the `next` of the
+   * previous page) and `limit` (1 to 1000, default 100). Entries hold the method, path, status, duration,
+   * peer address and request id, never query strings, headers or bodies.
+   */
+  route("GET", "logs", "ops.audit", async (context) => {
+    const log = options.requestLog
+    if (log === undefined) throw new NotFoundError("Request logging is not available")
+    const search = context.url.searchParams
+    const surface = search.get("surface")
+    if (surface !== null && !SURFACES.includes(surface as RequestSurface))
+      throw new ValidationError(`surface must be one of ${SURFACES.join(", ")}`)
+    const statusText = search.get("status")
+    let status: number | `${1 | 2 | 3 | 4 | 5}xx` | undefined
+    if (statusText !== null) {
+      if (/^[1-5]xx$/.test(statusText)) status = statusText as `${1 | 2 | 3 | 4 | 5}xx`
+      else if (/^[1-5]\d\d$/.test(statusText)) status = Number(statusText)
+      else throw new ValidationError("status must be a code such as 404 or a class such as 5xx")
+    }
+    const before = search.get("before")
+    const limit = Number(search.get("limit") ?? "100")
+    const entries = await log.list({
+      ...(surface === null ? {} : { surface: surface as RequestSurface }),
+      ...(status === undefined ? {} : { status }),
+      ...(before === null ? {} : { before }),
+      limit: Number.isFinite(limit) ? limit : 100,
+    })
+    return json({
+      data: entries,
+      next: entries.length === 0 ? null : String(entries.at(-1)?._id),
+      sampleRate: settings.current.requestLogSampleRate,
+      retentionDays: settings.current.requestLogRetentionDays,
+    })
+  })
+
   route("GET", "settings", "settings.read", async () => json(await settings.get()))
 
   route(
@@ -1586,6 +1627,16 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     "settings.write",
     async (context) => {
       const patch = settingsPatch.parse(await context.body())
+      const allowlist = patch.adminAllowlist
+      if (
+        allowlist !== undefined &&
+        allowlist.length > 0 &&
+        !addressAllowed(context.origin.ip, allowlist)
+      )
+        throw new ValidationError(
+          `The allowlist does not include your address (${context.origin.ip ?? "unknown"}), so saving it would lock you out`,
+          { details: { path: "adminAllowlist", reason: "lockout" } },
+        )
       return json(await settings.update(patch, context.actor, context.origin))
     },
     "settings.update",

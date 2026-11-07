@@ -27,6 +27,7 @@ export { ADMIN_ROLES, type AdminRole, can, isAdminRole, type Permission } from "
 export { SecretBox } from "./admin/secrets.ts"
 export { type Settings, SettingsStore } from "./admin/settings.ts"
 export { generateTotpSecret, hotp, totp, totpUri, verifyTotp } from "./admin/totp.ts"
+export type { AdminEventTrace, MaskedOutcome } from "./admin/trace.ts"
 export {
   type ApiKeyDocument,
   type ApiKeyInfo,
@@ -75,3 +76,9 @@ export {
   policyInput,
   type StoredContextLookups,
 } from "./policy-store.ts"
+export {
+  RequestLog,
+  type RequestLogEntry,
+  type RequestLogQuery,
+  type RequestSurface,
+} from "./request-log.ts"

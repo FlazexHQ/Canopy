@@ -597,6 +597,117 @@ suite("admin API", () => {
     expect(doctor.checks.find((c) => c.name === "meta-migrations")?.status).toBe("ok")
   })
 
+  it("keeps sampled request logs with settings for sampling and retention", async () => {
+    const changed = await owner.call("PATCH", "/settings", {
+      requestLogSampleRate: 1,
+      requestLogRetentionDays: 3,
+    })
+    expect(changed.status).toBe(200)
+    expect(await changed.json()).toMatchObject({
+      requestLogSampleRate: 1,
+      requestLogRetentionDays: 3,
+      adminAllowlist: [],
+    })
+    const ttl = (await meta.collection("request_log").indexes()).find((i) => i.name === "ttl_at")
+    expect(ttl?.expireAfterSeconds).toBe(3 * 86_400)
+    expect((await owner.call("PATCH", "/settings", { requestLogSampleRate: 1.5 })).status).toBe(422)
+
+    const filter = encodeURIComponent(JSON.stringify({ body: "needle_value" }))
+    expect(
+      (
+        await fetch(`${base}/rest/v1/notes?filter=${filter}`, {
+          headers: { apikey: "pk_admin_test" },
+        })
+      ).status,
+    ).toBe(200)
+    expect(
+      (await fetch(`${base}/rest/v1/nothing_here`, { headers: { apikey: "pk_admin_test" } }))
+        .status,
+    ).toBe(404)
+    expect((await fetch(`${base}/healthz`)).status).toBe(200)
+
+    type Logs = { data: Record<string, unknown>[]; next: string | null; sampleRate: number }
+    const logs = async (query: string): Promise<Logs> => {
+      const started = Date.now()
+      for (;;) {
+        const answer = (await (await owner.call("GET", `/logs${query}`)).json()) as Logs
+        if (answer.data.length > 0 || Date.now() - started > 3000) return answer
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+    }
+    const rest = await logs("?surface=rest")
+    expect(rest.sampleRate).toBe(1)
+    expect(rest.data.map((entry) => [entry["path"], entry["status"]])).toEqual([
+      ["/rest/v1/nothing_here", 404],
+      ["/rest/v1/notes", 200],
+    ])
+    expect(rest.data[0]).toMatchObject({ surface: "rest", method: "GET", ip: "127.0.0.1" })
+    expect(typeof rest.data[0]?.["durationMs"]).toBe("number")
+    expect(JSON.stringify(rest)).not.toContain("needle_value")
+    const errors = await logs("?surface=rest&status=4xx")
+    expect(errors.data.map((entry) => entry["status"])).toEqual([404])
+    const exact = await logs("?status=200&surface=rest&limit=1")
+    expect(exact.data).toHaveLength(1)
+    const older = await owner.call("GET", `/logs?surface=rest&status=200&before=${exact.next}`)
+    expect(((await older.json()) as Logs).data).toEqual([])
+    const all = (await (await owner.call("GET", "/logs?limit=1000")).json()) as Logs
+    expect(all.data.some((entry) => entry["path"] === "/healthz")).toBe(false)
+    expect(all.data.some((entry) => entry["surface"] === "admin")).toBe(true)
+    expect((await owner.call("GET", "/logs?status=600")).status).toBe(422)
+    expect((await owner.call("GET", "/logs?surface=table")).status).toBe(422)
+    for (const role of ["developer", "viewer"] as const)
+      expect((await clients[role]?.call("GET", "/logs"))?.status).toBe(403)
+
+    expect((await owner.call("PATCH", "/settings", { requestLogSampleRate: 0 })).status).toBe(200)
+    const before = await meta.collection("request_log").countDocuments()
+    await fetch(`${base}/rest/v1/notes`, { headers: { apikey: "pk_admin_test" } })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(await meta.collection("request_log").countDocuments()).toBe(before)
+  })
+
+  it("limits the admin surface to the IP allowlist on the public listener, without locking out", async () => {
+    const lockout = await owner.call("PATCH", "/settings", { adminAllowlist: ["203.0.113.0/24"] })
+    expect(lockout.status).toBe(422)
+    expect(((await lockout.json()) as { details: Record<string, unknown> }).details).toMatchObject({
+      reason: "lockout",
+    })
+    expect(
+      (await owner.call("PATCH", "/settings", { adminAllowlist: ["10.0.0.0/33"] })).status,
+    ).toBe(422)
+    expect(
+      (await owner.call("PATCH", "/settings", { adminAllowlist: ["127.0.0.0/8", "::1"] })).status,
+    ).toBe(200)
+    expect((await owner.call("GET", "/me")).status).toBe(200)
+
+    const me = () =>
+      new Request(`${base}/admin/v1/me`, { headers: { authorization: `Bearer ${owner.token}` } })
+    expect((await canopy.fetch(me(), undefined, { ip: "127.0.0.9" })).status).toBe(200)
+    expect((await canopy.fetch(me(), undefined, { ip: "::ffff:127.0.0.1" })).status).toBe(200)
+    const refused = await canopy.fetch(me(), undefined, { ip: "198.51.100.7" })
+    expect(refused.status).toBe(403)
+    expect(await refused.json()).toMatchObject({ code: "CANOPY_FORBIDDEN" })
+    expect(refused.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+    expect((await canopy.fetch(me(), undefined, {})).status).toBe(403)
+    expect(
+      (await canopy.fetch(new Request(`${base}/studio`), undefined, { ip: "198.51.100.7" })).status,
+    ).toBe(403)
+    expect(
+      (
+        await canopy.fetch(
+          new Request(`${base}/rest/v1/notes`, { headers: { apikey: "pk_admin_test" } }),
+          undefined,
+          { ip: "198.51.100.7" },
+        )
+      ).status,
+    ).toBe(200)
+    const audit = (await (await owner.call("GET", "/audit?action=settings.update")).json()) as {
+      data: { diff: { after: { adminAllowlist: string[] } } }[]
+    }
+    expect(audit.data[0]?.diff.after.adminAllowlist).toEqual(["127.0.0.0/8", "::1"])
+    expect((await owner.call("PATCH", "/settings", { adminAllowlist: [] })).status).toBe(200)
+    expect((await canopy.fetch(me(), undefined, { ip: "198.51.100.7" })).status).toBe(200)
+  })
+
   it("ends sessions at logout and when an admin is disabled", async () => {
     const viewer = clients.viewer as Client
     const users = (await (await owner.call("GET", "/admins")).json()) as {
@@ -626,6 +737,27 @@ suite("admin API", () => {
       await new Promise<void>((resolve) => prod.server.close(() => resolve()))
       await mongo.db(prodDb).dropDatabase()
       await mongo.db(`${prodDb}_meta`).dropDatabase()
+    })
+
+    it("applies the IP allowlist on the private listener too", async () => {
+      const url = `http://${admin?.address}`
+      const settings = mongo.db(`${prodDb}_meta`).collection<{ _id: string }>("settings")
+      await settings.updateOne(
+        { _id: "settings" },
+        { $set: { adminAllowlist: ["203.0.113.0/24"] } },
+        { upsert: true },
+      )
+      await prod.canopy.admin.settings.refresh()
+      try {
+        const refused = await fetch(`${url}/admin/v1/setup`)
+        expect(refused.status).toBe(403)
+        expect(await refused.json()).toMatchObject({ code: "CANOPY_FORBIDDEN" })
+        expect((await fetch(`${url}/studio`)).status).toBe(403)
+      } finally {
+        await settings.updateOne({ _id: "settings" }, { $set: { adminAllowlist: [] } })
+        await prod.canopy.admin.settings.refresh()
+      }
+      expect((await fetch(`${url}/admin/v1/setup`)).status).toBe(200)
     })
 
     it("serves /admin only on the private listener and refuses foreign Host headers", async () => {
