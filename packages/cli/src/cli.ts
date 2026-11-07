@@ -762,6 +762,7 @@ if (isMain) {
   const stop = new AbortController()
   process.once("SIGINT", () => stop.abort())
   process.once("SIGTERM", () => stop.abort())
+  if (process.platform === "win32") process.once("SIGBREAK", () => stop.abort())
   run(process.argv.slice(2), process.env, out, process.cwd(), stop.signal).then(
     (code) => {
       process.exitCode = code

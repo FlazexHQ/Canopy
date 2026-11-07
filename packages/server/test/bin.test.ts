@@ -35,7 +35,7 @@ function start(args: readonly string[], env: Record<string, string>, cwd?: strin
   const child = spawn(process.execPath, ["--conditions=@canopy/source", BIN, ...args], {
     cwd: cwd ?? process.cwd(),
     env: { ...CLEAN_ENV, ...env },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["ignore", "pipe", "pipe", "ipc"],
   })
   let output = ""
   child.stdout?.on("data", (chunk: Buffer) => {
@@ -48,6 +48,16 @@ function start(args: readonly string[], env: Record<string, string>, cwd?: strin
     child.once("exit", (code) => resolve(code)),
   )
   return { child, exited, output: () => output }
+}
+
+/** How a test asks the server to stop. Windows has no SIGTERM, only the IPC message. */
+type Shutdown = "SIGTERM" | "shutdown"
+const SHUTDOWNS: readonly Shutdown[] =
+  process.platform === "win32" ? ["shutdown"] : ["SIGTERM", "shutdown"]
+
+function requestShutdown(run: Running, how: Shutdown = SHUTDOWNS[0] ?? "shutdown"): void {
+  if (how === "SIGTERM") run.child.kill("SIGTERM")
+  else run.child.send("shutdown")
 }
 
 async function freePort(): Promise<number> {
@@ -170,7 +180,7 @@ suite("canopy-server against MongoDB", () => {
 
   const stop = async (run: Running): Promise<number | null> => {
     if (run.child.exitCode !== null) return run.child.exitCode
-    run.child.kill("SIGTERM")
+    requestShutdown(run)
     return within(run.exited, 20_000, "canopy-server to stop")
   }
 
@@ -312,39 +322,44 @@ suite("canopy-server against MongoDB", () => {
     }
   })
 
-  it("drains on SIGTERM: readiness fails, sockets are told to reconnect, then it exits 0", async () => {
-    const { run, base } = await boot()
-    const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
-    const messages: Record<string, unknown>[] = []
-    socket.on("message", (data) =>
-      messages.push(JSON.parse(data.toString()) as Record<string, unknown>),
-    )
-    const closed = new Promise<number>((resolve) => socket.once("close", (code) => resolve(code)))
-    await new Promise<void>((resolve, reject) => {
-      socket.once("open", () => resolve())
-      socket.once("error", reject)
-    })
-    socket.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: await sign("alice") }))
-    const started = Date.now()
-    while (!messages.some((m) => m["t"] === "welcome")) {
-      if (Date.now() - started > 10_000) throw new Error(`no welcome: ${run.output()}`)
-      await new Promise((resolve) => setTimeout(resolve, 20))
-    }
+  it.each(SHUTDOWNS)(
+    "drains on %s: readiness fails, sockets are told to reconnect, then it exits 0",
+    async (how) => {
+      const { run, base } = await boot()
+      const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+      const messages: Record<string, unknown>[] = []
+      socket.on("message", (data) =>
+        messages.push(JSON.parse(data.toString()) as Record<string, unknown>),
+      )
+      const closed = new Promise<number>((resolve) => socket.once("close", (code) => resolve(code)))
+      await new Promise<void>((resolve, reject) => {
+        socket.once("open", () => resolve())
+        socket.once("error", reject)
+      })
+      socket.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: await sign("alice") }))
+      const started = Date.now()
+      while (!messages.some((m) => m["t"] === "welcome")) {
+        if (Date.now() - started > 10_000) throw new Error(`no welcome: ${run.output()}`)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
 
-    run.child.kill("SIGTERM")
-    let draining = false
-    while (run.child.exitCode === null && !draining) {
-      const response = await fetch(`${base}/readyz`).catch(() => undefined)
-      if (response?.status === 503) draining = (await response.text()) === "draining"
-      else await new Promise((resolve) => setTimeout(resolve, 10))
-    }
-    expect(draining).toBe(true)
-    expect(await within(closed, 10_000, "the socket to close")).toBe(1012)
-    expect(messages).toContainEqual(expect.objectContaining({ t: "reconnect", reason: "shutdown" }))
-    expect(await within(run.exited, 20_000, "exit")).toBe(0)
-    const output = run.output()
-    expect(output).toContain('"msg":"draining","signal":"SIGTERM","drainMs":5000')
-    expect(output.indexOf('"msg":"draining"')).toBeLessThan(output.indexOf('"msg":"stopped"'))
-    await expect(fetch(`${base}/healthz`)).rejects.toThrow()
-  })
+      requestShutdown(run, how)
+      let draining = false
+      while (run.child.exitCode === null && !draining) {
+        const response = await fetch(`${base}/readyz`).catch(() => undefined)
+        if (response?.status === 503) draining = (await response.text()) === "draining"
+        else await new Promise((resolve) => setTimeout(resolve, 10))
+      }
+      expect(draining).toBe(true)
+      expect(await within(closed, 10_000, "the socket to close")).toBe(1012)
+      expect(messages).toContainEqual(
+        expect.objectContaining({ t: "reconnect", reason: "shutdown" }),
+      )
+      expect(await within(run.exited, 20_000, "exit")).toBe(0)
+      const output = run.output()
+      expect(output).toContain(`"msg":"draining","signal":"${how}","drainMs":5000`)
+      expect(output.indexOf('"msg":"draining"')).toBeLessThan(output.indexOf('"msg":"stopped"'))
+      await expect(fetch(`${base}/healthz`)).rejects.toThrow()
+    },
+  )
 })

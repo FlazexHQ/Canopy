@@ -45,16 +45,33 @@ export interface CredentialOptions {
   readonly run?: ToolRunner
 }
 
+function configDir(
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform,
+): string {
+  const xdg = env["XDG_CONFIG_HOME"]
+  if (xdg !== undefined && xdg !== "") return join(xdg, "canopy")
+  if (platform === "win32")
+    return join(
+      env["APPDATA"] || join(env["USERPROFILE"] || homedir(), "AppData", "Roaming"),
+      "canopy",
+    )
+  return join(env["HOME"] || homedir(), ".config", "canopy")
+}
+
 /**
- * The fallback file: `$CANOPY_CREDENTIALS`, else `$XDG_CONFIG_HOME/canopy/credentials.json`, else
- * `~/.config/canopy/credentials.json`. It is written with mode 0600 and holds tokens in plain text, so it
- * is only as safe as the account that owns it.
+ * The fallback file: `$CANOPY_CREDENTIALS`, else `credentials.json` in the per user config folder
+ * (`$XDG_CONFIG_HOME/canopy`, `%APPDATA%\canopy` on Windows, `~/.config/canopy` elsewhere). It holds tokens
+ * in plain text, so it is only as safe as the account that owns it: it is written with mode 0600 on Linux
+ * and macOS, and on Windows it relies on the user profile being readable only by its owner.
  */
-export function credentialsFile(env: Readonly<Record<string, string | undefined>>): string {
+export function credentialsFile(
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const explicit = env["CANOPY_CREDENTIALS"]
   if (explicit !== undefined && explicit !== "") return explicit
-  const base = env["XDG_CONFIG_HOME"] || join(env["HOME"] || homedir(), ".config")
-  return join(base, "canopy", "credentials.json")
+  return join(configDir(env, platform), "credentials.json")
 }
 
 /** Normalizes a project URL so `https://x.example/` and `https://x.example` share one entry. */
@@ -134,11 +151,11 @@ export async function saveToken(
   if (command !== undefined) {
     const result = await run(command.program, command.args, command.input)
     if (result.code === 0) {
-      await forgetFileToken(account, options.env)
+      await forgetFileToken(account, options.env, options.platform)
       return "keychain"
     }
   }
-  const path = credentialsFile(options.env)
+  const path = credentialsFile(options.env, options.platform)
   const tokens = await readFileStore(path)
   tokens[account] = token
   await writeFileStore(path, tokens)
@@ -148,8 +165,9 @@ export async function saveToken(
 async function forgetFileToken(
   account: string,
   env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform | undefined,
 ): Promise<boolean> {
-  const path = credentialsFile(env)
+  const path = credentialsFile(env, platform)
   const tokens = await readFileStore(path)
   if (!(account in tokens)) return false
   delete tokens[account]
@@ -175,7 +193,7 @@ export async function readToken(
     if (lookup !== undefined && lookup.code === 0 && lookup.stdout.trim() !== "")
       return lookup.stdout.trim()
   }
-  return (await readFileStore(credentialsFile(options.env)))[account]
+  return (await readFileStore(credentialsFile(options.env, platform)))[account]
 }
 
 /** Removes the admin token of a project from both stores. Returns whether one was found. */
@@ -193,7 +211,7 @@ export async function deleteToken(url: string, options: CredentialOptions): Prom
           : undefined
     found = removed?.code === 0
   }
-  return (await forgetFileToken(account, options.env)) || found
+  return (await forgetFileToken(account, options.env, platform)) || found
 }
 
 const ENVIRONMENT_NAME = /^[A-Za-z][\w-]{0,63}$/
@@ -207,11 +225,13 @@ export function isEnvironmentName(name: string): boolean {
  * The file that maps environment names (`--env production`) to project URLs: `$CANOPY_ENVIRONMENTS`, else
  * `environments.json` next to the default credentials file. It holds no secrets.
  */
-export function environmentsFile(env: Readonly<Record<string, string | undefined>>): string {
+export function environmentsFile(
+  env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
+): string {
   const explicit = env["CANOPY_ENVIRONMENTS"]
   if (explicit !== undefined && explicit !== "") return explicit
-  const base = env["XDG_CONFIG_HOME"] || join(env["HOME"] || homedir(), ".config")
-  return join(base, "canopy", "environments.json")
+  return join(configDir(env, platform), "environments.json")
 }
 
 /** Remembers that the environment `name` is the project at `url`. */
@@ -219,8 +239,9 @@ export async function saveEnvironment(
   name: string,
   url: string,
   env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<void> {
-  const path = environmentsFile(env)
+  const path = environmentsFile(env, platform)
   const environments = await readFileStore(path)
   environments[name] = projectKey(url)
   await writeFileStore(path, environments)
@@ -230,6 +251,7 @@ export async function saveEnvironment(
 export async function readEnvironment(
   name: string,
   env: Readonly<Record<string, string | undefined>>,
+  platform: NodeJS.Platform = process.platform,
 ): Promise<string | undefined> {
-  return (await readFileStore(environmentsFile(env)))[name]
+  return (await readFileStore(environmentsFile(env, platform)))[name]
 }

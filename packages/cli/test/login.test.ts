@@ -122,6 +122,32 @@ describe("canopy login", () => {
     }
   })
 
+  it("keeps the credentials and environments files in the per user config folder of each OS", () => {
+    const home = { HOME: "/home/ada", USERPROFILE: "C:\\Users\\ada" }
+    const appData = "C:\\Users\\ada\\AppData\\Roaming"
+    expect(credentialsFile(home, "linux")).toBe(
+      join("/home/ada", ".config", "canopy", "credentials.json"),
+    )
+    expect(credentialsFile(home, "darwin")).toBe(
+      join("/home/ada", ".config", "canopy", "credentials.json"),
+    )
+    expect(credentialsFile({ ...home, APPDATA: appData }, "win32")).toBe(
+      join(appData, "canopy", "credentials.json"),
+    )
+    expect(credentialsFile(home, "win32")).toBe(
+      join("C:\\Users\\ada", "AppData", "Roaming", "canopy", "credentials.json"),
+    )
+    expect(environmentsFile({ ...home, APPDATA: appData }, "win32")).toBe(
+      join(appData, "canopy", "environments.json"),
+    )
+    expect(credentialsFile({ ...home, XDG_CONFIG_HOME: "/xdg", APPDATA: appData }, "win32")).toBe(
+      join("/xdg", "canopy", "credentials.json"),
+    )
+    expect(credentialsFile({ ...home, CANOPY_CREDENTIALS: "/run/secret.json" }, "win32")).toBe(
+      "/run/secret.json",
+    )
+  })
+
   it("falls back to a 0600 credentials file without a keychain", async () => {
     await mkdir(scratch, { recursive: true })
     const config = await mkdtemp(join(scratch, "xdg-"))
@@ -133,7 +159,11 @@ describe("canopy login", () => {
     ] as const) {
       const { lines, out } = capture()
       expect(await login({ url, token, env, platform, run: tool.run, fetch }, out)).toBe(0)
-      expect(lines[0]).toContain("the token is in the credentials file (mode 0600)")
+      expect(lines[0]).toContain(
+        platform === "win32"
+          ? "the token is in the credentials file (in your Windows user profile)"
+          : "the token is in the credentials file (mode 0600)",
+      )
     }
     const file = join(config, "canopy", "credentials.json")
     expect(credentialsFile(env)).toBe(file)
@@ -141,7 +171,7 @@ describe("canopy login", () => {
       "https://a.example": "tok_a",
       "https://b.example": "tok_b",
     })
-    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600)
     expect(tool.calls.map((call) => call.program)).toEqual(["secret-tool"])
 
     const out = capture()
