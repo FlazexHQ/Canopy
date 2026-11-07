@@ -23,6 +23,17 @@ export {
   ZERO_CT,
 } from "./cluster-time.ts"
 export {
+  type Diagnostic,
+  DiagnosticError,
+  diagnoseMongoError,
+  diagnosticOf,
+  type FormatDiagnosticOptions,
+  featureCompatibilityDiagnostic,
+  formatDiagnostic,
+  MIN_FEATURE_COMPATIBILITY_VERSION,
+  type MongoTarget,
+} from "./diagnostics.ts"
+export {
   canonicalString,
   type DecodeOptions,
   decode,
