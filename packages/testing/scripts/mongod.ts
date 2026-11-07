@@ -120,15 +120,23 @@ async function main(): Promise<void> {
     exited = code
   })
 
-  const client = new MongoClient(`mongodb://127.0.0.1:${port}/?directConnection=true`, {
-    serverSelectionTimeoutMS: 2_000,
+  const connect = () =>
+    new MongoClient(`mongodb://127.0.0.1:${port}/?directConnection=true`, {
+      serverSelectionTimeoutMS: 2_000,
+    })
+  // A client whose first connection attempt failed stays closed, so each attempt gets a new one.
+  const client = await waitFor("mongod to accept connections", async () => {
+    if (exited !== undefined) throw new Error(`mongod exited with ${exited}; see ${log}`)
+    const attempt = connect()
+    try {
+      await attempt.db("admin").command({ ping: 1 })
+      return attempt
+    } catch (error: unknown) {
+      await attempt.close()
+      throw error
+    }
   })
   try {
-    await waitFor("mongod to accept connections", async () => {
-      if (exited !== undefined) throw new Error(`mongod exited with ${exited}; see ${log}`)
-      await client.db("admin").command({ ping: 1 })
-      return true
-    })
     await client.db("admin").command({
       replSetInitiate: { _id: "rs0", members: [{ _id: 0, host: `localhost:${port}` }] },
     })
