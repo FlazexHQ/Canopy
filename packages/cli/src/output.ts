@@ -7,6 +7,8 @@ export interface Output {
    * confirmation then refuse unless `--yes` is given.
    */
   confirm?(question: string): Promise<boolean>
+  /** Reads a secret without echoing it: from the terminal, or all of standard input when piped. */
+  readSecret?(question: string): Promise<string>
 }
 
 /** Asks for confirmation unless `yes` is set. Returns whether to proceed, explaining a refusal. */

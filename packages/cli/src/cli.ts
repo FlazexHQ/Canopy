@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
+import { Writable } from "node:stream"
 import { ConfigError, formatConfig, type ResolvedConfig } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
@@ -11,6 +12,7 @@ import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
 import { keysCreate, keysList, keysRevoke, migrate } from "./keys.ts"
 import { DEFAULT_MONGO_IMAGE, startLocalMongo } from "./local-mongo.ts"
+import { login, logout } from "./login.ts"
 import { messageOf, type Output } from "./output.ts"
 import {
   policiesDiff,
@@ -45,6 +47,8 @@ Commands:
   keys create            Create a key: --kind publishable|secret --name <name>
   keys revoke <id>       Revoke a key for good (asks first)
   migrate                Bring the meta database up to date (--status lists the migrations)
+  login <url>            Store an admin token for a remote project in the OS keychain
+  logout <url>           Remove the stored admin token of a project
   gen types              Generate the Database types from validators, config and sampled documents
   config print           Print the resolved config with secrets masked
   realtime enable-images <collection...>
@@ -82,6 +86,7 @@ Options:
   --kind <kind>          keys create: publishable or secret
   --name <name>          keys create: a label for the key
   --status               migrate: list the migrations instead of running them
+  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)
   --yes                  realtime, indexes create, policies rollback, keys revoke: apply without asking
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
   --roles <a,b>          policies explain: custom roles of the caller
@@ -146,9 +151,11 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   "keys create": { flags: ["kind", "name"] },
   "keys revoke": { flags: ["yes"], args: [1, 1], needs: "the id of one key" },
   migrate: { flags: ["status"] },
+  login: { flags: ["token"], args: [1, 1], needs: "the project URL" },
+  logout: { flags: [], args: [1, 1], needs: "the project URL" },
 }
 
-const SINGLE = new Set(["doctor", "init", "dev", "migrate"])
+const SINGLE = new Set(["doctor", "init", "dev", "migrate", "login", "logout"])
 
 /** Commands that only use the meta database, not the app database. */
 const META_ONLY = new Set([
@@ -267,6 +274,11 @@ export async function run(
     return init({ cwd, ...(uriFlag === undefined ? {} : { mongodbUri: uriFlag, database }) }, out)
   }
   if (name === "dev") return runDev(flags, env, out, cwd, signal)
+  if (name === "login" || name === "logout") {
+    const token = text(flags, "token")
+    const options = { url: rest[0] ?? "", env, ...(token === undefined ? {} : { token }) }
+    return name === "login" ? login(options, out) : logout(options, out)
+  }
   const command =
     name === "config print"
       ? "print"
@@ -540,6 +552,22 @@ if (isMain) {
           },
         }
       : {}),
+    readSecret: async (question: string) => {
+      if (process.stdin.isTTY !== true) {
+        const chunks: Buffer[] = []
+        for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk as Uint8Array))
+        return Buffer.concat(chunks).toString("utf8").trim()
+      }
+      process.stdout.write(question)
+      const muted = new Writable({ write: (_chunk, _encoding, done) => done() })
+      const prompt = createInterface({ input: process.stdin, output: muted, terminal: true })
+      try {
+        return await prompt.question("")
+      } finally {
+        prompt.close()
+        process.stdout.write("\n")
+      }
+    },
   }
   const stop = new AbortController()
   process.once("SIGINT", () => stop.abort())
