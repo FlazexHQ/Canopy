@@ -124,7 +124,7 @@ jobs:
         run: >-
           docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
           oven/bun:${{ env.BUN_VERSION }}-alpine
-          sh -c "bun install --frozen-lockfile && bun --bun vitest run"
+          sh -c "bun install --frozen-lockfile --ignore-scripts && bun --bun vitest run"
       - name: Test with Node.js 24 on musl
         run: >-
           docker run --rm --network host -v "$PWD:/repo" -w /repo -e CANOPY_TEST_MONGODB_URI
@@ -158,5 +158,8 @@ jobs:
         name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
       - run: deno --version
-      - name: Full suite on Deno (Vitest needs the thread pool there)
-        run: deno run -A --node-modules-dir=manual node_modules/vitest/vitest.mjs run --pool=threads
+      # Vitest needs the thread pool on Deno. Studio is a browser app, tested in browsers instead.
+      - name: Full suite on Deno
+        run: >-
+          deno run -A --node-modules-dir=manual node_modules/vitest/vitest.mjs run --pool=threads
+          --project "!studio-app"
