@@ -1,0 +1,23 @@
+{
+  "name": "@canopy/repo-check",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Repository checks for Canopy: workspace layout, the no dashes rule and commit messages.",
+  "type": "module",
+  "bin": {
+    "canopy-repo-check": "./src/cli.ts"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "check": "bun src/cli.ts --root ../.. workspace dashes"
+  },
+  "dependencies": {
+    "typescript": "6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "vitest": "5.0.5"
+  }
+}

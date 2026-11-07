@@ -135,14 +135,10 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-# Planning docs stay local and are never committed (see CLAUDE.md)
-/docs/
-
 # Turborepo
 .turbo/
 
-# Local only tooling, never committed (see CLAUDE.md)
-/tools/
+# Personal git hooks
 lefthook-local.yml
 
 # Governance drafts, kept local until they are ratified (see CLAUDE.md)
