@@ -181,7 +181,7 @@ export function toDsl(draft: PolicyDraft): string {
     let call =
       policy.ops.length === 1 && only !== undefined && SINGLE_OPS.has(only)
         ? `${builder}.${only}(${roles})`
-        : `${builder}.ops(${JSON.stringify(policy.ops)}, ${roles})`
+        : `${builder}.ops(${tsValue(policy.ops, "")}, ${roles})`
     if (policy.using !== undefined) call += `\n      .where(${tsValue(policy.using, "      ")})`
     if (policy.check !== undefined) call += `\n      .check(${tsValue(policy.check, "      ")})`
     call += `\n      .named(${JSON.stringify(policy.name)})`
