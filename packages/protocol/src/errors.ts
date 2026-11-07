@@ -23,6 +23,8 @@ export const ErrorCode = {
   Timeout: "CANOPY_TIMEOUT",
   Unavailable: "CANOPY_UNAVAILABLE",
   Internal: "CANOPY_INTERNAL",
+  /** Local only: a configuration that does not validate. Never sent over the wire. */
+  ConfigInvalid: "CANOPY_CONFIG_INVALID",
 } as const
 
 /** One of the stable `CANOPY_*` error codes. */
@@ -49,6 +51,7 @@ const HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   CANOPY_TIMEOUT: 504,
   CANOPY_UNAVAILABLE: 503,
   CANOPY_INTERNAL: 500,
+  CANOPY_CONFIG_INVALID: 500,
 }
 
 const CODES: ReadonlySet<string> = new Set(Object.values(ErrorCode))

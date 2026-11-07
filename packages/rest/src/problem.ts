@@ -39,6 +39,7 @@ const TITLES: Readonly<Record<ErrorCode, string>> = {
   CANOPY_TIMEOUT: "Timeout",
   CANOPY_UNAVAILABLE: "Unavailable",
   CANOPY_INTERNAL: "Internal error",
+  CANOPY_CONFIG_INVALID: "Invalid configuration",
 }
 
 /** Returns the slug of a code, for example `policy-violation` for `CANOPY_POLICY_VIOLATION`. */
