@@ -17,6 +17,13 @@ export interface JwtAuthOptions {
   readonly jwksUrl?: string
   /** A JWKS given inline, for tests or air gapped setups. */
   readonly jwks?: JSONWebKeySet
+  /**
+   * Resolves verification keys in process, for a provider that holds its own keys (built in auth). Takes
+   * precedence over `jwks` and `jwksUrl`.
+   */
+  readonly keys?: JWTVerifyGetKey
+  /** Refuses verified tokens of revoked sessions or users. */
+  readonly isRevoked?: (claims: JWTPayload) => boolean
   readonly issuer: string | readonly string[]
   readonly audience?: string | readonly string[]
   /** Accepted algorithms. Pinned; `none` and HMAC algorithms are never accepted. */
@@ -78,6 +85,8 @@ export class Authenticator {
     }
     if (options === undefined) {
       this.keySet = undefined
+    } else if (options.keys !== undefined) {
+      this.keySet = options.keys
     } else if (options.jwks !== undefined) {
       this.keySet = createLocalJWKSet(options.jwks)
     } else if (options.jwksUrl !== undefined) {
@@ -152,6 +161,8 @@ export class Authenticator {
         throw new UnauthorizedError("The token has expired", { cause: error }, true)
       throw new UnauthorizedError("Invalid token", { cause: error })
     }
+    if (this.options.isRevoked?.(payload) === true)
+      throw new UnauthorizedError("The session of this token was revoked")
     const roles = new Set<string>([Role.Authenticated])
     const claimed =
       this.options.rolesClaim === undefined ? undefined : readPath(payload, this.options.rolesClaim)

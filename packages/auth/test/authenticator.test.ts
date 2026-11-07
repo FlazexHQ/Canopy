@@ -1,6 +1,7 @@
 import { Role } from "@canopy/policy"
 import { ErrorCode, ForbiddenError, UnauthorizedError } from "@canopy/protocol"
 import {
+  createLocalJWKSet,
   exportJWK,
   generateKeyPair,
   type JSONWebKeySet,
@@ -14,6 +15,7 @@ import {
   credentialsFromHeaders,
   isExpired,
   type JwtAuthOptions,
+  RevocationSet,
 } from "../src/index.ts"
 
 const ISSUER = "https://idp.example.test/"
@@ -161,6 +163,43 @@ describe("Authenticator", () => {
     await expect(
       tolerant.authenticate("", await sign({ sub: "u1" }, { exp: past })),
     ).resolves.toBeDefined()
+  })
+
+  it("verifies with an in process key resolver instead of a JWKS", async () => {
+    const seen: (string | undefined)[] = []
+    const local = createLocalJWKSet(jwks)
+    const auth = new Authenticator({
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      keys: async (header, token) => {
+        seen.push(header.kid)
+        return local(header, token)
+      },
+    })
+    const principal = await auth.authenticate("", await sign({ sub: "u1" }))
+    expect(principal.subject).toBe("u1")
+    expect(seen).toEqual(["k1"])
+    const foreign = await sign({ sub: "u1" }, { key: otherKey })
+    expect(await rejection(auth.authenticate("", foreign))).toBeInstanceOf(UnauthorizedError)
+  })
+
+  it("refuses a verified token whose session is revoked", async () => {
+    const revoked = new RevocationSet()
+    const auth = new Authenticator(options({ isRevoked: (claims) => revoked.has(claims) }))
+    const token = await sign({ sub: "u1", sid: "s1" })
+    await expect(auth.authenticate("", token)).resolves.toMatchObject({ subject: "u1" })
+    const now = new Date()
+    revoked.add({
+      kind: "session",
+      sub: "u1",
+      sid: "s1",
+      at: now,
+      expiresAt: new Date(now.getTime() + 60_000),
+    })
+    const error = await rejection(auth.authenticate("", token))
+    expect(error).toBeInstanceOf(UnauthorizedError)
+    expect((error as UnauthorizedError).code).toBe(ErrorCode.Unauthorized)
+    await expect(auth.authenticate("", await sign({ sub: "u1", sid: "s2" }))).resolves.toBeDefined()
   })
 })
 

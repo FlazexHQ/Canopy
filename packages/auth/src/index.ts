@@ -19,3 +19,18 @@ export {
   type KeyOptions,
   type Principal,
 } from "./authenticator.ts"
+export type {
+  AccessTokenClaims,
+  AuthProvider,
+  AuthSession,
+  AuthUser,
+  CreateUserInput,
+  InviteInput,
+  ListUsersQuery,
+  RequestInfo,
+  Revocation,
+  UpdateUserInput,
+  UserAdmin,
+  UserPage,
+} from "./provider.ts"
+export { RevocationSet } from "./revocations.ts"
