@@ -640,6 +640,8 @@ suite("admin API", () => {
     const ttl = (await meta.collection("request_log").indexes()).find((i) => i.name === "ttl_at")
     expect(ttl?.expireAfterSeconds).toBe(3 * 86_400)
     expect((await owner.call("PATCH", "/settings", { requestLogSampleRate: 1.5 })).status).toBe(422)
+    // Requests of earlier tests may have been sampled at the default rate of 1 %.
+    await meta.collection("request_log").deleteMany({})
 
     const filter = encodeURIComponent(JSON.stringify({ body: "needle_value" }))
     expect(

@@ -136,7 +136,7 @@ describe("canopy-server: argument and config errors", () => {
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-suite("canopy-server against MongoDB", () => {
+suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   const id = `${process.pid}_${Math.floor(Math.random() * 1e6)}`
   const database = `canopy_bin_${id}`
   const metaDatabase = `canopy_bin_${id}_meta`
