@@ -60,6 +60,7 @@ import {
   unknownValue,
 } from "../schema.ts"
 import { type AdminAccounts, type AdminSession, actorOf, csrfHash } from "./accounts.ts"
+import { EMAIL_KINDS, type EmailTemplateStore } from "./email-templates.ts"
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
@@ -96,6 +97,12 @@ export interface AdminApiOptions {
   readonly origins?: readonly string[]
   /** Built in auth, when the config chooses it: serves `/admin/v1/users` and `/admin/v1/auth/keys`. */
   readonly auth?: AdminAuth
+  /** Email templates of built in auth edited in Studio: serves `/admin/v1/auth/templates`. */
+  readonly emailTemplates?: {
+    readonly store: EmailTemplateStore
+    /** The app name built in auth puts in emails, used by previews. */
+    readonly appName: string
+  }
 }
 
 /** What the admin API needs from built in auth. */
@@ -1338,6 +1345,97 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     "auth.keys.revoke",
   )
 
+  // Email templates (built in auth)
+
+  const templatesOf = () => {
+    if (options.emailTemplates === undefined)
+      throw new NotFoundError("Built in auth is not configured")
+    return options.emailTemplates
+  }
+  const templateKind = (context: Context) => {
+    const kind = context.params["kind"] ?? ""
+    const found = EMAIL_KINDS.find((candidate) => candidate === kind)
+    if (found === undefined) throw new NotFoundError(`No email template ${kind}`)
+    return found
+  }
+  const templateBody = object({
+    subject: string({ max: 1000 }),
+    text: string({ max: 100_000 }),
+    html: optional(string({ max: 200_000 })),
+  })
+
+  route("GET", "auth/templates", "settings.read", async () =>
+    json(await templatesOf().store.list()),
+  )
+
+  route("GET", "auth/templates/history", "settings.read", async (context) => {
+    const limit = Number(context.url.searchParams.get("limit") ?? "50") || 50
+    return json({ data: await templatesOf().store.history(Math.min(Math.max(limit, 1), 200)) })
+  })
+
+  route("POST", "auth/templates/:kind/preview", "settings.read", async (context) => {
+    const { store, appName } = templatesOf()
+    const kind = templateKind(context)
+    const body = object({ template: optional(templateBody) }).parse(await context.body())
+    await store.load()
+    return json({ kind, rendered: store.preview(kind, appName, body.template) })
+  })
+
+  route(
+    "PUT",
+    "auth/templates/:kind",
+    "settings.write",
+    async (context) => {
+      const { store } = templatesOf()
+      const kind = templateKind(context)
+      const body = object({
+        subject: string({ max: 1000 }),
+        text: string({ max: 100_000 }),
+        html: optional(string({ max: 200_000 })),
+        expectedVersion: integer({ min: 0 }),
+        comment: optional(string({ max: 2000 })),
+      }).parse(await context.body())
+      const result = await store.save({
+        kind,
+        template: {
+          subject: body.subject,
+          text: body.text,
+          ...(body.html === undefined ? {} : { html: body.html }),
+        },
+        expectedVersion: body.expectedVersion,
+        actor: context.actor,
+        origin: context.origin,
+        ...(body.comment === undefined ? {} : { comment: body.comment }),
+      })
+      return json(result)
+    },
+    "auth.templates.update",
+  )
+
+  route(
+    "DELETE",
+    "auth/templates/:kind",
+    "settings.write",
+    async (context) => {
+      const { store } = templatesOf()
+      const kind = templateKind(context)
+      const expected = Number(context.url.searchParams.get("expectedVersion"))
+      if (!Number.isSafeInteger(expected) || expected < 0)
+        throw new ValidationError("expectedVersion must be a version number")
+      const comment = context.url.searchParams.get("comment") ?? undefined
+      const result = await store.save({
+        kind,
+        template: undefined,
+        expectedVersion: expected,
+        actor: context.actor,
+        origin: context.origin,
+        ...(comment === undefined ? {} : { comment }),
+      })
+      return json(result)
+    },
+    "auth.templates.reset",
+  )
+
   // Realtime
 
   const engineOf = (): Realtime => {
@@ -1707,4 +1805,6 @@ const selfAudited: ReadonlySet<string> = new Set([
   "context.publish",
   "context.rollback",
   "settings.update",
+  "auth.templates.update",
+  "auth.templates.reset",
 ])

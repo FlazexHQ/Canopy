@@ -9,6 +9,7 @@ import {
 } from "@canopy/config"
 import type { Logger } from "@canopy/realtime"
 import type { MongoClient } from "mongodb"
+import type { EmailTemplateStore } from "./admin/email-templates.ts"
 
 /**
  * Built in auth for the config file, with the claims hook typed: it receives the user, the session and
@@ -19,6 +20,9 @@ export function builtin(
 ): BuiltinAuthInput<ClaimsHook> {
   return configBuiltin<ClaimsHook>(options)
 }
+
+/** The app name built in auth writes in emails; the server does not set another one. */
+export const BUILTIN_APP_NAME = "Canopy"
 
 function logTransport(logger: Logger): EmailTransport {
   return {
@@ -41,6 +45,7 @@ export async function startBuiltinAuth(
   auth: ResolvedBuiltinAuth,
   mongo: MongoClient,
   logger: Logger,
+  templates?: EmailTemplateStore,
 ): Promise<BuiltinAuth> {
   const engine = await import("@canopy/auth-builtin")
   const transport = (resolved: ResolvedEmailTransport): EmailTransport => {
@@ -102,7 +107,13 @@ export async function startBuiltinAuth(
     socialProviders: auth.providers,
     oidcProviders: auth.oidc,
     ...(auth.claims === undefined ? {} : { claims: auth.claims as ClaimsHook }),
-    email: { from: auth.email.from, transport: transport(auth.email.transport) },
+    email: {
+      from: auth.email.from,
+      transport: transport(auth.email.transport),
+      ...(templates === undefined
+        ? {}
+        : { templates: templates.mailerTemplates(engine.defaultTemplates) }),
+    },
     trustedProxies: auth.trustedProxies,
     identifierLimit: auth.identifierLimit,
     session: auth.session,

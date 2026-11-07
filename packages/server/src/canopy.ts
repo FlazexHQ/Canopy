@@ -39,12 +39,13 @@ import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
 import { type AdminApi, createAdminApi } from "./admin/api.ts"
+import { EmailTemplateStore } from "./admin/email-templates.ts"
 import { STUDIO_CSP, secure } from "./admin/http.ts"
 import { SecretBox } from "./admin/secrets.ts"
 import { SettingsStore } from "./admin/settings.ts"
 import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
-import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
+import { BUILTIN_APP_NAME, revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
@@ -228,9 +229,13 @@ export async function createCanopy(
       }
     : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
+  const audit = new AuditLog(meta)
+  const emailTemplates =
+    config.auth?.kind === "builtin" ? new EmailTemplateStore({ meta, audit }) : undefined
+  await emailTemplates?.load()
   const builtinAuth =
     config.auth?.kind === "builtin"
-      ? await startBuiltinAuth(config, config.auth, mongo, logger)
+      ? await startBuiltinAuth(config, config.auth, mongo, logger, emailTemplates)
       : undefined
   const auth = builtinAuth?.verification ?? jwtOptions(config)
   const keys = { publishable: config.keys.publishable, secret: config.keys.secret }
@@ -347,7 +352,6 @@ export async function createCanopy(
       )
   })
 
-  const audit = new AuditLog(meta)
   const policyStore = new PolicyStore({
     client: mongo,
     metaDatabase: config.mongodb.metaDatabase,
@@ -393,6 +397,9 @@ export async function createCanopy(
           realtime,
           logger,
           ...(builtinAuth === undefined ? {} : { auth: builtinAuth }),
+          ...(builtinAuth === undefined || emailTemplates === undefined
+            ? {}
+            : { emailTemplates: { store: emailTemplates, appName: BUILTIN_APP_NAME } }),
         })
   if (adminApi !== undefined && options.onSetupToken !== false) {
     const token = await accounts.createSetupToken()
