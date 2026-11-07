@@ -24,6 +24,9 @@
     "typecheck": "tsc -b test",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@canopy/node-http": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",

@@ -8,6 +8,7 @@ import {
   type ResolvedConfig,
   resolveConfig,
 } from "@canopy/config"
+import { toNodeListener as serveOnNode } from "@canopy/node-http"
 import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
 import {
   CloseCode,
@@ -52,7 +53,6 @@ import { ApiKeys } from "./api-keys.ts"
 import { AuditLog } from "./audit.ts"
 import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
-import { nodeBridge } from "./node-bridge.ts"
 import { PolicyStore } from "./policy-store.ts"
 import { RequestLog, surfaceOf } from "./request-log.ts"
 import { ViewTokens } from "./view-tokens.ts"
@@ -516,7 +516,7 @@ export async function createCanopy(
     requestLog,
     lag,
     fetch: adminFetch,
-    node: () => nodeBridge(adminFetch),
+    node: () => serveOnNode(adminFetch),
     async listen() {
       const listen = config.server.adminListen
       if (listen === undefined) return undefined
@@ -524,7 +524,7 @@ export async function createCanopy(
       const separator = listen.lastIndexOf(":")
       const host = separator < 0 ? "127.0.0.1" : listen.slice(0, separator).replace(/^\[|\]$/g, "")
       const port = Number(separator < 0 ? listen : listen.slice(separator + 1))
-      const bridge = nodeBridge(adminFetch)
+      const bridge = serveOnNode(adminFetch)
       const server = createServer((request, response) => {
         logNode(request, response)
         const hostHeader = (request.headers.host ?? "").toLowerCase()
@@ -664,8 +664,8 @@ export async function createCanopy(
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
-      const admin = nodeBridge(adminFetch)
-      const authListener = nodeBridge(authFetch)
+      const admin = serveOnNode(adminFetch)
+      const authListener = serveOnNode(authFetch)
       return (request, response) => {
         logNode(request, response)
         const path = new URL(request.url ?? "/", "http://localhost").pathname

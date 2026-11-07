@@ -232,6 +232,15 @@
         "vitest": "catalog:",
       },
     },
+    "packages/node-http": {
+      "name": "@canopy/node-http",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/policy": {
       "name": "@canopy/policy",
       "version": "0.0.0",
@@ -303,6 +312,7 @@
         "@canopy/auth": "workspace:*",
         "@canopy/config": "workspace:*",
         "@canopy/matcher": "workspace:*",
+        "@canopy/node-http": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/query": "workspace:*",
@@ -329,6 +339,7 @@
       "dependencies": {
         "@canopy/auth": "workspace:*",
         "@canopy/matcher": "workspace:*",
+        "@canopy/node-http": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/query": "workspace:*",
@@ -373,6 +384,7 @@
         "@canopy/auth": "workspace:*",
         "@canopy/auth-builtin": "workspace:*",
         "@canopy/config": "workspace:*",
+        "@canopy/node-http": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/realtime": "workspace:*",
@@ -393,6 +405,9 @@
     "packages/studio": {
       "name": "@canopy/studio",
       "version": "0.0.0",
+      "dependencies": {
+        "@canopy/node-http": "workspace:*",
+      },
       "devDependencies": {
         "@types/node": "catalog:",
         "typescript": "catalog:",
@@ -572,6 +587,8 @@
     "@canopy/example-todo-react": ["@canopy/example-todo-react@workspace:examples/todo-react"],
 
     "@canopy/matcher": ["@canopy/matcher@workspace:packages/matcher"],
+
+    "@canopy/node-http": ["@canopy/node-http@workspace:packages/node-http"],
 
     "@canopy/policy": ["@canopy/policy@workspace:packages/policy"],
 

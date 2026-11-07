@@ -8,6 +8,7 @@
   },
   "include": ["src"],
   "references": [
+    { "path": "../node-http" },
     { "path": "../protocol" },
     { "path": "../matcher" },
     { "path": "../query" },
