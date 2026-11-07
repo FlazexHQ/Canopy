@@ -40,7 +40,7 @@ const contexts = context({
   },
 })
 
-type Row = { _id: string; [key: string]: unknown }
+type Doc = { _id: string; [key: string]: unknown }
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -89,11 +89,11 @@ suite("context lookups in the REST API", () => {
     resolver.invalidateAll()
     await db.collection("members").deleteMany({})
     await db.collection("tasks").deleteMany({})
-    await db.collection<Row>("tasks").insertMany([
+    await db.collection<Doc>("tasks").insertMany([
       { _id: "t1", projectId: "p1", title: "one" },
       { _id: "t2", projectId: "p2", title: "two" },
     ])
-    await db.collection<Row>("members").insertOne({ _id: "m1", userId: "alice", projectId: "p1" })
+    await db.collection<Doc>("members").insertOne({ _id: "m1", userId: "alice", projectId: "p1" })
   })
 
   const handler = (contextResolver: ContextResolver): RestHandler =>
@@ -124,7 +124,7 @@ suite("context lookups in the REST API", () => {
 
   const ids = async (response: Response): Promise<string[]> => {
     expect(response.status).toBe(200)
-    const body = (await response.json()) as { data: Row[] }
+    const body = (await response.json()) as { data: Doc[] }
     return body.data.map((row) => row._id).sort()
   }
 
@@ -162,8 +162,8 @@ suite("context lookups in the REST API", () => {
     expect(await code(moved)).toBe(ErrorCode.PolicyViolation)
     const inserted = await call("/tasks", { method: "POST", body: { _id: "t3", projectId: "p2" } })
     expect(inserted.status).toBe(403)
-    expect(await db.collection<Row>("tasks").countDocuments({ _id: "t3" })).toBe(0)
-    expect((await db.collection<Row>("tasks").findOne({ _id: "t1" }))?.["projectId"]).toBe("p1")
+    expect(await db.collection<Doc>("tasks").countDocuments({ _id: "t3" })).toBe(0)
+    expect((await db.collection<Doc>("tasks").findOne({ _id: "t1" }))?.["projectId"]).toBe("p1")
   })
 
   it("resolves the lookups of every collection in a batch", async () => {
@@ -182,13 +182,13 @@ suite("context lookups in the REST API", () => {
       code: ErrorCode.PolicyViolation,
       details: { index: 1 },
     })
-    expect(await db.collection<Row>("tasks").countDocuments({ _id: { $in: ["t4", "t5"] } })).toBe(0)
+    expect(await db.collection<Doc>("tasks").countDocuments({ _id: { $in: ["t4", "t5"] } })).toBe(0)
   })
 
   it("sees a membership change once the shared resolver is invalidated", async () => {
     expect(await ids(await call("/tasks"))).toEqual(["t1"])
     const member = { _id: "m2", userId: "alice", projectId: "p2" }
-    await db.collection<Row>("members").insertOne(member)
+    await db.collection<Doc>("members").insertOne(member)
     expect(await ids(await call("/tasks"))).toEqual(["t1"])
     resolver.invalidate({ coll: "members", id: "m2", pre: null, post: member })
     expect(await ids(await call("/tasks"))).toEqual(["t1", "t2"])
@@ -199,7 +199,7 @@ suite("context lookups in the REST API", () => {
     const via = handler(failing)
     expect(await ids(await call("/tasks", { via }))).toEqual([])
     expect((await call("/tasks/t1", { via, method: "DELETE" })).status).toBe(404)
-    expect(await db.collection<Row>("tasks").countDocuments({ _id: "t1" })).toBe(1)
+    expect(await db.collection<Doc>("tasks").countDocuments({ _id: "t1" })).toBe(1)
     failing.close()
   })
 })

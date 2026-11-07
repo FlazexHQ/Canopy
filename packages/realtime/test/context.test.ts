@@ -35,7 +35,7 @@ const contexts = context({
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-interface Row extends Document {
+interface Doc extends Document {
   _id: string
 }
 
@@ -45,8 +45,8 @@ suite("context lookups in realtime", () => {
   let keys: Keys
   let engine: Running
   const clients: TestClient[] = []
-  const members = (): Collection<Row> => engine.db.collection<Row>("members")
-  const rows = (): Collection<Row> => engine.db.collection<Row>("tasks")
+  const members = (): Collection<Doc> => engine.db.collection<Doc>("members")
+  const documents = (): Collection<Doc> => engine.db.collection<Doc>("tasks")
 
   const connect = async (sub: string): Promise<TestClient> => {
     const client = await TestClient.connect(engine.url, await token(keys, { sub }))
@@ -71,8 +71,8 @@ suite("context lookups in realtime", () => {
 
   beforeEach(async () => {
     await members().deleteMany({})
-    await rows().deleteMany({})
-    await rows().insertMany([
+    await documents().deleteMany({})
+    await documents().insertMany([
       { _id: "t1", projectId: "p1" },
       { _id: "t2", projectId: "p1" },
       { _id: "t3", projectId: "p2" },
@@ -153,7 +153,7 @@ suite("context lookups in realtime", () => {
     const before = alice.messages.length
     const rebinds = engine.realtime.metrics.rebinds.get({ reason: "ctx" })
     await members().insertOne({ _id: "m2", userId: "bob", projectId: "p2" })
-    await rows().insertOne({ _id: "t5", projectId: "p1" })
+    await documents().insertOne({ _id: "t5", projectId: "p1" })
     await alice.until(() => ids(alice, "s").includes("t5"))
     expect(alice.messages.slice(before).map((m) => m.t)).toEqual(["added"])
     expect(engine.realtime.metrics.rebinds.get({ reason: "ctx" })).toBe(rebinds)
@@ -183,7 +183,7 @@ suite("context lookups in realtime", () => {
     await alice.subscribe("s", "tasks")
     await Promise.all([
       members().insertOne({ _id: "m2", userId: "alice", projectId: "p2" }),
-      rows().updateOne({ _id: "t1" }, { $set: { title: "edited" } }),
+      documents().updateOne({ _id: "t1" }, { $set: { title: "edited" } }),
     ])
     await alice.until(
       () =>

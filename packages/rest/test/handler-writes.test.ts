@@ -46,7 +46,7 @@ const strict = collection("strict", {
   policies: [allow.read("authenticated"), allow.insert("authenticated")],
 })
 
-type Row = { _id: string | BSON.ObjectId; [key: string]: unknown }
+type Doc = { _id: string | BSON.ObjectId; [key: string]: unknown }
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -127,8 +127,8 @@ suite("REST write endpoints against MongoDB", () => {
   const json = async (response: Response): Promise<Record<string, unknown>> =>
     (await response.json()) as Record<string, unknown>
 
-  const rows = (name: string): Promise<Row[]> =>
-    db.collection<Row>(name).find({}).sort({ _id: 1 }).toArray()
+  const documents = (name: string): Promise<Doc[]> =>
+    db.collection<Doc>(name).find({}).sort({ _id: 1 }).toArray()
 
   const problem = async (response: Response, status: number, code: string) => {
     expect(response.status).toBe(status)
@@ -139,7 +139,7 @@ suite("REST write endpoints against MongoDB", () => {
   }
 
   const seedTodos = async (): Promise<void> => {
-    await db.collection<Row>("todos").insertMany([
+    await db.collection<Doc>("todos").insertMany([
       { _id: "a1", ownerId: "alice", title: "one", done: false, count: 1, internalNotes: "x" },
       { _id: "a2", ownerId: "alice", title: "two", done: false, count: 2 },
       { _id: "a3", ownerId: "alice", title: "three", done: true, count: 3 },
@@ -152,7 +152,7 @@ suite("REST write endpoints against MongoDB", () => {
       const response = await call("/todos", { body: { title: "Ship", ownerId: "alice" } })
       expect(response.status).toBe(201)
       const body = await json(response)
-      const stored = await rows("todos")
+      const stored = await documents("todos")
       expect(stored).toHaveLength(1)
       const id = String(stored[0]?._id)
       expect(body).toMatchObject({
@@ -209,7 +209,7 @@ suite("REST write endpoints against MongoDB", () => {
         403,
         ErrorCode.PolicyViolation,
       )
-      expect(await rows("todos")).toEqual([])
+      expect(await documents("todos")).toEqual([])
     })
 
     it("maps validator failures to 422 and unique index violations to 409", async () => {
@@ -237,7 +237,7 @@ suite("REST write endpoints against MongoDB", () => {
       expect(second.status).toBe(201)
       const replayed = await json(second)
       expect(replayed).toMatchObject({ data: first["data"], replayed: true })
-      expect(await rows("todos")).toHaveLength(1)
+      expect(await documents("todos")).toHaveLength(1)
       await problem(
         await call("/todos", { as: "bob", body: { ...body, ownerId: "bob" }, headers }),
         409,
@@ -289,14 +289,14 @@ suite("REST write endpoints against MongoDB", () => {
     })
 
     it("applies a merge patch as $set and $unset", async () => {
-      await db.collection<Row>("todos").updateOne({ _id: "a2" }, { $set: { meta: { a: 1, b: 2 } } })
+      await db.collection<Doc>("todos").updateOne({ _id: "a2" }, { $set: { meta: { a: 1, b: 2 } } })
       const response = await call("/todos/a2", {
         method: "PATCH",
         body: { title: "patched", done: null, meta: { b: null, c: 3 } },
         headers: { "content-type": "application/merge-patch+json" },
       })
       expect(response.status).toBe(200)
-      expect(await db.collection<Row>("todos").findOne({ _id: "a2" })).toEqual({
+      expect(await db.collection<Doc>("todos").findOne({ _id: "a2" })).toEqual({
         _id: "a2",
         ownerId: "alice",
         title: "patched",
@@ -330,7 +330,7 @@ suite("REST write endpoints against MongoDB", () => {
           })
         ).status,
       ).toBe(200)
-      expect((await db.collection<Row>("todos").findOne({ _id: "b1" }))?.["done"]).toBe(false)
+      expect((await db.collection<Doc>("todos").findOne({ _id: "b1" }))?.["done"]).toBe(false)
     })
 
     it("rejects updates that move a document out of the check", async () => {
@@ -339,11 +339,11 @@ suite("REST write endpoints against MongoDB", () => {
         403,
         ErrorCode.PolicyViolation,
       )
-      expect((await db.collection<Row>("todos").findOne({ _id: "a1" }))?.["ownerId"]).toBe("alice")
+      expect((await db.collection<Doc>("todos").findOne({ _id: "a1" }))?.["ownerId"]).toBe("alice")
     })
 
     it("replaces and upserts whole documents", async () => {
-      await db.collection<Row>("notes").insertOne({ _id: "n1", ownerId: "alice", text: "a" })
+      await db.collection<Doc>("notes").insertOne({ _id: "n1", ownerId: "alice", text: "a" })
       const replaced = await call("/notes/n1", {
         method: "PUT",
         body: { ownerId: "alice", text: "b" },
@@ -360,7 +360,7 @@ suite("REST write endpoints against MongoDB", () => {
         body: { ownerId: "alice" },
       })
       expect(upserted.status).toBe(201)
-      expect(await rows("notes")).toEqual([
+      expect(await documents("notes")).toEqual([
         { _id: "n1", ownerId: "alice", text: "b" },
         { _id: "n2", ownerId: "alice" },
       ])
@@ -388,7 +388,7 @@ suite("REST write endpoints against MongoDB", () => {
       })
       await problem(await call("/todos/a1", { method: "DELETE" }), 404, ErrorCode.NotFound)
       await problem(await call("/todos/b1", { method: "DELETE" }), 404, ErrorCode.NotFound)
-      expect((await rows("todos")).map((row) => row._id)).toEqual(["a2", "a3", "b1"])
+      expect((await documents("todos")).map((row) => row._id)).toEqual(["a2", "a3", "b1"])
     })
   })
 
@@ -414,7 +414,7 @@ suite("REST write endpoints against MongoDB", () => {
         400,
         ErrorCode.InvalidQuery,
       )
-      expect(await rows("todos")).toHaveLength(4)
+      expect(await documents("todos")).toHaveLength(4)
     })
 
     it("updates and deletes only the visible matches", async () => {
@@ -424,19 +424,19 @@ suite("REST write endpoints against MongoDB", () => {
         headers: { prefer: "bulk=true" },
       })
       expect(await json(updated)).toMatchObject({ data: { matched: 2, modified: 2 } })
-      expect((await db.collection<Row>("todos").findOne({ _id: "b1" }))?.["done"]).toBe(false)
+      expect((await db.collection<Doc>("todos").findOne({ _id: "b1" }))?.["done"]).toBe(false)
       const filter = encodeURIComponent(JSON.stringify({ count: { $gte: 2 } }))
       const deleted = await call(`/todos?filter=${filter}`, {
         method: "DELETE",
         headers: { prefer: "bulk=true" },
       })
       expect(await json(deleted)).toMatchObject({ data: { deleted: 2 } })
-      expect((await rows("todos")).map((row) => row._id)).toEqual(["a1", "b1"])
+      expect((await documents("todos")).map((row) => row._id)).toEqual(["a1", "b1"])
     })
 
     it("refuses bulk writes above maxBulk", async () => {
       await db
-        .collection<Row>("todos")
+        .collection<Doc>("todos")
         .insertMany([5, 6, 7, 8].map((n) => ({ _id: `x${n}`, ownerId: "alice", done: false })))
       await problem(
         await call("/todos?done=eq.false", {
@@ -446,7 +446,7 @@ suite("REST write endpoints against MongoDB", () => {
         400,
         ErrorCode.BulkLimit,
       )
-      expect(await rows("todos")).toHaveLength(8)
+      expect(await documents("todos")).toHaveLength(8)
     })
   })
 
@@ -475,8 +475,8 @@ suite("REST write endpoints against MongoDB", () => {
         replayed: false,
       })
       expect(response.headers.get("x-canopy-ct")).toBe(body["ct"])
-      expect((await rows("todos")).map((row) => row._id)).toEqual(["a1", "a3", "b1"])
-      expect(await rows("notes")).toHaveLength(1)
+      expect((await documents("todos")).map((row) => row._id)).toEqual(["a1", "a3", "b1"])
+      expect(await documents("notes")).toHaveLength(1)
     })
 
     it("aborts every operation when one fails and reports its index", async () => {
@@ -492,8 +492,8 @@ suite("REST write endpoints against MongoDB", () => {
       const body = await problem(response, 403, ErrorCode.PolicyViolation)
       expect(body).toMatchObject({ details: { index: 1 } })
       expect(body["detail"]).toMatch(/^Operation 1: /)
-      expect(await rows("notes")).toEqual([])
-      expect((await db.collection<Row>("todos").findOne({ _id: "a1" }))?.["ownerId"]).toBe("alice")
+      expect(await documents("notes")).toEqual([])
+      expect((await db.collection<Doc>("todos").findOne({ _id: "a1" }))?.["ownerId"]).toBe("alice")
     })
 
     it("lets later operations see earlier ones and checks each against DLS", async () => {
@@ -507,13 +507,13 @@ suite("REST write endpoints against MongoDB", () => {
         },
       })
       expect(ok.status).toBe(200)
-      expect(await rows("notes")).toEqual([{ _id: "n1", ownerId: "alice", v: 2 }])
+      expect(await documents("notes")).toEqual([{ _id: "n1", ownerId: "alice", v: 2 }])
       const blocked = await call("/_batch", {
         body: { atomic: true, ops: [{ op: "delete", c: "todos", id: "b1" }] },
       })
       expect(blocked.status).toBe(200)
       expect((await json(blocked))["data"]).toEqual([{ data: null, matched: 0 }])
-      expect(await rows("todos")).toHaveLength(4)
+      expect(await documents("todos")).toHaveLength(4)
     })
 
     it("replays an atomic batch with the same Idempotency-Key", async () => {
@@ -527,7 +527,7 @@ suite("REST write endpoints against MongoDB", () => {
       expect((await json(await call("/_batch", init)))["replayed"]).toBe(false)
       const again = await json(await call("/_batch", init))
       expect(again).toMatchObject({ replayed: true, data: [{ matched: 1 }] })
-      expect((await db.collection<Row>("todos").findOne({ _id: "a1" }))?.["count"]).toBe(2)
+      expect((await db.collection<Doc>("todos").findOne({ _id: "a1" }))?.["count"]).toBe(2)
     })
 
     it("runs a non atomic batch operation by operation", async () => {
@@ -545,7 +545,7 @@ suite("REST write endpoints against MongoDB", () => {
       expect(data[0]).toMatchObject({ status: 200, data: { _id: "n1" }, replayed: false })
       expect(data[1]).toMatchObject({ status: 403, error: { code: ErrorCode.PolicyViolation } })
       expect(data[2]).toMatchObject({ status: 400, error: { code: ErrorCode.InvalidQuery } })
-      expect(await rows("notes")).toEqual([{ _id: "n1", ownerId: "alice" }])
+      expect(await documents("notes")).toEqual([{ _id: "n1", ownerId: "alice" }])
       const replay = await json(
         await call("/_batch", {
           body: {
@@ -608,7 +608,7 @@ suite("REST write endpoints against MongoDB", () => {
         400,
         ErrorCode.InvalidQuery,
       )
-      expect(await rows("notes")).toEqual([])
+      expect(await documents("notes")).toEqual([])
     })
   })
 

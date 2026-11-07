@@ -3,7 +3,7 @@ import type { ObjectId } from "@canopy/client"
 
 export interface Database {
   todos: {
-    Row: {
+    Document: {
       _id: ObjectId
       createdAt: Date
       done: boolean
@@ -24,4 +24,4 @@ export interface Database {
   }
 }
 
-export type Todos = Database["todos"]["Row"]
+export type Todos = Database["todos"]["Document"]

@@ -8,8 +8,8 @@ import {
   type CanopyClient,
   createClient,
   type Document,
+  type DocumentSchema,
   type QueryState,
-  type RowSchema,
 } from "@canopy/client"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
@@ -101,7 +101,7 @@ suite("express-dropin: the helpdesk behind the canopy-realtime sidecar", () => {
 
   const watch = async (user: string): Promise<() => QueryState<Ticket>> => {
     const token = await tokenFor(user)
-    const client = createClient<RowSchema<{ tickets: Ticket }>>({
+    const client = createClient<DocumentSchema<{ tickets: Ticket }>>({
       url: sidecarUrl,
       publishableKey: KEY,
       auth: { getToken: () => token },

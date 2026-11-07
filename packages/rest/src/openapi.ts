@@ -194,13 +194,13 @@ export function buildOpenApi(options: OpenApiOptions): Json {
       ...spec,
       responses: { ...(spec["responses"] as Json), default: PROBLEM_RESPONSE },
     })
-    const row = ref(`${component}.Row`)
+    const document = ref(`${component}.Document`)
     const single = (description: string): Json =>
       json(
         {
           type: "object",
           properties: {
-            data: { anyOf: [row, { type: "null" }] },
+            data: { anyOf: [document, { type: "null" }] },
             ct: CT,
             replayed: { type: "boolean" },
           },
@@ -212,12 +212,14 @@ export function buildOpenApi(options: OpenApiOptions): Json {
     const collectionOps: Json = {}
     const itemOps: Json = {}
     if (grants.has("read")) {
-      schemas[`${component}.Row`] = toJsonSchema(restrictShape(shape, engine.readable(name, ctx)))
+      schemas[`${component}.Document`] = toJsonSchema(
+        restrictShape(shape, engine.readable(name, ctx)),
+      )
       const page = json(
         {
           type: "object",
           properties: {
-            data: { type: "array", items: row },
+            data: { type: "array", items: document },
             page: {
               type: "object",
               properties: {

@@ -34,7 +34,7 @@ const posts = collection("posts", {
 })
 const hidden = collection("hidden", { exposed: false, policies: [allow.read("authenticated")] })
 
-type Row = { _id: string; [key: string]: unknown }
+type Doc = { _id: string; [key: string]: unknown }
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -49,7 +49,7 @@ suite("OpenAPI and schemas against MongoDB", () => {
     client = new MongoClient(MONGODB_URI ?? "")
     await client.connect()
     db = client.db(dbName)
-    await db.collection<Row>("todos").insertMany([
+    await db.collection<Doc>("todos").insertMany([
       { _id: "t1", ownerId: "a", title: "x", done: false, internalNotes: "n" },
       { _id: "t2", ownerId: "a", title: "y", internalNotes: "n" },
     ])
@@ -66,7 +66,7 @@ suite("OpenAPI and schemas against MongoDB", () => {
         },
       },
     })
-    await db.collection<Row>("hidden").insertOne({ _id: "h", secretField: 1 })
+    await db.collection<Doc>("hidden").insertOne({ _id: "h", secretField: 1 })
     const pair = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
     token = await new SignJWT({ sub: "a" })
@@ -138,25 +138,25 @@ suite("OpenAPI and schemas against MongoDB", () => {
     expect(paths(await document("service"))).toContain("/rest/v1/hidden")
   })
 
-  it("leaves unreadable fields out of rows and unwritable fields out of inserts", async () => {
+  it("leaves unreadable fields out of documents and unwritable fields out of inserts", async () => {
     const user = await document("user")
-    const row = schemaOf(user, "todos.Row")
-    expect(Object.keys(row["properties"] as object).sort()).toEqual([
+    const stored = schemaOf(user, "todos.Document")
+    expect(Object.keys(stored["properties"] as object).sort()).toEqual([
       "_id",
       "done",
       "ownerId",
       "title",
     ])
-    expect(row["required"]).toEqual(["_id", "ownerId", "title"])
+    expect(stored["required"]).toEqual(["_id", "ownerId", "title"])
     const insert = schemaOf(user, "todos.Insert")
     expect(Object.keys(insert["properties"] as object).sort()).toEqual(["_id", "ownerId", "title"])
     expect(insert["required"]).toEqual(["ownerId", "title"])
     expect(JSON.stringify(user)).not.toContain("internalNotes")
     const service = await document("service")
-    expect(Object.keys(schemaOf(service, "todos.Row")["properties"] as object)).toContain(
+    expect(Object.keys(schemaOf(service, "todos.Document")["properties"] as object)).toContain(
       "internalNotes",
     )
-    expect(Object.keys(schemaOf(service, "hidden.Row")["properties"] as object)).toContain(
+    expect(Object.keys(schemaOf(service, "hidden.Document")["properties"] as object)).toContain(
       "secretField",
     )
   })
@@ -177,7 +177,7 @@ suite("OpenAPI and schemas against MongoDB", () => {
     expect(posts.source).toBe("validator")
     expect(Object.keys(posts.shape.fields).sort()).toEqual(["createdAt", "published", "title"])
     const anon = await document("anon")
-    expect(schemaOf(anon, "posts.Row")["required"]).toEqual(["published", "title"])
+    expect(schemaOf(anon, "posts.Document")["required"]).toEqual(["published", "title"])
   })
 
   it("infers from the newest documents deterministically and caches with a TTL", async () => {

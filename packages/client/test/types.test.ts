@@ -1,6 +1,7 @@
 import { describe, expectTypeOf, it } from "vitest"
 import type {
   CanopyClient,
+  DocumentSchema,
   Filter,
   Long,
   ObjectId,
@@ -8,12 +9,11 @@ import type {
   PathValue,
   Projected,
   QueryState,
-  RowSchema,
   UntypedSchema,
   UpdateFilter,
 } from "../src/index.ts"
 
-interface TodoRow {
+interface TodoDocument {
   _id: ObjectId
   title: string
   done: boolean
@@ -26,8 +26,8 @@ interface TodoRow {
 
 /** The shape `canopy gen types` writes. */
 interface Database {
-  todos: { Row: TodoRow; Insert: Omit<TodoRow, "_id"> & { _id?: ObjectId } }
-  notes: { Row: { _id: string; body: string }; Insert: { _id: string; body: string } }
+  todos: { Document: TodoDocument; Insert: Omit<TodoDocument, "_id"> & { _id?: ObjectId } }
+  notes: { Document: { _id: string; body: string }; Insert: { _id: string; body: string } }
 }
 
 declare const canopy: CanopyClient<Database>
@@ -73,7 +73,7 @@ function checks(): void {
   void canopy.from("todos").update(id, { $inc: { title: 1 } })
   // @ts-expect-error $push on a non array field
   void canopy.from("todos").update(id, { $push: { title: "x" } })
-  // @ts-expect-error string id where the row has an ObjectId
+  // @ts-expect-error string id where the document has an ObjectId
   void canopy.from("todos").update("abc", { $set: { done: true } })
   // @ts-expect-error unknown field in the where precondition
   void canopy.update("todos", id, { $set: { done: true } }, { where: { dne: false } })
@@ -100,36 +100,36 @@ describe("client types", () => {
     expectTypeOf(checks).toBeFunction()
   })
 
-  it("returns rows of the collection from a query", () => {
+  it("returns documents of the collection from a query", () => {
     const todos = () => canopy.from("todos").getState()
     const notes = () => canopy.live("notes", {}).getState().data
-    expectTypeOf<ReturnType<typeof todos>>().toEqualTypeOf<QueryState<TodoRow>>()
+    expectTypeOf<ReturnType<typeof todos>>().toEqualTypeOf<QueryState<TodoDocument>>()
     expectTypeOf<ReturnType<typeof notes>>().toEqualTypeOf<
       readonly { _id: string; body: string }[]
     >()
   })
 
-  it("narrows the row type by projection", () => {
+  it("narrows the document type by projection", () => {
     const included = () => canopy.from("todos").fields({ title: 1 }).getState().data[0]
     const withoutId = () => canopy.from("todos").fields({ title: 1, _id: 0 }).getState().data[0]
     expectTypeOf<ReturnType<typeof included>>().toEqualTypeOf<
       { _id: ObjectId; title: string } | undefined
     >()
     expectTypeOf<ReturnType<typeof withoutId>>().toEqualTypeOf<{ title: string } | undefined>()
-    type Excluded = Projected<TodoRow, { meta: 0; items: 0; tags: 0; count: 0; createdAt: 0 }>
+    type Excluded = Projected<TodoDocument, { meta: 0; items: 0; tags: 0; count: 0; createdAt: 0 }>
     expectTypeOf<Excluded>().toEqualTypeOf<{ _id: ObjectId; title: string; done: boolean }>()
-    type Nested = Projected<TodoRow, { "meta.owner.name": 1 }>
+    type Nested = Projected<TodoDocument, { "meta.owner.name": 1 }>
     expectTypeOf<Nested["meta"]>().toEqualTypeOf<
       { owner?: { name?: string; age?: number } } | undefined
     >()
   })
 
   it("resolves paths and their values", () => {
-    expectTypeOf<PathValue<TodoRow, "meta.owner.age">>().toEqualTypeOf<number>()
-    expectTypeOf<PathValue<TodoRow, "items.qty">>().toEqualTypeOf<number>()
-    expectTypeOf<PathValue<TodoRow, "items.1.sku">>().toEqualTypeOf<string>()
-    expectTypeOf<"meta.owner.name">().toExtend<Path<TodoRow>>()
-    expectTypeOf<"meta.owner.missing">().not.toExtend<Path<TodoRow>>()
+    expectTypeOf<PathValue<TodoDocument, "meta.owner.age">>().toEqualTypeOf<number>()
+    expectTypeOf<PathValue<TodoDocument, "items.qty">>().toEqualTypeOf<number>()
+    expectTypeOf<PathValue<TodoDocument, "items.1.sku">>().toEqualTypeOf<string>()
+    expectTypeOf<"meta.owner.name">().toExtend<Path<TodoDocument>>()
+    expectTypeOf<"meta.owner.missing">().not.toExtend<Path<TodoDocument>>()
   })
 
   it("leaves untyped documents open", () => {
@@ -140,7 +140,7 @@ describe("client types", () => {
   })
 
   it("makes _id optional on inserts of hand written row schemas", () => {
-    type Notes = RowSchema<{ notes: { _id: string; body: string } }>
+    type Notes = DocumentSchema<{ notes: { _id: string; body: string } }>
     expectTypeOf<{ body: string }>().toExtend<Notes["notes"]["Insert"]>()
     expectTypeOf<{ _id: number; body: string }>().not.toExtend<Notes["notes"]["Insert"]>()
   })

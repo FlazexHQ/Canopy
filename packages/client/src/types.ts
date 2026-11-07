@@ -10,9 +10,9 @@ import type {
   Timestamp,
 } from "@canopy/protocol"
 
-/** The types of one collection: a stored document (`Row`) and what an insert accepts (`Insert`). */
+/** The types of one collection: a stored document (`Document`) and what an insert accepts (`Insert`). */
 export interface CollectionTypes {
-  readonly Row: object
+  readonly Document: object
   readonly Insert: object
 }
 
@@ -23,26 +23,34 @@ export interface CollectionTypes {
 export type Schema<DB> = { readonly [K in keyof DB]: CollectionTypes }
 
 /** The schema of an untyped client: any collection, any document. */
-export type UntypedSchema = Record<string, { readonly Row: Document; readonly Insert: Document }>
+export type UntypedSchema = Record<
+  string,
+  { readonly Document: Document; readonly Insert: Document }
+>
 
-/** A row type with `_id` optional, since inserts may leave it to the client. */
+/** A document type with `_id` optional, since inserts may leave it to the client. */
 export type WithOptionalId<R> = R extends { readonly _id: infer I }
   ? { [K in keyof R as K extends "_id" ? never : K]: R[K] } & { readonly _id?: I }
   : R
 
 /**
- * Builds a schema from hand written row types: `createClient<RowSchema<{ todos: Todo }>>(...)`. Inserts
- * take the row with `_id` optional.
+ * Builds a schema from hand written document types: `createClient<DocumentSchema<{ todos: Todo }>>(...)`. Inserts
+ * take the document with `_id` optional.
  */
-export type RowSchema<Rows> = {
-  readonly [K in keyof Rows]: { readonly Row: Rows[K]; readonly Insert: WithOptionalId<Rows[K]> }
+export type DocumentSchema<Documents> = {
+  readonly [K in keyof Documents]: {
+    readonly Document: Documents[K]
+    readonly Insert: WithOptionalId<Documents[K]>
+  }
 }
 
 /** The collection names of a schema (`string` for an untyped client). */
 export type CollectionName<DB> = keyof DB & string
 
 /** The stored document type of a collection. */
-export type RowOf<DB, C extends keyof DB> = DB[C] extends { readonly Row: infer R extends object }
+export type DocumentOf<DB, C extends keyof DB> = DB[C] extends {
+  readonly Document: infer R extends object
+}
   ? R
   : Document
 
@@ -53,8 +61,8 @@ export type InsertOf<DB, C extends keyof DB> = DB[C] extends {
   ? I
   : Document
 
-/** The `_id` type of a row, or `unknown` when the row does not declare one. */
-export type IdOf<Row> = Row extends { readonly _id: infer I } ? I : unknown
+/** The `_id` type of a document, or `unknown` when the document does not declare one. */
+export type IdOf<Doc> = Doc extends { readonly _id: infer I } ? I : unknown
 
 /** Values that are matched as a whole rather than traversed by dotted paths. */
 export type Leaf =
@@ -228,7 +236,7 @@ type Flagged<F, Flag> = { [K in keyof F & string]: F[K] extends Flag ? K : never
 type Prettify<T> = { [K in keyof T]: T[K] } & {}
 
 /**
- * The row type a projection returns. An inclusion keeps the named fields and `_id` (unless `_id: 0`); a
+ * The document type a projection returns. An inclusion keeps the named fields and `_id` (unless `_id: 0`); a
  * field included only through dotted paths is partial. An exclusion drops the named top level fields, and
  * fields excluded only through dotted paths become partial.
  */

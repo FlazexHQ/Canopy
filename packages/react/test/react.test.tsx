@@ -1,4 +1,4 @@
-import { CanopyClient, type RowSchema, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
 import { memoryPersister } from "@canopy/client/persist"
 import { act, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
@@ -48,7 +48,7 @@ interface Todo extends Record<string, unknown> {
 
 const counter = { renders: 0 }
 
-function List({ db }: { readonly db: ReactDb<RowSchema<{ todos: Todo }>> }): ReactNode {
+function List({ db }: { readonly db: ReactDb<DocumentSchema<{ todos: Todo }>> }): ReactNode {
   counter.renders += 1
   const { data, status } = db.todos.useQuery({ done: false }, { sort: { title: 1 } })
   const connection = useCanopyStatus()
@@ -103,7 +103,7 @@ describe("@canopy/react", () => {
       publishableKey: "pk",
       WebSocket: FakeSocket,
     })
-    const db = createReactDb<RowSchema<{ todos: Todo }>>(client)
+    const db = createReactDb<DocumentSchema<{ todos: Todo }>>(client)
     const container = document.createElement("div")
     document.body.append(container)
     containers.push(container)
@@ -188,7 +188,7 @@ describe("@canopy/react", () => {
       publishableKey: "pk",
       WebSocket: FakeSocket,
     })
-    const db = createReactDb<RowSchema<{ todos: Todo }>>(client)
+    const db = createReactDb<DocumentSchema<{ todos: Todo }>>(client)
     const live = client.live("todos", {})
     const states: number[] = []
     const stop = live.subscribe((state) => states.push(state.data.length))

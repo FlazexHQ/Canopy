@@ -25,12 +25,12 @@ import {
 import { type CachedDocument, type Layer, LOADING_STATE, type QueryState, Store } from "./store.ts"
 import type {
   CollectionName,
+  DocumentOf,
   Filter,
   IdOf,
   InsertOf,
   Projected,
   Projection,
-  RowOf,
   Schema,
   Sort,
   UntypedSchema,
@@ -183,13 +183,13 @@ export interface MutationHandle extends Promise<MutationResult> {
 }
 
 /** Options of single document writes. */
-export interface WriteOptions<Row = Document> {
+export interface WriteOptions<Doc = Document> {
   /** A compare and set precondition: the write is rolled back with `ConflictError` when it fails. */
-  readonly where?: Filter<Row>
+  readonly where?: Filter<Doc>
 }
 
 /** Options of `replace`. */
-export interface ReplaceOptions<Row = Document> extends WriteOptions<Row> {
+export interface ReplaceOptions<Doc = Document> extends WriteOptions<Doc> {
   /** Inserts the document when no visible document has the `_id`. */
   readonly upsert?: boolean
 }
@@ -205,10 +205,10 @@ interface PendingMutation {
 }
 
 /** A live query description. */
-export interface LiveQueryOptions<Row = Document> {
-  readonly sort?: Sort<Row>
+export interface LiveQueryOptions<Doc = Document> {
+  readonly sort?: Sort<Doc>
   readonly limit?: number
-  readonly fields?: Projection<Row>
+  readonly fields?: Projection<Doc>
 }
 
 function asDocument(value: object): Document {
@@ -492,9 +492,9 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   /** Updates one document with update operators. */
   update<C extends CollectionName<DB>>(
     collection: C,
-    id: IdOf<RowOf<DB, C>>,
-    changes: UpdateFilter<RowOf<DB, C>>,
-    options: WriteOptions<RowOf<DB, C>> = {},
+    id: IdOf<DocumentOf<DB, C>>,
+    changes: UpdateFilter<DocumentOf<DB, C>>,
+    options: WriteOptions<DocumentOf<DB, C>> = {},
   ): MutationHandle {
     const update = asDocument(changes)
     return this.mutate(
@@ -509,9 +509,9 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   /** Replaces one document. With `upsert`, a missing document is inserted. */
   replace<C extends CollectionName<DB>>(
     collection: C,
-    id: IdOf<RowOf<DB, C>>,
+    id: IdOf<DocumentOf<DB, C>>,
     replacement: InsertOf<DB, C>,
-    options: ReplaceOptions<RowOf<DB, C>> = {},
+    options: ReplaceOptions<DocumentOf<DB, C>> = {},
   ): MutationHandle {
     const doc = asDocument(replacement)
     return this.mutate(
@@ -531,8 +531,8 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   /** Deletes one document. */
   delete<C extends CollectionName<DB>>(
     collection: C,
-    id: IdOf<RowOf<DB, C>>,
-    options: WriteOptions<RowOf<DB, C>> = {},
+    id: IdOf<DocumentOf<DB, C>>,
+    options: WriteOptions<DocumentOf<DB, C>> = {},
   ): MutationHandle {
     return this.mutate(
       collection,
@@ -546,8 +546,8 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   /** Updates every visible document matching `filter`. The optimistic change covers cached documents. */
   updateMany<C extends CollectionName<DB>>(
     collection: C,
-    where: Filter<RowOf<DB, C>>,
-    changes: UpdateFilter<RowOf<DB, C>>,
+    where: Filter<DocumentOf<DB, C>>,
+    changes: UpdateFilter<DocumentOf<DB, C>>,
   ): MutationHandle {
     const filter = asDocument(where)
     const update = asDocument(changes)
@@ -563,7 +563,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   /** Deletes every visible document matching `filter`. */
   deleteMany<C extends CollectionName<DB>>(
     collection: C,
-    where: Filter<RowOf<DB, C>>,
+    where: Filter<DocumentOf<DB, C>>,
   ): MutationHandle {
     const filter = asDocument(where)
     return this.mutate(
@@ -720,15 +720,17 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 
   /** Starts a query builder for a collection. */
-  from<C extends CollectionName<DB>>(collection: C): QueryBuilder<RowOf<DB, C>, InsertOf<DB, C>> {
+  from<C extends CollectionName<DB>>(
+    collection: C,
+  ): QueryBuilder<DocumentOf<DB, C>, InsertOf<DB, C>> {
     return new QueryBuilder(this as unknown as AnyClient, collection, {}, {})
   }
 
   /** Returns a live query; identical queries share one server subscription. */
-  live<C extends CollectionName<DB>, Out = RowOf<DB, C>>(
+  live<C extends CollectionName<DB>, Out = DocumentOf<DB, C>>(
     collection: C,
-    where: Filter<RowOf<DB, C>>,
-    options: LiveQueryOptions<RowOf<DB, C>> = {},
+    where: Filter<DocumentOf<DB, C>>,
+    options: LiveQueryOptions<DocumentOf<DB, C>> = {},
   ): LiveQuery<Out> {
     const filter = asDocument(where)
     const sort = options.sort as Readonly<Record<string, 1 | -1>> | undefined
@@ -1120,24 +1122,24 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
 type AnyClient = CanopyClient<UntypedSchema>
 
 /**
- * An immutable query builder: `from('todos').find({ done: false }).sort({ at: -1 }).limit(20)`. `Row` is the
+ * An immutable query builder: `from('todos').find({ done: false }).sort({ at: -1 }).limit(20)`. `Document` is the
  * collection's document type, `Insert` what inserts accept, and `Out` the documents the query returns
  * (narrowed by `fields`).
  */
-export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = Row>
+export class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = Doc>
   implements LiveQuery<Out>
 {
   private readonly client: AnyClient
   private readonly collection: string
   private readonly filter: Document
-  private readonly options: LiveQueryOptions<Row>
+  private readonly options: LiveQueryOptions<Doc>
   private cached: LiveQuery<Out> | undefined
 
   constructor(
     client: AnyClient,
     collection: string,
     filter: Document,
-    options: LiveQueryOptions<Row>,
+    options: LiveQueryOptions<Doc>,
   ) {
     this.client = client
     this.collection = collection
@@ -1147,26 +1149,26 @@ export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = 
 
   private with<Next = Out>(
     filter: Document,
-    options: LiveQueryOptions<Row>,
-  ): QueryBuilder<Row, Insert, Next> {
-    return new QueryBuilder<Row, Insert, Next>(this.client, this.collection, filter, options)
+    options: LiveQueryOptions<Doc>,
+  ): QueryBuilder<Doc, Insert, Next> {
+    return new QueryBuilder<Doc, Insert, Next>(this.client, this.collection, filter, options)
   }
 
-  find(filter: Filter<Row>): QueryBuilder<Row, Insert, Out> {
+  find(filter: Filter<Doc>): QueryBuilder<Doc, Insert, Out> {
     return this.with(asDocument(filter), this.options)
   }
 
-  sort(sort: Sort<Row>): QueryBuilder<Row, Insert, Out> {
+  sort(sort: Sort<Doc>): QueryBuilder<Doc, Insert, Out> {
     return this.with(this.filter, { ...this.options, sort })
   }
 
-  limit(limit: number): QueryBuilder<Row, Insert, Out> {
+  limit(limit: number): QueryBuilder<Doc, Insert, Out> {
     return this.with(this.filter, { ...this.options, limit })
   }
 
   /** Narrows the returned fields. The result type follows the projection. */
-  fields<const F extends Projection<Row>>(fields: F): QueryBuilder<Row, Insert, Projected<Row, F>> {
-    return this.with<Projected<Row, F>>(this.filter, { ...this.options, fields })
+  fields<const F extends Projection<Doc>>(fields: F): QueryBuilder<Doc, Insert, Projected<Doc, F>> {
+    return this.with<Projected<Doc, F>>(this.filter, { ...this.options, fields })
   }
 
   /** Inserts a document into this collection. */
@@ -1183,7 +1185,7 @@ export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = 
   }
 
   /** Updates one document of this collection. */
-  update(id: IdOf<Row>, update: UpdateFilter<Row>, options?: WriteOptions<Row>): MutationHandle {
+  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle {
     return this.client.update(
       this.collection,
       id,
@@ -1193,7 +1195,7 @@ export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = 
   }
 
   /** Replaces one document of this collection. */
-  replace(id: IdOf<Row>, doc: Insert, options?: ReplaceOptions<Row>): MutationHandle {
+  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle {
     return this.client.replace(
       this.collection,
       id,
@@ -1203,17 +1205,17 @@ export class QueryBuilder<in out Row = Document, in out Insert = Row, out Out = 
   }
 
   /** Deletes one document of this collection. */
-  delete(id: IdOf<Row>, options?: WriteOptions<Row>): MutationHandle {
+  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle {
     return this.client.delete(this.collection, id, options as WriteOptions | undefined)
   }
 
   /** Updates every visible document of this collection matching `filter`. */
-  updateMany(filter: Filter<Row>, update: UpdateFilter<Row>): MutationHandle {
+  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle {
     return this.client.updateMany(this.collection, asDocument(filter), asDocument(update))
   }
 
   /** Deletes every visible document of this collection matching `filter`. */
-  deleteMany(filter: Filter<Row>): MutationHandle {
+  deleteMany(filter: Filter<Doc>): MutationHandle {
     return this.client.deleteMany(this.collection, asDocument(filter))
   }
 

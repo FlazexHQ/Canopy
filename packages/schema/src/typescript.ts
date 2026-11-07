@@ -95,7 +95,7 @@ function pascalCase(name: string): string | undefined {
 }
 
 /**
- * One `export type Todos = Database["todos"]["Row"]` alias per collection, skipping names that are not
+ * One `export type Todos = Database["todos"]["Document"]` alias per collection, skipping names that are not
  * identifiers and names that two collections (or `Database`) would share.
  */
 function rowAliases(names: readonly string[]): string[] {
@@ -108,15 +108,16 @@ function rowAliases(names: readonly string[]): string[] {
   const lines = [...byAlias]
     .filter(([, owners]) => owners.length === 1)
     .map(
-      ([alias, owners]) => `export type ${alias} = Database[${JSON.stringify(owners[0])}]["Row"]`,
+      ([alias, owners]) =>
+        `export type ${alias} = Database[${JSON.stringify(owners[0])}]["Document"]`,
     )
   return lines.length === 0 ? [] : ["", ...lines]
 }
 
 /**
- * Emits the `Database` interface the SDK is typed with: per collection a `Row` (a stored document) and an
- * `Insert` (the same with `_id` optional), followed by a short row alias per collection
- * (`export type Todos = Database["todos"]["Row"]`). The output depends only on the schemas, so it is stable
+ * Emits the `Database` interface the SDK is typed with: per collection a `Document` (a stored document) and an
+ * `Insert` (the same with `_id` optional), followed by a short type alias per collection
+ * (`export type Todos = Database["todos"]["Document"]`). The output depends only on the schemas, so it is stable
  * to commit and to compare in CI.
  */
 export function generateTypes(
@@ -126,9 +127,9 @@ export function generateTypes(
   const body = [...schemas]
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((schema) => {
-      const row = objectType(schema.shape, "    ", false)
+      const doc = objectType(schema.shape, "    ", false)
       const insert = objectType(schema.shape, "    ", true)
-      return `  ${key(schema.name)}: {\n    Row: ${row}\n    Insert: ${insert}\n  }`
+      return `  ${key(schema.name)}: {\n    Document: ${doc}\n    Insert: ${insert}\n  }`
     })
   const used = IMPORTS.filter((name) => body.some((text) => new RegExp(`\\b${name}\\b`).test(text)))
   const header = [

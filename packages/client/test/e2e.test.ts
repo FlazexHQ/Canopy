@@ -16,7 +16,7 @@ import {
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-interface Row extends Document {
+interface Doc extends Document {
   _id: number
 }
 
@@ -87,8 +87,8 @@ suite("client against the realtime engine", () => {
   })
 
   it("shows live, sorted, DLS filtered results and recovers from a dropped connection", async () => {
-    const rows = mongo.db(dbName).collection<Row>("todos")
-    await rows.insertMany([
+    const documents = mongo.db(dbName).collection<Doc>("todos")
+    await documents.insertMany([
       { _id: 1, ownerId: "alice", rank: 2 },
       { _id: 2, ownerId: "bob", rank: 1 },
       { _id: 3, ownerId: "alice", rank: 1 },
@@ -111,15 +111,15 @@ suite("client against the realtime engine", () => {
     expect(state?.data.map((doc) => doc["_id"])).toEqual([3, 1])
     expect(client.connectionStatus).toBe("live")
 
-    await rows.insertOne({ _id: 4, ownerId: "alice", rank: 0 })
+    await documents.insertOne({ _id: 4, ownerId: "alice", rank: 0 })
     await until(() => state?.data.length === 3)
     expect(state?.data.map((doc) => doc["_id"])).toEqual([4, 3, 1])
 
     sockets.at(-1)?.close(4500, "simulated failure")
     await until(() => client.connectionStatus === "reconnecting")
     expect(state?.status).toBe("stale")
-    await rows.updateOne({ _id: 1 }, { $set: { rank: -1 } })
-    await rows.deleteOne({ _id: 3 })
+    await documents.updateOne({ _id: 1 }, { $set: { rank: -1 } })
+    await documents.deleteOne({ _id: 3 })
     await until(() => client.connectionStatus === "live" && state?.data.length === 2, 15_000)
     expect(state?.data.map((doc) => doc["_id"])).toEqual([1, 4])
     expect(state?.status).toBe("ready")

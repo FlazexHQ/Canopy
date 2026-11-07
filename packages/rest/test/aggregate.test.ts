@@ -26,7 +26,7 @@ const customers = collection("customers", {
 const open = collection("open", { exposed: true, policies: [allow.read("public")] })
 const internal = collection("internal", { exposed: false, policies: [allow.read("authenticated")] })
 
-type Row = { _id: string; [key: string]: unknown }
+type Doc = { _id: string; [key: string]: unknown }
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -44,18 +44,18 @@ suite("REST aggregation against MongoDB", () => {
     client = new MongoClient(MONGODB_URI ?? "")
     await client.connect()
     db = client.db(dbName)
-    await db.collection<Row>("orders").insertMany([
+    await db.collection<Doc>("orders").insertMany([
       { _id: "o1", customerId: "alice", total: 10, card: { number: `${MARK}-card-1` } },
       { _id: "o2", customerId: "alice", total: 20, card: { number: `${MARK}-card-2` } },
       { _id: "o3", customerId: "alice", total: 5, card: { number: `${MARK}-card-3` } },
       { _id: `${MARK}-o4`, customerId: `${MARK}-bob`, total: 99, card: { number: `${MARK}-c4` } },
     ])
-    await db.collection<Row>("customers").insertMany([
+    await db.collection<Doc>("customers").insertMany([
       { _id: "alice", name: "Alice", email: `${MARK}-alice@example.test` },
       { _id: `${MARK}-bob`, name: `${MARK}-Bob`, email: `${MARK}-bob@example.test` },
     ])
-    await db.collection<Row>("open").insertMany([{ _id: "p1" }, { _id: "p2" }, { _id: "p3" }])
-    await db.collection<Row>("internal").insertOne({ _id: `${MARK}-i1` })
+    await db.collection<Doc>("open").insertMany([{ _id: "p1" }, { _id: "p2" }, { _id: "p3" }])
+    await db.collection<Doc>("internal").insertOne({ _id: `${MARK}-i1` })
     const pair = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
     token = await new SignJWT({ sub: "alice" })

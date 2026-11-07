@@ -55,6 +55,11 @@ Fixed decisions (do not change without the user saying so):
   error messages, commit messages or PR text.
   Rephrase with commas, colons, parentheses or separate sentences. Hyphens that are syntax or part of a fixed
   name (CLI flags, package names, existing file names, operators) are not affected.
+- **MongoDB vocabulary, not relational terms:** Canopy is a document database platform. Say documents,
+  collections, fields and databases; never rows, tables, columns or records, in code (type and variable names,
+  generated types, OpenAPI component names), comments, docs, errors or commit messages. For example the
+  generated types use `Database["todos"]["Document"]`, not `Row`. Comparisons with Postgres (such as
+  "RLS style policies") are fine when they name Postgres explicitly.
 - **Tests:** write real tests that can fail. Never tailor a test so it always passes (no asserting on whatever
   the code currently returns, no tautologies, no swallowing errors, no skipping or weakening assertions to get
   green). Derive expected values from the spec or from MongoDB itself, cover edge cases and failure paths, and

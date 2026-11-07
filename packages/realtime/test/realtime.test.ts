@@ -43,7 +43,7 @@ const archive = collection("archive", {
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-interface Row extends Document {
+interface Doc extends Document {
   _id: number
 }
 
@@ -56,7 +56,7 @@ suite("realtime engine against MongoDB", () => {
   let bob: string
   const clients: TestClient[] = []
 
-  const rows = (): Collection<Row> => engine.db.collection<Row>("todos")
+  const documents = (): Collection<Doc> => engine.db.collection<Doc>("todos")
 
   const connect = async (tokenValue?: string): Promise<TestClient> => {
     const client = await TestClient.connect(engine.url, tokenValue)
@@ -86,7 +86,7 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("sends a DLS filtered snapshot, then live changes, without hidden fields", async () => {
-    await rows().insertMany([
+    await documents().insertMany([
       { _id: 1, ownerId: "alice", title: "a1", internalNotes: "secret" },
       { _id: 2, ownerId: "bob", title: "b1" },
       { _id: 3, ownerId: "bob", orgId: "o1", shared: true, title: "shared" },
@@ -106,9 +106,9 @@ suite("realtime engine against MongoDB", () => {
       title: "a1",
     })
 
-    await rows().insertOne({ _id: 5, ownerId: "alice", title: "new", internalNotes: "x" })
+    await documents().insertOne({ _id: 5, ownerId: "alice", title: "new", internalNotes: "x" })
     await client.until(() => client.ids("s1").map(Number).includes(5))
-    await rows().updateOne({ _id: 5 }, { $set: { title: "renamed", internalNotes: "y" } })
+    await documents().updateOne({ _id: 5 }, { $set: { title: "renamed", internalNotes: "y" } })
     await client.until(
       () => client.view("s1").get('todos/{"$numberInt":"5"}')?.["title"] === "renamed",
     )
@@ -116,16 +116,16 @@ suite("realtime engine against MongoDB", () => {
     expect(changed.at(-1)).toMatchObject({ t: "changed", set: { title: "renamed" } })
     expect(JSON.stringify(client.messages)).not.toContain("internalNotes")
 
-    await rows().updateOne({ _id: 5 }, { $set: { hidden: true } })
+    await documents().updateOne({ _id: 5 }, { $set: { hidden: true } })
     await client.until(() => !client.ids("s1").map(Number).includes(5))
-    await rows().deleteOne({ _id: 1 })
+    await documents().deleteOne({ _id: 1 })
     await client.until(() => !client.ids("s1").map(Number).includes(1))
     expect(client.ids("s1").map(Number)).toEqual([3])
   })
 
   it("runs snapshots for filters holding EJSON BSON values such as $oid and $numberLong", async () => {
     const hex = "6728f0c2a1b2c3d4e5f60718"
-    await rows().insertMany([
+    await documents().insertMany([
       { _id: 1, ownerId: "alice", ref: new BSON.ObjectId(hex), n: BSON.Long.fromNumber(5) },
       { _id: 2, ownerId: "alice", ref: new BSON.ObjectId(), n: BSON.Long.fromNumber(5) },
       { _id: 3, ownerId: "alice", ref: new BSON.ObjectId(hex), n: BSON.Long.fromNumber(6) },
@@ -136,20 +136,20 @@ suite("realtime engine against MongoDB", () => {
     })
     expect(client.messages.some((m) => m.t === "nosub")).toBe(false)
     expect(client.ids("s1").map(Number)).toEqual([1])
-    await rows().updateOne({ _id: 3 }, { $set: { n: BSON.Long.fromNumber(5) } })
+    await documents().updateOne({ _id: 3 }, { $set: { n: BSON.Long.fromNumber(5) } })
     await client.until(() => client.ids("s1").map(Number).includes(3))
   })
 
   it("never sends a document to a subscriber the policy does not allow, nor removes one it never had", async () => {
     const client = await connect(bob)
     await client.subscribe("s1", "todos")
-    await rows().insertMany([
+    await documents().insertMany([
       { _id: 10, ownerId: "alice", title: "private" },
       { _id: 11, ownerId: "bob", title: "mine" },
     ])
     await client.until(() => client.ids("s1").map(Number).includes(11))
-    await rows().deleteOne({ _id: 10 })
-    await rows().insertOne({ _id: 12, ownerId: "bob", title: "marker" })
+    await documents().deleteOne({ _id: 10 })
+    await documents().insertOne({ _id: 12, ownerId: "bob", title: "marker" })
     await client.until(() => client.ids("s1").map(Number).includes(12))
     const leaked = client.messages.filter(
       (m) =>
@@ -160,7 +160,7 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("serves the full document to roles whose field rules allow it", async () => {
-    await rows().insertOne({ _id: 20, ownerId: "x", title: "t", internalNotes: "n" })
+    await documents().insertOne({ _id: 20, ownerId: "x", title: "t", internalNotes: "n" })
     const admin = await connect(await token(keys, { sub: "root", roles: ["admin"] }))
     await admin.subscribe("s1", "todos")
     expect([...admin.view("s1").values()]).toEqual([
@@ -169,17 +169,17 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("keeps a sorted, limited window current", async () => {
-    await rows().insertMany(
+    await documents().insertMany(
       [1, 2, 3, 4, 5].map((n) => ({ _id: 100 + n, ownerId: "alice", rank: n })),
     )
     const client = await connect(alice)
     await client.subscribe("w", "todos", { sort: { rank: 1 }, limit: 2 })
     expect(client.ids("w").map(Number).sort()).toEqual([101, 102])
-    await rows().insertOne({ _id: 100, ownerId: "alice", rank: 0 })
+    await documents().insertOne({ _id: 100, ownerId: "alice", rank: 0 })
     await client.until(
       () => canonicalString(client.ids("w").map(Number).sort()) === canonicalString([100, 101]),
     )
-    await rows().deleteMany({ _id: { $in: [100, 101] } })
+    await documents().deleteMany({ _id: { $in: [100, 101] } })
     await client.until(
       () => canonicalString(client.ids("w").map(Number).sort()) === canonicalString([102, 103]),
     )
@@ -189,9 +189,9 @@ suite("realtime engine against MongoDB", () => {
     const client = await connect(alice)
     await client.subscribe("p", "todos", { filter: { title: { $regex: "^(a)\\1" } } })
     expect(client.ready.has("p")).toBe(true)
-    await rows().insertOne({ _id: 30, ownerId: "alice", title: "aab" })
+    await documents().insertOne({ _id: 30, ownerId: "alice", title: "aab" })
     await client.until(() => client.ids("p").map(Number).includes(30))
-    await rows().insertOne({ _id: 31, ownerId: "bob", title: "aac" })
+    await documents().insertOne({ _id: 31, ownerId: "bob", title: "aac" })
     await sleep(600)
     expect(client.ids("p").map(Number)).toEqual([30])
   })
@@ -229,7 +229,7 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("gives anon nothing unless a policy grants it", async () => {
-    await rows().insertOne({ _id: 40, ownerId: "alice" })
+    await documents().insertOne({ _id: 40, ownerId: "alice" })
     const client = await connect()
     await client.subscribe("s", "todos")
     expect(client.ids("s")).toEqual([])
@@ -242,7 +242,7 @@ suite("realtime engine against MongoDB", () => {
     const seq = client.lastSeq
     client.terminate()
     await sleep(100)
-    await rows().insertOne({ _id: 50, ownerId: "alice", title: "while away" })
+    await documents().insertOne({ _id: 50, ownerId: "alice", title: "while away" })
     await sleep(300)
     const again = await connect(alice)
     expect(again.welcome?.resumed).toBe(false)
@@ -266,7 +266,7 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("resyncs subscriptions whose policy changed and keeps the others", async () => {
-    await rows().insertOne({ _id: 60, ownerId: "alice", orgId: "o1", shared: true })
+    await documents().insertOne({ _id: 60, ownerId: "alice", orgId: "o1", shared: true })
     const client = await connect(alice)
     await client.subscribe("s", "todos")
     const stricter = collection("todos", {
@@ -291,7 +291,7 @@ suite("realtime engine against MongoDB", () => {
   })
 
   it("converges to the MongoDB result after random writes (seeded simulation)", async () => {
-    const coll = rows()
+    const coll = documents()
     const users = ["alice", "bob"]
     const tokens = { alice, bob }
     const filters = [{}, { done: true }, { rank: { $gte: 3 } }, { tags: "x" }]
@@ -394,7 +394,7 @@ suite("no schema intrusion", () => {
     const setup = new MongoClient(uri)
     await setup.connect()
     const app = setup.db(dbName)
-    await app.collection<Row>("todos").insertOne({ _id: 1, ownerId: "alice" })
+    await app.collection<Doc>("todos").insertOne({ _id: 1, ownerId: "alice" })
     await app.collection("todos").createIndex({ ownerId: 1 })
     const snapshot = async (): Promise<string> => {
       const collections = (await app.listCollections().toArray()).map((c) => c.name).sort()

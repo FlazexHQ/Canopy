@@ -82,11 +82,11 @@ suite("canopy gen types", () => {
     expect(lines).toEqual([`wrote ${out} (2 collections)`])
     const text = await readFile(out, "utf8")
     expect(text).toContain(`  notes: {
-    Row: {
+    Document: {
       body: string
     }`)
     expect(text).toContain(`  todos: {
-    Row: {
+    Document: {
       _id: ObjectId
       done: boolean
       internalNotes: string

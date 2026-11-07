@@ -3,6 +3,7 @@ import type {
   CollectionName,
   ConnectionStatus,
   Document,
+  DocumentOf,
   Filter,
   IdOf,
   InsertOf,
@@ -11,7 +12,6 @@ import type {
   MutationHandle,
   QueryState,
   ReplaceOptions,
-  RowOf,
   Schema,
   StaleMutation,
   UntypedSchema,
@@ -117,20 +117,20 @@ function stableKey(value: unknown): string {
 }
 
 /** Hooks and optimistic mutations for one collection. */
-export interface CollectionHooks<Row = Document, Insert = Row> {
-  useQuery(filter?: Filter<Row>, options?: LiveQueryOptions<Row>): QueryState<Row>
+export interface CollectionHooks<Doc = Document, Insert = Doc> {
+  useQuery(filter?: Filter<Doc>, options?: LiveQueryOptions<Doc>): QueryState<Doc>
   insert(doc: Insert): MutationHandle
   insertMany(docs: readonly Insert[]): MutationHandle
-  update(id: IdOf<Row>, update: UpdateFilter<Row>, options?: WriteOptions<Row>): MutationHandle
-  replace(id: IdOf<Row>, doc: Insert, options?: ReplaceOptions<Row>): MutationHandle
-  delete(id: IdOf<Row>, options?: WriteOptions<Row>): MutationHandle
-  updateMany(filter: Filter<Row>, update: UpdateFilter<Row>): MutationHandle
-  deleteMany(filter: Filter<Row>): MutationHandle
+  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
+  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle
+  deleteMany(filter: Filter<Doc>): MutationHandle
 }
 
 /** Collection hooks keyed by collection name. */
 export type ReactDb<DB extends Schema<DB>> = {
-  readonly [C in CollectionName<DB>]: CollectionHooks<RowOf<DB, C>, InsertOf<DB, C>>
+  readonly [C in CollectionName<DB>]: CollectionHooks<DocumentOf<DB, C>, InsertOf<DB, C>>
 }
 
 /**
