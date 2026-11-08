@@ -1445,7 +1445,13 @@ export class Realtime {
     return count
   }
 
+  /**
+   * Keeps a session whose socket went away for the resume window. A session that already ended (`bye`, an
+   * engine shutdown) has nothing to resume, and a timer for it would only hold its memory and keep the
+   * process alive until it fires.
+   */
   private scheduleDrop(state: SessionState): void {
+    if (this.closing || !this.sessions.has(state.session.sid)) return
     if (state.dropTimer !== undefined) clearTimeout(state.dropTimer)
     state.dropTimer = setTimeout(
       () => this.destroySession(state),
