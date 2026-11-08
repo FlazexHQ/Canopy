@@ -9,7 +9,8 @@ import { type Caller, ReadPath, WritePath } from "../src/index.ts"
  * Environment: `CANOPY_BENCH_MONGODB_URI` (or `CANOPY_TEST_MONGODB_URI`), `CANOPY_BENCH_TIERS` (comma
  * separated document counts, default `10000,100000,1000000`), `CANOPY_BENCH_SECONDS` (per scenario, default
  * 6), `CANOPY_BENCH_CONCURRENCY` (default 32), `CANOPY_BENCH_INGEST` (documents per ingest run, default
- * 200000, 0 skips it) and `CANOPY_BENCH_OUT` (a file for the JSON results).
+ * 200000, 0 skips it), `CANOPY_BENCH_ONLY` (only scenarios whose name contains it) and `CANOPY_BENCH_OUT`
+ * (a file for the JSON results).
  */
 const URI =
   process.env["CANOPY_BENCH_MONGODB_URI"] ??
@@ -22,6 +23,7 @@ const SECONDS = Number(process.env["CANOPY_BENCH_SECONDS"] ?? "6")
 const CONCURRENCY = Number(process.env["CANOPY_BENCH_CONCURRENCY"] ?? "32")
 const INGEST = Number(process.env["CANOPY_BENCH_INGEST"] ?? "200000")
 const OUT = process.env["CANOPY_BENCH_OUT"]
+const ONLY = process.env["CANOPY_BENCH_ONLY"]
 const OWNERS = 1000
 const TENANTS = 100
 const STATUSES = ["open", "paid", "shipped", "closed"] as const
@@ -275,6 +277,7 @@ async function main(): Promise<void> {
       const stats = await db.command({ collStats: "orders" })
       const scenarios: Record<string, Latency> = {}
       const run = async (name: string, op: (i: number) => Promise<unknown>): Promise<void> => {
+        if (ONLY !== undefined && !name.includes(ONLY)) return
         await closedLoop(1, CONCURRENCY, op)
         const result = await closedLoop(SECONDS, CONCURRENCY, op)
         scenarios[name] = result
