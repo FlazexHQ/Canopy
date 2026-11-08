@@ -93,6 +93,8 @@ export class ObserverRegistry implements MembershipHooks {
   private readonly indexes = new Map<string, CollectionIndex>()
   private readonly conjuncts = new Map<Observer, IndexedConjunct | undefined>()
   private readonly paths = new Map<Observer, Set<string>>()
+  /** The document keys each observer holds, so removing one observer touches only its own entries. */
+  private readonly refs = new Map<Observer, Set<string>>()
 
   private index(coll: string): CollectionIndex {
     let index = this.indexes.get(coll)
@@ -188,10 +190,12 @@ export class ObserverRegistry implements MembershipHooks {
       if (index.byPath.get(field)?.size === 0) index.byPath.delete(field)
     }
     this.paths.delete(observer)
-    for (const [key, set] of index.docRefs) {
-      set.delete(observer)
-      if (set.size === 0) index.docRefs.delete(key)
+    for (const key of this.refs.get(observer) ?? []) {
+      const set = index.docRefs.get(key)
+      set?.delete(observer)
+      if (set?.size === 0) index.docRefs.delete(key)
     }
+    this.refs.delete(observer)
   }
 
   memberAdded(observer: Observer, key: string): void {
@@ -202,6 +206,12 @@ export class ObserverRegistry implements MembershipHooks {
       index.docRefs.set(key, set)
     }
     set.add(observer)
+    let held = this.refs.get(observer)
+    if (held === undefined) {
+      held = new Set()
+      this.refs.set(observer, held)
+    }
+    held.add(key)
   }
 
   memberRemoved(observer: Observer, key: string): void {
@@ -209,6 +219,7 @@ export class ObserverRegistry implements MembershipHooks {
     const set = index.docRefs.get(key)
     set?.delete(observer)
     if (set?.size === 0) index.docRefs.delete(key)
+    this.refs.get(observer)?.delete(key)
   }
 
   /**
