@@ -8,6 +8,7 @@ import {
   compileFilter,
   compileProjection,
   compileSort,
+  compileSortKeys,
   UnsupportedQueryError,
 } from "../src/index.ts"
 
@@ -122,12 +123,21 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
       )
       const compare = compileSort(spec)
       const actual = localOutcome(() => [...docs].sort(compare).map((doc) => Number(doc["_id"])))
+      const keyed = localOutcome(() =>
+        compileSortKeys(spec)
+          .sort([...docs])
+          .map((doc) => Number(doc["_id"])),
+      )
       expect(actual.ok, `sort ${JSON.stringify(spec)} succeeds in both or fails in both`).toBe(
         expected.ok,
       )
-      if (expected.ok && actual.ok) {
+      expect(keyed.ok, `keyed sort ${JSON.stringify(spec)} succeeds in both or fails in both`).toBe(
+        expected.ok,
+      )
+      if (expected.ok && actual.ok && keyed.ok) {
         compared += 1
         expect(actual.value, `sort ${JSON.stringify(spec)}`).toEqual(expected.value)
+        expect(keyed.value, `keyed sort ${JSON.stringify(spec)}`).toEqual(expected.value)
       }
     }
     expect(compared).toBeGreaterThan(0)

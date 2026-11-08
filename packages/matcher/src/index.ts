@@ -36,8 +36,11 @@ export {
 } from "./projection.ts"
 export { compileRegex, isLinearRegex, type LinearRegex, REGEX_LIMITS } from "./regex.ts"
 export {
+  type CompiledSort,
   compileSort,
+  compileSortKeys,
   type DocComparator,
+  type DocSortKey,
   parseSort,
   type SortKey,
   sortKeyOf,

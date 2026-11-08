@@ -214,11 +214,47 @@ export function sortKeyOf(doc: unknown, key: SortKey): unknown {
  * as MongoDB does.
  */
 export function compileSort(spec: unknown): DocComparator {
+  const order = compileSortKeys(spec)
+  return (a, b) => order.compareKeys(order.key(a), order.key(b))
+}
+
+/** The sort key of one document under a compiled sort. Compare keys only with the sort that made them. */
+export type DocSortKey = readonly unknown[]
+
+/**
+ * A sort split into its two steps, so each document's key is computed once instead of at every
+ * comparison: computing a key walks the sorted paths and their arrays, comparing two keys does not.
+ */
+export interface CompiledSort {
+  /** The key of a document. Throws {@link InvalidQueryError} for parallel arrays, as MongoDB does. */
+  key(doc: unknown): DocSortKey
+  /** Orders two keys of this sort. */
+  compareKeys(a: DocSortKey, b: DocSortKey): number
+  /** Sorts documents in place, computing each key once, and returns them. */
+  sort<T>(docs: T[]): T[]
+}
+
+/**
+ * Compiles a sort specification like {@link compileSort}, with the same order and `_id` tie breaker, into
+ * separate key and comparison steps for callers that sort many documents or keep documents ordered.
+ */
+export function compileSortKeys(spec: unknown): CompiledSort {
   const keys = parseSort(spec)
   if (!keys.some((key) => key.path === "_id")) {
     keys.push({ path: "_id", parts: ["_id"], direction: 1 })
   }
-  return (a, b) => compareTuples(bestTuple(a, keys), bestTuple(b, keys), keys)
+  const key = (doc: unknown): DocSortKey => bestTuple(doc, keys)
+  const compareKeys = (a: DocSortKey, b: DocSortKey): number => compareTuples(a, b, keys)
+  return {
+    key,
+    compareKeys,
+    sort<T>(docs: T[]): T[] {
+      const keyed = docs.map((doc) => ({ doc, key: key(doc) }))
+      keyed.sort((a, b) => compareKeys(a.key, b.key))
+      for (const [index, entry] of keyed.entries()) docs[index] = entry.doc
+      return docs
+    },
+  }
 }
 
 /** Returns the sort specification with the `_id` tie breaker appended, for queries sent to MongoDB. */

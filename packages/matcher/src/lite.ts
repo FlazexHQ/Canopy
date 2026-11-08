@@ -17,7 +17,15 @@ export {
 export { UnsupportedQueryError, UpdateError } from "./errors.ts"
 export type { CompiledFilter, DocTest } from "./filter.ts"
 export { type CompiledProjection, compileProjection } from "./projection.ts"
-export { compileSort, type DocComparator, parseSort, type SortKey } from "./sort.ts"
+export {
+  type CompiledSort,
+  compileSort,
+  compileSortKeys,
+  type DocComparator,
+  type DocSortKey,
+  parseSort,
+  type SortKey,
+} from "./sort.ts"
 
 /**
  * Compiles a MongoDB query filter into a document test, like `compileFilter` of `@canopy/matcher`, except
