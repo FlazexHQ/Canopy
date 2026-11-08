@@ -32,7 +32,7 @@ import {
   type QueryLimits,
   validatePath,
 } from "@canopy/query"
-import type { ClientSession, Db, Document, MongoClient } from "mongodb"
+import { type ClientSession, type Db, type Document, type MongoClient, MongoError } from "mongodb"
 import {
   type CursorKey,
   cursorKeys,
@@ -49,6 +49,8 @@ import { validateCollectionName, validateId } from "./validation.ts"
 import type { Caller, ReturnedDocument } from "./write-path.ts"
 
 const MAX_TIME_EXPIRED = 50
+/** How long a collection's estimated size is reused before it is read again. */
+const SIZE_TTL_MS = 60_000
 
 /** Limits on reads. */
 export interface ReadLimits {
@@ -67,12 +69,19 @@ export interface ReadLimits {
   /** Time limit of each read. */
   readonly maxTimeMS: number
   /**
-   * How long a find without a sort may walk documents in `_id` order before it switches to a collection
-   * scan with an in memory sort. Walking `_id` order stops early when many documents match, but reads the
-   * whole collection through the `_id` index when few do, which a collection scan does faster. `0` turns the
-   * switch off. Both attempts together stay within `maxTimeMS`.
+   * How long a find without a sort may at least walk documents in `_id` order before it switches to a
+   * collection scan with an in memory sort. Walking `_id` order stops early when many documents match, but
+   * reads the whole collection through the `_id` index when few do, which a collection scan does faster. On
+   * a large collection the walk may go on as long as `scanMSPerMillion` estimates a scan of the whole
+   * collection to take, up to half of `maxTimeMS`, so such a find costs about twice the faster plan at
+   * most. `0` turns the switch off. Both attempts together stay within `maxTimeMS`.
    */
   readonly unsortedProbeMS: number
+  /**
+   * The estimated time in milliseconds to scan a million documents, which lets an unsorted find walk `_id`
+   * order for longer on a large collection. `0` keeps that walk at `unsortedProbeMS`.
+   */
+  readonly scanMSPerMillion: number
 }
 
 /** Default read limits. */
@@ -85,6 +94,7 @@ export const DEFAULT_READ_LIMITS: ReadLimits = {
   maxPipelineStages: 20,
   maxTimeMS: 5000,
   unsortedProbeMS: 100,
+  scanMSPerMillion: 400,
 }
 
 /** Options for {@link ReadPath}. */
@@ -156,6 +166,7 @@ export class ReadPath {
   private readonly engine: () => PolicyEngine
   private readonly limits: ReadLimits
   private readonly queryLimits: QueryLimits
+  private readonly sizes = new Map<string, { readonly docs: number; readonly at: number }>()
 
   constructor(options: ReadPathOptions) {
     this.client = options.client
@@ -164,6 +175,32 @@ export class ReadPath {
     this.engine = typeof policies === "function" ? policies : () => policies
     this.limits = { ...DEFAULT_READ_LIMITS, ...options.limits }
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
+  }
+
+  /** How long an unsorted find on this collection may walk `_id` order, from its estimated size. */
+  private async probeBudget(collection: string): Promise<number> {
+    const { unsortedProbeMS, scanMSPerMillion, maxTimeMS } = this.limits
+    if (scanMSPerMillion <= 0) return unsortedProbeMS
+    const docs = await this.estimatedDocuments(collection)
+    const estimate = Math.min(maxTimeMS / 2, (docs / 1e6) * scanMSPerMillion)
+    return Math.round(Math.max(unsortedProbeMS, estimate))
+  }
+
+  /**
+   * The collection's estimated document count from its metadata, reused for a minute. When the estimate
+   * cannot be read, the last one (or none) is used, which only shortens the `_id` walk of unsorted finds.
+   */
+  private async estimatedDocuments(collection: string): Promise<number> {
+    const cached = this.sizes.get(collection)
+    if (cached !== undefined && Date.now() - cached.at < SIZE_TTL_MS) return cached.docs
+    let docs = cached?.docs ?? 0
+    try {
+      docs = await this.db.collection(collection).estimatedDocumentCount({ maxTimeMS: 1000 })
+    } catch (error: unknown) {
+      if (!(error instanceof MongoError)) throw error
+    }
+    this.sizes.set(collection, { docs, at: Date.now() })
+    return docs
   }
 
   /** The read limits in force. */
@@ -239,7 +276,10 @@ export class ReadPath {
     )
     const shape = userProjection === undefined ? undefined : compileProjection(userProjection)
     const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
-    const probeMS = parsed.sort === undefined ? this.limits.unsortedProbeMS : 0
+    const probeMS =
+      parsed.sort === undefined && this.limits.unsortedProbeMS > 0
+        ? await this.probeBudget(planned.name)
+        : 0
     return this.inSnapshot(planned.service, async (session) => {
       const read = (maxTimeMS: number, natural: boolean): Promise<Record<string, unknown>[]> =>
         this.db

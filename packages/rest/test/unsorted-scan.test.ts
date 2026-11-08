@@ -56,7 +56,7 @@ suite("finds without a sort on unindexed filters", () => {
   })
 
   it("switches a rare match to a collection scan and still pages in _id order", async () => {
-    const path = reads({ unsortedProbeMS: 1, maxTimeMS: 10_000 })
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
     finds.length = 0
     const first = await path.find(auditor, {
       collection: "items",
@@ -91,14 +91,34 @@ suite("finds without a sort on unindexed filters", () => {
     expect(finds[0]?.["hint"]).toBeUndefined()
   })
 
+  it("walks _id order for as long as a scan of the collection is estimated to take", async () => {
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 1_000_000, maxTimeMS: 10_000 })
+    finds.length = 0
+    const page = await path.find(auditor, { collection: "items", filter: { rare: true }, limit: 4 })
+    expect(ids(page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
+    expect(finds.map((command) => command["hint"])).toEqual([undefined])
+    expect(finds.map((command) => Number(command["maxTimeMS"]))).toEqual([5_000])
+  })
+
+  it("sends the walk's time limit in whole milliseconds, which MongoDB requires", async () => {
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 7777, maxTimeMS: 10_000 })
+    finds.length = 0
+    const page = await path.find(auditor, { collection: "items", filter: { rare: true }, limit: 4 })
+    expect(ids(page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
+    expect(finds.map((command) => Number(command["maxTimeMS"]))).toEqual([778])
+  })
+
   it("never switches a find that has a sort, or when the probe is off", async () => {
     finds.length = 0
-    const sorted = await reads({ unsortedProbeMS: 1, maxTimeMS: 10_000 }).find(auditor, {
-      collection: "items",
-      filter: { rare: true },
-      sort: { amount: 1 },
-      limit: 4,
-    })
+    const sorted = await reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 }).find(
+      auditor,
+      {
+        collection: "items",
+        filter: { rare: true },
+        sort: { amount: 1 },
+        limit: 4,
+      },
+    )
     expect(sorted.docs).toHaveLength(4)
     const off = await reads({ unsortedProbeMS: 0, maxTimeMS: 10_000 }).find(auditor, {
       collection: "items",
