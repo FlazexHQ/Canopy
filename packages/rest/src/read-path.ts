@@ -20,6 +20,7 @@ import {
   ErrorCode,
   InvalidQueryError,
   isDocument,
+  serverErrorCode,
   toCt,
 } from "@canopy/protocol"
 import {
@@ -47,6 +48,8 @@ import type { CountMode } from "./params.ts"
 import { validateCollectionName, validateId } from "./validation.ts"
 import type { Caller, ReturnedDocument } from "./write-path.ts"
 
+const MAX_TIME_EXPIRED = 50
+
 /** Limits on reads. */
 export interface ReadLimits {
   /** Page size when the caller sets none. */
@@ -63,6 +66,13 @@ export interface ReadLimits {
   readonly maxPipelineStages: number
   /** Time limit of each read. */
   readonly maxTimeMS: number
+  /**
+   * How long a find without a sort may walk documents in `_id` order before it switches to a collection
+   * scan with an in memory sort. Walking `_id` order stops early when many documents match, but reads the
+   * whole collection through the `_id` index when few do, which a collection scan does faster. `0` turns the
+   * switch off. Both attempts together stay within `maxTimeMS`.
+   */
+  readonly unsortedProbeMS: number
 }
 
 /** Default read limits. */
@@ -74,6 +84,7 @@ export const DEFAULT_READ_LIMITS: ReadLimits = {
   maxAggregateResults: 1000,
   maxPipelineStages: 20,
   maxTimeMS: 5000,
+  unsortedProbeMS: 100,
 }
 
 /** Options for {@link ReadPath}. */
@@ -228,19 +239,31 @@ export class ReadPath {
     )
     const shape = userProjection === undefined ? undefined : compileProjection(userProjection)
     const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
+    const probeMS = parsed.sort === undefined ? this.limits.unsortedProbeMS : 0
     return this.inSnapshot(planned.service, async (session) => {
-      const raw = (await this.db
-        .collection(planned.name)
-        .find(toDriver(toFilter(ranged)), {
-          session,
-          sort,
-          limit: limit + 1,
-          ...(skip === 0 ? {} : { skip }),
-          ...(pushdown === undefined ? {} : { projection: pushdown }),
-          maxTimeMS: this.limits.maxTimeMS,
-          ...EXACT_BSON,
-        })
-        .toArray()) as Record<string, unknown>[]
+      const read = (maxTimeMS: number, natural: boolean): Promise<Record<string, unknown>[]> =>
+        this.db
+          .collection(planned.name)
+          .find(toDriver(toFilter(ranged)), {
+            session,
+            sort,
+            limit: limit + 1,
+            ...(skip === 0 ? {} : { skip }),
+            ...(pushdown === undefined ? {} : { projection: pushdown }),
+            ...(natural ? { hint: { $natural: 1 } } : {}),
+            maxTimeMS,
+            ...EXACT_BSON,
+          })
+          .toArray() as Promise<Record<string, unknown>[]>
+      let raw: Record<string, unknown>[]
+      if (probeMS > 0 && probeMS < this.limits.maxTimeMS) {
+        try {
+          raw = await read(probeMS, false)
+        } catch (error: unknown) {
+          if (serverErrorCode(error) !== MAX_TIME_EXPIRED) throw error
+          raw = await read(this.limits.maxTimeMS - probeMS, true)
+        }
+      } else raw = await read(this.limits.maxTimeMS, false)
       abortCheck(options.signal, "read")
       const more = raw.length > limit
       const page = more ? raw.slice(0, limit) : raw
