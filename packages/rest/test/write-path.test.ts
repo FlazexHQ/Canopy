@@ -195,6 +195,31 @@ suite("WritePath against MongoDB", () => {
       expect(result.insertedIds[0]).toBeInstanceOf(BSON.ObjectId)
     })
 
+    it("stores _id as the first field and keeps the order of the others", async () => {
+      const result = await run(alice, {
+        op: "insertMany",
+        collection: "todos",
+        docs: [
+          { title: "a", ownerId: "alice", _id: 7 },
+          { done: false, title: "b", ownerId: "alice" },
+        ],
+      })
+      const stored = await coll("todos")
+        .find({}, { sort: { title: 1 } })
+        .toArray()
+      expect(stored.map((doc) => Object.keys(doc))).toEqual([
+        ["_id", "title", "ownerId"],
+        ["_id", "done", "title", "ownerId"],
+      ])
+      expect(result.insertedIds[0]).toBe(7)
+      expect(result.insertedIds[1]).toBeInstanceOf(BSON.ObjectId)
+      expect(stored[1]?.["_id"]).toEqual(result.insertedIds[1])
+      expect(result.documents?.map((doc) => Object.keys(doc ?? {}))).toEqual([
+        ["_id", "title", "ownerId"],
+        ["_id", "done", "title", "ownerId"],
+      ])
+    })
+
     it("rejects a document that fails CHECK(insert) and leaves nothing behind", async () => {
       const error = await failure(
         run(alice, { op: "insert", collection: "todos", doc: { _id: 1, ownerId: "bob" } }),

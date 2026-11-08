@@ -545,10 +545,10 @@ export class WritePath {
     const prepared: Document[] = docs.map((doc) => {
       validateStoredDocument(doc, this.queryLimits)
       const record = doc as Record<string, unknown>
-      if (!scope.service) assertWritable(writable, leafPaths(record), scope.name)
+      if (!scope.service && writable.kind !== "all")
+        assertWritable(writable, leafPaths(record), scope.name)
       validateId(record["_id"])
-      const { _id: given, ...fields } = toDriver(record) as Document
-      return { _id: given ?? new BSON.ObjectId(), ...fields }
+      return idFirst(toDriver(record))
     })
     const check = scope.engine.check(scope.name, "insert", scope.ctx)
     if (check.kind === "deny") throw violation("insert", scope.name)
@@ -985,6 +985,7 @@ class Scope {
     if (!read) return undefined
     const access = this.readable()
     const docs = (out?.["docs"] as Document[] | undefined) ?? []
+    if (docs.length === 0) return ids.map(() => null)
     const byId = new Map(docs.map((doc) => [canonicalString(doc["_id"]), doc]))
     return ids.map((id) => {
       const doc = byId.get(canonicalString(id))
@@ -1041,6 +1042,17 @@ function assertMutable(written: readonly string[], immutable: readonly string[])
   const frozen = immutableViolations(written, immutable)
   if (frozen.length > 0)
     throw new PolicyViolationError(`Immutable fields cannot be changed: ${frozen.join(", ")}`)
+}
+
+/** The document with `_id` as its first field, as MongoDB stores it, and a new ObjectId when it has none. */
+function idFirst(doc: Document): Document {
+  for (const key in doc) {
+    if (key === "_id" && doc["_id"] !== undefined) return doc
+    break
+  }
+  const out: Document = { _id: doc["_id"] ?? new BSON.ObjectId() }
+  for (const key of Object.keys(doc)) if (key !== "_id") out[key] = doc[key]
+  return out
 }
 
 function empty(): Outcome {

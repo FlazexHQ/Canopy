@@ -32,6 +32,13 @@ export interface BsonLibrary {
 export function toBsonLibrary(value: unknown, library: BsonLibrary): unknown {
   if (value === null || typeof value !== "object") return value
   if (Array.isArray(value)) return value.map((item) => toBsonLibrary(item, library))
+  const prototype: unknown = Object.getPrototypeOf(value)
+  if (prototype === Object.prototype || prototype === null) {
+    const record = value as Record<string, unknown>
+    const out: Record<string, unknown> = Object.create(null)
+    for (const key of Object.keys(record)) out[key] = toBsonLibrary(record[key], library)
+    return out
+  }
   if (value instanceof ObjectId) return new library.ObjectId(value.hex)
   if (value instanceof Long) return library.Long.fromBigInt(value.value)
   if (value instanceof Decimal128) return library.Decimal128.fromString(value.value)
@@ -40,9 +47,5 @@ export function toBsonLibrary(value: unknown, library: BsonLibrary): unknown {
   if (value instanceof BSONRegExp) return new library.BSONRegExp(value.pattern, value.options)
   if (value instanceof MinKey) return new library.MinKey()
   if (value instanceof MaxKey) return new library.MaxKey()
-  const prototype: unknown = Object.getPrototypeOf(value)
-  if (prototype !== null && prototype !== Object.prototype) return value
-  const out: Record<string, unknown> = Object.create(null)
-  for (const [key, item] of Object.entries(value)) out[key] = toBsonLibrary(item, library)
-  return out
+  return value
 }

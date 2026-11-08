@@ -54,8 +54,11 @@ export function isWithin(path: string, ancestor: string): boolean {
   return path === ancestor || path.startsWith(`${ancestor}.`)
 }
 
+const INDEX_SEGMENT = /(?:^|\.)(?:0|[1-9]\d*)(?:\.|$)/
+
 /** Removes array index segments, so `items.3.price` and `items.price` refer to the same field rule. */
 export function stripIndexes(path: string): string {
+  if (!INDEX_SEGMENT.test(path)) return path
   return path
     .split(".")
     .filter((segment) => !/^(?:0|[1-9]\d*)$/.test(segment))

@@ -62,11 +62,10 @@ export function fieldAccess(
  * positional segments are ignored. `_id` is always accessible.
  */
 export function canAccess(access: FieldAccess, path: string): boolean {
+  if (access.kind === "all") return true
   const normalized = stripIndexes(path)
   if (normalized === "_id") return true
   switch (access.kind) {
-    case "all":
-      return true
     case "only":
       return access.paths.some((allowed) => isWithin(normalized, allowed))
     case "omit":
