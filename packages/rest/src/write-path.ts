@@ -179,6 +179,11 @@ const MUTATION_ID = /^[A-Za-z0-9_-]{8,128}$/
 const INDEX_OPTIONS_CONFLICT = new Set([85, 86])
 const DUPLICATE_KEY = 11000
 const STORED_DOCUMENTS_MAX = 1
+/**
+ * The largest set of documents checked through `$documents` before an insert. The check sends them once
+ * more, so larger inserts stay inside the 16 MiB command limit by checking after the write instead.
+ */
+const PRECHECK_MAX_BYTES = 8 * 1024 * 1024
 
 interface Outcome {
   readonly matched: number
@@ -498,7 +503,7 @@ export class WritePath {
     const service = ctx.roles.has(Role.Service)
     if (!service && !engine.isExposed(name))
       throw new CanopyError(ErrorCode.NotFound, `Unknown collection '${name}'`)
-    const scope = new Scope(engine, ctx, this.db.collection(name), name, {
+    const scope = new Scope(engine, ctx, this.db, name, {
       maxTimeMS: this.limits.maxTimeMS,
       filterLimits: this.queryLimits,
     })
@@ -540,20 +545,21 @@ export class WritePath {
       const record = doc as Record<string, unknown>
       if (!scope.service) assertWritable(writable, leafPaths(record), scope.name)
       validateId(record["_id"])
-      const out = toDriver(record) as Document
-      if (out["_id"] === undefined) out["_id"] = new BSON.ObjectId()
-      return out
+      const { _id: given, ...fields } = toDriver(record) as Document
+      return { _id: given ?? new BSON.ObjectId(), ...fields }
     })
     const check = scope.engine.check(scope.name, "insert", scope.ctx)
     if (check.kind === "deny") throw violation("insert", scope.name)
+    const precheck = BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
     const run: Run = async (session) => {
+      const checked = precheck ? await scope.precheck(prepared, check) : undefined
       const [first] = prepared
       if (single && first !== undefined)
         await scope.coll.insertOne(first, scope.writeOptions(session))
       else await scope.coll.insertMany(prepared, { ...scope.writeOptions(session), ordered: true })
       const ct = scope.fastTime(session)
       const ids = prepared.map((doc) => doc["_id"])
-      const documents = await scope.verify(session, ids, check, "insert", true)
+      const documents = checked ?? (await scope.verify(session, ids, check, "insert", true))
       return {
         matched: 0,
         modified: 0,
@@ -564,7 +570,7 @@ export class WritePath {
         ...(ct === undefined ? {} : { ct }),
       }
     }
-    return { run, fast: single && check.kind === "all" }
+    return { run, fast: single && (check.kind === "all" || precheck) }
   }
 
   private planUpdate(
@@ -788,6 +794,7 @@ class Scope {
   readonly ctx: RequestContext
   readonly coll: Collection<Document>
   readonly name: string
+  private readonly db: Db
   private readonly maxTimeMS: number
   private readonly filterLimits: QueryLimits
   private readableAccess: FieldAccess | undefined
@@ -795,7 +802,7 @@ class Scope {
   constructor(
     engine: PolicyEngine,
     ctx: RequestContext,
-    coll: Collection<Document>,
+    db: Db,
     name: string,
     limits: { readonly maxTimeMS: number; readonly filterLimits: QueryLimits },
   ) {
@@ -803,7 +810,8 @@ class Scope {
     this.filterLimits = limits.filterLimits
     this.engine = engine
     this.ctx = ctx
-    this.coll = coll
+    this.db = db
+    this.coll = db.collection(name)
     this.name = name
     this.service = ctx.roles.has(Role.Service)
   }
@@ -913,20 +921,7 @@ class Scope {
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
     if (check?.kind === "deny") throw violation(op, this.name)
-    const facet: Document = {}
-    if (check?.kind === "filter" && ids.length > 0)
-      facet["bad"] = [{ $match: { $nor: [toDriver(check.filter)] } }, { $count: "n" }]
-    const access = this.readable()
-    const readFilter = read
-      ? this.engine.effectiveRead(this.name, { _id: { $in: [...ids] } }, this.ctx)
-      : undefined
-    if (readFilter !== undefined && readFilter.kind !== "deny") {
-      const projection = toProjection(access)
-      facet["docs"] = [
-        { $match: this.filter(readFilter) },
-        ...(projection === undefined ? [] : [{ $project: projection }]),
-      ]
-    }
+    const facet = this.facets(ids, check, read)
     if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
     const [out] = await this.coll
       .aggregate([{ $match: { _id: { $in: [...ids] } } }, { $facet: facet }], {
@@ -935,9 +930,58 @@ class Scope {
         ...EXACT_BSON,
       })
       .toArray()
+    return this.outcome(out, ids, op, read)
+  }
+
+  /**
+   * Lets MongoDB evaluate `check(insert)` and the read back on documents before they are inserted, through
+   * `$documents`, so a document that fails the check is refused before anything is written and a single
+   * insert needs no transaction. MongoDB stores an inserted document as sent, `_id` first, so the read back
+   * equals reading it after the write. Throws {@link PolicyViolationError} when a document fails the check.
+   */
+  async precheck(docs: readonly Document[], check: Compiled): Promise<(ReturnedDocument | null)[]> {
+    if (check.kind === "deny") throw violation("insert", this.name)
+    const ids = docs.map((doc) => doc["_id"])
+    const facet = this.facets(ids, check, true)
+    if (Object.keys(facet).length === 0) return ids.map(() => null)
+    const [out] = await this.db
+      .aggregate([{ $documents: [...docs] }, { $facet: facet }], {
+        maxTimeMS: this.maxTimeMS,
+        ...EXACT_BSON,
+      })
+      .toArray()
+    return this.outcome(out, ids, "insert", true) ?? ids.map(() => null)
+  }
+
+  /** The `$facet` of a check and a read back over the documents with these ids. */
+  private facets(ids: readonly unknown[], check: Compiled | undefined, read: boolean): Document {
+    const facet: Document = {}
+    if (check?.kind === "filter" && ids.length > 0)
+      facet["bad"] = [{ $match: { $nor: [toDriver(check.filter)] } }, { $count: "n" }]
+    const readFilter = read
+      ? this.engine.effectiveRead(this.name, { _id: { $in: [...ids] } }, this.ctx)
+      : undefined
+    if (readFilter !== undefined && readFilter.kind !== "deny") {
+      const projection = toProjection(this.readable())
+      facet["docs"] = [
+        { $match: this.filter(readFilter) },
+        ...(projection === undefined ? [] : [{ $project: projection }]),
+      ]
+    }
+    return facet
+  }
+
+  /** Reads the result of {@link facets}: throws on a failed check, returns the readable documents. */
+  private outcome(
+    out: Document | undefined,
+    ids: readonly unknown[],
+    op: "insert" | "update",
+    read: boolean,
+  ): (ReturnedDocument | null)[] | undefined {
     const bad = (out?.["bad"] as Document[] | undefined)?.[0]?.["n"]
     if (bad !== undefined && Number(bad) > 0) throw violation(op, this.name)
     if (!read) return undefined
+    const access = this.readable()
     const docs = (out?.["docs"] as Document[] | undefined) ?? []
     const byId = new Map(docs.map((doc) => [canonicalString(doc["_id"]), doc]))
     return ids.map((id) => {

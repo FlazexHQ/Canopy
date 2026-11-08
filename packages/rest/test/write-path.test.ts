@@ -908,6 +908,86 @@ suite("WritePath against MongoDB", () => {
       expect((await byId("notes", 1))?.["n"]).toBe(1)
     })
 
+    it("checks a single insert in MongoDB before writing it, without a transaction", async () => {
+      const seen: string[] = []
+      const listener = (event: { commandName: string }): void => {
+        seen.push(event.commandName)
+      }
+      const inserted = await commands(() =>
+        run(alice, {
+          op: "insert",
+          collection: "todos",
+          doc: { title: "t", done: false, ownerId: "alice", _id: 7 },
+        }),
+      )
+      expect(inserted.transactional).toBe(false)
+      expect(inserted.writes).toEqual(["insert"])
+      expect(relaxed(inserted.value.documents)).toEqual([
+        { _id: 7, title: "t", done: false, ownerId: "alice" },
+      ])
+      expect(Object.keys((await byId("todos", 7)) ?? {})).toEqual([
+        "_id",
+        "title",
+        "done",
+        "ownerId",
+      ])
+
+      client.on("commandStarted", listener)
+      try {
+        const error = await failure(
+          run(alice, { op: "insert", collection: "todos", doc: { _id: 8, ownerId: "bob" } }),
+        )
+        expect(error.code).toBe(ErrorCode.PolicyViolation)
+      } finally {
+        client.off("commandStarted", listener)
+      }
+      expect(seen).not.toContain("insert")
+      expect(await byId("todos", 8)).toBeNull()
+    })
+
+    it("keeps the transaction for several documents and refuses all of them when one fails", async () => {
+      const many = await commands(() =>
+        run(alice, {
+          op: "insertMany",
+          collection: "todos",
+          docs: [
+            { _id: 1, ownerId: "alice" },
+            { _id: 2, ownerId: "alice" },
+          ],
+        }),
+      )
+      expect(many.transactional).toBe(true)
+      expect(relaxed(many.value.documents)).toEqual([
+        { _id: 1, ownerId: "alice" },
+        { _id: 2, ownerId: "alice" },
+      ])
+      const error = await failure(
+        run(alice, {
+          op: "insertMany",
+          collection: "todos",
+          docs: [
+            { _id: 3, ownerId: "alice" },
+            { _id: 4, ownerId: "bob" },
+          ],
+        }),
+      )
+      expect(error.code).toBe(ErrorCode.PolicyViolation)
+      expect((await docs("todos")).map((doc) => doc["_id"])).toEqual([1, 2])
+    })
+
+    it("checks documents too large to send twice after writing them, in a transaction", async () => {
+      const big = "x".repeat(9 * 1024 * 1024)
+      const accepted = await commands(() =>
+        run(alice, { op: "insert", collection: "plain", doc: { _id: 1, ownerId: "alice", big } }),
+      )
+      expect(accepted.transactional).toBe(true)
+      const error = await failure(
+        run(alice, { op: "insert", collection: "plain", doc: { _id: 2, ownerId: "bob", big } }),
+      )
+      expect(error.code).toBe(ErrorCode.PolicyViolation)
+      expect(await byId("plain", 2)).toBeNull()
+    })
+
     it("inserts, replaces with upsert and deletes on the fast path", async () => {
       const inserted = await commands(() =>
         run(editor, { op: "insert", collection: "notes", doc: { _id: 3, body: "c", secret: 1 } }),
