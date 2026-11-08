@@ -4,13 +4,16 @@ import { type Caller, ReadPath, WritePath } from "../src/index.ts"
 
 /**
  * Scale benchmark: grows one collection through tiers of documents and, at each tier, measures the DLS
- * enforced read and write paths in a closed loop next to the equivalent plain driver calls.
+ * enforced read and write paths in a closed loop next to the equivalent plain driver calls. The scenarios of
+ * one operation form a group and run in alternating rounds, so a stall of the host or the server (such as a
+ * checkpoint) lands on every scenario of the group alike instead of on whichever ran at that moment.
  *
  * Environment: `CANOPY_BENCH_MONGODB_URI` (or `CANOPY_TEST_MONGODB_URI`), `CANOPY_BENCH_TIERS` (comma
  * separated document counts, default `10000,100000,1000000`), `CANOPY_BENCH_SECONDS` (per scenario, default
  * 6), `CANOPY_BENCH_CONCURRENCY` (default 32), `CANOPY_BENCH_INGEST` (documents per ingest run, default
- * 200000, 0 skips it), `CANOPY_BENCH_ONLY` (only scenarios whose name contains it) and `CANOPY_BENCH_OUT`
- * (a file for the JSON results).
+ * 200000, 0 skips it), `CANOPY_BENCH_ROUNDS` (alternating rounds per group, default 3),
+ * `CANOPY_BENCH_ONLY` (only scenarios whose name contains it) and `CANOPY_BENCH_OUT` (a file for the JSON
+ * results).
  */
 const URI =
   process.env["CANOPY_BENCH_MONGODB_URI"] ??
@@ -22,6 +25,7 @@ const TIERS = (process.env["CANOPY_BENCH_TIERS"] ?? "10000,100000,1000000")
 const SECONDS = Number(process.env["CANOPY_BENCH_SECONDS"] ?? "6")
 const CONCURRENCY = Number(process.env["CANOPY_BENCH_CONCURRENCY"] ?? "32")
 const INGEST = Number(process.env["CANOPY_BENCH_INGEST"] ?? "200000")
+const ROUNDS = Math.max(1, Number(process.env["CANOPY_BENCH_ROUNDS"] ?? "3"))
 const OUT = process.env["CANOPY_BENCH_OUT"]
 const ONLY = process.env["CANOPY_BENCH_ONLY"]
 const OWNERS = 1000
@@ -112,14 +116,25 @@ function percentile(sorted: readonly number[], p: number): number {
   return sorted[Math.max(0, index)] ?? Number.NaN
 }
 
+/** The raw samples of one or more closed loop runs of a scenario. */
+interface Samples {
+  readonly latencies: number[]
+  errors: number
+  firstError?: string
+  seconds: number
+  cpuMicros: number
+}
+
+function emptySamples(): Samples {
+  return { latencies: [], errors: 0, seconds: 0, cpuMicros: 0 }
+}
+
 async function closedLoop(
   seconds: number,
   concurrency: number,
   op: (i: number) => Promise<unknown>,
-): Promise<Latency> {
-  const latencies: number[] = []
-  let errors = 0
-  let firstError: string | undefined
+  into: Samples = emptySamples(),
+): Promise<Samples> {
   let next = 0
   const cpu = process.cpuUsage()
   const start = performance.now()
@@ -131,34 +146,39 @@ async function closedLoop(
       const t0 = performance.now()
       try {
         await op(i)
-        latencies.push(performance.now() - t0)
+        into.latencies.push(performance.now() - t0)
       } catch (error: unknown) {
-        errors += 1
-        if (firstError === undefined) {
+        into.errors += 1
+        if (into.firstError === undefined) {
           const cause =
             error instanceof Error ? (error.cause as { codeName?: unknown } | undefined) : undefined
           const message = error instanceof Error ? error.message : String(error)
-          firstError =
+          into.firstError =
             cause?.codeName === undefined ? message : `${message}: ${String(cause.codeName)}`
         }
       }
     }
   }
   await Promise.all(Array.from({ length: concurrency }, worker))
-  const elapsed = (performance.now() - start) / 1000
+  into.seconds += (performance.now() - start) / 1000
   const used = process.cpuUsage(cpu)
-  latencies.sort((a, b) => a - b)
+  into.cpuMicros += used.user + used.system
+  return into
+}
+
+function summarize(samples: Samples): Latency {
+  const latencies = [...samples.latencies].sort((a, b) => a - b)
   const sum = latencies.reduce((total, value) => total + value, 0)
   return {
     ops: latencies.length,
-    errors,
-    perSecond: Math.round(latencies.length / elapsed),
+    errors: samples.errors,
+    perSecond: Math.round(latencies.length / samples.seconds),
     p50: percentile(latencies, 50),
     p95: percentile(latencies, 95),
     p99: percentile(latencies, 99),
     mean: latencies.length === 0 ? Number.NaN : sum / latencies.length,
-    cpuPerOp: (used.user + used.system) / 1000 / Math.max(1, latencies.length + errors),
-    ...(firstError === undefined ? {} : { firstError }),
+    cpuPerOp: samples.cpuMicros / 1000 / Math.max(1, latencies.length + samples.errors),
+    ...(samples.firstError === undefined ? {} : { firstError: samples.firstError }),
   }
 }
 
@@ -187,35 +207,42 @@ interface IngestPoint {
   readonly perSecond: number
 }
 
-async function ingestRun(
-  label: string,
-  total: number,
+interface IngestRun {
+  readonly label: string
+  readonly points: IngestPoint[]
+  written: number
+  seconds: number
+}
+
+/** Inserts documents `from` to `to` in batches of 1,000 from 4 workers, adding to `run`. */
+async function ingestChunk(
+  run: IngestRun,
+  from: number,
+  to: number,
   insertBatch: (docs: Order[]) => Promise<unknown>,
-): Promise<{ label: string; points: IngestPoint[]; overall: number }> {
+): Promise<void> {
   const batch = 1000
   const concurrency = 4
-  const points: IngestPoint[] = []
-  let written = 0
-  let issued = 0
+  let issued = from
   let windowStart = performance.now()
   let windowDocs = 0
   const started = performance.now()
   const worker = async (): Promise<void> => {
-    while (issued < total) {
-      const from = issued
+    while (issued < to) {
+      const first = issued
       issued += batch
       const docs: Order[] = []
-      for (let i = from; i < Math.min(total, from + batch); i += 1) {
+      for (let i = first; i < Math.min(to, first + batch); i += 1) {
         const doc = makeOrder(i)
         docs.push({ ...doc, ownerId: "u1" })
       }
       await insertBatch(docs)
-      written += docs.length
+      run.written += docs.length
       windowDocs += docs.length
       const now = performance.now()
       if (now - windowStart >= 1000) {
-        points.push({
-          docs: written,
+        run.points.push({
+          docs: run.written,
           perSecond: Math.round(windowDocs / ((now - windowStart) / 1000)),
         })
         windowStart = now
@@ -224,9 +251,7 @@ async function ingestRun(
     }
   }
   await Promise.all(Array.from({ length: concurrency }, worker))
-  const overall = Math.round(total / ((performance.now() - started) / 1000))
-  log(`  ingest ${label}: ${overall} docs/s`)
-  return { label, points, overall }
+  run.seconds += (performance.now() - started) / 1000
 }
 
 function log(line: string): void {
@@ -276,117 +301,207 @@ async function main(): Promise<void> {
       size = tier
       const stats = await db.command({ collStats: "orders" })
       const scenarios: Record<string, Latency> = {}
-      const run = async (name: string, op: (i: number) => Promise<unknown>): Promise<void> => {
-        if (ONLY !== undefined && !name.includes(ONLY)) return
-        await closedLoop(1, CONCURRENCY, op)
-        const result = await closedLoop(SECONDS, CONCURRENCY, op)
-        scenarios[name] = result
-        log(
-          `  ${name.padEnd(44)} ${String(result.perSecond).padStart(7)}/s  p50 ${result.p50.toFixed(2).padStart(7)}  p99 ${result.p99.toFixed(2).padStart(7)} ms  err ${result.errors}${result.firstError === undefined ? "" : ` (${result.firstError})`}`,
-        )
-      }
-
-      await run("driver: owner page (50, sorted)", () => {
-        const owner = rand(OWNERS)
-        return coll
-          .find({ ownerId: `u${owner}` })
-          .sort({ createdAt: -1, _id: 1 })
-          .limit(51)
-          .toArray()
-      })
-      await run("canopy: owner page (50, sorted)", () =>
-        reads.find(ownerOf(rand(OWNERS)), {
-          collection: "orders",
-          sort: { createdAt: -1 },
-          limit: 50,
-        }),
-      )
-      await run("driver: tenant filter page (100)", () => {
-        const tenant = rand(TENANTS)
-        return coll
-          .find({ tenantId: `t${tenant}`, status: "open" })
-          .sort({ createdAt: -1, _id: 1 })
-          .limit(101)
-          .toArray()
-      })
-      await run("canopy: tenant filter page (100)", () =>
-        reads.find(managerOf(rand(TENANTS)), {
-          collection: "orders",
-          filter: { status: "open" },
-          sort: { createdAt: -1 },
-          limit: 100,
-        }),
-      )
-      await run("canopy: 10th page via cursor", async () => {
-        const who = ownerOf(rand(OWNERS))
-        let after: string | undefined
-        for (let page = 0; page < 10; page += 1) {
-          const result = await reads.find(who, {
-            collection: "orders",
-            sort: { createdAt: -1 },
-            limit: 20,
-            ...(after === undefined ? {} : { after }),
-          })
-          if (result.next === null) return
-          after = result.next
+      type Op = (i: number) => Promise<unknown>
+      const group = async (members: readonly (readonly [string, Op])[]): Promise<void> => {
+        const selected = members.filter(([name]) => ONLY === undefined || name.includes(ONLY))
+        if (selected.length === 0) return
+        for (const [, op] of selected) await closedLoop(1, CONCURRENCY, op)
+        const samples = selected.map(() => emptySamples())
+        for (let round = 0; round < ROUNDS; round += 1)
+          for (const [index, [, op]] of selected.entries())
+            await closedLoop(SECONDS / ROUNDS, CONCURRENCY, op, samples[index])
+        for (const [index, [name]] of selected.entries()) {
+          const result = summarize(samples[index] ?? emptySamples())
+          scenarios[name] = result
+          log(
+            `  ${name.padEnd(44)} ${String(result.perSecond).padStart(7)}/s  p50 ${result.p50.toFixed(2).padStart(7)}  p99 ${result.p99.toFixed(2).padStart(7)} ms  cpu ${result.cpuPerOp.toFixed(3)} ms  err ${result.errors}${result.firstError === undefined ? "" : ` (${result.firstError})`}`,
+          )
         }
+      }
+      const scanFilter = (): Record<string, unknown> => ({
+        amount: { $gt: 999.9 + Math.random() / 20 },
       })
-      await run("driver: findById", () => coll.findOne({ _id: rand(size) }))
-      await run("canopy: findById", () => {
-        const id = rand(size)
-        return reads.findById(ownerOf(id % OWNERS), "orders", id)
-      })
-      await run("driver: owner count", () => coll.countDocuments({ ownerId: `u${rand(OWNERS)}` }))
-      await run("canopy: owner count (exact)", () =>
-        reads.count(ownerOf(rand(OWNERS)), "orders", {}, "exact"),
-      )
-      await run("driver: unindexed filter (scan)", () =>
-        coll
-          .find({ amount: { $gt: 999.9 + Math.random() / 20 } })
-          .limit(51)
-          .toArray(),
-      )
-      await run("canopy: unindexed filter (scan)", () =>
-        reads.find(auditor, {
-          collection: "orders",
-          filter: { amount: { $gt: 999.9 + Math.random() / 20 } },
-          limit: 50,
-        }),
-      )
-      await run("driver: updateOne (majority)", () => {
-        const id = rand(size)
-        return coll.updateOne(
-          { _id: id, ownerId: `u${id % OWNERS}` },
-          { $inc: { n: 1 } },
-          { writeConcern: { w: "majority" } },
-        )
-      })
-      await run("canopy: update, transaction with check", () => {
-        const id = rand(size)
-        return writes.execute(ownerOf(id % OWNERS), {
-          op: "update",
-          collection: "orders",
-          id,
-          update: { $inc: { n: 1 } },
-        })
-      })
-      await run("canopy: update, fast path", () =>
-        writes.execute(editor, {
-          op: "update",
-          collection: "orders",
-          id: rand(size),
-          update: { $inc: { n: 1 } },
-        }),
-      )
-      await run("canopy: insert, transaction with check", () => {
-        inserted += 1
-        const doc = makeOrder(1_000_000_000 + inserted)
-        return writes.execute(ownerOf(1), {
-          op: "insert",
-          collection: "orders",
-          doc: { ...doc, ownerId: "u1", tenantId: "t1" },
-        })
-      })
+
+      await group([
+        [
+          "driver: owner page (50, sorted)",
+          () =>
+            coll
+              .find({ ownerId: `u${rand(OWNERS)}` })
+              .sort({ createdAt: -1, _id: 1 })
+              .limit(51)
+              .toArray(),
+        ],
+        [
+          "canopy: owner page (50, sorted)",
+          () =>
+            reads.find(ownerOf(rand(OWNERS)), {
+              collection: "orders",
+              sort: { createdAt: -1 },
+              limit: 50,
+            }),
+        ],
+      ])
+      await group([
+        [
+          "driver: tenant filter page (100)",
+          () =>
+            coll
+              .find({ tenantId: `t${rand(TENANTS)}`, status: "open" })
+              .sort({ createdAt: -1, _id: 1 })
+              .limit(101)
+              .toArray(),
+        ],
+        [
+          "canopy: tenant filter page (100)",
+          () =>
+            reads.find(managerOf(rand(TENANTS)), {
+              collection: "orders",
+              filter: { status: "open" },
+              sort: { createdAt: -1 },
+              limit: 100,
+            }),
+        ],
+      ])
+      await group([
+        [
+          "driver: 10th page via range",
+          async () => {
+            const owner = `u${rand(OWNERS)}`
+            let last: Order | undefined
+            for (let page = 0; page < 10; page += 1) {
+              const range =
+                last === undefined
+                  ? {}
+                  : {
+                      $or: [
+                        { createdAt: { $lt: last.createdAt } },
+                        { createdAt: last.createdAt, _id: { $gt: last._id } },
+                      ],
+                    }
+              const docs = await coll
+                .find({ ownerId: owner, ...range })
+                .sort({ createdAt: -1, _id: 1 })
+                .limit(21)
+                .toArray()
+              if (docs.length <= 20) return
+              last = docs[19]
+            }
+          },
+        ],
+        [
+          "canopy: 10th page via cursor",
+          async () => {
+            const who = ownerOf(rand(OWNERS))
+            let after: string | undefined
+            for (let page = 0; page < 10; page += 1) {
+              const result = await reads.find(who, {
+                collection: "orders",
+                sort: { createdAt: -1 },
+                limit: 20,
+                ...(after === undefined ? {} : { after }),
+              })
+              if (result.next === null) return
+              after = result.next
+            }
+          },
+        ],
+      ])
+      await group([
+        ["driver: findById", () => coll.findOne({ _id: rand(size) })],
+        [
+          "driver: findById with owner filter",
+          () => {
+            const id = rand(size)
+            return coll.findOne({ _id: id, ownerId: `u${id % OWNERS}` })
+          },
+        ],
+        [
+          "canopy: findById",
+          () => {
+            const id = rand(size)
+            return reads.findById(ownerOf(id % OWNERS), "orders", id)
+          },
+        ],
+      ])
+      await group([
+        ["driver: owner count", () => coll.countDocuments({ ownerId: `u${rand(OWNERS)}` })],
+        [
+          "canopy: owner count (exact)",
+          () => reads.count(ownerOf(rand(OWNERS)), "orders", {}, "exact"),
+        ],
+      ])
+      await group([
+        ["driver: unindexed filter (scan)", () => coll.find(scanFilter()).limit(51).toArray()],
+        [
+          "driver: unindexed filter in _id order (scan)",
+          () => coll.find(scanFilter()).sort({ _id: 1 }).hint({ $natural: 1 }).limit(51).toArray(),
+        ],
+        [
+          "canopy: unindexed filter (scan)",
+          () => reads.find(auditor, { collection: "orders", filter: scanFilter(), limit: 50 }),
+        ],
+      ])
+      await group([
+        [
+          "driver: updateOne (majority)",
+          () => {
+            const id = rand(size)
+            return coll.updateOne(
+              { _id: id, ownerId: `u${id % OWNERS}` },
+              { $inc: { n: 1 } },
+              { writeConcern: { w: "majority" } },
+            )
+          },
+        ],
+        [
+          "canopy: update, transaction with check",
+          () => {
+            const id = rand(size)
+            return writes.execute(ownerOf(id % OWNERS), {
+              op: "update",
+              collection: "orders",
+              id,
+              update: { $inc: { n: 1 } },
+            })
+          },
+        ],
+        [
+          "canopy: update, fast path",
+          () =>
+            writes.execute(editor, {
+              op: "update",
+              collection: "orders",
+              id: rand(size),
+              update: { $inc: { n: 1 } },
+            }),
+        ],
+      ])
+      await group([
+        [
+          "driver: insertOne (majority)",
+          () => {
+            inserted += 1
+            const doc = makeOrder(1_000_000_000 + inserted)
+            return coll.insertOne(
+              { ...doc, ownerId: "u1", tenantId: "t1" },
+              { writeConcern: { w: "majority" } },
+            )
+          },
+        ],
+        [
+          "canopy: insert, transaction with check",
+          () => {
+            inserted += 1
+            const doc = makeOrder(1_000_000_000 + inserted)
+            return writes.execute(ownerOf(1), {
+              op: "insert",
+              collection: "orders",
+              doc: { ...doc, ownerId: "u1", tenantId: "t1" },
+            })
+          },
+        ],
+      ])
       tierResults.push({
         docs: tier,
         seedPerSecond: Math.round(seedPerSecond),
@@ -399,19 +514,35 @@ async function main(): Promise<void> {
     if (INGEST > 0) {
       log(`ingest: ${INGEST} documents each`)
       const plain = db.collection<Order>("ingest_driver")
-      const driverRun = await ingestRun("driver insertMany (majority)", INGEST, (docs) =>
-        plain.insertMany(docs, { ordered: true, writeConcern: { w: "majority" } }),
-      )
-      const canopyRun = await ingestRun(
-        "canopy insertMany (transaction with check)",
-        INGEST,
-        (docs) =>
-          writes.execute(ownerOf(1), {
-            op: "insertMany",
-            collection: "ingest",
-            docs: docs.map((doc) => ({ ...doc, _id: `c${doc._id}` })),
-          }),
-      )
+      const runs: [IngestRun, (docs: Order[]) => Promise<unknown>][] = [
+        [
+          { label: "driver insertMany (majority)", points: [], written: 0, seconds: 0 },
+          (docs) => plain.insertMany(docs, { ordered: true, writeConcern: { w: "majority" } }),
+        ],
+        [
+          {
+            label: "canopy insertMany (transaction with check)",
+            points: [],
+            written: 0,
+            seconds: 0,
+          },
+          (docs) =>
+            writes.execute(ownerOf(1), {
+              op: "insertMany",
+              collection: "ingest",
+              docs: docs.map((doc) => ({ ...doc, _id: `c${doc._id}` })),
+            }),
+        ],
+      ]
+      const chunk = Math.ceil(INGEST / ROUNDS / 1000) * 1000
+      for (let from = 0; from < INGEST; from += chunk)
+        for (const [run, insertBatch] of runs)
+          await ingestChunk(run, from, Math.min(INGEST, from + chunk), insertBatch)
+      const [driverRun, canopyRun] = runs.map(([run]) => {
+        const overall = Math.round(run.written / run.seconds)
+        log(`  ingest ${run.label}: ${overall} docs/s`)
+        return { label: run.label, points: run.points, overall }
+      })
       results.push({ ingest: [driverRun, canopyRun] })
     }
   } finally {
