@@ -17,6 +17,7 @@ import {
 import {
   CanopyError,
   type ClusterTime,
+  canonicalString,
   ErrorCode,
   InvalidQueryError,
   isDocument,
@@ -51,6 +52,10 @@ import type { Caller, ReturnedDocument } from "./write-path.ts"
 const MAX_TIME_EXPIRED = 50
 /** How long a collection's estimated size is reused before it is read again. */
 const SIZE_TTL_MS = 60_000
+/** How many unsorted finds of one filter shape in a row must lose the `_id` walk before it is skipped. */
+const SPARSE_STREAK = 2
+/** The most filter shapes whose walk outcome is remembered; the memory starts over when it is full. */
+const MAX_SHAPES = 1024
 
 /** Limits on reads. */
 export interface ReadLimits {
@@ -75,6 +80,12 @@ export interface ReadLimits {
    * a large collection the walk may go on as long as `scanMSPerMillion` estimates a scan of the whole
    * collection to take, up to half of `maxTimeMS`, so such a find costs about twice the faster plan at
    * most. `0` turns the switch off. Both attempts together stay within `maxTimeMS`.
+   *
+   * The outcome is remembered per collection, read policy filter and filter shape (the caller's filter with
+   * its values left out), so only callers who can see the same documents share it. After two finds of a
+   * shape in a row lost the walk, because it ran out of time or read every document without filling a page,
+   * finds of that shape scan the collection at once. A scan that fills a page lets the next find of the
+   * shape try the walk again, and a walk that fills one forgets the shape.
    */
   readonly unsortedProbeMS: number
   /**
@@ -167,6 +178,8 @@ export class ReadPath {
   private readonly limits: ReadLimits
   private readonly queryLimits: QueryLimits
   private readonly sizes = new Map<string, { readonly docs: number; readonly at: number }>()
+  /** How many unsorted finds in a row lost the `_id` walk, by collection, read filter and filter shape. */
+  private readonly sparse = new Map<string, number>()
 
   constructor(options: ReadPathOptions) {
     this.client = options.client
@@ -180,10 +193,32 @@ export class ReadPath {
   /** How long an unsorted find on this collection may walk `_id` order, from its estimated size. */
   private async probeBudget(collection: string): Promise<number> {
     const { unsortedProbeMS, scanMSPerMillion, maxTimeMS } = this.limits
-    if (scanMSPerMillion <= 0) return unsortedProbeMS
-    const docs = await this.estimatedDocuments(collection)
-    const estimate = Math.min(maxTimeMS / 2, (docs / 1e6) * scanMSPerMillion)
-    return Math.round(Math.max(unsortedProbeMS, estimate))
+    let budget = unsortedProbeMS
+    if (scanMSPerMillion > 0) {
+      const docs = await this.estimatedDocuments(collection)
+      budget = Math.max(budget, Math.min(maxTimeMS / 2, (docs / 1e6) * scanMSPerMillion))
+    }
+    return Math.max(1, Math.round(budget))
+  }
+
+  /**
+   * Records how an unsorted find of a filter shape went: `scanned` when it skipped the walk, `walked` when
+   * the walk finished, `full` when the page was filled. A walk that fills a page forgets the shape. A walk
+   * that ran out of time or read every document in range adds to the streak. A scan that fills a page
+   * takes one off it, so the next find tries the walk again in case many documents match now.
+   */
+  private learn(shapeKey: string, scanned: boolean, walked: boolean, full: boolean): void {
+    if (walked && full) {
+      this.sparse.delete(shapeKey)
+      return
+    }
+    const streak = this.sparse.get(shapeKey) ?? 0
+    if (scanned) {
+      if (full) this.sparse.set(shapeKey, SPARSE_STREAK - 1)
+      return
+    }
+    if (!this.sparse.has(shapeKey) && this.sparse.size >= MAX_SHAPES) this.sparse.clear()
+    this.sparse.set(shapeKey, Math.min(SPARSE_STREAK, streak + 1))
   }
 
   /**
@@ -282,12 +317,21 @@ export class ReadPath {
     )
     const shape = userProjection === undefined ? undefined : compileProjection(userProjection)
     const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
-    const probeMS =
-      parsed.sort === undefined && this.limits.unsortedProbeMS > 0
-        ? await this.probeBudget(planned.name)
-        : 0
+    const { unsortedProbeMS, maxTimeMS } = this.limits
+    const switching =
+      parsed.sort === undefined && unsortedProbeMS > 0 && unsortedProbeMS < maxTimeMS
+    const shapeKey = switching
+      ? [
+          planned.name,
+          canonicalString(toFilter(planned.engine.using(planned.name, "read", caller.context))),
+          filterShape(parsed.filter.filter),
+          request.after === undefined ? "" : "after",
+        ].join("\u0000")
+      : undefined
+    const scanFirst = shapeKey !== undefined && (this.sparse.get(shapeKey) ?? 0) >= SPARSE_STREAK
+    const probeMS = switching && !scanFirst ? await this.probeBudget(planned.name) : 0
     return this.inSnapshot(planned.service, async (session) => {
-      const read = (maxTimeMS: number, natural: boolean): Promise<Record<string, unknown>[]> =>
+      const read = (timeMS: number, natural: boolean): Promise<Record<string, unknown>[]> =>
         this.db
           .collection(planned.name)
           .find(toDriver(toFilter(ranged)), {
@@ -297,21 +341,25 @@ export class ReadPath {
             ...(skip === 0 ? {} : { skip }),
             ...(pushdown === undefined ? {} : { projection: pushdown }),
             ...(natural ? { hint: { $natural: 1 } } : {}),
-            maxTimeMS,
+            maxTimeMS: timeMS,
             ...EXACT_BSON,
           })
           .toArray() as Promise<Record<string, unknown>[]>
       let raw: Record<string, unknown>[]
-      if (probeMS > 0 && probeMS < this.limits.maxTimeMS) {
+      let walked = !scanFirst
+      if (scanFirst) raw = await read(maxTimeMS, true)
+      else if (switching) {
         try {
           raw = await read(probeMS, false)
         } catch (error: unknown) {
           if (serverErrorCode(error) !== MAX_TIME_EXPIRED) throw error
-          raw = await read(this.limits.maxTimeMS - probeMS, true)
+          walked = false
+          raw = await read(maxTimeMS - probeMS, true)
         }
-      } else raw = await read(this.limits.maxTimeMS, false)
+      } else raw = await read(maxTimeMS, false)
       abortCheck(options.signal, "read")
       const more = raw.length > limit
+      if (shapeKey !== undefined) this.learn(shapeKey, scanFirst, walked, more)
       const page = more ? raw.slice(0, limit) : raw
       const last = page.at(-1)
       const next =
@@ -608,6 +656,19 @@ function pruneDescendants(projection: Record<string, 0 | 1>): Record<string, 0 |
       .filter((path) => !paths.some((other) => other !== path && path.startsWith(`${other}.`)))
       .map((path) => [path, projection[path] ?? 1]),
   )
+}
+
+/**
+ * The structure of a filter without its values: field names, operators and nested branches, with every
+ * value (and every list of values) written as `?`. Finds that differ only in their values share a shape.
+ */
+function filterShape(value: unknown): string {
+  if (Array.isArray(value))
+    return value.some(isDocument) ? `[${value.map(filterShape).join(",")}]` : "?"
+  if (!isDocument(value)) return "?"
+  let out = "{"
+  for (const key of Object.keys(value)) out += `${JSON.stringify(key)}:${filterShape(value[key])},`
+  return `${out}}`
 }
 
 function estimable(effective: Compiled, parsed: ParsedQuery): boolean {

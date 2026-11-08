@@ -1,0 +1,5 @@
+---
+"@canopy/rest": minor
+---
+
+Remember which plan wins for finds without a sort whose filter no index covers. Such a find walks `_id` order first and switches to a collection scan when the walk runs out of time, so a filter that matches few documents paid for both. The outcome is now remembered per collection, read policy filter and filter shape (the caller's filter without its values): after two finds of a shape in a row lost the walk, because it ran out of time or read every document without filling a page, finds of that shape scan the collection at once. A scan that fills a page lets the next find of the shape try the walk again, and a walk that fills one forgets the shape, so filters that match many documents keep the walk. Only callers whose read policy filters are identical share what is remembered. On the scale benchmark, unindexed finds that match few documents went from 37% to about 100% of a plain driver scan at 10,000 documents and from 66% to about 97% at 100,000. Results, order and cursors are unchanged.

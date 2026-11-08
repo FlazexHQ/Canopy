@@ -1,4 +1,4 @@
-import { allow, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
 import { MONGODB_URI } from "@canopy/testing"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -7,7 +7,18 @@ import { type Caller, type ReadLimits, ReadPath } from "../src/index.ts"
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const DOCS = 100_000
 
-const items = collection("items", { exposed: true, policies: [allow.read("auditor")] })
+const items = collection("items", {
+  exposed: true,
+  policies: [allow.read("auditor"), allow.read("bucket").where({ amount: auth("bucket") })],
+})
+const inBucket = (bucket: number): Caller => ({
+  context: {
+    roles: new Set(["authenticated", "bucket"]),
+    claims: { sub: `b${bucket}`, bucket },
+    now: new Date(),
+  },
+  subject: `b${bucket}`,
+})
 const auditor: Caller = {
   context: { roles: new Set(["authenticated", "auditor"]), claims: { sub: "a" }, now: new Date() },
   subject: "a",
@@ -106,6 +117,119 @@ suite("finds without a sort on unindexed filters", () => {
     const page = await path.find(auditor, { collection: "items", filter: { rare: true }, limit: 4 })
     expect(ids(page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
     expect(finds.map((command) => Number(command["maxTimeMS"]))).toEqual([778])
+  })
+
+  it("scans at once for a filter shape whose walk ran out of time twice in a row", async () => {
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
+    const hints: unknown[][] = []
+    const times: number[][] = []
+    for (let round = 0; round < 4; round += 1) {
+      finds.length = 0
+      const page = await path.find(auditor, {
+        collection: "items",
+        filter: { rare: true },
+        limit: 10,
+      })
+      expect(ids(page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
+      expect(page.next).toBeNull()
+      hints.push(finds.map((command) => command["hint"]))
+      times.push(finds.map((command) => Number(command["maxTimeMS"])))
+    }
+    expect(hints).toEqual([
+      [undefined, { $natural: 1 }],
+      [undefined, { $natural: 1 }],
+      [{ $natural: 1 }],
+      [{ $natural: 1 }],
+    ])
+    expect(times.slice(2)).toEqual([[10_000], [10_000]])
+  })
+
+  it("tries the walk again after each scan that fills a page", async () => {
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
+    const hints: unknown[][] = []
+    for (let round = 0; round < 5; round += 1) {
+      finds.length = 0
+      const page = await path.find(auditor, {
+        collection: "items",
+        filter: { rare: true },
+        limit: 2,
+      })
+      expect(ids(page.docs)).toEqual([24_992, 49_992])
+      expect(page.next).not.toBeNull()
+      hints.push(finds.map((command) => command["hint"]))
+    }
+    expect(hints).toEqual([
+      [undefined, { $natural: 1 }],
+      [undefined, { $natural: 1 }],
+      [{ $natural: 1 }],
+      [undefined, { $natural: 1 }],
+      [{ $natural: 1 }],
+    ])
+  })
+
+  it("counts a walk that reads every document without filling a page as lost", async () => {
+    const path = reads({ unsortedProbeMS: 4000, scanMSPerMillion: 0, maxTimeMS: 5000 })
+    const hints: unknown[][] = []
+    for (let round = 0; round < 3; round += 1) {
+      finds.length = 0
+      const page = await path.find(auditor, {
+        collection: "items",
+        filter: { rare: true },
+        limit: 10,
+      })
+      expect(ids(page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
+      expect(page.next).toBeNull()
+      hints.push(finds.map((command) => command["hint"]))
+    }
+    expect(hints).toEqual([[undefined], [undefined], [{ $natural: 1 }]])
+  })
+
+  it("forgets a shape once its walk fills a page, and keeps shapes apart", async () => {
+    const path = reads({ unsortedProbeMS: 4000, scanMSPerMillion: 0, maxTimeMS: 5000 })
+    const hint = async (filter: Record<string, unknown>, limit: number, after?: string) => {
+      finds.length = 0
+      const page = await path.find(auditor, {
+        collection: "items",
+        filter,
+        limit,
+        ...(after === undefined ? {} : { after }),
+      })
+      return { page, hints: finds.map((command) => command["hint"]) }
+    }
+    await hint({ rare: true }, 10)
+    await hint({ rare: true }, 10)
+
+    const other = await hint({ rare: true, amount: { $gte: 0 } }, 10)
+    expect(ids(other.page.docs)).toEqual([24_992, 49_992, 74_992, 99_992])
+    expect(other.hints).toEqual([undefined])
+
+    const dense = await hint({ rare: false }, 3)
+    expect(ids(dense.page.docs)).toEqual([0, 1, 2])
+    expect(dense.hints).toEqual([{ $natural: 1 }])
+    const next = await hint({ rare: false }, 3, dense.page.next ?? "")
+    expect(ids(next.page.docs)).toEqual([3, 4, 5])
+    expect(next.hints).toEqual([undefined])
+
+    expect((await hint({ rare: false }, 3)).hints).toEqual([undefined])
+    expect((await hint({ rare: true }, 10)).hints).toEqual([undefined])
+    expect((await hint({ rare: true }, 10)).hints).toEqual([undefined])
+    expect((await hint({ rare: true }, 10)).hints).toEqual([{ $natural: 1 }])
+  })
+
+  it("keeps the memory apart for callers whose read policies differ", async () => {
+    const path = reads({ unsortedProbeMS: 4000, scanMSPerMillion: 0, maxTimeMS: 5000 })
+    const hints = async (who: Caller): Promise<unknown[]> => {
+      finds.length = 0
+      const page = await path.find(who, { collection: "items", filter: { rare: true }, limit: 10 })
+      expect(ids(page.docs)).toEqual(who === auditor ? [24_992, 49_992, 74_992, 99_992] : [])
+      return finds.map((command) => command["hint"])
+    }
+    expect(await hints(inBucket(8))).toEqual([undefined])
+    expect(await hints(inBucket(8))).toEqual([undefined])
+    expect(await hints(inBucket(8))).toEqual([{ $natural: 1 }])
+    expect(await hints(inBucket(9))).toEqual([undefined])
+    expect(await hints(auditor)).toEqual([undefined])
+    expect(await hints(inBucket(8))).toEqual([{ $natural: 1 }])
   })
 
   it("never switches a find that has a sort, or when the probe is off", async () => {
