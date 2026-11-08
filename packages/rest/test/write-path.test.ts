@@ -848,12 +848,49 @@ suite("WritePath against MongoDB", () => {
       expect(isClusterTime(value.ct)).toBe(true)
     })
 
-    it("keeps the transaction when a check exists or a mutation ID is given", async () => {
-      await coll("todos").insertOne({ _id: 1, ownerId: "alice" })
-      const checked = await commands(() =>
+    it("skips the transaction when the update cannot change what its check reads", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", title: "t" })
+      const { value, writes, transactional } = await commands(() =>
         run(alice, { op: "update", collection: "todos", id: 1, update: { $set: { done: true } } }),
       )
-      expect(checked.transactional).toBe(true)
+      expect(transactional).toBe(false)
+      expect(writes).toEqual(["update"])
+      expect(relaxed(value)).toMatchObject({ matched: 1, modified: 1, changedIds: [1] })
+      expect(relaxed(value.documents)).toEqual([
+        { _id: 1, ownerId: "alice", title: "t", done: true },
+      ])
+      const invisible = await commands(() =>
+        run(bob, { op: "update", collection: "todos", id: 1, update: { $set: { done: false } } }),
+      )
+      expect(invisible.transactional).toBe(false)
+      expect(relaxed(invisible.value)).toMatchObject({ matched: 0, modified: 0 })
+      expect((await byId("todos", 1))?.["done"]).toBe(true)
+    })
+
+    it("keeps the transaction when the update writes a checked field or the check asks for more", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice" })
+      const handover = await commands(() =>
+        failure(
+          run(alice, {
+            op: "update",
+            collection: "todos",
+            id: 1,
+            update: { $set: { ownerId: "bob" } },
+          }),
+        ),
+      )
+      expect(handover.transactional).toBe(true)
+      expect(handover.value.code).toBe(ErrorCode.PolicyViolation)
+      expect((await byId("todos", 1))?.["ownerId"]).toBe("alice")
+
+      await coll("boards").insertOne({ _id: 1, ownerId: "alice", count: 3, title: "b" })
+      const stricter = await commands(() =>
+        run(alice, { op: "update", collection: "boards", id: 1, update: { $set: { title: "c" } } }),
+      )
+      expect(stricter.transactional).toBe(true)
+    })
+
+    it("keeps the transaction when a mutation ID is given", async () => {
       const keyed = await commands(() =>
         run(
           editor,

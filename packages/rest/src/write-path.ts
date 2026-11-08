@@ -1,6 +1,7 @@
 import {
   and,
   type Compiled,
+  checkImplied,
   deniedPaths,
   type FieldAccess,
   type PolicyEngine,
@@ -593,6 +594,7 @@ export class WritePath {
     const update = toDriver(parsed.update) as Document
     if ("id" in selector) {
       const id = toDriver(selector.id)
+      const implied = checkImplied(check, target, parsed.writtenPaths)
       const run: Run = async (session) => {
         const result = await scope.coll.updateOne(
           scope.filter(target),
@@ -605,13 +607,17 @@ export class WritePath {
           return withCt(empty(), ct)
         }
         const modified = result.modifiedCount > 0
-        const documents = await scope.verify(
-          session,
-          [id],
-          modified ? check : undefined,
-          "update",
-          true,
-        )
+        const documents = await scope
+          .verify(session, [id], modified ? check : undefined, "update", true)
+          .catch((error: unknown) => {
+            if (error instanceof PolicyViolationError && !session.inTransaction())
+              throw new CanopyError(
+                ErrorCode.Internal,
+                "An update that skipped its check as implied wrote a document that fails it",
+                { cause: error },
+              )
+            throw error
+          })
         return withCt(
           {
             matched: result.matchedCount,
@@ -624,7 +630,7 @@ export class WritePath {
           ct,
         )
       }
-      return { run, fast: check.kind === "all" }
+      return { run, fast: check.kind === "all" || implied }
     }
     const run: Run = async (session) => {
       const ids = await scope.findIds(session, target, this.limits.maxBulk + 1)

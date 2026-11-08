@@ -66,6 +66,7 @@ export {
   projectReadable,
   toProjection,
 } from "./fields.ts"
+export { checkImplied } from "./implication.ts"
 export { type LintEnvironment, type LintFinding, type LintSeverity, lintPolicies } from "./lint.ts"
 export {
   type CollectionFields,
