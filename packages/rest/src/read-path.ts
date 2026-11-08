@@ -256,7 +256,11 @@ export class ReadPath {
       throw new InvalidQueryError("skip and after cannot be combined")
     const skip = this.skipOf(request.skip)
     const keys = cursorKeys(parsed.sort?.sort)
-    const hash = cursorQueryHash(planned.name, parsed.filter.filter, keys)
+    let hash: string | undefined
+    const queryHash = (): string => {
+      hash ??= cursorQueryHash(planned.name, parsed.filter.filter, keys)
+      return hash
+    }
     const effective = planned.engine.effectiveRead(
       planned.name,
       parsed.filter.filter,
@@ -267,7 +271,9 @@ export class ReadPath {
         ? effective
         : and(effective, {
             kind: "filter",
-            filter: this.validated(keysetFilter(keys, decodeCursor(request.after, keys, hash))),
+            filter: this.validated(
+              keysetFilter(keys, decodeCursor(request.after, keys, queryHash())),
+            ),
           })
     const userProjection = parsed.fields?.projection
     const pushdown = intersectProjection(
@@ -309,7 +315,9 @@ export class ReadPath {
       const page = more ? raw.slice(0, limit) : raw
       const last = page.at(-1)
       const next =
-        more && last !== undefined ? encodeCursor({ values: positionOf(last, keys) }, hash) : null
+        more && last !== undefined
+          ? encodeCursor({ values: positionOf(last, keys) }, queryHash())
+          : null
       const docs = page.map((doc) => {
         const readable = projectReadable(planned.readable, doc)
         return shape === undefined ? readable : shape.apply(readable)
