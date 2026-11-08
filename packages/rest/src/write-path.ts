@@ -180,8 +180,10 @@ const INDEX_OPTIONS_CONFLICT = new Set([85, 86])
 const DUPLICATE_KEY = 11000
 const STORED_DOCUMENTS_MAX = 1
 /**
- * The largest set of documents checked through `$documents` before an insert. The check sends them once
- * more, so larger inserts stay inside the 16 MiB command limit by checking after the write instead.
+ * The largest document checked through `$documents` before a single insert. The check sends it once more,
+ * so larger documents stay inside the 16 MiB command limit by checking after the write instead. Inserts
+ * of several documents always check after the write, inside their transaction: sending a whole batch twice
+ * costs more than reading it back.
  */
 const PRECHECK_MAX_BYTES = 8 * 1024 * 1024
 
@@ -550,7 +552,7 @@ export class WritePath {
     })
     const check = scope.engine.check(scope.name, "insert", scope.ctx)
     if (check.kind === "deny") throw violation("insert", scope.name)
-    const precheck = BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
+    const precheck = single && BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
     const run: Run = async (session) => {
       const checked = precheck ? await scope.precheck(prepared, check) : undefined
       const [first] = prepared
