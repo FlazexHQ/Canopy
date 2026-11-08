@@ -47,6 +47,7 @@ const orders = collection("orders", {
     allow.update("authenticated").where({ ownerId: auth("sub") }),
     allow.read("manager").where({ tenantId: auth("tenant") }),
     allow.read("auditor"),
+    allow.read("editor"),
     allow.insert("editor"),
     allow.update("editor"),
   ],
