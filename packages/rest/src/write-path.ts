@@ -20,6 +20,7 @@ import {
   InvalidQueryError,
   isDocument,
   PolicyViolationError,
+  serverErrorCode,
   toCanopyError,
   toCt,
 } from "@canopy/protocol"
@@ -278,7 +279,10 @@ export class WritePath {
         { name: "ttl_at", expireAfterSeconds: this.ttlSeconds },
       )
     } catch (error: unknown) {
-      if (!(error instanceof MongoServerError) || !INDEX_OPTIONS_CONFLICT.has(Number(error.code)))
+      if (
+        !(error instanceof MongoServerError) ||
+        !INDEX_OPTIONS_CONFLICT.has(serverErrorCode(error) ?? 0)
+      )
         throw error
       await this.meta.command({
         collMod: "mutations",
@@ -448,7 +452,8 @@ export class WritePath {
     try {
       await this.meta.collection<MutationRecord>("mutations").insertOne(record, { session })
     } catch (error: unknown) {
-      if (error instanceof MongoServerError && error.code === DUPLICATE_KEY) throw new Replay()
+      if (error instanceof MongoServerError && serverErrorCode(error) === DUPLICATE_KEY)
+        throw new Replay()
       throw error
     }
   }

@@ -1,4 +1,4 @@
-import { type ClusterTime, isDocument, ZERO_CT } from "@canopy/protocol"
+import { type ClusterTime, isDocument, serverErrorCode, ZERO_CT } from "@canopy/protocol"
 import type { ChangeStream, ChangeStreamOptions, Db, Document, MongoClient } from "mongodb"
 import {
   type ControlEvent,
@@ -73,17 +73,6 @@ export interface IngestorOptions {
 }
 
 const HISTORY_LOST = new Set([260, 280, 286])
-
-function errorCode(error: unknown): number | undefined {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof error.code === "number"
-  )
-    return error.code
-  return undefined
-}
 
 /**
  * Reads the one change stream of the app database: filters to realtime collections, normalizes
@@ -218,7 +207,7 @@ export class Ingestor {
       await this.open()
       return
     }
-    const code = errorCode(error)
+    const code = serverErrorCode(error)
     if (code !== undefined && HISTORY_LOST.has(code)) {
       this.options.metrics.restarts.inc({ reason: "history_lost" })
       this.options.logger.error({ err: error }, "change stream history lost, restarting from now")

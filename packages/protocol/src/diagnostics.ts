@@ -85,6 +85,22 @@ export function mongoTarget(uri: string, database?: string): MongoTarget {
   }
 }
 
+/**
+ * The numeric code of a MongoDB server error, or `undefined` when it has none. Commands decoded with exact
+ * BSON types (`promoteValues: false`) carry the code as an `Int32` object instead of a number, which a
+ * plain `===` comparison never matches, so this unwraps such values too.
+ */
+export function serverErrorCode(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined
+  const code: unknown = (error as Record<string, unknown>)["code"]
+  if (typeof code === "number") return code
+  if (typeof code === "object" && code !== null) {
+    const value: unknown = (code as { valueOf(): unknown }).valueOf()
+    if (typeof value === "number") return value
+  }
+  return undefined
+}
+
 interface DriverError {
   readonly name: string
   readonly message: string
@@ -115,7 +131,7 @@ function driverError(error: unknown): DriverError | undefined {
   return {
     name: typeof record["name"] === "string" ? record["name"] : "",
     message: typeof record["message"] === "string" ? record["message"] : "",
-    code: record["code"],
+    code: serverErrorCode(error),
     codeName: record["codeName"],
     cause: record["cause"],
     unanswered,

@@ -1,4 +1,10 @@
-import { CanopyError, ErrorCode, InvalidQueryError, ValidationError } from "@canopy/protocol"
+import {
+  CanopyError,
+  ErrorCode,
+  InvalidQueryError,
+  serverErrorCode,
+  ValidationError,
+} from "@canopy/protocol"
 import {
   type Document,
   MongoBulkWriteError,
@@ -22,23 +28,24 @@ const REJECTED_QUERY = new Set([2, 9, 14, 291, 51091])
 export function fromDriverError(error: unknown, service: boolean): CanopyError {
   if (error instanceof CanopyError) return error
   if (error instanceof MongoServerError) {
-    if (error.code === DUPLICATE_KEY) {
+    const code = serverErrorCode(error)
+    if (code === DUPLICATE_KEY) {
       const keyValue: unknown = error["keyValue"]
       return new CanopyError(ErrorCode.DuplicateKey, "A document with the same unique key exists", {
         cause: error,
         ...(service && keyValue !== undefined ? { details: { keyValue } } : {}),
       })
     }
-    if (error.code === DOCUMENT_VALIDATION_FAILURE) {
+    if (code === DOCUMENT_VALIDATION_FAILURE) {
       const reason: Document | undefined = error.errInfo ?? firstWriteError(error)?.errInfo
       return new ValidationError("The document failed the collection validator", {
         cause: error,
         ...(service && reason !== undefined ? { details: { reason } } : {}),
       })
     }
-    if (error.code === MAX_TIME_EXPIRED)
+    if (code === MAX_TIME_EXPIRED)
       return new CanopyError(ErrorCode.Timeout, "The operation took too long", { cause: error })
-    if (typeof error.code === "number" && REJECTED_QUERY.has(error.code))
+    if (code !== undefined && REJECTED_QUERY.has(code))
       return new InvalidQueryError("MongoDB rejected the query", {
         cause: error,
         ...(service ? { details: { reason: error.message } } : {}),
