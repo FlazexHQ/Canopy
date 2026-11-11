@@ -1,0 +1,22 @@
+{
+  "source": "node v24.22.2, MongoDB 8.0.34",
+  "tiers": {
+    "100000": {
+      "canopy: owner page (50, sorted)": 0.86,
+      "canopy: tenant filter page (100)": 0.863,
+      "canopy: 10th page via cursor": 0.739,
+      "canopy: findById": 0.842,
+      "canopy: owner count (exact)": 0.896,
+      "canopy: unindexed filter (scan)": 1,
+      "canopy: update, owner policy (fast path)": 0.369,
+      "canopy: update, transaction with check": 0.27,
+      "canopy: update with mutation ID": 0.269,
+      "canopy: replace": 0.326,
+      "canopy: insert, check through $documents": 0.392,
+      "canopy: insert with mutation ID": 0.265,
+      "canopy: delete": 0.817,
+      "canopy: insertMany of 1,000": 0.391,
+      "canopy: insertMany of 1,000, no documents returned": 0.64
+    }
+  }
+}
