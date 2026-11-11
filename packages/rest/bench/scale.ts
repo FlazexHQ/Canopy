@@ -150,6 +150,8 @@ async function main(): Promise<void> {
     dataBytes: number
     indexBytes: number
     scenarios: Record<string, Latency>
+    /** Each Canopy scenario's throughput divided by the first driver scenario of its group. */
+    ratios: Record<string, { reference: string; ratio: number }>
   }[] = []
   let ingest: unknown[] = []
   let size = 0
@@ -167,6 +169,7 @@ async function main(): Promise<void> {
       }
       const stats = await db.command({ collStats: "orders" })
       const scenarios: Record<string, Latency> = {}
+      const ratios: Record<string, { reference: string; ratio: number }> = {}
       const drivers = driverGroups(tierState)
       const canopy = canopyGroups(tierState, { reads, writes, http })
       for (const [groupName, driverMembers] of drivers) {
@@ -193,6 +196,19 @@ async function main(): Promise<void> {
           scenarios[name] = result
           log(reportLine(name, result))
         }
+        const reference = selected.find(([name]) => name.startsWith("driver:"))?.[0]
+        const referenceResult = reference === undefined ? undefined : scenarios[reference]
+        if (
+          reference !== undefined &&
+          referenceResult !== undefined &&
+          referenceResult.perSecond > 0
+        )
+          for (const [name] of selected)
+            if (!name.startsWith("driver:"))
+              ratios[name] = {
+                reference,
+                ratio: (scenarios[name]?.perSecond ?? 0) / referenceResult.perSecond,
+              }
         if (PROFILE !== undefined)
           for (const [name, op] of selected)
             await profiled(PROFILE, `${tier}-${name}`, () =>
@@ -207,6 +223,7 @@ async function main(): Promise<void> {
         dataBytes: Number(stats["size"]),
         indexBytes: Number(stats["totalIndexSize"]),
         scenarios,
+        ratios,
       })
     }
 
