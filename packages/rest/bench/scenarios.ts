@@ -141,6 +141,16 @@ export interface TierState {
 
 const rand = (n: number): number => Math.floor(Math.random() * n)
 
+/** `count` new orders of owner `u1` with ids that no other scenario uses. */
+function batchOf(state: TierState, count: number): Order[] {
+  const docs: Order[] = []
+  for (let i = 0; i < count; i += 1) {
+    state.nextInsert += 1
+    docs.push({ ...makeOrder(state.nextInsert), ownerId: "u1" })
+  }
+  return docs
+}
+
 const scanFilter = (): Record<string, unknown> => ({
   amount: { $gt: 999.9 + Math.random() / 20 },
 })
@@ -280,6 +290,15 @@ export function driverGroups(state: TierState): Map<string, Scenario[]> {
           { writeConcern: { w: "majority" } },
         )
       },
+    ],
+  ])
+  groups.set("insertMany", [
+    [
+      "driver: insertMany of 1,000 (majority)",
+      () =>
+        state.db
+          .collection<Order>("ingest")
+          .insertMany(batchOf(state, 1000), { ordered: true, writeConcern: { w: "majority" } }),
     ],
   ])
   groups.set("http", [])
@@ -439,6 +458,26 @@ export function canopyGroups(state: TierState, target: Target): Map<string, Scen
         if (id === undefined) throw new Error("Out of documents to delete")
         return writes.execute(ownerOf(id % OWNERS), { op: "delete", collection: "orders", id })
       },
+    ],
+  ])
+  groups.set("insertMany", [
+    [
+      "canopy: insertMany of 1,000",
+      () =>
+        writes.execute(ownerOf(1), {
+          op: "insertMany",
+          collection: "ingest",
+          docs: batchOf(state, 1000),
+        }),
+    ],
+    [
+      "canopy: insertMany of 1,000, no documents returned",
+      () =>
+        writes.execute(
+          ownerOf(1),
+          { op: "insertMany", collection: "ingest", docs: batchOf(state, 1000) },
+          { returnDocuments: false },
+        ),
     ],
   ])
   const authorization = (owner: number) => ({ authorization: `Bearer u${owner}` })

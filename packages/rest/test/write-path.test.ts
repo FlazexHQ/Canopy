@@ -1402,6 +1402,42 @@ suite("WritePath against MongoDB", () => {
       expect(replayedDelete).toMatchObject({ replayed: true, deleted: 1, documents: [null] })
     })
 
+    it("checks every document of an insertMany that returns no documents", async () => {
+      const ok = await traced(() =>
+        writes.execute(
+          alice,
+          {
+            op: "insertMany",
+            collection: "todos",
+            docs: [
+              { _id: 20, ownerId: "alice" },
+              { _id: 21, ownerId: "alice" },
+            ],
+          },
+          { returnDocuments: false },
+        ),
+      )
+      expect(ok.value.documents).toBeUndefined()
+      expect(relaxed(ok.value.insertedIds)).toEqual([20, 21])
+      expect(ok.names).not.toContain("find")
+      const refused = await failure(
+        writes.execute(
+          alice,
+          {
+            op: "insertMany",
+            collection: "todos",
+            docs: [
+              { _id: 22, ownerId: "alice" },
+              { _id: 23, ownerId: "bob" },
+            ],
+          },
+          { returnDocuments: false },
+        ),
+      )
+      expect(refused.code).toBe(ErrorCode.PolicyViolation)
+      expect(await byId("todos", 22)).toBeNull()
+    })
+
     it("refuses a duplicate key in a keyed insert and records nothing", async () => {
       await coll("todos").insertOne({ _id: 6, ownerId: "alice" })
       const duplicate = await failure(

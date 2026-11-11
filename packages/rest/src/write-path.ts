@@ -1179,6 +1179,16 @@ class Scope {
     const [only] = ids
     if (ids.length === 1 && (check === undefined || check.kind === "all"))
       return read ? [await this.readOne(session, only)] : undefined
+    if (!read) {
+      if (check?.kind === "filter" && ids.length > 0) {
+        const failing = await this.coll.countDocuments(
+          { $and: [{ _id: { $in: [...ids] } }, { $nor: [toDriver(check.filter)] }] } as Document,
+          { ...this.readSession(session), limit: 1, maxTimeMS: this.maxTimeMS },
+        )
+        if (failing > 0) throw violation(op, this.name)
+      }
+      return undefined
+    }
     const facet = this.facets(ids, check, read)
     if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
     const [out] = await this.coll
