@@ -89,6 +89,26 @@ describe("cluster time", () => {
     expect(maxCt("9", "10")).toBe("10")
   })
 
+  it("orders any two cluster times like their uint64 values, leading zeros included", () => {
+    const ct = fc.oneof(
+      fc.bigInt({ min: 0n, max: (1n << 64n) - 1n }).map((value) => value.toString()),
+      fc.bigInt({ min: 0n, max: 999n }).map((value) => `00${value}`),
+      fc.constantFrom("0", "9", "10", "9999999999999999999", "10000000000000000000"),
+    )
+    fc.assert(
+      fc.property(ct, ct, (a, b) => {
+        const x = BigInt(a)
+        const y = BigInt(b)
+        expect(Math.sign(compareCt(a, b))).toBe(x < y ? -1 : x > y ? 1 : 0)
+        expect(maxCt(a, b)).toBe(x < y ? b : a)
+      }),
+      { numRuns: 5000 },
+    )
+    expect(() => compareCt("12", "1x")).toThrow(TypeError)
+    expect(() => compareCt("", "1")).toThrow(TypeError)
+    expect(() => compareCt("18446744073709551616", "1")).toThrow(TypeError)
+  })
+
   it("validates the wire form", () => {
     expect(isClusterTime("0")).toBe(true)
     expect(isClusterTime("18446744073709551615")).toBe(true)

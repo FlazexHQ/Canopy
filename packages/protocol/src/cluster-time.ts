@@ -8,9 +8,27 @@ export type ClusterTime = string
 const CT = /^\d{1,20}$/
 const UINT64_MAX = (1n << 64n) - 1n
 
+/**
+ * Whether `value` is a decimal string of 1 to 19 digits without a leading zero (or `"0"`). Every such string
+ * is a valid `ct`, and two of them compare by length first and then character by character, without
+ * converting them to `bigint`.
+ */
+function isShortCanonical(value: string): boolean {
+  const length = value.length
+  if (length === 0 || length > 19) return false
+  if (length > 1 && value.charCodeAt(0) === 0x30) return false
+  for (let index = 0; index < length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < 0x30 || code > 0x39) return false
+  }
+  return true
+}
+
 /** Returns true when `value` is a valid `ct` string. */
 export function isClusterTime(value: unknown): value is ClusterTime {
-  if (typeof value !== "string" || !CT.test(value)) return false
+  if (typeof value !== "string") return false
+  if (isShortCanonical(value)) return true
+  if (!CT.test(value)) return false
   return BigInt(value) <= UINT64_MAX
 }
 
@@ -33,6 +51,10 @@ export function ctToParts(ct: ClusterTime): { t: number; i: number } {
 
 /** Compares two cluster times: negative when `a` is earlier, zero when equal, positive when later. */
 export function compareCt(a: ClusterTime, b: ClusterTime): number {
+  if (isShortCanonical(a) && isShortCanonical(b)) {
+    if (a.length !== b.length) return a.length < b.length ? -1 : 1
+    return a < b ? -1 : a > b ? 1 : 0
+  }
   const x = ctToBigInt(a)
   const y = ctToBigInt(b)
   return x < y ? -1 : x > y ? 1 : 0
