@@ -115,10 +115,22 @@ function isEmptyFilter(filter: Record<string, unknown>): boolean {
   return Object.keys(filter).length === 0
 }
 
+/**
+ * Drops filters equal to an earlier one. Equal filters have the same keys in the same order, so only filters
+ * whose key lists collide are compared by their canonical text.
+ */
 function dedupe(filters: readonly Record<string, unknown>[]): Record<string, unknown>[] {
+  if (filters.length < 2) return [...filters]
+  const shapes = filters.map((filter) => Object.keys(filter).join("\u0000"))
+  const repeated = new Set(shapes.filter((shape, index) => shapes.indexOf(shape) !== index))
+  if (repeated.size === 0) return [...filters]
   const seen = new Set<string>()
   const out: Record<string, unknown>[] = []
-  for (const filter of filters) {
+  for (const [index, filter] of filters.entries()) {
+    if (!repeated.has(shapes[index] ?? "")) {
+      out.push(filter)
+      continue
+    }
     const key = canonicalString(filter)
     if (seen.has(key)) continue
     seen.add(key)

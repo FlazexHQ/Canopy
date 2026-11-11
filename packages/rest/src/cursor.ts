@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto"
 import { Bracket, bracketOf, type SortKey, sortKeyOf, splitPath } from "@canopy/matcher"
 import { DENY_FILTER } from "@canopy/policy"
 import { InvalidQueryError, isDocument, parse, toCanonical } from "@canopy/protocol"
-import { queryHash, validateStoredDocument } from "@canopy/query"
+import { canonicalQuery, validateStoredDocument } from "@canopy/query"
 
 /** One key of a resolved sort, with the `_id` tie breaker included. */
 export interface CursorKey {
@@ -62,14 +63,20 @@ export function positionOf(doc: Record<string, unknown>, keys: readonly CursorKe
   })
 }
 
-/** The hash that ties a cursor to its query: the collection, the caller's filter and the sort. */
+/**
+ * The hash that ties a cursor to its query: the collection, the caller's filter and the sort. It is the
+ * first 32 hex digits of the query's `queryHash`, computed with the runtime's native SHA-256.
+ */
 export function cursorQueryHash(
   collection: string,
   filter: Record<string, unknown>,
   keys: readonly CursorKey[],
 ): string {
   const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
-  return queryHash({ collection, filter, sort }).slice("sha256:".length, "sha256:".length + 32)
+  return createHash("sha256")
+    .update(canonicalQuery({ collection, filter, sort }))
+    .digest("hex")
+    .slice(0, 32)
 }
 
 /** Encodes a position as an opaque cursor: base64url of canonical EJSON `{ s, q }`. */

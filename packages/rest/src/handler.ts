@@ -1,13 +1,12 @@
+import { createHash } from "node:crypto"
 import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
 import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
-  canonicalString,
   ErrorCode,
   ForbiddenError,
   InvalidQueryError,
   isDocument,
-  sha256Hex,
   toCanopyError,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
@@ -18,6 +17,7 @@ import {
   type CorsOptions,
   type Encoding,
   type Exchange,
+  encodeBody,
   jsonResponse,
   negotiate,
   preferencesOf,
@@ -26,6 +26,7 @@ import {
   type Route,
   readBody,
   requestIdOf,
+  textResponse,
   withCors,
 } from "./http.ts"
 import { type IdType, parseId } from "./ids.ts"
@@ -165,16 +166,19 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
 
   /**
    * A page with a validator over its content (not its cluster time), so a poller that sends
-   * `If-None-Match` gets `304` while the result is unchanged.
+   * `If-None-Match` gets `304` while the result is unchanged. The validator hashes the page's encoded
+   * text, which is then sent with `ct` appended, so the page is encoded once.
    */
   const conditionalPage = (result: FindResult, exchange: Exchange): Response => {
-    const body = pageBody(result)
-    const tag = `W/"${sha256Hex(`${exchange.encoding}:${canonicalString(body)}`).slice(0, 32)}"`
+    const text = encodeBody(pageBody(result), exchange.encoding)
+    const digest = createHash("sha256").update(`${exchange.encoding}:`).update(text).digest("hex")
+    const tag = `W/"${digest.slice(0, 32)}"`
     const headers = { etag: tag, "x-canopy-ct": result.ct }
     const match = exchange.request.headers.get("if-none-match")
     if (match?.split(",").some((value) => value.trim() === tag) === true)
       return new Response(null, { status: 304, headers })
-    return jsonResponse({ ...body, ct: result.ct }, exchange.encoding, 200, headers)
+    const withCt = `${text.slice(0, -1)},"ct":${JSON.stringify(result.ct)}}`
+    return textResponse(withCt, exchange.encoding, 200, headers)
   }
 
   const listCollections: Route = async ({ caller, request, encoding }) =>

@@ -1,8 +1,8 @@
 import {
   type CompiledFilter,
+  type CompiledSort,
   compileFilter,
-  compileSort,
-  type DocComparator,
+  compileSortKeys,
   UnsupportedQueryError,
 } from "@canopy/matcher/lite"
 import {
@@ -93,7 +93,7 @@ interface DocEntry {
 interface QueryEntry {
   readonly id: string
   readonly coll: string
-  readonly compare: DocComparator
+  readonly order: CompiledSort
   readonly matcher: CompiledFilter | undefined
   readonly limit: number | undefined
   readonly project: ((doc: Document) => Document) | undefined
@@ -187,7 +187,7 @@ export class Store {
     this.queries.set(id, {
       id,
       coll,
-      compare: compileSort(query.sort ?? {}),
+      order: compileSortKeys(query.sort ?? {}),
       matcher,
       limit: query.limit,
       project: query.project,
@@ -341,7 +341,7 @@ export class Store {
         if (!member) continue
         members.push(this.projectFor(query, entry.key, doc))
       }
-      members.sort(query.compare)
+      query.order.sort(members)
       if (query.limit !== undefined && query.limit > 0) members = members.slice(0, query.limit)
       const previous = query.state.data
       const same =

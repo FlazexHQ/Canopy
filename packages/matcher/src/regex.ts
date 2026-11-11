@@ -693,17 +693,36 @@ export function compileRegex(pattern: string, options = ""): LinearRegex {
     )
   }
   if (pattern.includes("\0")) syntax("NUL character in pattern")
-  const ast = new Parser(pattern, parseOptions(options)).parse()
+  const flags = parseOptions(options)
+  const ast = new Parser(pattern, flags).parse()
+  const literal = flags.i || flags.x ? null : LITERAL.exec(pattern)
+  if (literal !== null) {
+    const text = literal[2] ?? ""
+    const test =
+      literal[1] === "^" && !flags.m
+        ? (input: string) => input.startsWith(text)
+        : literal[1] === ""
+          ? (input: string) => input.includes(text)
+          : undefined
+    if (test !== undefined) return { pattern, options, test }
+  }
   const compiler = new Compiler()
   compiler.compile(ast)
   compiler.emit({ op: "match" })
-  const program = compiler.program
+  const machine = new Machine(compiler.program)
   return {
     pattern,
     options,
-    test: (input: string) => run(program, input),
+    test: (input: string) => machine.run(input),
   }
 }
+
+/**
+ * A pattern that is plain text, optionally anchored with `^`: letters, digits and punctuation without a
+ * meaning in a regular expression. Without the `i` and `x` options it matches exactly the strings that
+ * contain the text (or start with it), so it is tested as a substring.
+ */
+const LITERAL = /^(\^?)([A-Za-z0-9 _,;:!@%&=~<>/'"-]+)$/
 
 /** Returns true when `pattern` compiles under the linear time engine. */
 export function isLinearRegex(pattern: string, options = ""): boolean {
@@ -744,30 +763,90 @@ function checkAssert(
   }
 }
 
-function run(program: readonly Inst[], input: string): boolean {
-  const cps: number[] = []
-  for (const char of input) cps.push(char.codePointAt(0) ?? 0)
-  if ((cps.length + 1) * program.length > REGEX_LIMITS.maxSteps) {
-    throw new CanopyError(
-      ErrorCode.Timeout,
-      "Regular expression input is too large to match in process",
-    )
-  }
-  const size = program.length
-  let current = new Int32Array(size)
-  let next = new Int32Array(size)
-  let currentCount = 0
-  let nextCount = 0
-  const seen = new Int32Array(size).fill(-1)
-  const stack: number[] = []
+/** Stamps start over below this, so they stay within `Int32Array` range. */
+const MAX_STAMP = 0x3fffffff
 
-  const add = (
-    list: Int32Array,
-    count: number,
-    start: number,
-    at: number,
-    stamp: number,
-  ): number => {
+/**
+ * Runs one compiled program. It keeps its thread lists between matches, and a program that can only match
+ * at the start of the input (it begins with `^` outside multiline mode, or `\A`) starts a thread at the
+ * first position only and stops as soon as no thread is left.
+ */
+class Machine {
+  private readonly program: readonly Inst[]
+  private readonly anchored: boolean
+  private current: Int32Array
+  private next: Int32Array
+  /** Per instruction, the stamp of the step that last added it: `base + position`. */
+  private readonly seen: Int32Array
+  private base = 0
+  private readonly stack: number[] = []
+  private readonly cps: number[] = []
+  private running = false
+
+  constructor(program: readonly Inst[]) {
+    this.program = program
+    const first = program[0]
+    this.anchored =
+      first?.op === "assert" &&
+      (first.kind === "start" || (first.kind === "bol" && !first.multiline))
+    this.current = new Int32Array(program.length)
+    this.next = new Int32Array(program.length)
+    this.seen = new Int32Array(program.length).fill(-1)
+  }
+
+  run(input: string): boolean {
+    if (this.running) return new Machine(this.program).run(input)
+    this.running = true
+    try {
+      return this.match(input)
+    } finally {
+      this.running = false
+    }
+  }
+
+  private match(input: string): boolean {
+    const { program, cps } = this
+    cps.length = 0
+    for (const char of input) cps.push(char.codePointAt(0) ?? 0)
+    if ((cps.length + 1) * program.length > REGEX_LIMITS.maxSteps) {
+      throw new CanopyError(
+        ErrorCode.Timeout,
+        "Regular expression input is too large to match in process",
+      )
+    }
+    if (this.base + cps.length + 2 > MAX_STAMP) {
+      this.seen.fill(-1)
+      this.base = 0
+    }
+    const base = this.base
+    this.base += cps.length + 2
+    let current = this.current
+    let next = this.next
+    let currentCount = 0
+    for (let at = 0; at <= cps.length; at += 1) {
+      if (at === 0 || !this.anchored)
+        currentCount = this.add(current, currentCount, 0, at, base + at)
+      else if (currentCount === 0) return false
+      let nextCount = 0
+      const cp = cps[at]
+      for (let index = 0; index < currentCount; index += 1) {
+        const inst = program[current[index] ?? 0]
+        if (inst === undefined) continue
+        if (inst.op === "match") return true
+        if (inst.op === "char" && cp !== undefined && inst.test(cp)) {
+          nextCount = this.add(next, nextCount, (current[index] ?? 0) + 1, at + 1, base + at + 1)
+        }
+      }
+      const swap = current
+      current = next
+      next = swap
+      currentCount = nextCount
+    }
+    return false
+  }
+
+  private add(list: Int32Array, count: number, start: number, at: number, stamp: number): number {
+    const { program, seen, stack, cps } = this
     stack.length = 0
     stack.push(start)
     let added = count
@@ -794,23 +873,4 @@ function run(program: readonly Inst[], input: string): boolean {
     }
     return added
   }
-
-  for (let at = 0; at <= cps.length; at += 1) {
-    currentCount = add(current, currentCount, 0, at, at)
-    nextCount = 0
-    const cp = cps[at]
-    for (let index = 0; index < currentCount; index += 1) {
-      const inst = program[current[index] ?? 0]
-      if (inst === undefined) continue
-      if (inst.op === "match") return true
-      if (inst.op === "char" && cp !== undefined && inst.test(cp)) {
-        nextCount = add(next, nextCount, (current[index] ?? 0) + 1, at + 1, at + 1)
-      }
-    }
-    const swap = current
-    current = next
-    next = swap
-    currentCount = nextCount
-  }
-  return false
 }

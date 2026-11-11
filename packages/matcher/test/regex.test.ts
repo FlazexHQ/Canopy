@@ -100,3 +100,30 @@ describe("compileRegex", () => {
     )
   })
 })
+
+describe("plain text patterns", () => {
+  const alphabet = fc.constantFrom("a", "b", "A", "1", " ", "-", "/", "é", "😀", "\n")
+  const text = fc.array(alphabet, { maxLength: 12 }).map((chars) => chars.join(""))
+  const literal = fc
+    .array(fc.constantFrom("a", "b", "A", "1", " ", "-", "/"), { minLength: 1, maxLength: 4 })
+    .map((chars) => chars.join(""))
+
+  it("matches like the same pattern run through the regex engine", () => {
+    fc.assert(
+      fc.property(literal, text, fc.constantFrom("", "m", "s"), (pattern, input, options) => {
+        for (const anchor of ["", "^"]) {
+          const fast = compileRegex(`${anchor}${pattern}`, options)
+          const engine = compileRegex(`${anchor}(?:${pattern})`, options)
+          expect(fast.test(input)).toBe(engine.test(input))
+        }
+      }),
+      { numRuns: 2000 },
+    )
+  })
+
+  it("treats ^ as the start of any line in multiline mode", () => {
+    expect(compileRegex("^ab", "m").test("x\nab")).toBe(true)
+    expect(compileRegex("^ab").test("x\nab")).toBe(false)
+    expect(compileRegex("ab", "i").test("AB")).toBe(true)
+  })
+})

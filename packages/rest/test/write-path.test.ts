@@ -86,6 +86,18 @@ const notes = collection("notes", {
   fields: { read: { default: { omit: ["secret"] } } },
 })
 
+const slots = collection("slots", {
+  exposed: true,
+  policies: [
+    allow.read("writer").where({ public: true }),
+    allow.update("writer"),
+    allow.delete("writer"),
+    allow.read("checker").where({ public: true }),
+    allow.update("checker").check({ n: { $lt: 100 } }),
+  ],
+  fields: { read: { default: { omit: ["secret"] } } },
+})
+
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
 /** Relaxed EJSON, so exact BSON values (Int32 and friends) compare equal to plain literals. */
@@ -108,6 +120,16 @@ const service: Caller = {
 const editor: Caller = {
   context: { roles: new Set(["authenticated", "editor"]), claims: { sub: "ed" }, now: new Date() },
   subject: "ed",
+}
+
+const writer: Caller = {
+  context: { roles: new Set(["authenticated", "writer"]), claims: { sub: "w" }, now: new Date() },
+  subject: "w",
+}
+
+const checker: Caller = {
+  context: { roles: new Set(["authenticated", "checker"]), claims: { sub: "c" }, now: new Date() },
+  subject: "c",
 }
 
 const anon: Caller = {
@@ -148,7 +170,9 @@ suite("WritePath against MongoDB", () => {
     client = new MongoClient(MONGODB_URI ?? "", { monitorCommands: true })
     await client.connect()
     db = client.db(dbName)
-    const engine = new PolicyEngine(createPolicySet([todos, boards, plain, inbox, hidden, notes]))
+    const engine = new PolicyEngine(
+      createPolicySet([todos, boards, plain, inbox, hidden, notes, slots]),
+    )
     writes = new WritePath({
       client,
       database: dbName,
@@ -157,7 +181,7 @@ suite("WritePath against MongoDB", () => {
       limits: { maxBulk: 3, maxInsertMany: 5 },
     })
     await writes.ensureIndexes()
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
       await db.createCollection(name)
   })
 
@@ -168,7 +192,7 @@ suite("WritePath against MongoDB", () => {
   })
 
   beforeEach(async () => {
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
       await coll(name).deleteMany({})
     await client.db(metaName).collection("mutations").deleteMany({})
   })
@@ -193,6 +217,31 @@ suite("WritePath against MongoDB", () => {
         doc: { title: "t", ownerId: "alice" },
       })
       expect(result.insertedIds[0]).toBeInstanceOf(BSON.ObjectId)
+    })
+
+    it("stores _id as the first field and keeps the order of the others", async () => {
+      const result = await run(alice, {
+        op: "insertMany",
+        collection: "todos",
+        docs: [
+          { title: "a", ownerId: "alice", _id: 7 },
+          { done: false, title: "b", ownerId: "alice" },
+        ],
+      })
+      const stored = await coll("todos")
+        .find({}, { sort: { title: 1 } })
+        .toArray()
+      expect(stored.map((doc) => Object.keys(doc))).toEqual([
+        ["_id", "title", "ownerId"],
+        ["_id", "done", "title", "ownerId"],
+      ])
+      expect(result.insertedIds[0]).toBe(7)
+      expect(result.insertedIds[1]).toBeInstanceOf(BSON.ObjectId)
+      expect(stored[1]?.["_id"]).toEqual(result.insertedIds[1])
+      expect(result.documents?.map((doc) => Object.keys(doc ?? {}))).toEqual([
+        ["_id", "title", "ownerId"],
+        ["_id", "done", "title", "ownerId"],
+      ])
     })
 
     it("rejects a document that fails CHECK(insert) and leaves nothing behind", async () => {
@@ -848,12 +897,49 @@ suite("WritePath against MongoDB", () => {
       expect(isClusterTime(value.ct)).toBe(true)
     })
 
-    it("keeps the transaction when a check exists or a mutation ID is given", async () => {
-      await coll("todos").insertOne({ _id: 1, ownerId: "alice" })
-      const checked = await commands(() =>
+    it("skips the transaction when the update cannot change what its check reads", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", title: "t" })
+      const { value, writes, transactional } = await commands(() =>
         run(alice, { op: "update", collection: "todos", id: 1, update: { $set: { done: true } } }),
       )
-      expect(checked.transactional).toBe(true)
+      expect(transactional).toBe(false)
+      expect(writes).toEqual(["update"])
+      expect(relaxed(value)).toMatchObject({ matched: 1, modified: 1, changedIds: [1] })
+      expect(relaxed(value.documents)).toEqual([
+        { _id: 1, ownerId: "alice", title: "t", done: true },
+      ])
+      const invisible = await commands(() =>
+        run(bob, { op: "update", collection: "todos", id: 1, update: { $set: { done: false } } }),
+      )
+      expect(invisible.transactional).toBe(false)
+      expect(relaxed(invisible.value)).toMatchObject({ matched: 0, modified: 0 })
+      expect((await byId("todos", 1))?.["done"]).toBe(true)
+    })
+
+    it("keeps the transaction when the update writes a checked field or the check asks for more", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice" })
+      const handover = await commands(() =>
+        failure(
+          run(alice, {
+            op: "update",
+            collection: "todos",
+            id: 1,
+            update: { $set: { ownerId: "bob" } },
+          }),
+        ),
+      )
+      expect(handover.transactional).toBe(true)
+      expect(handover.value.code).toBe(ErrorCode.PolicyViolation)
+      expect((await byId("todos", 1))?.["ownerId"]).toBe("alice")
+
+      await coll("boards").insertOne({ _id: 1, ownerId: "alice", count: 3, title: "b" })
+      const stricter = await commands(() =>
+        run(alice, { op: "update", collection: "boards", id: 1, update: { $set: { title: "c" } } }),
+      )
+      expect(stricter.transactional).toBe(true)
+    })
+
+    it("keeps the transaction when a mutation ID is given", async () => {
       const keyed = await commands(() =>
         run(
           editor,
@@ -869,6 +955,86 @@ suite("WritePath against MongoDB", () => {
       )
       expect(replay.replayed).toBe(true)
       expect((await byId("notes", 1))?.["n"]).toBe(1)
+    })
+
+    it("checks a single insert in MongoDB before writing it, without a transaction", async () => {
+      const seen: string[] = []
+      const listener = (event: { commandName: string }): void => {
+        seen.push(event.commandName)
+      }
+      const inserted = await commands(() =>
+        run(alice, {
+          op: "insert",
+          collection: "todos",
+          doc: { title: "t", done: false, ownerId: "alice", _id: 7 },
+        }),
+      )
+      expect(inserted.transactional).toBe(false)
+      expect(inserted.writes).toEqual(["insert"])
+      expect(relaxed(inserted.value.documents)).toEqual([
+        { _id: 7, title: "t", done: false, ownerId: "alice" },
+      ])
+      expect(Object.keys((await byId("todos", 7)) ?? {})).toEqual([
+        "_id",
+        "title",
+        "done",
+        "ownerId",
+      ])
+
+      client.on("commandStarted", listener)
+      try {
+        const error = await failure(
+          run(alice, { op: "insert", collection: "todos", doc: { _id: 8, ownerId: "bob" } }),
+        )
+        expect(error.code).toBe(ErrorCode.PolicyViolation)
+      } finally {
+        client.off("commandStarted", listener)
+      }
+      expect(seen).not.toContain("insert")
+      expect(await byId("todos", 8)).toBeNull()
+    })
+
+    it("keeps the transaction for several documents and refuses all of them when one fails", async () => {
+      const many = await commands(() =>
+        run(alice, {
+          op: "insertMany",
+          collection: "todos",
+          docs: [
+            { _id: 1, ownerId: "alice" },
+            { _id: 2, ownerId: "alice" },
+          ],
+        }),
+      )
+      expect(many.transactional).toBe(true)
+      expect(relaxed(many.value.documents)).toEqual([
+        { _id: 1, ownerId: "alice" },
+        { _id: 2, ownerId: "alice" },
+      ])
+      const error = await failure(
+        run(alice, {
+          op: "insertMany",
+          collection: "todos",
+          docs: [
+            { _id: 3, ownerId: "alice" },
+            { _id: 4, ownerId: "bob" },
+          ],
+        }),
+      )
+      expect(error.code).toBe(ErrorCode.PolicyViolation)
+      expect((await docs("todos")).map((doc) => doc["_id"])).toEqual([1, 2])
+    })
+
+    it("checks documents too large to send twice after writing them, in a transaction", async () => {
+      const big = "x".repeat(9 * 1024 * 1024)
+      const accepted = await commands(() =>
+        run(alice, { op: "insert", collection: "plain", doc: { _id: 1, ownerId: "alice", big } }),
+      )
+      expect(accepted.transactional).toBe(true)
+      const error = await failure(
+        run(alice, { op: "insert", collection: "plain", doc: { _id: 2, ownerId: "bob", big } }),
+      )
+      expect(error.code).toBe(ErrorCode.PolicyViolation)
+      expect(await byId("plain", 2)).toBeNull()
     })
 
     it("inserts, replaces with upsert and deletes on the fast path", async () => {
@@ -981,6 +1147,309 @@ suite("WritePath against MongoDB", () => {
       expect(txn).toMatchObject({ matched: 0, modified: 0 })
       expect(isClusterTime(txn.ct)).toBe(true)
       expect((await byId("notes", 2))?.["body"]).toBe("b")
+    })
+  })
+
+  describe("commands and read back", () => {
+    const TRACED = new Set(["update", "delete", "insert", "find", "aggregate", "findAndModify"])
+
+    async function traced<T>(body: () => Promise<T>): Promise<{ value: T; names: string[] }> {
+      const names: string[] = []
+      const listener = (event: { commandName: string }): void => {
+        if (
+          TRACED.has(event.commandName) ||
+          event.commandName === "bulkWrite" ||
+          event.commandName === "commitTransaction"
+        )
+          names.push(event.commandName)
+      }
+      client.on("commandStarted", listener)
+      try {
+        return { value: await body(), names }
+      } finally {
+        client.off("commandStarted", listener)
+      }
+    }
+
+    let bulkWrite = false
+    beforeAll(async () => {
+      const hello = await client.db("admin").command({ hello: 1 })
+      bulkWrite = Number(hello["maxWireVersion"]) >= 25
+    })
+
+    beforeEach(async () => {
+      await coll("slots").insertMany([
+        { _id: 1, public: true, secret: "s1", n: 0 },
+        { _id: 2, public: false, secret: "s2", n: 0 },
+        { _id: 3, public: true, n: 0 },
+      ])
+    })
+
+    it("returns every fast path update's own post image under concurrency", async () => {
+      await coll("notes").insertMany(
+        Array.from({ length: 200 }, (_, i) => ({ _id: 100 + i, team: "t", n: 0 })),
+      )
+      const results = await Promise.all(
+        Array.from({ length: 200 }, (_, i) =>
+          run(editor, {
+            op: "update",
+            collection: "notes",
+            id: 100 + i,
+            update: { $inc: { n: 1 }, $set: { mark: i } },
+          }),
+        ),
+      )
+      for (const [i, result] of results.entries()) {
+        expect(result.replayed).toBe(false)
+        expect(relaxed(result.documents)).toEqual([{ _id: 100 + i, team: "t", n: 1, mark: i }])
+      }
+    })
+
+    it("reads one document back with find, applying read rules and field rules", async () => {
+      const visible = await traced(() =>
+        run(writer, { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } }),
+      )
+      expect(visible.names).toEqual(["update", "find"])
+      expect(relaxed(visible.value.documents)).toEqual([{ _id: 1, public: true, n: 1 }])
+      const hidden = await run(writer, {
+        op: "update",
+        collection: "slots",
+        id: 1,
+        update: { $set: { public: false } },
+      })
+      expect(hidden).toMatchObject({ matched: 1, modified: 1 })
+      expect(hidden.documents).toEqual([null])
+      expect((await byId("slots", 1))?.["public"]).toBe(false)
+      const invisible = await run(writer, {
+        op: "update",
+        collection: "slots",
+        id: 2,
+        update: { $inc: { n: 1 } },
+      })
+      expect(invisible).toMatchObject({ matched: 0, modified: 0 })
+      expect((await byId("slots", 2))?.["n"]).toBe(0)
+    })
+
+    it("evaluates a check and reads back in one aggregation, with the same results", async () => {
+      const visible = await traced(() =>
+        run(checker, { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } }),
+      )
+      expect(visible.names).toContain("aggregate")
+      expect(visible.names).not.toContain("find")
+      expect(relaxed(visible.value.documents)).toEqual([{ _id: 1, public: true, n: 1 }])
+      const refused = await failure(
+        run(checker, { op: "update", collection: "slots", id: 1, update: { $set: { n: 100 } } }),
+      )
+      expect(refused.code).toBe(ErrorCode.PolicyViolation)
+      expect((await byId("slots", 1))?.["n"]).toBe(1)
+      const hidden = await run(checker, {
+        op: "update",
+        collection: "slots",
+        id: 1,
+        update: { $set: { public: false } },
+      })
+      expect(hidden).toMatchObject({ matched: 1, modified: 1 })
+      expect(hidden.documents).toEqual([null])
+    })
+
+    it("skips the read back when documents are not wanted, but still evaluates check", async () => {
+      const update = await traced(() =>
+        writes.execute(
+          writer,
+          { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } },
+          { returnDocuments: false },
+        ),
+      )
+      expect(update.names).toEqual(["update"])
+      expect(update.value.documents).toBeUndefined()
+      expect(relaxed(update.value)).toMatchObject({ matched: 1, modified: 1, changedIds: [1] })
+
+      const remove = await traced(() =>
+        writes.execute(
+          writer,
+          { op: "delete", collection: "slots", id: 3 },
+          { returnDocuments: false },
+        ),
+      )
+      expect(remove.names).toEqual(["delete"])
+      expect(relaxed(remove.value)).toMatchObject({ deleted: 1, changedIds: [3] })
+      expect(await byId("slots", 3)).toBeNull()
+
+      const refused = await failure(
+        writes.execute(
+          checker,
+          { op: "update", collection: "slots", id: 1, update: { $set: { n: 500 } } },
+          { returnDocuments: false },
+        ),
+      )
+      expect(refused.code).toBe(ErrorCode.PolicyViolation)
+      expect((await byId("slots", 1))?.["n"]).toBe(1)
+
+      const insert = await traced(() =>
+        writes.execute(
+          alice,
+          { op: "insert", collection: "todos", doc: { _id: 9, ownerId: "alice" } },
+          { returnDocuments: false },
+        ),
+      )
+      expect(insert.value.documents).toBeUndefined()
+      expect(insert.names).not.toContain("find")
+      const wrongOwner = await failure(
+        writes.execute(
+          alice,
+          { op: "insert", collection: "todos", doc: { _id: 10, ownerId: "bob" } },
+          { returnDocuments: false },
+        ),
+      )
+      expect(wrongOwner.code).toBe(ErrorCode.PolicyViolation)
+      expect(await byId("todos", 10)).toBeNull()
+    })
+
+    it("sends a keyed update and its record as one command on MongoDB 8.0 and later", async () => {
+      const keyed = await traced(() =>
+        writes.execute(
+          writer,
+          { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } },
+          { mutationId: "m-bulk-0001", returnDocuments: false },
+        ),
+      )
+      expect(keyed.names).toEqual(
+        bulkWrite ? ["bulkWrite", "commitTransaction"] : ["update", "insert", "commitTransaction"],
+      )
+      const withDocs = await traced(() =>
+        writes.execute(
+          writer,
+          { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } },
+          { mutationId: "m-bulk-0002" },
+        ),
+      )
+      expect(withDocs.names).toEqual(
+        bulkWrite
+          ? ["bulkWrite", "find", "commitTransaction"]
+          : ["update", "find", "insert", "commitTransaction"],
+      )
+      const replay = await writes.execute(
+        writer,
+        { op: "update", collection: "slots", id: 1, update: { $inc: { n: 1 } } },
+        { mutationId: "m-bulk-0001" },
+      )
+      expect(replay.replayed).toBe(true)
+      expect(relaxed(replay)).toMatchObject({ matched: 1, modified: 1, changedIds: [1] })
+      expect(relaxed(replay.documents)).toEqual([{ _id: 1, public: true, n: 2 }])
+      expect((await byId("slots", 1))?.["n"]).toBe(2)
+    })
+
+    it("stores the real outcome of a keyed write that matched nothing or changed nothing", async () => {
+      const missing: WriteRequest = {
+        op: "update",
+        collection: "slots",
+        id: 404,
+        update: { $set: { n: 1 } },
+      }
+      const first = await run(writer, missing, "m-outcome-01")
+      expect(first).toMatchObject({ matched: 0, modified: 0, changedIds: [] })
+      const again = await run(writer, missing, "m-outcome-01")
+      expect(again).toMatchObject({ replayed: true, matched: 0, modified: 0, changedIds: [] })
+
+      const same: WriteRequest = {
+        op: "update",
+        collection: "slots",
+        id: 1,
+        update: { $set: { n: 0 } },
+      }
+      const unchanged = await run(writer, same, "m-outcome-02")
+      expect(unchanged).toMatchObject({ matched: 1, modified: 0, changedIds: [] })
+      const replayed = await run(writer, same, "m-outcome-02")
+      expect(replayed).toMatchObject({ replayed: true, matched: 1, modified: 0, changedIds: [] })
+      const stored = await client
+        .db(metaName)
+        .collection("mutations")
+        .findOne({ _id: "m-outcome-02" as never })
+      expect(relaxed(stored?.["result"])).toEqual({
+        matched: 1,
+        modified: 0,
+        deleted: 0,
+        insertedIds: [],
+        changedIds: [],
+      })
+    })
+
+    it("keeps no documents in idempotency records and reads them again on replay", async () => {
+      const insert: WriteRequest = {
+        op: "insert",
+        collection: "todos",
+        doc: { _id: 5, ownerId: "alice", title: "a" },
+      }
+      const first = await run(alice, insert, "m-record-01")
+      expect(relaxed(first.documents)).toEqual([{ _id: 5, ownerId: "alice", title: "a" }])
+      const stored = await client
+        .db(metaName)
+        .collection("mutations")
+        .findOne({ _id: "m-record-01" as never })
+      expect(stored?.["result"]).toBeDefined()
+      expect(stored?.["result"]).not.toHaveProperty("documents")
+      await db
+        .collection("todos")
+        .updateOne({ _id: 5 } as Document, { $set: { title: "b", internalNotes: "n" } })
+      const replay = await run(alice, insert, "m-record-01")
+      expect(replay.replayed).toBe(true)
+      expect(relaxed(replay.documents)).toEqual([{ _id: 5, ownerId: "alice", title: "b" }])
+
+      const remove: WriteRequest = { op: "delete", collection: "todos", id: 5 }
+      const deleted = await run(alice, remove, "m-record-02")
+      expect(relaxed(deleted.documents)).toEqual([{ _id: 5, ownerId: "alice", title: "b" }])
+      const replayedDelete = await run(alice, remove, "m-record-02")
+      expect(replayedDelete).toMatchObject({ replayed: true, deleted: 1, documents: [null] })
+    })
+
+    it("checks every document of an insertMany that returns no documents", async () => {
+      const ok = await traced(() =>
+        writes.execute(
+          alice,
+          {
+            op: "insertMany",
+            collection: "todos",
+            docs: [
+              { _id: 20, ownerId: "alice" },
+              { _id: 21, ownerId: "alice" },
+            ],
+          },
+          { returnDocuments: false },
+        ),
+      )
+      expect(ok.value.documents).toBeUndefined()
+      expect(relaxed(ok.value.insertedIds)).toEqual([20, 21])
+      expect(ok.names).not.toContain("find")
+      const refused = await failure(
+        writes.execute(
+          alice,
+          {
+            op: "insertMany",
+            collection: "todos",
+            docs: [
+              { _id: 22, ownerId: "alice" },
+              { _id: 23, ownerId: "bob" },
+            ],
+          },
+          { returnDocuments: false },
+        ),
+      )
+      expect(refused.code).toBe(ErrorCode.PolicyViolation)
+      expect(await byId("todos", 22)).toBeNull()
+    })
+
+    it("refuses a duplicate key in a keyed insert and records nothing", async () => {
+      await coll("todos").insertOne({ _id: 6, ownerId: "alice" })
+      const duplicate = await failure(
+        run(
+          alice,
+          { op: "insert", collection: "todos", doc: { _id: 6, ownerId: "alice" } },
+          "m-dup-000001",
+        ),
+      )
+      expect(duplicate.code).toBe(ErrorCode.DuplicateKey)
+      const records = client.db(metaName).collection("mutations")
+      expect(await records.countDocuments({ _id: "m-dup-000001" as never })).toBe(0)
     })
   })
 

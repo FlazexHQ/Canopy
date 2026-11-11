@@ -17,21 +17,22 @@ import {
 import {
   CanopyError,
   type ClusterTime,
+  canonicalString,
   ErrorCode,
   InvalidQueryError,
   isDocument,
+  serverErrorCode,
   toCt,
 } from "@canopy/protocol"
 import {
   DEFAULT_LIMITS,
   type ParsedQuery,
-  parseFilter,
   parseQuery,
   pathsOverlap,
   type QueryLimits,
   validatePath,
 } from "@canopy/query"
-import type { ClientSession, Db, Document, MongoClient } from "mongodb"
+import { type ClientSession, type Db, type Document, type MongoClient, MongoError } from "mongodb"
 import {
   type CursorKey,
   cursorKeys,
@@ -46,6 +47,14 @@ import { fromDriverError } from "./errors.ts"
 import type { CountMode } from "./params.ts"
 import { validateCollectionName, validateId } from "./validation.ts"
 import type { Caller, ReturnedDocument } from "./write-path.ts"
+
+const MAX_TIME_EXPIRED = 50
+/** How long a collection's estimated size is reused before it is read again. */
+const SIZE_TTL_MS = 60_000
+/** How many unsorted finds of one filter shape in a row must lose the `_id` walk before it is skipped. */
+const SPARSE_STREAK = 2
+/** The most filter shapes whose walk outcome is remembered; the memory starts over when it is full. */
+const MAX_SHAPES = 1024
 
 /** Limits on reads. */
 export interface ReadLimits {
@@ -63,6 +72,26 @@ export interface ReadLimits {
   readonly maxPipelineStages: number
   /** Time limit of each read. */
   readonly maxTimeMS: number
+  /**
+   * How long a find without a sort may at least walk documents in `_id` order before it switches to a
+   * collection scan with an in memory sort. Walking `_id` order stops early when many documents match, but
+   * reads the whole collection through the `_id` index when few do, which a collection scan does faster. On
+   * a large collection the walk may go on as long as `scanMSPerMillion` estimates a scan of the whole
+   * collection to take, up to half of `maxTimeMS`, so such a find costs about twice the faster plan at
+   * most. `0` turns the switch off. Both attempts together stay within `maxTimeMS`.
+   *
+   * The outcome is remembered per collection, read policy filter and filter shape (the caller's filter with
+   * its values left out), so only callers who can see the same documents share it. After two finds of a
+   * shape in a row lost the walk, because it ran out of time or read every document without filling a page,
+   * finds of that shape scan the collection at once. A scan that fills a page lets the next find of the
+   * shape try the walk again, and a walk that fills one forgets the shape.
+   */
+  readonly unsortedProbeMS: number
+  /**
+   * The estimated time in milliseconds to scan a million documents, which lets an unsorted find walk `_id`
+   * order for longer on a large collection. `0` keeps that walk at `unsortedProbeMS`.
+   */
+  readonly scanMSPerMillion: number
 }
 
 /** Default read limits. */
@@ -74,6 +103,8 @@ export const DEFAULT_READ_LIMITS: ReadLimits = {
   maxAggregateResults: 1000,
   maxPipelineStages: 20,
   maxTimeMS: 5000,
+  unsortedProbeMS: 100,
+  scanMSPerMillion: 400,
 }
 
 /** Options for {@link ReadPath}. */
@@ -145,6 +176,9 @@ export class ReadPath {
   private readonly engine: () => PolicyEngine
   private readonly limits: ReadLimits
   private readonly queryLimits: QueryLimits
+  private readonly sizes = new Map<string, { readonly docs: number; readonly at: number }>()
+  /** How many unsorted finds in a row lost the `_id` walk, by collection, read filter and filter shape. */
+  private readonly sparse = new Map<string, number>()
 
   constructor(options: ReadPathOptions) {
     this.client = options.client
@@ -153,6 +187,54 @@ export class ReadPath {
     this.engine = typeof policies === "function" ? policies : () => policies
     this.limits = { ...DEFAULT_READ_LIMITS, ...options.limits }
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
+  }
+
+  /** How long an unsorted find on this collection may walk `_id` order, from its estimated size. */
+  private async probeBudget(collection: string): Promise<number> {
+    const { unsortedProbeMS, scanMSPerMillion, maxTimeMS } = this.limits
+    let budget = unsortedProbeMS
+    if (scanMSPerMillion > 0) {
+      const docs = await this.estimatedDocuments(collection)
+      budget = Math.max(budget, Math.min(maxTimeMS / 2, (docs / 1e6) * scanMSPerMillion))
+    }
+    return Math.max(1, Math.round(budget))
+  }
+
+  /**
+   * Records how an unsorted find of a filter shape went: `scanned` when it skipped the walk, `walked` when
+   * the walk finished, `full` when the page was filled. A walk that fills a page forgets the shape. A walk
+   * that ran out of time or read every document in range adds to the streak. A scan that fills a page
+   * takes one off it, so the next find tries the walk again in case many documents match now.
+   */
+  private learn(shapeKey: string, scanned: boolean, walked: boolean, full: boolean): void {
+    if (walked && full) {
+      this.sparse.delete(shapeKey)
+      return
+    }
+    const streak = this.sparse.get(shapeKey) ?? 0
+    if (scanned) {
+      if (full) this.sparse.set(shapeKey, SPARSE_STREAK - 1)
+      return
+    }
+    if (!this.sparse.has(shapeKey) && this.sparse.size >= MAX_SHAPES) this.sparse.clear()
+    this.sparse.set(shapeKey, Math.min(SPARSE_STREAK, streak + 1))
+  }
+
+  /**
+   * The collection's estimated document count from its metadata, reused for a minute. When the estimate
+   * cannot be read, the last one (or none) is used, which only shortens the `_id` walk of unsorted finds.
+   */
+  private async estimatedDocuments(collection: string): Promise<number> {
+    const cached = this.sizes.get(collection)
+    if (cached !== undefined && Date.now() - cached.at < SIZE_TTL_MS) return cached.docs
+    let docs = cached?.docs ?? 0
+    try {
+      docs = await this.db.collection(collection).estimatedDocumentCount({ maxTimeMS: 1000 })
+    } catch (error: unknown) {
+      if (!(error instanceof MongoError)) throw error
+    }
+    this.sizes.set(collection, { docs, at: Date.now() })
+    return docs
   }
 
   /** The read limits in force. */
@@ -208,7 +290,11 @@ export class ReadPath {
       throw new InvalidQueryError("skip and after cannot be combined")
     const skip = this.skipOf(request.skip)
     const keys = cursorKeys(parsed.sort?.sort)
-    const hash = cursorQueryHash(planned.name, parsed.filter.filter, keys)
+    let hash: string | undefined
+    const queryHash = (): string => {
+      hash ??= cursorQueryHash(planned.name, parsed.filter.filter, keys)
+      return hash
+    }
     const effective = planned.engine.effectiveRead(
       planned.name,
       parsed.filter.filter,
@@ -219,7 +305,7 @@ export class ReadPath {
         ? effective
         : and(effective, {
             kind: "filter",
-            filter: this.validated(keysetFilter(keys, decodeCursor(request.after, keys, hash))),
+            filter: keysetFilter(keys, decodeCursor(request.after, keys, queryHash())),
           })
     const userProjection = parsed.fields?.projection
     const pushdown = intersectProjection(
@@ -228,25 +314,55 @@ export class ReadPath {
     )
     const shape = userProjection === undefined ? undefined : compileProjection(userProjection)
     const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
+    const { unsortedProbeMS, maxTimeMS } = this.limits
+    const switching =
+      parsed.sort === undefined && unsortedProbeMS > 0 && unsortedProbeMS < maxTimeMS
+    const shapeKey = switching
+      ? [
+          planned.name,
+          canonicalString(toFilter(planned.engine.using(planned.name, "read", caller.context))),
+          filterShape(parsed.filter.filter),
+          request.after === undefined ? "" : "after",
+        ].join("\u0000")
+      : undefined
+    const scanFirst = shapeKey !== undefined && (this.sparse.get(shapeKey) ?? 0) >= SPARSE_STREAK
+    const probeMS = switching && !scanFirst ? await this.probeBudget(planned.name) : 0
     return this.inSnapshot(planned.service, async (session) => {
-      const raw = (await this.db
-        .collection(planned.name)
-        .find(toDriver(toFilter(ranged)), {
-          session,
-          sort,
-          limit: limit + 1,
-          ...(skip === 0 ? {} : { skip }),
-          ...(pushdown === undefined ? {} : { projection: pushdown }),
-          maxTimeMS: this.limits.maxTimeMS,
-          ...EXACT_BSON,
-        })
-        .toArray()) as Record<string, unknown>[]
+      const read = (timeMS: number, natural: boolean): Promise<Record<string, unknown>[]> =>
+        this.db
+          .collection(planned.name)
+          .find(toDriver(toFilter(ranged)), {
+            session,
+            sort,
+            limit: limit + 1,
+            ...(skip === 0 ? {} : { skip }),
+            ...(pushdown === undefined ? {} : { projection: pushdown }),
+            ...(natural ? { hint: { $natural: 1 } } : {}),
+            maxTimeMS: timeMS,
+            ...EXACT_BSON,
+          })
+          .toArray() as Promise<Record<string, unknown>[]>
+      let raw: Record<string, unknown>[]
+      let walked = !scanFirst
+      if (scanFirst) raw = await read(maxTimeMS, true)
+      else if (switching) {
+        try {
+          raw = await read(probeMS, false)
+        } catch (error: unknown) {
+          if (serverErrorCode(error) !== MAX_TIME_EXPIRED) throw error
+          walked = false
+          raw = await read(maxTimeMS - probeMS, true)
+        }
+      } else raw = await read(maxTimeMS, false)
       abortCheck(options.signal, "read")
       const more = raw.length > limit
+      if (shapeKey !== undefined) this.learn(shapeKey, scanFirst, walked, more)
       const page = more ? raw.slice(0, limit) : raw
       const last = page.at(-1)
       const next =
-        more && last !== undefined ? encodeCursor({ values: positionOf(last, keys) }, hash) : null
+        more && last !== undefined
+          ? encodeCursor({ values: positionOf(last, keys) }, queryHash())
+          : null
       const docs = page.map((doc) => {
         const readable = projectReadable(planned.readable, doc)
         return shape === undefined ? readable : shape.apply(readable)
@@ -440,11 +556,6 @@ export class ReadPath {
     return parsed
   }
 
-  /** Runs the generated keyset filter through the filter validator, as a guard on decoded cursor values. */
-  private validated(filter: Record<string, unknown>): Record<string, unknown> {
-    return parseFilter(filter, { context: "filter", limits: this.queryLimits }).filter
-  }
-
   private pageLimit(limit: number | undefined): number {
     if (limit === undefined) return Math.min(this.limits.defaultLimit, this.limits.maxLimit)
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > this.limits.maxLimit)
@@ -537,6 +648,19 @@ function pruneDescendants(projection: Record<string, 0 | 1>): Record<string, 0 |
       .filter((path) => !paths.some((other) => other !== path && path.startsWith(`${other}.`)))
       .map((path) => [path, projection[path] ?? 1]),
   )
+}
+
+/**
+ * The structure of a filter without its values: field names, operators and nested branches, with every
+ * value (and every list of values) written as `?`. Finds that differ only in their values share a shape.
+ */
+function filterShape(value: unknown): string {
+  if (Array.isArray(value))
+    return value.some(isDocument) ? `[${value.map(filterShape).join(",")}]` : "?"
+  if (!isDocument(value)) return "?"
+  let out = "{"
+  for (const key of Object.keys(value)) out += `${JSON.stringify(key)}:${filterShape(value[key])},`
+  return `${out}}`
 }
 
 function estimable(effective: Compiled, parsed: ParsedQuery): boolean {

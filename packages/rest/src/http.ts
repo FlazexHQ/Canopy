@@ -123,15 +123,19 @@ function tooLarge(maxBytes: number): CanopyError {
   )
 }
 
-/** Serializes a response body in the negotiated encoding. */
-export function jsonResponse(
-  body: unknown,
+/** The JSON text of a value in the negotiated encoding. */
+export function encodeBody(body: unknown, encoding: Encoding): string {
+  return JSON.stringify(encoding === "canonical" ? toCanonical(body) : encode(body))
+}
+
+/** A response whose body is JSON text already in the negotiated encoding. */
+export function textResponse(
+  text: string,
   encoding: Encoding,
   status = 200,
   headers: Record<string, string> = {},
 ): Response {
-  const encoded = encoding === "canonical" ? toCanonical(body) : encode(body)
-  return new Response(JSON.stringify(encoded), {
+  return new Response(text, {
     status,
     headers: {
       "content-type":
@@ -139,6 +143,16 @@ export function jsonResponse(
       ...headers,
     },
   })
+}
+
+/** Serializes a response body in the negotiated encoding. */
+export function jsonResponse(
+  body: unknown,
+  encoding: Encoding,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
+  return textResponse(encodeBody(body, encoding), encoding, status, headers)
 }
 
 /** Serializes Problem Details, with `WWW-Authenticate` on `401` and `Retry-After` on `429`. */

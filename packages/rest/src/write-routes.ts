@@ -12,7 +12,13 @@ import { type IdType, parseId } from "./ids.ts"
 import { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"
 import { combineFilters, parseEjsonParam, RESERVED_PARAMS, shorthandFilter } from "./params.ts"
 import { type Problem, toProblem } from "./problem.ts"
-import type { BatchOperationResult, WritePath, WriteRequest, WriteResult } from "./write-path.ts"
+import type {
+  BatchOperationResult,
+  WriteOptions,
+  WritePath,
+  WriteRequest,
+  WriteResult,
+} from "./write-path.ts"
 
 /** What the write routes need from the handler. */
 export interface WriteRouteOptions {
@@ -61,11 +67,16 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
     return body
   }
 
-  const mutationIdOf = (exchange: Exchange): { mutationId?: string; signal: AbortSignal } => {
+  /**
+   * The write options of a request: its `Idempotency-Key`, and no read back of the written documents when
+   * the response will not carry them (`Prefer: return=minimal`).
+   */
+  const writeOptionsOf = (exchange: Exchange): WriteOptions => {
     const key = exchange.request.headers.get("idempotency-key")
     return {
       signal: exchange.request.signal,
       ...(key === null ? {} : { mutationId: key }),
+      ...(exchange.prefer.return === "minimal" ? { returnDocuments: false } : {}),
     }
   }
 
@@ -127,7 +138,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
       const result = await writes.execute(
         exchange.caller,
         { op: "insertMany", collection, docs: value },
-        mutationIdOf(exchange),
+        writeOptionsOf(exchange),
       )
       return written(
         exchange,
@@ -139,7 +150,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
     const result = await writes.execute(
       exchange.caller,
       { op: "insert", collection, doc: value },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     const [id] = result.insertedIds
     return written(exchange, result, { data: result.documents?.[0] ?? null }, 201, {
@@ -160,7 +171,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
         update: mediaType === MERGE_PATCH_MEDIA_TYPE ? mergePatchToUpdate(value) : value,
         ...(where === undefined ? {} : { where }),
       },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     if (result.matched === 0) throw notFound()
     return written(exchange, result, { data: result.documents?.[0] ?? null })
@@ -183,7 +194,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
         upsert: upsertText === "true",
         ...(where === undefined ? {} : { where }),
       },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     if (result.upsertedId !== undefined)
       return written(exchange, result, { data: result.documents?.[0] ?? null }, 201)
@@ -202,7 +213,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
         id: idOf(exchange),
         ...(where === undefined ? {} : { where }),
       },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     if (result.deleted === 0) throw notFound()
     return written(exchange, result, { data: result.documents?.[0] ?? null })
@@ -237,7 +248,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
         update: mediaType === MERGE_PATCH_MEDIA_TYPE ? mergePatchToUpdate(value) : value,
         bulk: true,
       },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     return written(exchange, result, {
       data: { matched: result.matched, modified: result.modified },
@@ -249,7 +260,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
     const result = await writes.execute(
       exchange.caller,
       { op: "deleteMany", collection: exchange.segments[0] ?? "", filter, bulk: true },
-      mutationIdOf(exchange),
+      writeOptionsOf(exchange),
     )
     return written(exchange, result, { data: { deleted: result.deleted } })
   }
@@ -277,7 +288,7 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
       const result = await writes.executeBatch(
         exchange.caller,
         requests.map((entry) => entry.request),
-        mutationIdOf(exchange),
+        writeOptionsOf(exchange),
       )
       const headers = { "x-canopy-ct": result.ct }
       if (exchange.prefer.return === "minimal") return new Response(null, { status: 204, headers })

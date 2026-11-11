@@ -1,4 +1,9 @@
-import { type CompiledFilter, compileSort, type DocComparator } from "@canopy/matcher"
+import {
+  type CompiledFilter,
+  type CompiledSort,
+  compileSortKeys,
+  type DocSortKey,
+} from "@canopy/matcher"
 import {
   CanopyError,
   type ClusterTime,
@@ -398,6 +403,8 @@ export class FilterObserver extends Observer {
 interface Ranked {
   readonly key: string
   readonly member: Member
+  /** The member's sort key, computed once when it enters the window. */
+  readonly order: DocSortKey
 }
 
 /**
@@ -408,7 +415,7 @@ interface Ranked {
 export class WindowObserver extends Observer {
   readonly type: ObserverType = "window"
   private readonly matcher: CompiledFilter
-  private readonly compare: DocComparator
+  private readonly order: CompiledSort
   private known: Ranked[] = []
   private complete = true
   private requeryTimer: ReturnType<typeof setTimeout> | undefined
@@ -424,7 +431,7 @@ export class WindowObserver extends Observer {
   ) {
     super(key, query, reader, hooks, limits)
     this.matcher = matcher
-    this.compare = compileSort(query.sort ?? {})
+    this.order = compileSortKeys(query.sort ?? {})
   }
 
   private get limit(): number {
@@ -456,8 +463,9 @@ export class WindowObserver extends Observer {
     this.known = docs.map((doc) => ({
       key: docKey(this.query.coll, doc["_id"]),
       member: { id: doc["_id"], doc },
+      order: this.order.key(doc),
     }))
-    this.known.sort((a, b) => this.compare(a.member.doc, b.member.doc))
+    this.known.sort((a, b) => this.order.compareKeys(a.order, b.order))
     this.complete = docs.length < this.capacity
     for (const entry of this.known) this.hooks.memberAdded(this, entry.key)
   }
@@ -476,9 +484,12 @@ export class WindowObserver extends Observer {
     const post = event.op === "delete" ? null : (event.post as Doc)
     if (post !== null && this.matcher.matches(post)) {
       const doc = this.query.readable(post)
-      const entry: Ranked = { key: event.key, member: { id: event.id, doc } }
-      let position = this.known.findIndex((other) => this.compare(doc, other.member.doc) < 0)
-      if (position < 0) position = this.known.length
+      const entry: Ranked = {
+        key: event.key,
+        member: { id: event.id, doc },
+        order: this.order.key(doc),
+      }
+      const position = this.positionOf(entry.order)
       if (this.complete || position < this.known.length) {
         this.known.splice(position, 0, entry)
         this.hooks.memberAdded(this, entry.key)
@@ -497,6 +508,19 @@ export class WindowObserver extends Observer {
 
   override settled(): boolean {
     return super.settled() && this.requeryTimer === undefined
+  }
+
+  /** Where a member with this sort key goes: after every known member that sorts before or with it. */
+  private positionOf(order: DocSortKey): number {
+    let low = 0
+    let high = this.known.length
+    while (low < high) {
+      const middle = (low + high) >>> 1
+      const other = this.known[middle]
+      if (other !== undefined && this.order.compareKeys(order, other.order) < 0) high = middle
+      else low = middle + 1
+    }
+    return low
   }
 
   private scheduleRequery(): void {

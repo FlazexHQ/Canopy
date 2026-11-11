@@ -4,6 +4,7 @@ import fc from "fast-check"
 import { describe, expect, it } from "vitest"
 import {
   allow,
+  and,
   auth,
   type Compiled,
   canAccess,
@@ -537,5 +538,32 @@ describe("lint", () => {
       "No index starts with tenantId, which this policy filters on for every query",
     ])
     expect(missing([["tenantId", "createdAt"]])).toEqual([])
+  })
+})
+
+describe("and", () => {
+  const f = (filter: Record<string, unknown>): Compiled => ({ kind: "filter", filter })
+
+  it("drops a filter equal to an earlier one, including through nested $and", () => {
+    expect(and(f({ ownerId: "u1" }), f({ _id: 5 }), f({ $and: [{ ownerId: "u1" }] }))).toEqual(
+      f({ $and: [{ ownerId: "u1" }, { _id: 5 }] }),
+    )
+    expect(and(f({ a: 1, b: { $gt: 2 } }), f({ a: 1, b: { $gt: 2 } }))).toEqual(
+      f({ a: 1, b: { $gt: 2 } }),
+    )
+  })
+
+  it("keeps filters with the same keys but different values or types", () => {
+    expect(and(f({ a: 1 }), f({ a: 2 }))).toEqual(f({ $and: [{ a: 1 }, { a: 2 }] }))
+    expect(and(f({ a: 1 }), f({ a: "1" }))).toEqual(f({ $and: [{ a: 1 }, { a: "1" }] }))
+    expect(and(f({ a: { b: 1, c: 2 } }), f({ a: { c: 2, b: 1 } }))).toEqual(
+      f({ $and: [{ a: { b: 1, c: 2 } }, { a: { c: 2, b: 1 } }] }),
+    )
+  })
+
+  it("keeps every distinct filter in order", () => {
+    expect(and(f({ a: 1 }), f({ b: 1 }), f({ a: 1 }), f({ c: 1 }), f({ b: 1 }))).toEqual(
+      f({ $and: [{ a: 1 }, { b: 1 }, { c: 1 }] }),
+    )
   })
 })

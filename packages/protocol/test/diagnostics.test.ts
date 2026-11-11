@@ -1,3 +1,4 @@
+import { Int32 } from "bson"
 import { describe, expect, it } from "vitest"
 import {
   CanopyError,
@@ -8,6 +9,7 @@ import {
   featureCompatibilityDiagnostic,
   formatDiagnostic,
   mongoTarget,
+  serverErrorCode,
 } from "../src/index.ts"
 
 /** Builds an error shaped like the driver's, with the messages MongoDB 7 and 8 send. */
@@ -196,5 +198,37 @@ describe("mongoTarget", () => {
       host: "cluster0.example.net",
     })
     expect(mongoTarget("not a uri")).toEqual({})
+  })
+})
+
+describe("serverErrorCode", () => {
+  it("reads a numeric code", () => {
+    expect(
+      serverErrorCode(serverError("operation exceeded time limit", 50, "MaxTimeMSExpired")),
+    ).toBe(50)
+  })
+
+  it("unwraps a code decoded as an Int32, as commands with exact BSON types return it", () => {
+    const error = Object.assign(new Error("operation exceeded time limit"), { code: new Int32(50) })
+    expect(serverErrorCode(error)).toBe(50)
+  })
+
+  it("returns undefined without a numeric code", () => {
+    expect(serverErrorCode(new Error("no code"))).toBeUndefined()
+    expect(serverErrorCode(Object.assign(new Error("system"), { code: "ENOENT" }))).toBeUndefined()
+    expect(
+      serverErrorCode(Object.assign(new Error("odd"), { code: { valueOf: () => "50" } })),
+    ).toBeUndefined()
+    expect(serverErrorCode(null)).toBeUndefined()
+    expect(serverErrorCode("50")).toBeUndefined()
+  })
+
+  it("lets diagnostics match a code decoded as an Int32", () => {
+    const error = Object.assign(new Error("not supported"), {
+      name: "MongoServerError",
+      code: new Int32(40573),
+      codeName: "Location40573x",
+    })
+    expect(diagnoseMongoError(error)?.docs).toBe("standalone-mongodb")
   })
 })

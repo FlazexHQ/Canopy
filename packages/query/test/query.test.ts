@@ -255,5 +255,16 @@ describe("path helpers", () => {
 
   it("strips array indexes", () => {
     expect(stripIndexes("items.3.price")).toBe("items.price")
+    expect(stripIndexes("0.name")).toBe("name")
+    expect(stripIndexes("items.10")).toBe("items")
+    expect(stripIndexes("a.0.1.b")).toBe("a.b")
+  })
+
+  it("keeps segments that are not array indexes", () => {
+    expect(stripIndexes("profile.name")).toBe("profile.name")
+    expect(stripIndexes("items.01.price")).toBe("items.01.price")
+    expect(stripIndexes("items.3a.price")).toBe("items.3a.price")
+    expect(stripIndexes("v2.x1")).toBe("v2.x1")
+    expect(stripIndexes("a.-1")).toBe("a.-1")
   })
 })
