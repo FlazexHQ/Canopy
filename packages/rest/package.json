@@ -23,7 +23,9 @@
     "typecheck": "tsc -b test",
     "test": "vitest run",
     "bench": "node --conditions=@canopy/source bench/write-cost.ts",
-    "bench:scale": "node --conditions=@canopy/source bench/scale.ts"
+    "bench:scale": "node --conditions=@canopy/source bench/scale.ts",
+    "bench:compare": "node --conditions=@canopy/source bench/compare.ts",
+    "bench:profile-top": "node bench/profile-top.ts"
   },
   "dependencies": {
     "@canopy/auth": "workspace:*",
