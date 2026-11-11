@@ -119,7 +119,7 @@ export function summarize(samples: Samples): Latency {
     mean: latencies.length === 0 ? Number.NaN : sum / latencies.length,
     cpuPerOp: samples.cpuMicros / 1000 / Math.max(1, latencies.length + samples.errors),
     serverOpsPerOp: samples.serverOps / Math.max(1, latencies.length + samples.errors),
-    rounds: samples.rounds.map((value) => Math.round(value)),
+    rounds: samples.rounds.map((value) => Math.round(value * 100) / 100),
     ...(samples.firstError === undefined ? {} : { firstError: samples.firstError }),
   }
 }
