@@ -34,12 +34,16 @@ import {
   validateStoredDocument,
 } from "@canopy/query"
 import {
+  type AnyClientBulkWriteModel,
   BSON,
+  type ClientBulkWriteResult,
   type ClientSession,
   type Collection,
   type Db,
   type Document,
   type MongoClient,
+  MongoClientBulkWriteError,
+  MongoError,
   MongoServerError,
 } from "mongodb"
 import { abortCheck, EXACT_BSON, toDriver } from "./driver.ts"
@@ -100,6 +104,13 @@ export interface WriteOptions {
   /** The idempotency key (the client's mutation ID). A repeated key returns the stored result. */
   readonly mutationId?: string
   readonly signal?: AbortSignal
+  /**
+   * Whether the result carries the written documents (`documents`). Defaults to `true`. With `false` no
+   * document is read back after the write, which saves a command when the caller does not use them (a
+   * realtime mutation whose change events reach the caller, or `Prefer: return=minimal`); `check` is still
+   * evaluated by MongoDB.
+   */
+  readonly returnDocuments?: boolean
 }
 
 /** A readable document returned by a write. */
@@ -178,7 +189,8 @@ export interface WritePathOptions {
 const MUTATION_ID = /^[A-Za-z0-9_-]{8,128}$/
 const INDEX_OPTIONS_CONFLICT = new Set([85, 86])
 const DUPLICATE_KEY = 11000
-const STORED_DOCUMENTS_MAX = 1
+/** The wire version of MongoDB 8.0, the first with a `bulkWrite` command across namespaces. */
+const BULK_WRITE_WIRE_VERSION = 25
 /**
  * The largest document checked through `$documents` before a single insert. The check sends it once more,
  * so larger documents stay inside the 16 MiB command limit by checking after the write instead. Inserts
@@ -227,6 +239,24 @@ type Run = (session: ClientSession) => Promise<Outcome>
 interface Plan {
   readonly run: Run
   readonly fast: boolean
+  /** The same write sent together with its idempotency record, where the plan supports it. */
+  readonly withRecord?: CombinedRun
+}
+
+/** The insert of an idempotency record, as a model of a client `bulkWrite`. */
+interface RecordModel {
+  readonly name: "insertOne"
+  readonly namespace: string
+  readonly document: Document
+}
+
+/**
+ * A write that sends its idempotency record in the same command. `expected` is the outcome it has unless
+ * the target is missing or unchanged; the record is first written with it.
+ */
+interface CombinedRun {
+  readonly expected: Outcome
+  run(session: ClientSession, record: RecordModel): Promise<Outcome>
 }
 
 const MAJORITY = { w: "majority" } as const
@@ -251,6 +281,7 @@ export class WritePath {
   private readonly queryLimits: QueryLimits
   private readonly ttlSeconds: number
   private indexes: Promise<void> | undefined
+  private bulkSupport: Promise<boolean> | undefined
 
   constructor(options: WritePathOptions) {
     this.client = options.client
@@ -313,18 +344,76 @@ export class WritePath {
     const service = caller.context.roles.has(Role.Service)
     abortCheck(options.signal, "write")
     validateMutationId(options.mutationId)
-    const plan = this.plan(this.engine(), caller.context, request)
+    const read = options.returnDocuments !== false
+    const engine = this.engine()
+    const plan = this.plan(engine, caller.context, request, read)
     if (plan.fast && options.mutationId === undefined) return this.executeFast(plan.run, service)
     const committed = await this.transact(
       caller,
       { c: request.collection, op: request.op },
-      [plan.run],
+      [plan],
       options,
     )
-    const [outcome] = committed.outcomes
-    if (outcome === undefined) throw new CanopyError(ErrorCode.Internal, "The write has no outcome")
-    const { ct: _ignored, ...rest } = outcome
-    return { ...rest, ct: committed.ct, replayed: committed.replayed }
+    const [stored] = committed.outcomes
+    if (stored === undefined) throw new CanopyError(ErrorCode.Internal, "The write has no outcome")
+    const outcome =
+      committed.replayed && read ? await this.readBack(engine, caller, request, stored) : stored
+    return { ...withoutCt(outcome), ct: committed.ct, replayed: committed.replayed }
+  }
+
+  /**
+   * The readable documents of a committed write that ran with `returnDocuments: false`, read now: the
+   * current readable version of each written document, `null` where it is gone or unreadable (always for
+   * a delete). `undefined` for bulk writes, which return no documents.
+   */
+  async documentsOf(
+    caller: Caller,
+    request: WriteRequest,
+    result: WriteResult,
+  ): Promise<readonly (ReturnedDocument | null)[] | undefined> {
+    if (isBulkOp(request.op)) return undefined
+    if (result.documents !== undefined) return result.documents
+    return (await this.readBack(this.engine(), caller, request, result)).documents
+  }
+
+  /**
+   * The documents of a replayed write, read again because idempotency records keep no documents: the
+   * current readable version of each written document, `null` where it is gone or unreadable. A replayed
+   * delete has no pre image left to return.
+   */
+  private async readBack(
+    engine: PolicyEngine,
+    caller: Caller,
+    request: WriteRequest,
+    outcome: Outcome,
+  ): Promise<Outcome> {
+    if (outcome.documents !== undefined) return outcome
+    let ids: readonly unknown[]
+    switch (request.op) {
+      case "insert":
+      case "insertMany":
+        ids = outcome.insertedIds
+        break
+      case "update":
+      case "replace":
+        ids = outcome.matched > 0 || outcome.upsertedId !== undefined ? [toDriver(request.id)] : []
+        break
+      case "delete":
+        return outcome.deleted > 0 ? { ...outcome, documents: [null] } : outcome
+      default:
+        return outcome
+    }
+    if (ids.length === 0) return outcome
+    const scope = this.scope(engine, caller.context, request.collection)
+    const session = this.client.startSession()
+    try {
+      const documents = await scope.verify(session, ids, undefined, "update", true)
+      return documents === undefined ? outcome : { ...outcome, documents }
+    } catch (error: unknown) {
+      throw fromDriverError(error, scope.service)
+    } finally {
+      await session.endSession()
+    }
   }
 
   /**
@@ -346,16 +435,28 @@ export class WritePath {
         `A batch may not have more than ${this.limits.maxBatch} operations`,
       )
     const engine = this.engine()
-    const runs = requests.map((request, index) => {
+    const read = options.returnDocuments !== false
+    const plans = requests.map((request, index) => {
       try {
-        return this.plan(engine, caller.context, request).run
+        return this.plan(engine, caller.context, request, read)
       } catch (error: unknown) {
         throw atIndex(toCanopyError(error), index)
       }
     })
-    const committed = await this.transact(caller, { c: "", op: "batch" }, runs, options)
+    const committed = await this.transact(caller, { c: "", op: "batch" }, plans, options)
+    const outcomes =
+      committed.replayed && read
+        ? await Promise.all(
+            committed.outcomes.map((outcome, index) => {
+              const request = requests[index]
+              return request === undefined || isBulkOp(request.op)
+                ? outcome
+                : this.readBack(engine, caller, request, outcome)
+            }),
+          )
+        : committed.outcomes
     return {
-      results: committed.outcomes.map(({ ct: _ignored, ...rest }) => rest),
+      results: outcomes.map(withoutCt),
       ct: committed.ct,
       replayed: committed.replayed,
     }
@@ -364,12 +465,21 @@ export class WritePath {
   private async transact(
     caller: Caller,
     key: RecordKey,
-    runs: readonly Run[],
+    plans: readonly Plan[],
     options: WriteOptions,
   ): Promise<{ outcomes: readonly Outcome[]; ct: ClusterTime; replayed: boolean }> {
     const service = caller.context.roles.has(Role.Service)
     const { mutationId } = options
     await this.ensureIndexes()
+    const [only] = plans
+    const combined =
+      mutationId !== undefined &&
+      plans.length === 1 &&
+      only?.withRecord !== undefined &&
+      (await this.clientBulkWrite())
+        ? only.withRecord
+        : undefined
+    const runs = plans.map((plan) => plan.run)
     const deadline = Date.now() + this.limits.transactionTimeoutMS
     const session = this.client.startSession()
     let failedAt: number | undefined
@@ -381,6 +491,12 @@ export class WritePath {
             abortCheck(options.signal, "write")
             if (Date.now() > deadline)
               throw new CanopyError(ErrorCode.Timeout, "The write could not commit in time")
+            if (combined !== undefined && mutationId !== undefined) {
+              failedAt = 0
+              const outcome = await this.runWithRecord(s, combined, mutationId, caller, key)
+              failedAt = undefined
+              return [outcome]
+            }
             const results: Outcome[] = []
             for (const [index, run] of runs.entries()) {
               failedAt = index
@@ -419,6 +535,13 @@ export class WritePath {
     }
   }
 
+  /**
+   * Runs a fast path write. The write runs in a session only to read its `operationTime`; the reads after
+   * it (the read back and the conflict check) run outside the session, so they carry no `afterClusterTime`
+   * and do not wait for the cluster time to advance. That is safe because the write was acknowledged by a
+   * majority: it is on every node that can be primary afterwards, so a primary read that starts after the
+   * acknowledgment sees it.
+   */
   private async executeFast(fast: Run, service: boolean): Promise<WriteResult> {
     const session = this.client.startSession({ causalConsistency: true })
     try {
@@ -445,25 +568,62 @@ export class WritePath {
     key: RecordKey,
     outcomes: readonly Outcome[],
   ): Promise<void> {
-    const stored = outcomes.map((outcome) =>
-      (outcome.documents?.length ?? 0) > STORED_DOCUMENTS_MAX ? withoutDocuments(outcome) : outcome,
-    )
-    const [first] = stored
-    const record: MutationRecord = {
-      _id: id,
-      sub: caller.subject,
-      c: key.c,
-      op: key.op,
-      at: new Date(),
-      ...(key.op === "batch" ? { results: stored } : first === undefined ? {} : { result: first }),
-    }
     try {
-      await this.meta.collection<MutationRecord>("mutations").insertOne(record, { session })
+      await this.meta
+        .collection<MutationRecord>("mutations")
+        .insertOne(recordOf(id, caller, key, outcomes), { session })
     } catch (error: unknown) {
       if (error instanceof MongoServerError && serverErrorCode(error) === DUPLICATE_KEY)
         throw new Replay()
       throw error
     }
+  }
+
+  /**
+   * Whether the deployment runs MongoDB 8.0 or later (wire version 25), whose `bulkWrite` command writes to
+   * several namespaces at once. Read once from `hello`; a failed read means no.
+   */
+  private clientBulkWrite(): Promise<boolean> {
+    this.bulkSupport ??= this.client
+      .db("admin")
+      .command({ hello: 1 })
+      .then(
+        (hello) => Number(hello["maxWireVersion"]) >= BULK_WRITE_WIRE_VERSION,
+        () => {
+          this.bulkSupport = undefined
+          return false
+        },
+      )
+    return this.bulkSupport
+  }
+
+  /**
+   * Runs a single document write and the insert of its idempotency record as one `bulkWrite` command. The
+   * record is written with the outcome the write has in the common case; when the write turns out
+   * differently (nothing matched, or nothing changed) the record is corrected in the same transaction, so a
+   * committed record always holds the write's real outcome.
+   */
+  private async runWithRecord(
+    session: ClientSession,
+    combined: CombinedRun,
+    id: string,
+    caller: Caller,
+    key: RecordKey,
+  ): Promise<Outcome> {
+    const mutations = this.meta.collection<MutationRecord>("mutations")
+    const recordModel = {
+      name: "insertOne" as const,
+      namespace: `${this.meta.databaseName}.mutations`,
+      document: recordOf(id, caller, key, [combined.expected]) as unknown as Document,
+    }
+    const outcome = await combined.run(session, recordModel)
+    if (!sameStored(outcome, combined.expected))
+      await mutations.updateOne(
+        { _id: id },
+        { $set: { result: storedOutcome(outcome) } },
+        { session, maxTimeMS: this.limits.maxTimeMS },
+      )
+    return outcome
   }
 
   /** Returns the stored outcomes of a committed mutation, or `undefined` when there is none. */
@@ -499,41 +659,49 @@ export class WritePath {
     }
   }
 
-  private plan(engine: PolicyEngine, ctx: RequestContext, request: WriteRequest): Plan {
-    const name = request.collection
+  private scope(engine: PolicyEngine, ctx: RequestContext, name: string): Scope {
     validateCollectionName(name)
     const service = ctx.roles.has(Role.Service)
     if (!service && !engine.isExposed(name))
       throw new CanopyError(ErrorCode.NotFound, `Unknown collection '${name}'`)
-    const scope = new Scope(engine, ctx, this.db, name, {
+    return new Scope(engine, ctx, this.db, name, {
       maxTimeMS: this.limits.maxTimeMS,
       filterLimits: this.queryLimits,
     })
+  }
+
+  private plan(
+    engine: PolicyEngine,
+    ctx: RequestContext,
+    request: WriteRequest,
+    read: boolean,
+  ): Plan {
+    const scope = this.scope(engine, ctx, request.collection)
     switch (request.op) {
       case "insert":
-        return this.planInsert(scope, [request.doc], true)
+        return this.planInsert(scope, [request.doc], true, read)
       case "insertMany": {
         if (!Array.isArray(request.docs)) throw new InvalidQueryError("docs must be an array")
-        return this.planInsert(scope, request.docs, false)
+        return this.planInsert(scope, request.docs, false, read)
       }
       case "update":
-        return this.planUpdate(scope, { id: request.id }, request.update, request.where)
+        return this.planUpdate(scope, { id: request.id }, request.update, request.where, read)
       case "updateMany":
         requireBulk(request.bulk)
-        return this.planUpdate(scope, { filter: request.filter }, request.update, undefined)
+        return this.planUpdate(scope, { filter: request.filter }, request.update, undefined, false)
       case "replace":
-        return this.planReplace(scope, request)
+        return this.planReplace(scope, request, read)
       case "delete":
-        return this.planDelete(scope, { id: request.id }, request.where)
+        return this.planDelete(scope, { id: request.id }, request.where, read)
       case "deleteMany":
         requireBulk(request.bulk)
-        return this.planDelete(scope, { filter: request.filter }, undefined)
+        return this.planDelete(scope, { filter: request.filter }, undefined, false)
       default:
         throw new InvalidQueryError("Unknown write operation")
     }
   }
 
-  private planInsert(scope: Scope, docs: readonly unknown[], single: boolean): Plan {
+  private planInsert(scope: Scope, docs: readonly unknown[], single: boolean, read: boolean): Plan {
     if (docs.length === 0) throw new InvalidQueryError("There is nothing to insert")
     if (docs.length > this.limits.maxInsertMany)
       throw new CanopyError(
@@ -553,26 +721,35 @@ export class WritePath {
     const check = scope.engine.check(scope.name, "insert", scope.ctx)
     if (check.kind === "deny") throw violation("insert", scope.name)
     const precheck = single && BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
+    const ids = prepared.map((doc) => doc["_id"])
+    const [first] = prepared
     const run: Run = async (session) => {
-      const checked = precheck ? await scope.precheck(prepared, check) : undefined
-      const [first] = prepared
+      const checked = precheck ? await scope.precheck(prepared, check, read) : undefined
       if (single && first !== undefined)
         await scope.coll.insertOne(first, scope.writeOptions(session))
       else await scope.coll.insertMany(prepared, { ...scope.writeOptions(session), ordered: true })
       const ct = scope.fastTime(session)
-      const ids = prepared.map((doc) => doc["_id"])
-      const documents = checked ?? (await scope.verify(session, ids, check, "insert", true))
-      return {
-        matched: 0,
-        modified: 0,
-        deleted: 0,
-        insertedIds: ids,
-        changedIds: ids,
-        ...(documents === undefined ? {} : { documents }),
-        ...(ct === undefined ? {} : { ct }),
-      }
+      const documents = precheck ? checked : await scope.verify(session, ids, check, "insert", read)
+      return withCt(inserted(ids, documents), ct)
     }
-    return { run, fast: single && (check.kind === "all" || precheck) }
+    const withRecord: CombinedRun | undefined =
+      single && first !== undefined
+        ? {
+            expected: inserted(ids, undefined),
+            run: async (session, record) => {
+              await scope.bulkWrite(session, [
+                { name: "insertOne", namespace: scope.namespace, document: first },
+                record,
+              ])
+              return inserted(ids, await scope.verify(session, ids, check, "insert", read))
+            },
+          }
+        : undefined
+    return {
+      run,
+      fast: single && (check.kind === "all" || precheck),
+      ...(withRecord === undefined ? {} : { withRecord }),
+    }
   }
 
   private planUpdate(
@@ -580,6 +757,7 @@ export class WritePath {
     selector: { readonly id: unknown } | { readonly filter: unknown },
     rawUpdate: unknown,
     rawWhere: unknown,
+    read: boolean,
   ): Plan {
     scope.requireGrant("update")
     const parsed = parseUpdate(rawUpdate, {
@@ -596,49 +774,66 @@ export class WritePath {
     }
     const base = scope.selector(selector)
     const where = scope.precondition(rawWhere)
-    const target = and(base, where, scope.engine.target(scope.name, "update", scope.ctx))
-    const visible = and(base, scope.engine.target(scope.name, "update", scope.ctx))
+    const using = scope.engine.target(scope.name, "update", scope.ctx)
+    const target = and(base, where, using)
     const check = scope.engine.check(scope.name, "update", scope.ctx)
     const update = toDriver(parsed.update) as Document
     if ("id" in selector) {
       const id = toDriver(selector.id)
-      const implied = checkImplied(check, target, parsed.writtenPaths)
-      const run: Run = async (session) => {
-        const result = await scope.coll.updateOne(
-          scope.filter(target),
-          update,
-          scope.writeOptions(session),
-        )
-        const ct = scope.fastTime(session)
-        if (result.matchedCount === 0) {
-          if (where.kind !== "all") await scope.assertNoConflict(session, visible)
-          return withCt(empty(), ct)
+      const filter = scope.filter(target)
+      const implied = check.kind === "all" || checkImplied(check, target, parsed.writtenPaths)
+      const effectiveCheck = implied ? undefined : check
+      const finish = async (
+        session: ClientSession,
+        matched: number,
+        modifiedCount: number,
+      ): Promise<Outcome> => {
+        if (matched === 0) {
+          if (where.kind !== "all") await scope.assertNoConflict(session, and(base, using))
+          return empty()
         }
-        const modified = result.modifiedCount > 0
-        const documents = await scope
-          .verify(session, [id], modified ? check : undefined, "update", true)
-          .catch((error: unknown) => {
-            if (error instanceof PolicyViolationError && !session.inTransaction())
-              throw new CanopyError(
-                ErrorCode.Internal,
-                "An update that skipped its check as implied wrote a document that fails it",
-                { cause: error },
-              )
-            throw error
-          })
-        return withCt(
-          {
-            matched: result.matchedCount,
-            modified: result.modifiedCount,
-            deleted: 0,
-            insertedIds: [],
-            changedIds: modified ? [id] : [],
-            ...(documents === undefined ? {} : { documents }),
-          },
-          ct,
+        const modified = modifiedCount > 0
+        const documents = await scope.verify(
+          session,
+          [id],
+          modified ? effectiveCheck : undefined,
+          "update",
+          read,
         )
+        return {
+          matched,
+          modified: modifiedCount,
+          deleted: 0,
+          insertedIds: [],
+          changedIds: modified ? [id] : [],
+          ...(documents === undefined ? {} : { documents }),
+        }
       }
-      return { run, fast: check.kind === "all" || implied }
+      const run: Run = async (session) => {
+        const result = await scope.coll.updateOne(filter, update, scope.writeOptions(session))
+        const ct = scope.fastTime(session)
+        return withCt(await finish(session, result.matchedCount, result.modifiedCount), ct)
+      }
+      const withRecord: CombinedRun = {
+        expected: {
+          matched: 1,
+          modified: 1,
+          deleted: 0,
+          insertedIds: [],
+          changedIds: [id],
+        },
+        run: async (session, record) => {
+          const result = await scope.bulkWrite(session, [
+            { name: "updateOne", namespace: scope.namespace, filter, update },
+            record,
+          ])
+          const written = result.updateResults?.get(0)
+          if (written === undefined)
+            throw new CanopyError(ErrorCode.Internal, "The bulk write has no update result")
+          return finish(session, written.matchedCount, written.modifiedCount)
+        },
+      }
+      return { run, fast: implied, withRecord }
     }
     const run: Run = async (session) => {
       const ids = await scope.findIds(session, target, this.limits.maxBulk + 1)
@@ -663,6 +858,7 @@ export class WritePath {
   private planReplace(
     scope: Scope,
     request: Extract<WriteRequest, { readonly op: "replace" }>,
+    read: boolean,
   ): Plan {
     const upsert = request.upsert === true
     scope.requireGrant("update")
@@ -697,7 +893,7 @@ export class WritePath {
       })
       let ct = scope.fastTime(session)
       if (result.upsertedCount > 0) {
-        const documents = await scope.verify(session, [id], undefined, "insert", true)
+        const documents = await scope.verify(session, [id], undefined, "insert", read)
         return withCt(upserted(id, documents), ct)
       }
       if (result.matchedCount === 0) {
@@ -706,7 +902,7 @@ export class WritePath {
         if (insertCheck.kind === "deny") throw violation("insert", scope.name)
         await scope.coll.insertOne(replacement, scope.writeOptions(session))
         ct = scope.fastTime(session)
-        const documents = await scope.verify(session, [id], insertCheck, "insert", true)
+        const documents = await scope.verify(session, [id], insertCheck, "insert", read)
         return withCt(upserted(id, documents), ct)
       }
       const modified = result.modifiedCount > 0
@@ -715,7 +911,7 @@ export class WritePath {
         [id],
         modified ? updateCheck : undefined,
         "update",
-        true,
+        read,
       )
       return withCt(
         {
@@ -736,6 +932,7 @@ export class WritePath {
     scope: Scope,
     selector: { readonly id: unknown } | { readonly filter: unknown },
     rawWhere: unknown,
+    read: boolean,
   ): Plan {
     scope.requireGrant("delete")
     const base = scope.selector(selector)
@@ -743,7 +940,23 @@ export class WritePath {
     const target = and(base, where, scope.engine.target(scope.name, "delete", scope.ctx))
     const visible = and(base, scope.engine.target(scope.name, "delete", scope.ctx))
     if ("id" in selector) {
+      const id = toDriver(selector.id)
       const run: Run = async (session) => {
+        if (!read) {
+          const result = await scope.coll.deleteOne(
+            scope.filter(target),
+            scope.writeOptions(session),
+          )
+          const ct = scope.fastTime(session)
+          if (result.deletedCount === 0) {
+            if (where.kind !== "all") await scope.assertNoConflict(session, visible)
+            return withCt(empty(), ct)
+          }
+          return withCt(
+            { matched: 1, modified: 0, deleted: 1, insertedIds: [], changedIds: [id] },
+            ct,
+          )
+        }
         const projection = toProjection(scope.readable())
         const deleted = await scope.coll.findOneAndDelete(scope.filter(target), {
           ...scope.writeOptions(session),
@@ -816,6 +1029,38 @@ class Scope {
     this.coll = db.collection(name)
     this.name = name
     this.service = ctx.roles.has(Role.Service)
+  }
+
+  /** The collection's namespace, `<database>.<collection>`. */
+  get namespace(): string {
+    return `${this.db.databaseName}.${this.name}`
+  }
+
+  /**
+   * Runs an ordered client `bulkWrite` inside the transaction of `session`. The last model is the
+   * idempotency record: a duplicate key on it means the mutation ID was used already. A write error of an
+   * earlier model is rethrown as that model's server error.
+   */
+  async bulkWrite(
+    session: ClientSession,
+    models: readonly AnyClientBulkWriteModel<Document>[],
+  ): Promise<ClientBulkWriteResult> {
+    try {
+      return await this.db.client.bulkWrite([...models], {
+        session,
+        ordered: true,
+        verboseResults: true,
+        maxTimeMS: this.maxTimeMS,
+      })
+    } catch (error: unknown) {
+      if (!(error instanceof MongoClientBulkWriteError)) throw error
+      if (error.writeErrors.get(models.length - 1)?.code === DUPLICATE_KEY) throw new Replay()
+      const [first] = error.writeErrors.values()
+      if (first === undefined) throw error.cause instanceof MongoError ? error.cause : error
+      const server = new MongoServerError({ message: first.message, code: first.code })
+      for (const label of error.errorLabels) server.addErrorLabel(label)
+      throw server
+    }
   }
 
   /** Options for a write: majority write concern outside a transaction, the transaction's otherwise. */
@@ -891,10 +1136,18 @@ class Scope {
     return { $and: [{ _id: { $in: [...ids] } }, this.filter(target)] }
   }
 
+  /**
+   * The session a read after a write runs in: the write's transaction, or none on the fast path (see
+   * `executeFast` for why that read still sees the write).
+   */
+  private readSession(session: ClientSession): { session?: ClientSession } {
+    return session.inTransaction() ? { session } : {}
+  }
+
   async findIds(session: ClientSession, target: Compiled, limit: number): Promise<unknown[]> {
     const docs = await this.coll
       .find(this.filter(target), {
-        session,
+        ...this.readSession(session),
         projection: { _id: 1 },
         limit,
         maxTimeMS: this.maxTimeMS,
@@ -923,11 +1176,14 @@ class Scope {
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
     if (check?.kind === "deny") throw violation(op, this.name)
+    const [only] = ids
+    if (ids.length === 1 && (check === undefined || check.kind === "all"))
+      return read ? [await this.readOne(session, only)] : undefined
     const facet = this.facets(ids, check, read)
     if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
     const [out] = await this.coll
       .aggregate([{ $match: { _id: { $in: [...ids] } } }, { $facet: facet }], {
-        session,
+        ...this.readSession(session),
         maxTimeMS: this.maxTimeMS,
         ...EXACT_BSON,
       })
@@ -941,18 +1197,43 @@ class Scope {
    * insert needs no transaction. MongoDB stores an inserted document as sent, `_id` first, so the read back
    * equals reading it after the write. Throws {@link PolicyViolationError} when a document fails the check.
    */
-  async precheck(docs: readonly Document[], check: Compiled): Promise<(ReturnedDocument | null)[]> {
+  async precheck(
+    docs: readonly Document[],
+    check: Compiled,
+    read: boolean,
+  ): Promise<(ReturnedDocument | null)[] | undefined> {
     if (check.kind === "deny") throw violation("insert", this.name)
     const ids = docs.map((doc) => doc["_id"])
-    const facet = this.facets(ids, check, true)
-    if (Object.keys(facet).length === 0) return ids.map(() => null)
+    const facet = this.facets(ids, check, read)
+    if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
     const [out] = await this.db
       .aggregate([{ $documents: [...docs] }, { $facet: facet }], {
         maxTimeMS: this.maxTimeMS,
         ...EXACT_BSON,
       })
       .toArray()
-    return this.outcome(out, ids, "insert", true) ?? ids.map(() => null)
+    return this.outcome(out, ids, "insert", read) ?? (read ? ids.map(() => null) : undefined)
+  }
+
+  /**
+   * Reads one written document back through `USING(read)` and the read field rules, with a plain `find`,
+   * or `null` when the caller cannot read it.
+   */
+  private async readOne(session: ClientSession, id: unknown): Promise<ReturnedDocument | null> {
+    const readFilter = this.engine.effectiveRead(this.name, { _id: { $eq: id } }, this.ctx)
+    if (readFilter.kind === "deny") return null
+    const projection = toProjection(this.readable())
+    const [doc] = await this.coll
+      .find(this.filter(readFilter), {
+        ...this.readSession(session),
+        ...(projection === undefined ? {} : { projection }),
+        limit: 1,
+        batchSize: 1,
+        maxTimeMS: this.maxTimeMS,
+        ...EXACT_BSON,
+      })
+      .toArray()
+    return doc === undefined ? null : projectReadable(this.readable(), doc)
   }
 
   /** The `$facet` of a check and a read back over the documents with these ids. */
@@ -1075,9 +1356,55 @@ function upserted(id: unknown, documents: (ReturnedDocument | null)[] | undefine
   }
 }
 
-function withoutDocuments(outcome: Outcome): Outcome {
-  const { documents: _documents, ...rest } = outcome
+function inserted(
+  ids: readonly unknown[],
+  documents: (ReturnedDocument | null)[] | undefined,
+): Outcome {
+  return {
+    matched: 0,
+    modified: 0,
+    deleted: 0,
+    insertedIds: ids,
+    changedIds: ids,
+    ...(documents === undefined ? {} : { documents }),
+  }
+}
+
+function withoutCt(outcome: Outcome): Omit<Outcome, "ct"> {
+  const { ct: _ct, ...rest } = outcome
   return rest
+}
+
+/** An outcome as an idempotency record keeps it: without documents (they are read again on replay). */
+function storedOutcome(outcome: Outcome): Outcome {
+  const { documents: _documents, ct: _ct, ...rest } = outcome
+  return rest
+}
+
+function sameStored(a: Outcome, b: Outcome): boolean {
+  return canonicalString(storedOutcome(a)) === canonicalString(storedOutcome(b))
+}
+
+function recordOf(
+  id: string,
+  caller: Caller,
+  key: RecordKey,
+  outcomes: readonly Outcome[],
+): MutationRecord {
+  const stored = outcomes.map(storedOutcome)
+  const [first] = stored
+  return {
+    _id: id,
+    sub: caller.subject,
+    c: key.c,
+    op: key.op,
+    at: new Date(),
+    ...(key.op === "batch" ? { results: stored } : first === undefined ? {} : { result: first }),
+  }
+}
+
+function isBulkOp(op: WriteRequest["op"]): boolean {
+  return op === "insertMany" || op === "updateMany" || op === "deleteMany"
 }
 
 function normalizeOutcome(stored: Outcome): Outcome {

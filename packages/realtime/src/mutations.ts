@@ -30,8 +30,22 @@ export interface MutationExecutor {
   execute(
     caller: { readonly context: RequestContext; readonly subject: string },
     request: MutationRequest,
-    options: { readonly mutationId?: string; readonly signal?: AbortSignal },
+    options: {
+      readonly mutationId?: string
+      readonly signal?: AbortSignal
+      /** `false` when the result needs no `documents`; the executor then skips reading them back. */
+      readonly returnDocuments?: boolean
+    },
   ): Promise<MutationResult>
+  /**
+   * Reads the readable documents of a write that ran with `returnDocuments: false`, for an `ack` that must
+   * carry them after all. Executors without it always return documents.
+   */
+  documentsOf?(
+    caller: { readonly context: RequestContext; readonly subject: string },
+    request: MutationRequest,
+    result: MutationResult,
+  ): Promise<readonly (Record<string, unknown> | null)[] | undefined>
 }
 
 const ARGS: Readonly<Record<MutMessage["op"], readonly string[]>> = {

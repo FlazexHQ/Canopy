@@ -1009,8 +1009,9 @@ export class Realtime {
    * fanned out, the `ack` is enqueued behind them on this connection (`echo: true`). When that cannot be
    * promised (a bulk write, a collection without realtime, a subscription that defers events to a later
    * snapshot, a timeout, or a replay, whose events were sent with the original write) the `ack` carries
-   * the readable post images and `echo: false`. A single document write that found no visible document
-   * fails with `CANOPY_NOT_FOUND`, as it does over REST.
+   * the readable post images and `echo: false`. A write whose echo is expected runs without reading its
+   * documents back; they are read only when the echo does not come. A single document write that found no
+   * visible document fails with `CANOPY_NOT_FOUND`, as it does over REST.
    */
   private async runMutation(
     state: SessionState,
@@ -1024,11 +1025,17 @@ export class Realtime {
         this.engine.contextNames([message.c], state.principal.context.roles),
       )
       const principal = state.principal
-      const result = await executor.execute(
-        { context: this.contextOf(state), subject: principal.subject },
-        mutationRequest(message),
-        { mutationId: message.id },
-      )
+      const caller = { context: this.contextOf(state), subject: principal.subject }
+      const request = mutationRequest(message)
+      const lean =
+        executor.documentsOf !== undefined &&
+        !isBulk(message.op) &&
+        message.op !== "delete" &&
+        this.watched.includes(message.c)
+      const result = await executor.execute(caller, request, {
+        mutationId: message.id,
+        ...(lean ? { returnDocuments: false } : {}),
+      })
       if (
         (message.op === "update" || message.op === "replace" || message.op === "delete") &&
         result.matched === 0 &&
@@ -1049,9 +1056,14 @@ export class Realtime {
         if (echo) echo = this.settledFor(state, message.c)
       }
       if (!this.sessions.has(state.session.sid)) return
+      const documents =
+        echo || result.documents !== undefined || !lean
+          ? result.documents
+          : await executor.documentsOf?.(caller, request, result)
+      if (!this.sessions.has(state.session.sid)) return
       const docs = echo
         ? undefined
-        : result.documents?.filter((doc): doc is Record<string, unknown> => doc !== null)
+        : documents?.filter((doc): doc is Record<string, unknown> => doc !== null)
       state.session.send({
         t: "ack",
         m: message.id,
