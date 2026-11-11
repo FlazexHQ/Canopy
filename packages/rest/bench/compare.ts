@@ -59,7 +59,7 @@ const TIERS = (process.env["CANOPY_BENCH_TIERS"] ?? "100000")
 const SECONDS = Number(process.env["CANOPY_BENCH_SECONDS"] ?? "10")
 const CONCURRENCY = Number(process.env["CANOPY_BENCH_CONCURRENCY"] ?? "32")
 const ROUNDS = Math.max(2, Number(process.env["CANOPY_BENCH_ROUNDS"] ?? "5"))
-const ONLY = process.env["CANOPY_BENCH_ONLY"]
+const ONLY = process.env["CANOPY_BENCH_ONLY"]?.split("|")
 const OUT = process.env["CANOPY_BENCH_OUT"]
 
 interface Checkout {
@@ -136,7 +136,9 @@ async function main(): Promise<void> {
         for (const { side, groups } of sides)
           for (const [name, op] of groups.get(groupName) ?? [])
             members.push([`${side.label} ${name}`, op])
-        const selected = members.filter(([name]) => ONLY === undefined || name.includes(ONLY))
+        const selected = members.filter(
+          ([name]) => ONLY === undefined || ONLY.some((part) => name.includes(part)),
+        )
         if (!selected.some(([name]) => !name.startsWith("driver:"))) continue
         if (groupName === "delete")
           tierState.victims = await seedVictims(

@@ -95,7 +95,6 @@ export const ownerOf = (n: number): Rest.Caller => caller([], { sub: `u${n}` })
 const managerOf = (n: number): Rest.Caller => caller(["manager"], { sub: `m${n}`, tenant: `t${n}` })
 const clerkOf = (n: number): Rest.Caller => caller(["clerk"], { sub: `c${n}`, tenant: `t${n}` })
 const auditor = caller(["auditor"], { sub: "audit" })
-const editor = caller(["editor"], { sub: "ed" })
 
 /**
  * An authenticator for the `http` group that skips token verification: the bearer token names the owner

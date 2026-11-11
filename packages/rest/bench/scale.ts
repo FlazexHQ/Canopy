@@ -41,7 +41,8 @@ import {
  * separated document counts, default `10000,100000,1000000`), `CANOPY_BENCH_SECONDS` (per scenario, default
  * 6), `CANOPY_BENCH_CONCURRENCY` (default 32), `CANOPY_BENCH_INGEST` (documents per ingest run, default
  * 200000, 0 skips it), `CANOPY_BENCH_ROUNDS` (alternating rounds per group, default 3),
- * `CANOPY_BENCH_ONLY` (only scenarios whose name contains it), `CANOPY_BENCH_OUT` (a file for the JSON
+ * `CANOPY_BENCH_ONLY` (only scenarios whose name contains one of its `|` separated parts; `insertMany`
+ * selects the ingest runs), `CANOPY_BENCH_OUT` (a file for the JSON
  * results) and `CANOPY_BENCH_PROFILE` (a folder: after measuring, each selected scenario runs once more
  * under a CPU profile written there as `<tier>-<scenario>.cpuprofile`).
  */
@@ -57,7 +58,7 @@ const CONCURRENCY = Number(process.env["CANOPY_BENCH_CONCURRENCY"] ?? "32")
 const INGEST = Number(process.env["CANOPY_BENCH_INGEST"] ?? "200000")
 const ROUNDS = Math.max(1, Number(process.env["CANOPY_BENCH_ROUNDS"] ?? "3"))
 const OUT = process.env["CANOPY_BENCH_OUT"]
-const ONLY = process.env["CANOPY_BENCH_ONLY"]
+const ONLY = process.env["CANOPY_BENCH_ONLY"]?.split("|")
 const PROFILE = process.env["CANOPY_BENCH_PROFILE"]
 /** Reads time out after this long, as in the read path's defaults. */
 const READ_MAX_TIME_MS = 5000
@@ -170,7 +171,9 @@ async function main(): Promise<void> {
       const canopy = canopyGroups(tierState, { reads, writes, http })
       for (const [groupName, driverMembers] of drivers) {
         const members: Scenario[] = [...driverMembers, ...(canopy.get(groupName) ?? [])]
-        const selected = members.filter(([name]) => ONLY === undefined || name.includes(ONLY))
+        const selected = members.filter(
+          ([name]) => ONLY === undefined || ONLY.some((part) => name.includes(part)),
+        )
         if (selected.length === 0) continue
         if (groupName === "delete") {
           const seconds = 1 + SECONDS + (PROFILE === undefined ? 0 : SECONDS / ROUNDS)
@@ -207,7 +210,7 @@ async function main(): Promise<void> {
       })
     }
 
-    if (INGEST > 0 && (ONLY === undefined || "insertMany".includes(ONLY))) {
+    if (INGEST > 0 && (ONLY === undefined || ONLY.includes("insertMany"))) {
       log(`ingest: ${INGEST} documents each`)
       const plain = db.collection<Order>("ingest_driver")
       const runs: [IngestRun, (docs: Order[]) => Promise<unknown>][] = [
