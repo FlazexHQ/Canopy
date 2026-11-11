@@ -25,7 +25,53 @@ export type Outgoing = SequencedMessage extends infer M
 
 interface Frame {
   readonly seq: number
-  readonly text: string
+  /** The frame's JSON text without `seq` and the closing brace, shared between sessions where possible. */
+  readonly head: string
+}
+
+/** Bytes counted per buffered frame besides its head: `,"seq":N}`. */
+const FRAME_OVERHEAD = 16
+
+/** The JSON text of a message without its closing brace, so `seq` (and a sub id) can be appended. */
+function headOf(message: Outgoing): string {
+  return encodeMessage(message as SequencedMessage).slice(0, -1)
+}
+
+function frameText(head: string, seq: number): string {
+  return `${head},"seq":${seq}}`
+}
+
+/**
+ * A few recently encoded message heads, keyed by the identity of their inputs. The sessions of one event
+ * are notified one after another with the same document objects, so the first session encodes a message
+ * and the others reuse its text.
+ */
+class HeadMemo {
+  private readonly keys: (readonly unknown[])[] = []
+  private readonly heads: (string | null)[] = []
+  private next = 0
+
+  get(key: readonly unknown[], encode: () => string | null): string | null {
+    for (let slot = 0; slot < this.keys.length; slot += 1) {
+      const known = this.keys[slot]
+      if (known?.every((part, index) => part === key[index]) === true)
+        return this.heads[slot] ?? null
+    }
+    const head = encode()
+    this.keys[this.next] = key
+    this.heads[this.next] = head
+    this.next = (this.next + 1) % 8
+    return head
+  }
+}
+
+const addedHeads = new HeadMemo()
+const changedHeads = new HeadMemo()
+const removedHeads = new HeadMemo()
+
+/** The per subscription part of `added` and `removed`: `,"s":["<subId>"]`. */
+function subsSuffix(subId: string): string {
+  return `,"s":[${JSON.stringify(subId)}]`
 }
 
 interface MergeEntry {
@@ -48,6 +94,32 @@ export interface SessionLimits {
   readonly resumeBufferBytes: number
   readonly softQueueBytes: number
   readonly hardQueueBytes: number
+}
+
+/**
+ * The head of the `changed` message from `before` to `after`: the changed fields with `diff`, the whole
+ * document otherwise. `null` when nothing changed.
+ */
+function changeHead(
+  coll: string,
+  id: unknown,
+  ct: ClusterTime,
+  before: Doc,
+  after: Doc,
+  diffs: boolean,
+): string | null {
+  const { set, unset } = diff(before, after)
+  if (Object.keys(set).length === 0 && unset.length === 0) return null
+  return diffs
+    ? headOf({
+        t: "changed",
+        c: coll,
+        id,
+        ct,
+        ...(Object.keys(set).length === 0 ? {} : { set }),
+        ...(unset.length === 0 ? {} : { unset }),
+      })
+    : headOf({ t: "changed", c: coll, id, ct, d: after, replace: true })
 }
 
 function diff(before: Doc, after: Doc): { set: Doc; unset: string[] } {
@@ -135,7 +207,8 @@ export class Session {
   /** Replays the frames after `afterSeq`. Check {@link canReplay} first. */
   replayAfter(afterSeq: number): boolean {
     if (!this.canReplay(afterSeq)) return false
-    for (const frame of this.frames) if (frame.seq > afterSeq) this.write(frame.text)
+    for (const frame of this.frames)
+      if (frame.seq > afterSeq) this.write(frameText(frame.head, frame.seq))
     this.flush()
     return true
   }
@@ -143,15 +216,24 @@ export class Session {
   /** Sends a message, assigning the next sequence number. */
   send(message: Outgoing): void {
     if (this.dropped) return
+    this.sendHead(headOf(message))
+  }
+
+  /**
+   * Sends a message given as its JSON text without the closing brace (see `headOf`), assigning the next
+   * sequence number. The head is kept in the replay buffer as is, so sessions sending the same head share
+   * its memory.
+   */
+  private sendHead(head: string): void {
+    if (this.dropped) return
     this.seq += 1
-    const text = encodeMessage({ ...message, seq: this.seq } as SequencedMessage)
-    this.frames.push({ seq: this.seq, text })
-    this.frameBytes += text.length
+    this.frames.push({ seq: this.seq, head })
+    this.frameBytes += head.length + FRAME_OVERHEAD
     while (this.frameBytes > this.limits.resumeBufferBytes && this.frames.length > 1) {
       const removed = this.frames.shift()
-      if (removed !== undefined) this.frameBytes -= removed.text.length
+      if (removed !== undefined) this.frameBytes -= removed.head.length + FRAME_OVERHEAD
     }
-    if (this.socket !== undefined) this.write(text)
+    if (this.socket !== undefined) this.write(frameText(head, this.seq))
   }
 
   private write(text: string): void {
@@ -246,7 +328,10 @@ export class Session {
     const entry = this.mergeBox.get(key)
     if (entry === undefined) {
       this.mergeBox.set(key, { coll, id, subs: new Set([subId]), doc })
-      this.send({ t: "added", c: coll, id, d: doc, ct, s: [subId] })
+      const head = addedHeads.get([coll, key, ct, doc], () =>
+        headOf({ t: "added", c: coll, id, d: doc, ct } as Outgoing),
+      )
+      this.sendHead(`${head}${subsSuffix(subId)}`)
       return
     }
     const merged: Doc = { ...entry.doc, ...doc }
@@ -277,6 +362,15 @@ export class Session {
       this.added(coll, key, id, subId, doc, ct)
       return
     }
+    if (coverage === FULL_COVERAGE && entry.subs.size === 1 && !this.rebinding.has(subId)) {
+      const before = entry.doc
+      entry.doc = doc
+      const head = changedHeads.get([coll, key, ct, before, doc, this.diffs], () =>
+        changeHead(coll, id, ct, before, doc, this.diffs),
+      )
+      if (head !== null) this.sendHead(head)
+      return
+    }
     const next: Doc = {}
     for (const field of Object.keys(entry.doc))
       if (!coverage.covers(field)) next[field] = entry.doc[field]
@@ -287,20 +381,8 @@ export class Session {
   }
 
   private sendChange(coll: string, id: unknown, ct: ClusterTime, before: Doc, after: Doc): void {
-    const { set, unset } = diff(before, after)
-    if (Object.keys(set).length === 0 && unset.length === 0) return
-    if (this.diffs) {
-      this.send({
-        t: "changed",
-        c: coll,
-        id,
-        ct,
-        ...(Object.keys(set).length === 0 ? {} : { set }),
-        ...(unset.length === 0 ? {} : { unset }),
-      })
-    } else {
-      this.send({ t: "changed", c: coll, id, ct, d: after, replace: true })
-    }
+    const head = changeHead(coll, id, ct, before, after, this.diffs)
+    if (head !== null) this.sendHead(head)
   }
 
   private removed(coll: string, key: string, subId: string, ct: ClusterTime): void {
@@ -309,7 +391,10 @@ export class Session {
     if (entry === undefined || !entry.subs.has(subId)) return
     entry.subs.delete(subId)
     if (entry.subs.size === 0) this.mergeBox.delete(key)
-    this.send({ t: "removed", c: coll, id: entry.id, ct, s: [subId] })
+    const head = removedHeads.get([coll, key, ct, entry.id], () =>
+      headOf({ t: "removed", c: coll, id: entry.id, ct } as Outgoing),
+    )
+    this.sendHead(`${head}${subsSuffix(subId)}`)
   }
 
   /** Removes a subscription from the merge box without messages (used by `unsub` and resync). */
