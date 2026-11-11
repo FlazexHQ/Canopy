@@ -27,7 +27,6 @@ import {
 import {
   DEFAULT_LIMITS,
   type ParsedQuery,
-  parseFilter,
   parseQuery,
   pathsOverlap,
   type QueryLimits,
@@ -306,9 +305,7 @@ export class ReadPath {
         ? effective
         : and(effective, {
             kind: "filter",
-            filter: this.validated(
-              keysetFilter(keys, decodeCursor(request.after, keys, queryHash())),
-            ),
+            filter: keysetFilter(keys, decodeCursor(request.after, keys, queryHash())),
           })
     const userProjection = parsed.fields?.projection
     const pushdown = intersectProjection(
@@ -557,11 +554,6 @@ export class ReadPath {
         `The query may not reference unreadable fields: ${denied.join(", ")}`,
       )
     return parsed
-  }
-
-  /** Runs the generated keyset filter through the filter validator, as a guard on decoded cursor values. */
-  private validated(filter: Record<string, unknown>): Record<string, unknown> {
-    return parseFilter(filter, { context: "filter", limits: this.queryLimits }).filter
   }
 
   private pageLimit(limit: number | undefined): number {

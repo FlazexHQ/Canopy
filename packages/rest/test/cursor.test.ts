@@ -1,5 +1,6 @@
 import { compileFilter, compileSort } from "@canopy/matcher"
-import { CanopyError, ErrorCode, MaxKey, MinKey, ObjectId } from "@canopy/protocol"
+import { CanopyError, canonicalString, ErrorCode, MaxKey, MinKey, ObjectId } from "@canopy/protocol"
+import { DEFAULT_LIMITS, parseFilter, queryHash } from "@canopy/query"
 import fc from "fast-check"
 import { describe, expect, it } from "vitest"
 import {
@@ -147,5 +148,55 @@ describe("cursor encoding", () => {
     expect(() => decodeCursor(encode({ s: [{ $where: "x" }, 1], q: hash }), keys, hash)).toThrow(
       /\$/,
     )
+  })
+})
+
+describe("cursor guards", () => {
+  const keyOrders = fc.constantFrom<Readonly<Record<string, 1 | -1>>[]>(
+    { k: 1 },
+    { k: -1 },
+    { k: 1, j: -1 },
+    { j: -1, k: 1 },
+    { _id: -1 },
+  )
+
+  it("generates keyset filters that the filter validator accepts unchanged", () => {
+    fc.assert(
+      fc.property(keyOrders, sortValue, sortValue, sortValue, (sort, a, b, c) => {
+        const keys = cursorKeys(sort)
+        const values = [a, b, c].slice(0, keys.length).map((value) => value ?? null)
+        let filter: Record<string, unknown>
+        try {
+          filter = keysetFilter(keys, values)
+        } catch (error: unknown) {
+          expect(error).toBeInstanceOf(CanopyError)
+          return
+        }
+        const parsed = parseFilter(filter, { context: "filter", limits: DEFAULT_LIMITS })
+        expect(canonicalString(parsed.filter)).toBe(canonicalString(filter))
+      }),
+      { numRuns: 500 },
+    )
+  })
+
+  it("hashes a query exactly like queryHash, so earlier cursors stay valid", () => {
+    const filters: Record<string, unknown>[] = [
+      {},
+      { a: 1, b: { $in: [2, 1] } },
+      { "profile.name": { $regex: "^a", $options: "i" } },
+      { $or: [{ done: false }, { n: { $gte: 2.5 } }], at: new Date(0) },
+      { id: new ObjectId("000000000000000000000001"), s: "ü\u0000x" },
+      { n: { $not: { $lt: 3 } }, tags: { $all: ["x", "y"] } },
+    ]
+    for (const filter of filters)
+      for (const sort of [{}, { createdAt: -1 as const }, { a: 1 as const, b: -1 as const }]) {
+        const keys = cursorKeys(sort)
+        const expected = queryHash({
+          collection: "todos",
+          filter,
+          sort: Object.fromEntries(keys.map((key) => [key.path, key.direction])),
+        }).slice("sha256:".length, "sha256:".length + 32)
+        expect(cursorQueryHash("todos", filter, keys)).toBe(expected)
+      }
   })
 })
