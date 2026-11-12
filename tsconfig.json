@@ -46,6 +46,8 @@
     { "path": "packages/react/test" },
     { "path": "packages/devtools" },
     { "path": "packages/devtools/test" },
+    { "path": "packages/tanstack-db" },
+    { "path": "packages/tanstack-db/test" },
     { "path": "packages/vue" },
     { "path": "packages/vue/test" },
     { "path": "packages/svelte" },
