@@ -102,7 +102,7 @@ Options:
                          or collection=n pairs (_context=n for the context lookups); policies
                          rollback: the current version
   --comment <text>       policies push, rollback: recorded in the history and the audit log
-  --dry-run              policies push: show what would be published
+  --dry-run              policies push: show what would be published; auth import: only read the file
   --fail-on-drift        policies diff: exit 1 when anything differs
   --force                policies pull: replace existing files
   --limit <n>            policies history: how many versions (default 50)

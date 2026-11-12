@@ -7,7 +7,7 @@ import type { AdminClient } from "./remote.ts"
 export type ImportSource = "firebase" | "auth0" | "cognito" | "csv"
 
 /** A user ready for `POST /admin/v1/users/import`. */
-export interface ImportRecord {
+interface ImportRecord {
   readonly email: string
   readonly emailVerified?: boolean
   readonly name?: string
@@ -36,7 +36,7 @@ export interface ParsedImport {
 
 /**
  * Parses RFC 4180 CSV: quoted fields with doubled quotes, commas and line breaks inside quotes, and CRLF
- * or LF line ends. Returns the rows, header included.
+ * or LF line ends. Returns the parsed lines as arrays of fields, header included.
  */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = []
@@ -249,9 +249,10 @@ export function parseCognito(text: string): ParsedImport {
 }
 
 /**
- * Reads a generic CSV with the columns `email` (required), `email_verified`, `name`, `created_at`,
- * `roles` (separated by `;`), `password_hash` with `password_algorithm` (`bcrypt` or `argon2id`, or
- * `pbkdf2-sha256` with `password_salt` and `password_iterations`), and `disabled`.
+ * Reads a generic CSV with the columns `email` (required), `id` (the user's id in the old system, kept as
+ * `app_metadata.importedFrom`), `email_verified`, `name`, `created_at`, `roles` (separated by `;`),
+ * `password_hash` with `password_algorithm` (`bcrypt` or `argon2id`, or `pbkdf2-sha256` with
+ * `password_salt` and `password_iterations`; bcrypt hashes are recognized without it), and `disabled`.
  */
 export function parseGenericCsv(text: string): ParsedImport {
   const { header, rows } = table(text)
@@ -298,6 +299,7 @@ export function parseGenericCsv(text: string): ParsedImport {
       .map((role) => role.trim())
       .filter((role) => role !== "")
     const name = at(row, "name")
+    const id = at(row, "id")
     users.push({
       email,
       ...(verified === undefined ? {} : { emailVerified: verified }),
@@ -305,14 +307,14 @@ export function parseGenericCsv(text: string): ParsedImport {
       ...(createdAt === undefined ? {} : { createdAt }),
       ...(truthy(at(row, "disabled")) === true ? { disabled: true } : {}),
       ...(roles === undefined || roles.length === 0 ? {} : { roles }),
+      ...(id === undefined ? {} : { appMetadata: { importedFrom: { system: "csv", id } } }),
       ...(passwordHash === undefined ? {} : { passwordHash }),
     })
   })
   return { users, skipped }
 }
 
-/** Parses an export of `source`. */
-export function parseImport(
+function parseImport(
   source: ImportSource,
   text: string,
   firebase?: FirebaseHashConfig,

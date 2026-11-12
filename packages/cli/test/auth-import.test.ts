@@ -151,10 +151,10 @@ describe("export parsers", () => {
   it("reads a generic CSV with roles and several hash algorithms", () => {
     const parsed = parseGenericCsv(
       [
-        "email,name,roles,password_hash,password_algorithm,password_salt,password_iterations,created_at",
-        'a@example.com,"Doe, Jo",editor; admin,$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW,,,,2025-01-01',
-        "b@example.com,,,c2FsdA==,pbkdf2-sha256,c2FsdA==,600000,",
-        "c@example.com,,,abc,md5,,,",
+        "email,name,roles,password_hash,password_algorithm,password_salt,password_iterations,created_at,id",
+        'a@example.com,"Doe, Jo",editor; admin,$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW,,,,2025-01-01,k3d9Fq',
+        "b@example.com,,,c2FsdA==,pbkdf2-sha256,c2FsdA==,600000,,",
+        "c@example.com,,,abc,md5,,,,",
       ].join("\n"),
     )
     expect(parsed.users).toEqual([
@@ -163,6 +163,7 @@ describe("export parsers", () => {
         name: "Doe, Jo",
         createdAt: "2025-01-01T00:00:00.000Z",
         roles: ["editor", "admin"],
+        appMetadata: { importedFrom: { system: "csv", id: "k3d9Fq" } },
         passwordHash: {
           algorithm: "bcrypt",
           hash: "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",

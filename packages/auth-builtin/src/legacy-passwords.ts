@@ -13,7 +13,7 @@ const scryptAsync = promisify(scrypt) as (
 ) => Promise<Buffer>
 
 /** The prefix that marks a stored password hash as imported from another system. */
-export const LEGACY_PREFIX = "canopy-legacy$"
+const LEGACY_PREFIX = "canopy-legacy$"
 
 const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/
 

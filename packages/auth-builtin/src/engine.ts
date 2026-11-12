@@ -111,7 +111,7 @@ const AAL2_PATHS = new Set([
 ])
 
 /** The assurance level of a session created on `path`. */
-export function assuranceOf(path: string | undefined): "aal1" | "aal2" {
+function assuranceOf(path: string | undefined): "aal1" | "aal2" {
   return path !== undefined && AAL2_PATHS.has(path) ? "aal2" : "aal1"
 }
 

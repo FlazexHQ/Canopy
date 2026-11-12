@@ -105,9 +105,9 @@ function failure(
 }
 
 /** The response header that hands a bearer client the cookies of a sign in ceremony in progress. */
-export const CEREMONY_RESPONSE_HEADER = "set-auth-ceremony"
+const CEREMONY_RESPONSE_HEADER = "set-auth-ceremony"
 /** The request header a bearer client sends those cookies back in. */
-export const CEREMONY_REQUEST_HEADER = "x-canopy-ceremony"
+const CEREMONY_REQUEST_HEADER = "x-canopy-ceremony"
 
 const CEREMONY_COOKIE = /^(?:__Secure-)?canopy\.(?:two_factor|better-auth-passkey)$/
 

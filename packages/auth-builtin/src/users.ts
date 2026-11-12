@@ -21,8 +21,7 @@ import { MongoServerError } from "mongodb"
 import type { EngineApi, EngineSession, EngineUser } from "./engine.ts"
 import { encodeLegacyHash } from "./legacy-passwords.ts"
 
-/** The most users one import call takes. */
-export const MAX_IMPORT_BATCH = 1000
+const MAX_IMPORT_BATCH = 1000
 
 const PROVIDER = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
