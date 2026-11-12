@@ -25,7 +25,7 @@ export interface CanopyCollectionOptions<
   readonly limit?: number
   /** The TanStack DB collection id. Defaults to `canopy:<collection>`. */
   readonly id?: string
-  /** The row key. Defaults to {@link documentKey} of `_id`. */
+  /** The TanStack DB key of a document. Defaults to {@link documentKey} of `_id`. */
   readonly getKey?: (doc: DocumentOf<DB, C>) => string
 }
 
@@ -38,11 +38,11 @@ export function documentKey(id: unknown): string {
   return String(id)
 }
 
-type Row = Record<string, unknown>
+type Fields = Record<string, unknown>
 
 /**
  * Exposes a Canopy collection as a TanStack DB collection: `createCollection(canopyCollectionOptions({
- * client, collection: "todos" }))`. Rows sync from a Canopy live query (a realtime subscription, with DLS
+ * client, collection: "todos" }))`. Documents sync from a Canopy live query (a realtime subscription, with DLS
  * applied by the server), so changes made anywhere show up; inserts, updates and deletes made through
  * TanStack DB run as Canopy mutations, which keep their idempotent mutation IDs and roll the TanStack DB
  * transaction back with Canopy's typed error when the server refuses them.
@@ -54,7 +54,7 @@ export function canopyCollectionOptions<
   type Doc = DocumentOf<DB, C> & object
   const client = options.client as unknown as CanopyClient<UntypedSchema>
   const name = options.collection as string
-  const keyOf = (doc: Doc): string => options.getKey?.(doc) ?? documentKey((doc as Row)["_id"])
+  const keyOf = (doc: Doc): string => options.getKey?.(doc) ?? documentKey((doc as Fields)["_id"])
 
   const sync: SyncConfig<Doc, string>["sync"] = ({ begin, write, commit, markReady, fail }) => {
     const live = client.live(name, (options.filter ?? {}) as Filter<Document>, {
@@ -107,14 +107,14 @@ export function canopyCollectionOptions<
     onUpdate: ({ transaction }) =>
       settle(
         transaction.mutations.map((mutation) => {
-          const set: Row = {}
+          const set: Fields = {}
           const unset: Record<string, ""> = {}
-          for (const [field, value] of Object.entries(mutation.changes as Row)) {
+          for (const [field, value] of Object.entries(mutation.changes as Fields)) {
             if (field === "_id") continue
             if (value === undefined) unset[field] = ""
             else set[field] = value
           }
-          return client.update(name, (mutation.original as Row)["_id"], {
+          return client.update(name, (mutation.original as Fields)["_id"], {
             ...(Object.keys(set).length === 0 ? {} : { $set: set }),
             ...(Object.keys(unset).length === 0 ? {} : { $unset: unset }),
           })
@@ -123,7 +123,7 @@ export function canopyCollectionOptions<
     onDelete: ({ transaction }) =>
       settle(
         transaction.mutations.map((mutation) =>
-          client.delete(name, (mutation.original as Row)["_id"]),
+          client.delete(name, (mutation.original as Fields)["_id"]),
         ),
       ),
   }

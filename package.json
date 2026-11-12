@@ -14,6 +14,7 @@
       "examples/*"
     ],
     "catalog": {
+      "@astrojs/starlight": "0.42.9",
       "@biomejs/biome": "2.6.4",
       "@changesets/cli": "3.0.3",
       "@codemirror/autocomplete": "6.20.4",
@@ -46,6 +47,7 @@
       "@types/ws": "8.18.2",
       "@vitejs/plugin-react": "6.1.2",
       "@vitest/coverage-v8": "5.0.5",
+      "astro": "7.4.5",
       "bson": "7.3.3",
       "class-variance-authority": "0.7.1",
       "clsx": "2.1.1",
@@ -87,6 +89,7 @@
     "clean": "tsc -b --clean",
     "lint": "biome check .",
     "lint:exports": "knip --no-progress",
+    "lint:docs": "bun apps/docs/scripts/api-reference.ts --check",
     "format": "biome format --write .",
     "test": "turbo run test",
     "test:all": "vitest run",

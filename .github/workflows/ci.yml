@@ -30,9 +30,27 @@ jobs:
       - run: bun run typecheck
       - name: Unused exports
         run: bun run lint:exports
+      - name: Every public export is documented
+        run: bun run lint:docs
       - name: Bundle size budgets
         run: bunx size-limit
       - run: bun --bun vitest run
+
+  docs:
+    name: Docs site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Build the docs site with the generated API reference
+        run: bun --filter @canopy/docs build
 
   test-node:
     name: Test (Node.js ${{ matrix.node }})

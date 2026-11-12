@@ -6,6 +6,7 @@ import { toProblem } from "@canopy/rest"
 export const SESSION_COOKIE = "__Host-canopy_admin"
 /** The CSRF cookie Studio reads and echoes in the `x-canopy-csrf` header (double submit). */
 export const CSRF_COOKIE = "__Host-canopy_csrf"
+/** The header that must repeat the CSRF cookie on every state changing admin request. */
 export const CSRF_HEADER = "x-canopy-csrf"
 
 /** The API answers JSON only: nothing may be framed, loaded or scripted from its responses. */

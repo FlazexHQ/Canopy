@@ -146,3 +146,7 @@ lefthook-local.yml
 /CONTRIBUTING.md
 /GOVERNANCE.md
 /SECURITY.md
+
+# Docs site: the API reference is generated from TSDoc, and Astro keeps its own cache
+apps/docs/src/content/docs/reference/api/
+apps/docs/.astro/

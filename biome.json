@@ -12,6 +12,7 @@
       "!!**/*.tsbuildinfo",
       "!!docs",
       "!!.changeset/*.md",
+      "!!apps/docs/src/content",
       "!!**/routeTree.gen.ts"
     ]
   },
