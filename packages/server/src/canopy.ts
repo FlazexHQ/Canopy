@@ -14,12 +14,7 @@ import {
   type ResolvedConfig,
   resolveConfig,
 } from "@canopy/config"
-import {
-  attachGraphqlWs,
-  createGraphqlHandler,
-  type GraphqlHandler,
-  type PersistedOperations,
-} from "@canopy/graphql"
+import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
 import { toNodeListener as serveOnNode } from "@canopy/node-http"
 import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
 import {
@@ -494,7 +489,7 @@ async function buildData(
   const graphql =
     rest === undefined || config.graphql === false
       ? undefined
-      : createGraphqlHandler({
+      : (await import("@canopy/graphql")).createGraphqlHandler({
           reads: rest.reads,
           writes: rest.writes,
           policies: engine,
@@ -948,8 +943,10 @@ export async function createCanopy(
       }
     },
     async attach(server) {
-      if (graphql !== undefined && realtime !== undefined)
+      if (graphql !== undefined && realtime !== undefined) {
+        const { attachGraphqlWs } = await import("@canopy/graphql")
         transports.attachments.push(await attachGraphqlWs(graphql, server))
+      }
       if (realtime === undefined || !transports.websocket) return
       transports.attachments.push(await attach(realtime, server))
     },

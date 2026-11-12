@@ -95,7 +95,13 @@ suite("GraphQL endpoint against MongoDB", () => {
     )
     const set = createPolicySet([todos, users])
     const engine = new PolicyEngine(set)
-    const rest = createRestHandler({ client, database: dbName, policies: engine, authenticator })
+    const rest = createRestHandler({
+      client,
+      database: dbName,
+      metaDatabase: `${dbName}_meta`,
+      policies: engine,
+      authenticator,
+    })
     finds = []
     const find = rest.reads.find.bind(rest.reads)
     rest.reads.find = (caller, request, options) => {
