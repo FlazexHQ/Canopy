@@ -1,0 +1,57 @@
+{
+  "name": "@canopy/graphql",
+  "version": "0.0.0",
+  "description": "Canopy GraphQL API: a schema generated per role set from policies and collection schemas, with relations, subscriptions and limits.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/auth": "workspace:*",
+    "@canopy/client": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/rest": "workspace:*",
+    "@canopy/schema": "workspace:*",
+    "graphql": "catalog:",
+    "graphql-ws": "catalog:",
+    "graphql-yoga": "catalog:"
+  },
+  "peerDependencies": {
+    "mongodb": "^7.0.0",
+    "ws": "^8.0.0"
+  },
+  "peerDependenciesMeta": {
+    "ws": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@canopy/realtime": "workspace:*",
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "@types/ws": "catalog:",
+    "jose": "catalog:",
+    "mongodb": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "ws": "catalog:"
+  }
+}

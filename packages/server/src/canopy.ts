@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import {
   Authenticator,
@@ -13,6 +14,12 @@ import {
   type ResolvedConfig,
   resolveConfig,
 } from "@canopy/config"
+import {
+  attachGraphqlWs,
+  createGraphqlHandler,
+  type GraphqlHandler,
+  type PersistedOperations,
+} from "@canopy/graphql"
 import { toNodeListener as serveOnNode } from "@canopy/node-http"
 import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
 import {
@@ -44,6 +51,7 @@ import {
   createRestHandler,
   mongoContextReader,
   type RestHandler,
+  SchemaCache,
   toNodeListener,
   WritePath,
 } from "@canopy/rest"
@@ -136,6 +144,8 @@ export interface Canopy extends AsyncDisposable {
   readonly config: ResolvedConfig
   /** The REST handler, when the Data API is on. */
   readonly rest: RestHandler | undefined
+  /** The GraphQL handler at `/graphql/v1`, when GraphQL is on. */
+  readonly graphql: GraphqlHandler | undefined
   /** The realtime engine, when realtime is on. */
   readonly realtime: Realtime | undefined
   /** Built in auth, when the config chooses `builtin()`; it serves `/auth/v1`. */
@@ -160,7 +170,10 @@ export interface Canopy extends AsyncDisposable {
   node(options?: {
     readonly fallback?: (request: IncomingMessage, response: ServerResponse) => void
   }): (request: IncomingMessage, response: ServerResponse) => void
-  /** Accepts WebSocket upgrades on `/realtime/v1` of a Node server. */
+  /**
+   * Accepts WebSocket upgrades of a Node server: `/realtime/v1`, and graphql-ws on `/graphql/v1` when
+   * GraphQL has subscriptions.
+   */
   attach(server: Server): Promise<void>
   /** `fetch` and `websocket` for `Bun.serve`, WebSockets included. */
   bun(options?: { readonly fallback?: FetchHandler }): {
@@ -401,6 +414,7 @@ async function buildData(
       }
     : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
+  const schemas = new SchemaCache(db)
   const source: PolicySource =
     options.policies !== undefined
       ? staticPolicies(options.policies)
@@ -429,6 +443,7 @@ async function buildData(
           policies: engine,
           authenticator: auth.authenticator,
           contexts,
+          schemas,
           readLimits: { defaultLimit: restConfig.defaultLimit, maxLimit: restConfig.maxLimit },
           maxBodyBytes: restConfig.maxBodyBytes,
           mutationTtlSeconds: Math.round(restConfig.mutationTtlMs / 1000),
@@ -476,10 +491,36 @@ async function buildData(
     }
   }
   const engineRealtime = realtime
+  const graphql =
+    rest === undefined || config.graphql === false
+      ? undefined
+      : createGraphqlHandler({
+          reads: rest.reads,
+          writes: rest.writes,
+          policies: engine,
+          authenticator: auth.authenticator,
+          contexts,
+          schemas,
+          ...(engineRealtime === undefined ? {} : { realtime: engineRealtime }),
+          collections: config.collections,
+          limits: {
+            maxDepth: config.graphql.maxDepth,
+            maxComplexity: config.graphql.maxComplexity,
+            maxAliases: config.graphql.maxAliases,
+          },
+          maxBatch: config.graphql.maxBatch,
+          introspection: config.graphql.introspection,
+          ...(config.graphql.persisted === undefined
+            ? {}
+            : { persisted: await persistedOperations(config.graphql.persisted) }),
+          ...(config.cors === undefined ? {} : { cors: config.cors }),
+          onError: (error) => logger.error({ err: error }, "GraphQL request failed"),
+        })
 
   return {
     contexts,
     rest,
+    graphql,
     realtime: engineRealtime,
     engine,
     /** Stops following the policy source of a standalone engine. */
@@ -493,9 +534,36 @@ async function buildData(
       })
     },
     close(): void {
+      graphql?.close()
       contexts.close()
     },
   }
+}
+
+/** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
+async function persistedOperations(input: {
+  readonly file: string
+  readonly only: boolean
+}): Promise<PersistedOperations> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(input.file, "utf8"))
+  } catch (error: unknown) {
+    throw new TypeError(`The persisted operations file ${input.file} cannot be read as JSON`, {
+      cause: error,
+    })
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new TypeError(`The persisted operations file ${input.file} must hold an object`)
+  const operations: Record<string, string> = {}
+  for (const [hash, document] of Object.entries(parsed)) {
+    if (!/^[0-9a-f]{64}$/.test(hash) || typeof document !== "string")
+      throw new TypeError(
+        `The persisted operations file ${input.file} must map SHA-256 hex hashes to documents`,
+      )
+    operations[hash] = document
+  }
+  return { operations, only: input.only }
 }
 
 type Data = Awaited<ReturnType<typeof buildData>>
@@ -783,7 +851,7 @@ export async function createCanopy(
   closeRevokedConnections(auth, data.realtime, logger)
   const admin = await buildAdmin(config, connection, stores, auth, data, options, logger)
   const transports = buildTransports(config, data.realtime)
-  const { rest, realtime } = data
+  const { rest, realtime, graphql } = data
   const { http } = transports
   const { builtin } = auth
   const { logResponse, logNode } = stores
@@ -795,6 +863,8 @@ export async function createCanopy(
     return undefined
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
+  const isGraphql = (path: string): boolean =>
+    graphql !== undefined && (path === graphql.path || path === `${graphql.path}/`)
   const isAuth = (path: string): boolean =>
     builtin !== undefined &&
     (path === "/auth/v1" || path.startsWith("/auth/v1/") || path === "/.well-known/jwks.json")
@@ -812,6 +882,7 @@ export async function createCanopy(
     if (isAdmin(path)) return admin.private ? plain(404, "Not found") : admin.fetch(request, info)
     if (isAuth(path)) return authFetch(request, info)
     if (rest !== undefined && isRest(path)) return rest.fetch(request)
+    if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request)
     if (http?.matches(request) === true) return http.fetch(request)
     return health(path) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
   }
@@ -828,6 +899,7 @@ export async function createCanopy(
   const canopy: Canopy = {
     config,
     rest,
+    graphql,
     realtime,
     auth: builtin,
     keys: auth.apiKeys,
@@ -838,6 +910,7 @@ export async function createCanopy(
     fetch: (request, fallback, info) => fetch(request, fallback, info),
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
+      const graphqlListener = graphql === undefined ? undefined : serveOnNode(graphql.fetch)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
       const adminListener = serveOnNode(admin.fetch)
       const authListener = serveOnNode(authFetch)
@@ -852,6 +925,8 @@ export async function createCanopy(
           return
         }
         if (restListener !== undefined && isRest(path)) return restListener(request, response)
+        if (graphqlListener !== undefined && isGraphql(path))
+          return graphqlListener(request, response)
         const notRealtime = (): void => {
           const answer = health(path)
           if (answer !== undefined) {
@@ -872,6 +947,8 @@ export async function createCanopy(
       }
     },
     async attach(server) {
+      if (graphql !== undefined && realtime !== undefined)
+        transports.attachments.push(await attachGraphqlWs(graphql, server))
       if (realtime === undefined || !transports.websocket) return
       transports.attachments.push(await attach(realtime, server))
     },
@@ -895,7 +972,7 @@ export async function createCanopy(
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
           const path = new URL(request.url).pathname
-          if (isAdmin(path) || isAuth(path))
+          if (isAdmin(path) || isAuth(path) || isGraphql(path))
             return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) {
             const started = performance.now()

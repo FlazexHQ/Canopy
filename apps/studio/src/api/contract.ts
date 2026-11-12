@@ -321,7 +321,7 @@ export interface DoctorReport {
   readonly serverVersion?: string
 }
 
-export const REQUEST_SURFACES = ["rest", "auth", "admin", "realtime"] as const
+export const REQUEST_SURFACES = ["rest", "graphql", "auth", "admin", "realtime"] as const
 export type RequestSurface = (typeof REQUEST_SURFACES)[number]
 
 /** One sampled request. Only the path is kept: no query string, headers or bodies. */

@@ -88,7 +88,7 @@ export function registerOps(route: RouteFn, deps: AdminDeps): void {
     return json({ data: entries, next: entries.length === 0 ? null : String(entries.at(-1)?._id) })
   })
 
-  const SURFACES: readonly RequestSurface[] = ["rest", "auth", "admin", "realtime"]
+  const SURFACES: readonly RequestSurface[] = ["rest", "graphql", "auth", "admin", "realtime"]
   /**
    * `GET /admin/v1/logs`: sampled requests, newest first, as `{ data, next }`. Filters: `surface` (rest,
    * auth, admin, realtime), `status` (an exact code or a class such as `5xx`), `before` (the `next` of the

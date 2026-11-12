@@ -418,3 +418,87 @@ describe("resolveConfig", () => {
     expect(defineConfig(fn)).toBe(fn)
   })
 })
+
+describe("GraphQL settings", () => {
+  it("defaults the limits and keeps introspection open outside production", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.graphql).toEqual({
+      maxDepth: 10,
+      maxComplexity: 5000,
+      maxAliases: 30,
+      maxBatch: 10,
+      introspection: "always",
+      persisted: undefined,
+    })
+  })
+
+  it("closes introspection to anon in production unless configured", () => {
+    const production = { CANOPY_ENV: "production", CANOPY_MASTER_KEY: "k".repeat(32) }
+    const graphql = (input: CanopyConfigInput) => {
+      const config = resolve(input, production).config.graphql
+      return config === false ? undefined : config.introspection
+    }
+    expect(graphql({ mongodb: { uri: URI } })).toBe("authenticated")
+    expect(graphql({ mongodb: { uri: URI }, graphql: { introspection: "never" } })).toBe("never")
+  })
+
+  it("turns off with rest and resolves persisted files against the config directory", () => {
+    expect(resolve({ mongodb: { uri: URI }, rest: false }).config.graphql).toBe(false)
+    expect(resolve({ mongodb: { uri: URI }, graphql: false }).config.graphql).toBe(false)
+    const config = resolve({
+      mongodb: { uri: URI },
+      graphql: { persisted: { file: "operations.json", only: true } },
+    }).config.graphql
+    expect(config === false ? undefined : config.persisted?.only).toBe(true)
+    expect(config === false ? "" : config.persisted?.file.replaceAll("\\", "/")).toMatch(
+      /\/project\/canopy\/operations\.json$/,
+    )
+  })
+
+  it("refuses limits out of range and only without a file", () => {
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          graphql: { maxDepth: 0, maxBatch: 1000, persisted: { only: true } as never },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual(
+      expect.arrayContaining(["graphql.maxDepth", "graphql.maxBatch", "graphql.persisted.file"]),
+    )
+  })
+
+  it("resolves type names and relations per collection", () => {
+    expect(
+      resolve({
+        mongodb: { uri: URI },
+        collections: {
+          people: { typeName: "Person", relations: { team: { to: "teams", local: "teamId" } } },
+          todos: {
+            idType: "string",
+            relations: { tags: { to: "tags", local: "tagIds", many: true } },
+          },
+        },
+      }).config.collections,
+    ).toEqual({
+      people: {
+        idType: "auto",
+        typeName: "Person",
+        relations: { team: { to: "teams", local: "teamId", foreign: "_id", many: false } },
+      },
+      todos: {
+        idType: "string",
+        relations: { tags: { to: "tags", local: "tagIds", foreign: "_id", many: true } },
+      },
+    })
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          collections: {
+            people: { typeName: "not valid", relations: { team: { local: "teamId" } as never } },
+          },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual(["collections.people.typeName", "collections.people.relations.team"])
+  })
+})

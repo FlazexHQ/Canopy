@@ -2,7 +2,7 @@ import type { Logger } from "@canopy/realtime"
 import { type Collection, type Db, type Filter, ObjectId } from "mongodb"
 
 /** The parts of the server a logged request went to. */
-export type RequestSurface = "rest" | "auth" | "admin" | "realtime"
+export type RequestSurface = "rest" | "graphql" | "auth" | "admin" | "realtime"
 
 /**
  * One sampled request in `canopy.request_log`. Only the path is kept, never the query string, headers or
@@ -56,6 +56,7 @@ const MAX_PATH = 512
 export function surfaceOf(path: string): RequestSurface | undefined {
   const under = (prefix: string): boolean => path === prefix || path.startsWith(`${prefix}/`)
   if (under("/rest/v1")) return "rest"
+  if (under("/graphql/v1")) return "graphql"
   if (under("/auth/v1") || path === "/.well-known/jwks.json") return "auth"
   if (under("/admin") || under("/studio")) return "admin"
   if (under("/realtime/v1")) return "realtime"

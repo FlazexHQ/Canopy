@@ -211,6 +211,64 @@ suite("createCanopy against MongoDB", () => {
     expect(seen).toEqual(["t1", "t2"])
   })
 
+  it("serves GraphQL with the same policies, over HTTP and graphql-ws", async () => {
+    await db.collection<Doc>("notes").insertMany([
+      { _id: "g1", ownerId: "alice", text: "mine" },
+      { _id: "g2", ownerId: "bob", text: "theirs" },
+    ])
+    const token = await sign("alice")
+    const response = await fetch(`${base}/graphql/v1`, {
+      method: "POST",
+      headers: {
+        apikey: KEY,
+        authorization: `Bearer ${token}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ query: "{ notes { nodes { _id text } } notesCount }" }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      data: { notes: { nodes: [{ _id: "g1", text: "mine" }] }, notesCount: 1 },
+    })
+    const anon = await canopy.fetch(
+      new Request("http://canopy.test/graphql/v1", {
+        method: "POST",
+        headers: { apikey: KEY, "content-type": "application/json" },
+        body: JSON.stringify({ query: "{ __typename }" }),
+      }),
+    )
+    expect(await anon.json()).toEqual({ data: { __typename: "Query" } })
+
+    const socket = new WebSocket(`${base.replace("http", "ws")}/graphql/v1`, "graphql-transport-ws")
+    const messages: unknown[] = []
+    const done = new Promise<void>((resolve, reject) => {
+      socket.on("message", (data) => {
+        const message = JSON.parse(String(data)) as { type: string }
+        messages.push(message)
+        if (message.type === "connection_ack")
+          socket.send(
+            JSON.stringify({ id: "1", type: "subscribe", payload: { query: "{ notesCount }" } }),
+          )
+        if (message.type === "complete") resolve()
+      })
+      socket.on("error", reject)
+    })
+    await new Promise<void>((resolve) => socket.on("open", () => resolve()))
+    socket.send(
+      JSON.stringify({
+        type: "connection_init",
+        payload: { apikey: KEY, authorization: `Bearer ${token}` },
+      }),
+    )
+    await done
+    socket.close()
+    expect(messages).toEqual([
+      { type: "connection_ack" },
+      { id: "1", type: "next", payload: { data: { notesCount: 1 } } },
+      { id: "1", type: "complete" },
+    ])
+  })
+
   it("answers through the Web fetch handler too", async () => {
     await db.collection<Doc>("notes").insertOne({ _id: "f", ownerId: "bob" })
     const response = await canopy.fetch(
@@ -250,6 +308,7 @@ suite("createCanopy against MongoDB", () => {
       { env: {}, mongo, policies: createPolicySet([notes]), onSetupToken: false },
     )
     expect(realtimeOnly.rest).toBeUndefined()
+    expect(realtimeOnly.graphql).toBeUndefined()
     expect((await realtimeOnly.fetch(new Request("http://canopy.test/rest/v1/notes"))).status).toBe(
       404,
     )

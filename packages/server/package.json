@@ -30,6 +30,7 @@
     "@canopy/auth": "workspace:*",
     "@canopy/auth-builtin": "workspace:*",
     "@canopy/config": "workspace:*",
+    "@canopy/graphql": "workspace:*",
     "@canopy/node-http": "workspace:*",
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",

@@ -12,6 +12,7 @@
     { "path": "../auth" },
     { "path": "../auth-builtin" },
     { "path": "../config" },
+    { "path": "../graphql" },
     { "path": "../policy" },
     { "path": "../protocol" },
     { "path": "../realtime" },

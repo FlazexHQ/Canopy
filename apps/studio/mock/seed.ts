@@ -122,7 +122,7 @@ export function seedConnections(now: number): SeedConnection[] {
 export interface SeedLogEntry {
   readonly _id: { readonly $oid: string }
   readonly at: Date
-  readonly surface: "rest" | "auth" | "admin" | "realtime"
+  readonly surface: "rest" | "graphql" | "auth" | "admin" | "realtime"
   readonly method: string
   readonly path: string
   readonly status: number

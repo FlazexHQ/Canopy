@@ -304,7 +304,7 @@ export const wireLogs = object({
     object({
       _id: unknown,
       at: date,
-      surface: literal("rest", "auth", "admin", "realtime"),
+      surface: literal("rest", "graphql", "auth", "admin", "realtime"),
       method: string,
       path: string,
       status: number,

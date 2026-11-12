@@ -245,6 +245,66 @@ export interface RestInput {
   readonly mutationTtl?: Value<number | string>
 }
 
+/** Who may run GraphQL introspection queries. */
+export type GraphqlIntrospection = "always" | "authenticated" | "never"
+
+/** GraphQL settings. GraphQL is served at `/graphql/v1` on top of the Data API. */
+export interface GraphqlInput {
+  /** @default 10 */
+  readonly maxDepth?: Value<number>
+  /** Every field costs 1, times the `limit` of each list above it. @default 5000 */
+  readonly maxComplexity?: Value<number>
+  /** @default 30 */
+  readonly maxAliases?: Value<number>
+  /** Operations in one batched request. @default 10 */
+  readonly maxBatch?: Value<number>
+  /** @default "authenticated" in production, "always" otherwise */
+  readonly introspection?: Value<GraphqlIntrospection>
+  /** An allowlist of operations: a JSON file mapping the hex SHA-256 of each document to the document. */
+  readonly persisted?: {
+    /** Relative to the config file. */
+    readonly file: string
+    /** Refuses every operation that is not in the file. @default false */
+    readonly only?: Value<boolean>
+  }
+}
+
+/** A GraphQL relation from one collection to another. */
+export interface RelationInput {
+  /** The target collection. */
+  readonly to: string
+  /** The field of this collection that holds the key. */
+  readonly local: string
+  /** The field of the target collection the key matches. @default "_id" */
+  readonly foreign?: string
+  /** Whether several target documents may match, so the field is a list. @default false */
+  readonly many?: boolean
+}
+
+/** Settings of one collection. */
+export interface CollectionInput {
+  readonly idType?: IdType
+  /** The GraphQL type name, such as `Person` for `people`. @default the singular of the name */
+  readonly typeName?: string
+  /** GraphQL relations by field name, resolved under the target collection's policies. */
+  readonly relations?: Readonly<Record<string, RelationInput>>
+}
+
+/** A resolved GraphQL relation. */
+export interface ResolvedRelation {
+  readonly to: string
+  readonly local: string
+  readonly foreign: string
+  readonly many: boolean
+}
+
+/** A resolved collection entry. */
+export interface ResolvedCollection {
+  readonly idType: IdType
+  readonly typeName?: string
+  readonly relations?: Readonly<Record<string, ResolvedRelation>>
+}
+
 /** Realtime settings. */
 export interface RealtimeInput {
   /** @default "auto" */
@@ -289,9 +349,11 @@ export interface CanopyConfigInput {
   readonly policies?: PoliciesInput
   /** `true` for the defaults, `false` to turn the Data API off. @default true */
   readonly rest?: boolean | RestInput
+  /** `true` for the defaults, `false` to turn GraphQL off. Needs `rest`. @default true */
+  readonly graphql?: boolean | GraphqlInput
   /** `true` for the defaults, `false` to turn realtime off. @default true */
   readonly realtime?: boolean | RealtimeInput
-  readonly collections?: Readonly<Record<string, { readonly idType?: IdType }>>
+  readonly collections?: Readonly<Record<string, CollectionInput>>
   readonly cors?: { readonly origins: Value<readonly string[]> | "*" }
   readonly server?: {
     /** @default 8080 */
@@ -429,6 +491,16 @@ export interface ResolvedConfig {
         readonly maxBodyBytes: number
         readonly mutationTtlMs: number
       }
+  readonly graphql:
+    | false
+    | {
+        readonly maxDepth: number
+        readonly maxComplexity: number
+        readonly maxAliases: number
+        readonly maxBatch: number
+        readonly introspection: GraphqlIntrospection
+        readonly persisted: { readonly file: string; readonly only: boolean } | undefined
+      }
   readonly realtime:
     | false
     | {
@@ -438,7 +510,7 @@ export interface ResolvedConfig {
         readonly checkpoints: "meta" | "off"
         readonly drainWindowMs: number
       }
-  readonly collections: Readonly<Record<string, { readonly idType: IdType }>>
+  readonly collections: Readonly<Record<string, ResolvedCollection>>
   readonly cors: { readonly origins: readonly string[] | "*" } | undefined
   readonly server: {
     readonly port: number

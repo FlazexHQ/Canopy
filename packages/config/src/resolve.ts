@@ -4,12 +4,15 @@ import type {
   Command,
   Environment,
   FullDocumentMode,
+  GraphqlIntrospection,
   IdType,
   LogLevel,
   ResolvedBuiltinAuth,
+  ResolvedCollection,
   ResolvedConfig,
   ResolvedEmailTransport,
   ResolvedExternalAuth,
+  ResolvedRelation,
   Transport,
 } from "./types.ts"
 
@@ -272,7 +275,28 @@ const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
       drainWindow: withDefault(duration, 30_000),
     }),
   },
-  collections: { t: "record", of: obj({ idType: oneOf(...ID_TYPES) }) },
+  graphql: {
+    t: "toggle",
+    of: obj({
+      maxDepth: withDefault(int, 10, { min: 1, max: 50, message: () => "Use 1 to 50." }),
+      maxComplexity: withDefault(int, 5000, { min: 1, message: () => "Use at least 1." }),
+      maxAliases: withDefault(int, 30, { min: 0, message: () => "Use 0 or more." }),
+      maxBatch: withDefault(int, 10, { min: 1, max: 100, message: () => "Use 1 to 100." }),
+      introspection: oneOf("always", "authenticated", "never"),
+      persisted: obj({ file: str, only: withDefault(bool, false) }),
+    }),
+  },
+  collections: {
+    t: "record",
+    of: obj({
+      idType: oneOf(...ID_TYPES),
+      typeName: str,
+      relations: {
+        t: "record",
+        of: obj({ to: str, local: str, foreign: str, many: bool }),
+      },
+    }),
+  },
   cors: obj({ origins: { t: "origins" } }),
   server: obj({
     port: withDefault(int, 8080, PORT),
@@ -1007,12 +1031,66 @@ function normalize(
           drainWindowMs: at<number>("realtime.drainWindow"),
         }
 
-  const collections: Record<string, { idType: IdType }> = {}
+  const graphqlTree = tree["graphql"]
+  const persistedFile = get(tree, "graphql.persisted.file")
+  const persistedOnly = get(tree, "graphql.persisted.only") === true
+  if (typeof persistedFile !== "string" && persistedOnly)
+    resolver.problem(
+      "graphql.persisted.file",
+      "Allowing only persisted operations needs a file of them.",
+    )
+  const graphql: ResolvedConfig["graphql"] =
+    graphqlTree === false || rest === false
+      ? false
+      : {
+          maxDepth: at<number>("graphql.maxDepth"),
+          maxComplexity: at<number>("graphql.maxComplexity"),
+          maxAliases: at<number>("graphql.maxAliases"),
+          maxBatch: at<number>("graphql.maxBatch"),
+          introspection:
+            (get(tree, "graphql.introspection") as GraphqlIntrospection | undefined) ??
+            (production ? "authenticated" : "always"),
+          persisted:
+            typeof persistedFile === "string"
+              ? { file: joinPath(options.baseDir, persistedFile), only: persistedOnly }
+              : undefined,
+        }
+
+  const collections: Record<string, ResolvedCollection> = {}
   const rawCollections = tree["collections"]
   if (isPlainObject(rawCollections)) {
     for (const [name, value] of Object.entries(rawCollections)) {
-      const idType = isPlainObject(value) ? value["idType"] : undefined
-      collections[name] = { idType: (typeof idType === "string" ? idType : "auto") as IdType }
+      const entry = isPlainObject(value) ? value : {}
+      const idType = entry["idType"]
+      const typeName = entry["typeName"]
+      if (typeof typeName === "string" && !/^[_A-Za-z][_0-9A-Za-z]*$/.test(typeName))
+        resolver.problem(`collections.${name}.typeName`, "Must be a valid GraphQL name.")
+      const relations: Record<string, ResolvedRelation> = {}
+      const rawRelations = entry["relations"]
+      if (isPlainObject(rawRelations)) {
+        for (const [field, relation] of Object.entries(rawRelations)) {
+          if (!isPlainObject(relation)) continue
+          const { to, local, foreign, many } = relation
+          if (typeof to !== "string" || typeof local !== "string") {
+            resolver.problem(
+              `collections.${name}.relations.${field}`,
+              "A relation needs to (the target collection) and local (the field holding the key).",
+            )
+            continue
+          }
+          relations[field] = {
+            to,
+            local,
+            foreign: typeof foreign === "string" ? foreign : "_id",
+            many: many === true,
+          }
+        }
+      }
+      collections[name] = {
+        idType: (typeof idType === "string" ? idType : "auto") as IdType,
+        ...(typeof typeName === "string" ? { typeName } : {}),
+        ...(Object.keys(relations).length === 0 ? {} : { relations }),
+      }
     }
   }
 
@@ -1069,6 +1147,7 @@ function normalize(
     },
     policies,
     rest,
+    graphql,
     realtime,
     collections,
     cors,
