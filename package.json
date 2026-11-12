@@ -30,6 +30,7 @@
       "@seriousme/openapi-schema-validator": "2.11.0",
       "@size-limit/esbuild": "14.3.0",
       "@size-limit/file": "14.3.0",
+      "@sveltejs/vite-plugin-svelte": "7.3.1",
       "@tailwindcss/vite": "4.3.3",
       "@tanstack/react-query": "5.105.0",
       "@tanstack/react-router": "1.170.46",
@@ -63,7 +64,9 @@
       "react": "19.3.1",
       "react-dom": "19.3.1",
       "size-limit": "14.3.0",
+      "solid-js": "1.9.18",
       "style-mod": "4.1.4",
+      "svelte": "5.57.3",
       "tailwind-merge": "3.7.0",
       "tailwindcss": "4.3.3",
       "turbo": "2.11.10",
@@ -71,6 +74,7 @@
       "uplot": "1.6.32",
       "vite": "8.3.5",
       "vitest": "5.0.5",
+      "vue": "3.5.44",
       "ws": "8.22.0"
     }
   },
