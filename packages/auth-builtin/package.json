@@ -26,10 +26,12 @@
   "dependencies": {
     "@better-auth/core": "1.7.18",
     "@better-auth/mongo-adapter": "1.7.18",
+    "@better-auth/passkey": "1.7.17",
     "@canopy/auth": "workspace:*",
     "@canopy/protocol": "workspace:*",
     "better-auth": "1.7.18",
     "better-call": "1.4.5",
+    "hash-wasm": "catalog:",
     "jose": "catalog:",
     "mongodb": "catalog:"
   },

@@ -21,6 +21,7 @@ const NOT_IN_MOCK = [
   "POST contexts/publish",
   "GET contexts/history",
   "POST contexts/rollback",
+  "POST users/import",
 ]
 
 const shape = (route: string): string =>

@@ -1,7 +1,8 @@
 import type { InternalAdapter, SecretConfig } from "@better-auth/core"
 import { runWithTransaction } from "@better-auth/core/context"
 import { mongodbAdapter } from "@better-auth/mongo-adapter"
-import { symmetricEncrypt } from "better-auth/crypto"
+import { passkey } from "@better-auth/passkey"
+import { hashPassword, symmetricEncrypt, verifyPassword } from "better-auth/crypto"
 import { betterAuth } from "better-auth/minimal"
 import { admin } from "better-auth/plugins/admin"
 import { anonymous } from "better-auth/plugins/anonymous"
@@ -10,9 +11,11 @@ import { emailOTP } from "better-auth/plugins/email-otp"
 import { genericOAuth } from "better-auth/plugins/generic-oauth"
 import { generateExportedKeyPair, type JwtOptions, jwt } from "better-auth/plugins/jwt"
 import { magicLink } from "better-auth/plugins/magic-link"
+import { twoFactor } from "better-auth/plugins/two-factor"
 import type { MongoClient } from "mongodb"
 import type { Mailer } from "./email/mailer.ts"
 import type { KeyMaterial, KeyRing, SigningAlgorithm } from "./keyring.ts"
+import { isLegacyHash, verifyLegacyHash } from "./legacy-passwords.ts"
 import type { AuthLogger } from "./logger.ts"
 
 /** An OAuth provider Better Auth knows by name. */
@@ -55,6 +58,10 @@ export interface EngineSettings {
   readonly magicLink: boolean
   readonly emailOtp: boolean
   readonly anonymous: boolean
+  /** TOTP second factor with backup codes. */
+  readonly twoFactor: boolean
+  /** WebAuthn passkeys, for the relying party of the public URL. */
+  readonly passkeys: boolean
   readonly socialProviders: Readonly<Partial<Record<SocialProviderId, SocialProviderOptions>>>
   readonly oidcProviders: readonly OidcProviderOptions[]
   readonly session: { readonly expiresInSeconds: number; readonly updateAgeSeconds: number }
@@ -74,6 +81,8 @@ export interface EngineHooks {
   ): void
   sessionEnded(session: { readonly id: string; readonly userId: string }): void
   userCreated(user: { readonly id: string }, path: string | undefined): void
+  /** Replaces an imported password hash with a native one after a successful sign in. */
+  rehash(legacy: string, hash: string): Promise<void>
 }
 
 /** The collections of `canopy_auth`. */
@@ -82,11 +91,29 @@ export const AUTH_COLLECTIONS = {
   sessions: "sessions",
   accounts: "accounts",
   verifications: "verifications",
+  twoFactors: "two_factors",
+  passkeys: "passkeys",
   rateLimits: "rate_limits",
   signingKeys: "signing_keys",
   leases: "leases",
   identifierLimits: "identifier_limits",
 } as const
+
+/**
+ * Paths that create a session only after a second factor or a passkey, so the session's access tokens
+ * carry `aal: "aal2"`.
+ */
+const AAL2_PATHS = new Set([
+  "/two-factor/verify-totp",
+  "/two-factor/verify-backup-code",
+  "/two-factor/verify-otp",
+  "/passkey/verify-authentication",
+])
+
+/** The assurance level of a session created on `path`. */
+export function assuranceOf(path: string | undefined): "aal1" | "aal2" {
+  return path !== undefined && AAL2_PATHS.has(path) ? "aal2" : "aal1"
+}
 
 /** The header that carries the client address the front handler resolved. Clients cannot set it. */
 export const CLIENT_IP_HEADER = "x-canopy-client-ip"
@@ -127,6 +154,7 @@ function disabledPaths(settings: EngineSettings): string[] {
   if (!settings.anonymous) paths.push("/sign-in/anonymous", "/delete-anonymous-user")
   if (!settings.magicLink) paths.push("/sign-in/magic-link", "/magic-link/verify")
   if (!settings.emailOtp) paths.push(...EMAIL_OTP_PATHS)
+  paths.push("/two-factor/send-otp", "/two-factor/verify-otp")
   return paths
 }
 
@@ -198,6 +226,15 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
       minPasswordLength: settings.emailPassword.minPasswordLength,
       maxPasswordLength: 128,
       revokeSessionsOnPasswordReset: true,
+      password: {
+        hash: (password) => hashPassword(password),
+        verify: async ({ hash, password }) => {
+          if (!isLegacyHash(hash)) return verifyPassword({ hash, password })
+          if (!(await verifyLegacyHash(hash, password))) return false
+          await hooks.rehash(hash, await hashPassword(password))
+          return true
+        },
+      },
       sendResetPassword: ({ user, url }) =>
         mailer.send("reset_password", { email: user.email, url }),
     },
@@ -222,6 +259,9 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
     },
     session: {
       modelName: AUTH_COLLECTIONS.sessions,
+      additionalFields: {
+        aal: { type: "string", required: false, input: false, defaultValue: "aal1" },
+      },
       expiresIn: settings.session.expiresInSeconds,
       updateAge: settings.session.updateAgeSeconds,
     },
@@ -257,6 +297,9 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
       },
       session: {
         create: {
+          before: async (session, context) => ({
+            data: { ...session, aal: assuranceOf(context?.path) },
+          }),
           after: async (session, context) =>
             hooks.sessionCreated({ id: session.id, userId: session.userId }, context?.path),
         },
@@ -298,6 +341,27 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
         sendVerificationOTP: ({ email, otp }) => mailer.send("otp", { email, otp }),
       }),
       admin({ defaultRole: "user" }),
+      ...(settings.twoFactor
+        ? [
+            twoFactor({
+              issuer: settings.appName,
+              twoFactorTable: AUTH_COLLECTIONS.twoFactors,
+              backupCodeOptions: { amount: 10, length: 10 },
+            }),
+          ]
+        : []),
+      ...(settings.passkeys
+        ? [
+            passkey({
+              rpID: new URL(settings.publicUrl).hostname,
+              rpName: settings.appName,
+              origin: [
+                ...new Set([new URL(settings.publicUrl).origin, ...settings.trustedOrigins]),
+              ],
+              schema: { passkey: { modelName: AUTH_COLLECTIONS.passkeys } },
+            }),
+          ]
+        : []),
       genericOAuth({
         config: settings.oidcProviders.map((provider) => ({
           providerId: provider.id,
@@ -320,6 +384,8 @@ export interface EngineSession {
   readonly createdAt: Date
   readonly updatedAt: Date
   readonly expiresAt: Date
+  /** `aal2` when the session was created after a second factor or with a passkey. */
+  readonly aal?: string | null | undefined
   readonly ipAddress?: string | null | undefined
   readonly userAgent?: string | null | undefined
 }
@@ -391,7 +457,10 @@ export function createEngine(settings: EngineSettings, hooks: EngineHooks): Engi
         found:
           found === null
             ? null
-            : { session: found.session, user: found.user as unknown as EngineUser },
+            : {
+                session: found.session as EngineSession,
+                user: found.user as unknown as EngineUser,
+              },
         headers: result.headers,
       }
     },

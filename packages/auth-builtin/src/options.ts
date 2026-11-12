@@ -79,6 +79,10 @@ export interface BuiltinAuthOptions {
   readonly emailOtp?: boolean
   /** @default false */
   readonly anonymous?: boolean
+  /** TOTP second factor with backup codes; users opt in. Defaults to true. */
+  readonly twoFactor?: boolean
+  /** WebAuthn passkeys for the public URL's host; users opt in. Defaults to true. */
+  readonly passkeys?: boolean
   readonly socialProviders?: Readonly<Partial<Record<SocialProviderId, SocialProviderOptions>>>
   readonly oidcProviders?: readonly OidcProviderOptions[]
   readonly claims?: ClaimsHook

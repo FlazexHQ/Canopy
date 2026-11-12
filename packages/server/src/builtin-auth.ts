@@ -102,6 +102,8 @@ export async function startBuiltinAuth(
     magicLink: auth.magicLink,
     emailOtp: auth.emailOtp,
     anonymous: auth.anonymous,
+    twoFactor: auth.twoFactor,
+    passkeys: auth.passkeys,
     socialProviders: auth.providers,
     oidcProviders: auth.oidc,
     ...(auth.claims === undefined ? {} : { claims: auth.claims as ClaimsHook }),

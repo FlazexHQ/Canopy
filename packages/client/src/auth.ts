@@ -102,6 +102,8 @@ export class CanopyAuth implements TokenSource {
   private refreshing: Promise<string | null> | undefined
   private readonly listeners = new Set<() => void>()
   private subject: string | undefined
+  /** The signed cookies of a sign in waiting for its second step (a second factor or a passkey). */
+  private ceremony: string | undefined
   /** Resolves once the stored session is loaded. */
   readonly ready: Promise<void>
 
@@ -155,6 +157,7 @@ export class CanopyAuth implements TokenSource {
     if (body !== undefined) headers["content-type"] = "application/json"
     if (this.bearer && this.session !== undefined)
       headers["authorization"] = `Bearer ${this.session.token}`
+    if (this.ceremony !== undefined) headers["x-canopy-ceremony"] = this.ceremony
     const response = await this.http(`${this.base}${path}`, {
       method,
       headers,
@@ -163,6 +166,8 @@ export class CanopyAuth implements TokenSource {
     })
     const rolled = response.headers.get("set-auth-token")
     if (this.bearer && rolled !== null && rolled !== "") await this.store(rolled)
+    const ceremony = response.headers.get("set-auth-ceremony")
+    if (ceremony !== null && ceremony !== "") this.ceremony = ceremony
     return response
   }
 
@@ -274,12 +279,88 @@ export class CanopyAuth implements TokenSource {
     return { user: await this.signedIn() }
   }
 
-  /** Signs in with an email address and password. */
+  /**
+   * Signs in with an email address and password. When the user has a second factor, it rejects with an
+   * `AuthError` whose code is `TWO_FACTOR_REQUIRED`; finish with {@link verifyTotp} or
+   * {@link verifyBackupCode}.
+   */
   async signInWithPassword(input: {
     readonly email: string
     readonly password: string
   }): Promise<AuthUser> {
-    await this.expect(await this.call("POST", "/sign-in/email", input))
+    const body = await this.expect(await this.call("POST", "/sign-in/email", input))
+    if (body["twoFactorRedirect"] === true)
+      throw new AuthError("TWO_FACTOR_REQUIRED", 401, "Enter the code of the authenticator app")
+    return this.signedIn()
+  }
+
+  /** Completes a password sign in with the authenticator app's code. `trustDevice` skips it here for 30 days. */
+  async verifyTotp(input: {
+    readonly code: string
+    readonly trustDevice?: boolean
+  }): Promise<AuthUser> {
+    await this.expect(await this.call("POST", "/two-factor/verify-totp", input))
+    this.ceremony = undefined
+    return this.signedIn()
+  }
+
+  /** Completes a password sign in with one of the single use backup codes. */
+  async verifyBackupCode(input: { readonly code: string }): Promise<AuthUser> {
+    await this.expect(await this.call("POST", "/two-factor/verify-backup-code", input))
+    this.ceremony = undefined
+    return this.signedIn()
+  }
+
+  /**
+   * Starts enrolling an authenticator app for the signed in user: show `totpURI` as a QR code and keep the
+   * backup codes, then confirm with {@link confirmTwoFactor}.
+   */
+  async enableTwoFactor(input: {
+    readonly password: string
+  }): Promise<{ readonly totpURI: string; readonly backupCodes: readonly string[] }> {
+    const body = await this.expect(await this.call("POST", "/two-factor/enable", input))
+    const codes = body["backupCodes"]
+    return {
+      totpURI: String(body["totpURI"] ?? ""),
+      backupCodes: Array.isArray(codes) ? codes.map(String) : [],
+    }
+  }
+
+  /** Turns the second factor on with a first code from the app; the new session counts as `aal2`. */
+  async confirmTwoFactor(input: { readonly code: string }): Promise<AuthUser> {
+    await this.expect(await this.call("POST", "/two-factor/verify-totp", input))
+    return this.signedIn()
+  }
+
+  /** Turns the second factor off. */
+  async disableTwoFactor(input: { readonly password: string }): Promise<void> {
+    await this.expect(await this.call("POST", "/two-factor/disable", input))
+  }
+
+  /** Registers a passkey of this device for the signed in user. Needs WebAuthn (`navigator.credentials`). */
+  async addPasskey(input: { readonly name?: string } = {}): Promise<void> {
+    const options = await this.expect(await this.call("GET", "/passkey/generate-register-options"))
+    const credential = await webauthn().create({ publicKey: creationOptions(options) })
+    await this.expect(
+      await this.call("POST", "/passkey/verify-registration", {
+        response: credentialJson(credential),
+        ...(input.name === undefined ? {} : { name: input.name }),
+      }),
+    )
+  }
+
+  /** Signs in with a passkey; the session counts as `aal2`. Needs WebAuthn (`navigator.credentials`). */
+  async signInWithPasskey(): Promise<AuthUser> {
+    const options = await this.expect(
+      await this.call("GET", "/passkey/generate-authenticate-options"),
+    )
+    const credential = await webauthn().get({ publicKey: requestOptions(options) })
+    await this.expect(
+      await this.call("POST", "/passkey/verify-authentication", {
+        response: credentialJson(credential),
+      }),
+    )
+    this.ceremony = undefined
     return this.signedIn()
   }
 
@@ -373,6 +454,97 @@ export class CanopyAuth implements TokenSource {
     } finally {
       await this.forget()
     }
+  }
+}
+
+interface CredentialsContainerLike {
+  create(options: { publicKey: unknown }): Promise<unknown>
+  get(options: { publicKey: unknown }): Promise<unknown>
+}
+
+function webauthn(): CredentialsContainerLike {
+  const credentials = (globalThis as { navigator?: { credentials?: CredentialsContainerLike } })
+    .navigator?.credentials
+  if (credentials === undefined)
+    throw new AuthError("WEBAUTHN_UNAVAILABLE", 400, "This environment has no WebAuthn support")
+  return credentials
+}
+
+function fromBase64url(text: string): ArrayBuffer {
+  const binary = atob(text.replaceAll("-", "+").replaceAll("_", "/"))
+  return Uint8Array.from(binary, (char) => char.charCodeAt(0)).buffer
+}
+
+function toBase64url(buffer: ArrayBuffer | ArrayBufferView): string {
+  const bytes =
+    buffer instanceof ArrayBuffer
+      ? new Uint8Array(buffer)
+      : new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength)
+  let binary = ""
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+
+type Json = Readonly<Record<string, unknown>>
+
+function withIds(list: unknown): unknown {
+  return Array.isArray(list)
+    ? list.map((entry: Json) => ({ ...entry, id: fromBase64url(String(entry["id"])) }))
+    : list
+}
+
+/** WebAuthn creation options from their JSON form (base64url buffers). */
+function creationOptions(options: Json): unknown {
+  const user = record(options["user"])
+  return {
+    ...options,
+    challenge: fromBase64url(String(options["challenge"])),
+    user: { ...user, id: fromBase64url(String(user["id"])) },
+    excludeCredentials: withIds(options["excludeCredentials"]),
+  }
+}
+
+/** WebAuthn request options from their JSON form. */
+function requestOptions(options: Json): unknown {
+  return {
+    ...options,
+    challenge: fromBase64url(String(options["challenge"])),
+    allowCredentials: withIds(options["allowCredentials"]),
+  }
+}
+
+/** A WebAuthn credential in its JSON form, as the server verifies it. */
+function credentialJson(credential: unknown): Json {
+  const value = credential as {
+    toJSON?: () => Json
+    id: string
+    rawId: ArrayBuffer
+    type: string
+    authenticatorAttachment?: string | null
+    response: Record<string, unknown> & { getTransports?: () => string[] }
+    getClientExtensionResults?: () => Json
+  }
+  if (typeof value.toJSON === "function") return value.toJSON()
+  const response: Record<string, unknown> = {}
+  for (const key of [
+    "clientDataJSON",
+    "attestationObject",
+    "authenticatorData",
+    "signature",
+    "userHandle",
+  ]) {
+    const part = value.response[key]
+    if (part instanceof ArrayBuffer || ArrayBuffer.isView(part)) response[key] = toBase64url(part)
+  }
+  if (typeof value.response.getTransports === "function")
+    response["transports"] = value.response.getTransports()
+  return {
+    id: value.id,
+    rawId: toBase64url(value.rawId),
+    type: value.type,
+    response,
+    authenticatorAttachment: value.authenticatorAttachment ?? undefined,
+    clientExtensionResults: value.getClientExtensionResults?.() ?? {},
   }
 }
 

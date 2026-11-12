@@ -2,6 +2,8 @@ import type {
   AuthSession,
   AuthUser,
   CreateUserInput,
+  ImportResult,
+  ImportUserInput,
   InviteInput,
   ListUsersQuery,
   UpdateUserInput,
@@ -17,6 +19,12 @@ import {
 } from "@canopy/protocol"
 import { MongoServerError } from "mongodb"
 import type { EngineApi, EngineSession, EngineUser } from "./engine.ts"
+import { encodeLegacyHash } from "./legacy-passwords.ts"
+
+/** The most users one import call takes. */
+export const MAX_IMPORT_BATCH = 1000
+
+const PROVIDER = /^[a-z0-9][a-z0-9_-]{0,63}$/
 
 const RESERVED_ROLES = new Set(["anon", "authenticated", "service", "public"])
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -337,6 +345,83 @@ export class EngineUserAdmin implements UserAdmin {
         "Every session ended, but the revocation could not be written; other nodes accept existing access tokens until they expire",
       )
     return count
+  }
+
+  /**
+   * Imports users from another identity system. Each user is created in its own transaction with its
+   * linked accounts: a credential account holding the imported password hash (checked on the first sign
+   * in, then replaced by a native hash) and one account per OAuth identity. Users whose email exists are
+   * skipped, never changed; invalid users are reported and the rest still import.
+   */
+  async import(users: readonly ImportUserInput[]): Promise<ImportResult> {
+    if (users.length > MAX_IMPORT_BATCH)
+      throw new ValidationError(`Import at most ${MAX_IMPORT_BATCH} users per call`)
+    const context = await this.hooks.engine.context()
+    let created = 0
+    let skipped = 0
+    const failed: { email: string; reason: string }[] = []
+    for (const input of users) {
+      const label = typeof input.email === "string" ? input.email : String(input.email)
+      try {
+        const email = checkEmail(input.email)
+        checkRoles(input.roles)
+        checkMetadata("appMetadata", input.appMetadata)
+        checkMetadata("userMetadata", input.userMetadata)
+        const password =
+          input.passwordHash === undefined ? undefined : encodeLegacyHash(input.passwordHash)
+        for (const identity of input.identities ?? []) {
+          if (!PROVIDER.test(identity.provider) || identity.provider === "credential")
+            throw new ValidationError(`The identity provider ${identity.provider} is not valid`)
+          if (typeof identity.subject !== "string" || identity.subject === "")
+            throw new ValidationError("An identity needs a subject")
+        }
+        if ((await context.internalAdapter.findUserByEmail(email)) !== null) {
+          skipped += 1
+          continue
+        }
+        await context.transaction(async () => {
+          const user = (await context.internalAdapter.createUser(
+            {
+              email,
+              name: input.name ?? "",
+              emailVerified: input.emailVerified ?? false,
+              roles: [...(input.roles ?? [])],
+              appMetadata: { ...input.appMetadata },
+              userMetadata: { ...input.userMetadata },
+              ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
+              ...(input.disabled === true
+                ? { banned: true, banReason: "Disabled in the system it was imported from" }
+                : {}),
+            },
+            { method: "import" },
+          )) as EngineUser
+          if (password !== undefined)
+            await context.internalAdapter.linkAccount({
+              providerId: "credential",
+              accountId: user.id,
+              userId: user.id,
+              password,
+            })
+          for (const identity of input.identities ?? [])
+            await context.internalAdapter.linkAccount({
+              providerId: identity.provider,
+              accountId: identity.subject,
+              userId: user.id,
+            })
+        })
+        created += 1
+      } catch (error: unknown) {
+        if (error instanceof MongoServerError && error.code === 11000) {
+          skipped += 1
+          continue
+        }
+        failed.push({
+          email: label,
+          reason: error instanceof CanopyError ? error.message : "The user could not be created",
+        })
+      }
+    }
+    return { created, skipped, failed }
   }
 
   async invite(input: InviteInput): Promise<AuthUser> {

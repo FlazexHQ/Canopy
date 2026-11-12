@@ -198,6 +198,8 @@ const AUTH_KINDS: Readonly<Record<string, Readonly<Record<string, Spec>>>> = {
     magicLink: withDefault(bool, true),
     emailOtp: withDefault(bool, true),
     anonymous: withDefault(bool, false),
+    twoFactor: withDefault(bool, true),
+    passkeys: withDefault(bool, true),
     providers: obj({
       google: obj(OAUTH_CLIENT),
       github: obj(OAUTH_CLIENT),
@@ -1370,6 +1372,8 @@ function normalizeBuiltin(
     magicLink: at<boolean>("magicLink"),
     emailOtp: at<boolean>("emailOtp"),
     anonymous: at<boolean>("anonymous"),
+    twoFactor: at<boolean>("twoFactor"),
+    passkeys: at<boolean>("passkeys"),
     providers,
     oidc,
     claims: typeof claims === "function" ? (claims as ResolvedBuiltinAuth["claims"]) : undefined,

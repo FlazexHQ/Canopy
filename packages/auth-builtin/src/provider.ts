@@ -69,6 +69,11 @@ const IDENTIFIER_ROUTES: ReadonlyMap<string, boolean> = new Map([
 ])
 
 const AUDITED: ReadonlyMap<string, string> = new Map([
+  ["/two-factor/enable", "auth.mfa_enrolment_started"],
+  ["/two-factor/disable", "auth.mfa_disabled"],
+  ["/two-factor/generate-backup-codes", "auth.mfa_backup_codes_generated"],
+  ["/passkey/verify-registration", "auth.passkey_added"],
+  ["/passkey/delete-passkey", "auth.passkey_deleted"],
   ["/reset-password", "auth.password_reset"],
   ["/change-password", "auth.password_changed"],
   ["/change-email", "auth.email_change_requested"],
@@ -99,8 +104,57 @@ function failure(
   return json({ code, message }, status, headers)
 }
 
+/** The response header that hands a bearer client the cookies of a sign in ceremony in progress. */
+export const CEREMONY_RESPONSE_HEADER = "set-auth-ceremony"
+/** The request header a bearer client sends those cookies back in. */
+export const CEREMONY_REQUEST_HEADER = "x-canopy-ceremony"
+
+const CEREMONY_COOKIE = /^(?:__Secure-)?canopy\.(?:two_factor|better-auth-passkey)$/
+
+/**
+ * A second factor and a passkey sign in each keep a short lived, signed cookie between their two steps.
+ * Bearer clients (cross site SPAs, native apps) do not keep cookies, so the cookie travels in headers:
+ * the response copies it into `set-auth-ceremony`, and the next request's `x-canopy-ceremony` is turned
+ * back into a cookie. Only those cookie names pass; they are signed by the engine, so a client cannot
+ * forge one.
+ */
+function bridgeCeremonyCookies(headers: Headers): void {
+  const carried = headers.get(CEREMONY_REQUEST_HEADER)
+  headers.delete(CEREMONY_REQUEST_HEADER)
+  if (carried === null) return
+  const pairs = carried
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter((pair) => CEREMONY_COOKIE.test(pair.slice(0, pair.indexOf("="))))
+  if (pairs.length === 0) return
+  const existing = headers.get("cookie")
+  headers.set(
+    "cookie",
+    [existing, ...pairs].filter((part) => part !== null && part !== "").join("; "),
+  )
+}
+
+function exposeCeremonyCookies(response: Response): Response {
+  const pairs = response.headers
+    .getSetCookie()
+    .map((cookie) => cookie.split(";")[0]?.trim() ?? "")
+    .filter((pair) => CEREMONY_COOKIE.test(pair.slice(0, pair.indexOf("="))))
+    .filter((pair) => pair.slice(pair.indexOf("=") + 1) !== "")
+  if (pairs.length === 0) return response
+  const headers = new Headers(response.headers)
+  headers.set(CEREMONY_RESPONSE_HEADER, pairs.join("; "))
+  headers.delete("set-auth-token")
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  })
+}
+
 function signInMethod(path: string | undefined): string {
   if (path === undefined) return "unknown"
+  if (path.startsWith("/two-factor/")) return "two_factor"
+  if (path.startsWith("/passkey/")) return "passkey"
   if (path.startsWith("/sign-in/email-otp")) return "email_otp"
   if (path.startsWith("/sign-in/email") || path.startsWith("/sign-up/email")) return "password"
   if (path.startsWith("/magic-link")) return "magic_link"
@@ -225,6 +279,12 @@ class BetterAuthProvider implements BuiltinAuth {
           target: { type: "session", id: session.id },
         })
       },
+      rehash: async (legacy, hash) => {
+        await authDb
+          .collection(AUTH_COLLECTIONS.accounts)
+          .updateOne({ providerId: "credential", password: legacy }, { $set: { password: hash } })
+        this.audit.record({ action: "auth.password_rehashed", actor: { type: "system" } })
+      },
       userCreated: (user, path) =>
         this.audit.record({
           action: "auth.sign_up",
@@ -268,6 +328,8 @@ class BetterAuthProvider implements BuiltinAuth {
         anonymous: settings.anonymous,
         magic_link: settings.magicLink,
         email_otp: settings.emailOtp,
+        two_factor: settings.twoFactor,
+        passkey: settings.passkeys,
         ...Object.fromEntries(Object.keys(settings.socialProviders).map((id) => [id, true])),
         ...Object.fromEntries(settings.oidcProviders.map((provider) => [provider.id, true])),
       },
@@ -383,7 +445,7 @@ class BetterAuthProvider implements BuiltinAuth {
     const headers = new Headers(response.headers)
     headers.set("access-control-allow-origin", origin)
     headers.set("access-control-allow-credentials", "true")
-    headers.set("access-control-expose-headers", "set-auth-token")
+    headers.set("access-control-expose-headers", `set-auth-token, ${CEREMONY_RESPONSE_HEADER}`)
     headers.append("vary", "origin")
     return new Response(response.body, {
       status: response.status,
@@ -408,7 +470,7 @@ class BetterAuthProvider implements BuiltinAuth {
         status: 204,
         headers: {
           "access-control-allow-methods": "GET, POST, OPTIONS",
-          "access-control-allow-headers": "authorization, content-type, apikey, x-client-info",
+          "access-control-allow-headers": `authorization, content-type, apikey, x-client-info, ${CEREMONY_REQUEST_HEADER}`,
           "access-control-max-age": "600",
         },
       })
@@ -446,6 +508,8 @@ class BetterAuthProvider implements BuiltinAuth {
         headers.delete(name)
     }
 
+    bridgeCeremonyCookies(headers)
+
     if (path === "/token" && request.method === "GET") return this.token(headers, ip)
     if (path === "/settings" && request.method === "GET") return json(this.settingsBody)
 
@@ -479,6 +543,7 @@ class BetterAuthProvider implements BuiltinAuth {
         }),
       )
       if (path === "/sign-up/email") response = await this.uniformSignUp(response, email)
+      response = exposeCeremonyCookies(response)
       await this.afterEngine(path, request.method, response, email, ip)
     }
     if (FLOOR_PATHS.has(path) && request.method === "POST") {
@@ -630,7 +695,7 @@ class BetterAuthProvider implements BuiltinAuth {
       roles,
       ...(stored.isAnonymous ? {} : { email: user.email, email_verified: user.emailVerified }),
       is_anonymous: stored.isAnonymous,
-      aal: "aal1",
+      aal: session.aal === "aal2" ? "aal2" : "aal1",
       app_metadata: { ...stored.appMetadata, ...contributed.app_metadata },
       user_metadata: stored.userMetadata,
     }
@@ -823,6 +888,8 @@ function resolveSettings(options: BuiltinAuthOptions): EngineSettings {
     magicLink: options.magicLink ?? true,
     emailOtp: options.emailOtp ?? true,
     anonymous: options.anonymous ?? false,
+    twoFactor: options.twoFactor ?? true,
+    passkeys: options.passkeys ?? true,
     socialProviders: options.socialProviders ?? {},
     oidcProviders: options.oidcProviders ?? [],
     session: {

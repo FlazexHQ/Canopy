@@ -12,6 +12,7 @@ import {
 } from "@canopy/config"
 import { type LoadedConfig, loadConfig } from "@canopy/config/load"
 import { adminCreate, adminList, adminResetTotp } from "./admin.ts"
+import { authImport, type ImportSource } from "./auth-import.ts"
 import { doctor, policiesLint, policiesTest } from "./commands.ts"
 import { isEnvironmentName, readEnvironment, readToken } from "./credentials.ts"
 import { dev } from "./dev.ts"
@@ -54,6 +55,8 @@ Commands:
                          List the published versions of a collection
   policies rollback <collection> <version>
                          Republish an earlier version as a new one (asks first)
+  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;
+                         password hashes are checked on first sign in, then rehashed
   keys list              List the API keys of the project
   keys create            Create a key: --kind publishable|secret --name <name>
   keys revoke <id>       Revoke a key for good (asks first)
@@ -119,6 +122,9 @@ Options:
                          production and development also set CANOPY_ENV
   --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,
                          admin tokens revoke: apply without asking
+  --from <system>        auth import: firebase, auth0, cognito or csv
+  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and
+                         --mem-cost (the project's password hash parameters) imports password hashes
   --as <claims>          policies explain: the caller's claims as JSON (default: anon)
   --roles <a,b>          policies explain: custom roles of the caller
   --op <op>              policies explain: read, insert, update or delete (default read)
@@ -430,6 +436,12 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
         )
       },
     },
+  },
+  "auth import": {
+    flags: ["from", "hash-key", "salt-separator", "rounds", "mem-cost", "dry-run", "env"],
+    args: [1, 1],
+    needs: "the export file",
+    handler: { kind: "direct", run: runAuthImport },
   },
   "admin reset-totp": {
     flags: ["yes"],
@@ -866,6 +878,45 @@ async function withRemote(
   if (environment === undefined) return 1
   const remote = await remoteFor(environment, call.env, call.out)
   return remote === undefined ? 1 : fn(remote)
+}
+
+const IMPORT_SOURCES: readonly ImportSource[] = ["firebase", "auth0", "cognito", "csv"]
+
+function runAuthImport(call: Invocation): number | Promise<number> {
+  const { flags, out } = call
+  const from = text(flags, "from")
+  if (from === undefined || !(IMPORT_SOURCES as readonly string[]).includes(from)) {
+    out.error("auth import needs --from firebase|auth0|cognito|csv")
+    return 1
+  }
+  const hashKey = text(flags, "hash-key")
+  const separator = text(flags, "salt-separator")
+  const rounds = Number(text(flags, "rounds") ?? "8")
+  const memCost = Number(text(flags, "mem-cost") ?? "14")
+  if (hashKey !== undefined && (separator === undefined || from !== "firebase")) {
+    out.error(
+      "--hash-key is for --from firebase and needs --salt-separator (and --rounds, --mem-cost)",
+    )
+    return 1
+  }
+  if (!Number.isInteger(rounds) || !Number.isInteger(memCost)) {
+    out.error("--rounds and --mem-cost must be integers")
+    return 1
+  }
+  const run = (remote: AdminClient | undefined): Promise<number> =>
+    authImport(
+      {
+        file: resolve(call.cwd, call.args[0] ?? ""),
+        from: from as ImportSource,
+        dryRun: flags.has("dry-run"),
+        remote,
+        ...(hashKey === undefined || separator === undefined
+          ? {}
+          : { firebase: { signerKey: hashKey, saltSeparator: separator, rounds, memCost } }),
+      },
+      out,
+    )
+  return flags.has("dry-run") ? run(undefined) : withRemote(call, run)
 }
 
 function runTokensCreate(call: Invocation): number | Promise<number> {

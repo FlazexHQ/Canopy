@@ -91,7 +91,15 @@ describeMongo("built in auth flows", () => {
     const reply = await h.client().get("/auth/v1/settings")
     expect(reply.status).toBe(200)
     expect(reply.body).toEqual({
-      external: { email: true, anonymous: true, magic_link: true, email_otp: true, mock: true },
+      external: {
+        email: true,
+        anonymous: true,
+        magic_link: true,
+        email_otp: true,
+        two_factor: true,
+        passkey: true,
+        mock: true,
+      },
       password: { min_length: 10, requires_email_verification: true },
       access_token_ttl: 600,
       issuer: `${h.url}/auth/v1`,
@@ -113,7 +121,9 @@ describeMongo("built in auth flows", () => {
     const allowed = await h.client().get("/auth/v1/settings")
     expect(allowed.headers.get("access-control-allow-origin")).toBe(APP_ORIGIN)
     expect(allowed.headers.get("access-control-allow-credentials")).toBe("true")
-    expect(allowed.headers.get("access-control-expose-headers")).toBe("set-auth-token")
+    expect(allowed.headers.get("access-control-expose-headers")).toBe(
+      "set-auth-token, set-auth-ceremony",
+    )
   })
 
   it("signs in with a magic link once, landing on the allowed callback", async () => {

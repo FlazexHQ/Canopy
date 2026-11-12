@@ -1,3 +1,4 @@
+import type { ImportedPasswordHash } from "@canopy/auth"
 import type { ResolvedConfig } from "@canopy/config"
 import { NotFoundError, ValidationError } from "@canopy/protocol"
 import { array, boolean, document, integer, object, oneOf, optional, string } from "../../schema.ts"
@@ -192,6 +193,69 @@ export function registerUsers(route: RouteFn, deps: AdminDeps): void {
       return json(user, 201)
     },
     "user.create",
+  )
+
+  route(
+    "POST",
+    "users/import",
+    "users.manage",
+    async (context) => {
+      const users = authOf().users
+      if (users.import === undefined)
+        throw new NotFoundError("This auth provider cannot import users")
+      const body = object({
+        users: array(
+          object({
+            email: string({ min: 1, max: 320 }),
+            emailVerified: optional(boolean()),
+            name: optional(string({ max: 200 })),
+            createdAt: optional(string({ max: 64 })),
+            disabled: optional(boolean()),
+            roles: roleList,
+            appMetadata: metadata,
+            userMetadata: metadata,
+            passwordHash: optional(document()),
+            identities: optional(
+              array(
+                object({
+                  provider: string({ min: 1, max: 64 }),
+                  subject: string({ min: 1, max: 256 }),
+                }),
+                { max: 20 },
+              ),
+            ),
+          }),
+          { max: 1000 },
+        ),
+      }).parse(await context.body())
+      const result = await users.import(
+        body.users.map((user) => {
+          const createdAt = user.createdAt === undefined ? undefined : new Date(user.createdAt)
+          if (createdAt !== undefined && Number.isNaN(createdAt.getTime()))
+            throw new ValidationError(`createdAt of ${user.email} is not a date`)
+          return {
+            email: user.email,
+            ...(user.emailVerified === undefined ? {} : { emailVerified: user.emailVerified }),
+            ...(user.name === undefined ? {} : { name: user.name }),
+            ...(createdAt === undefined ? {} : { createdAt }),
+            ...(user.disabled === undefined ? {} : { disabled: user.disabled }),
+            ...(user.roles === undefined ? {} : { roles: user.roles }),
+            ...(user.appMetadata === undefined ? {} : { appMetadata: user.appMetadata }),
+            ...(user.userMetadata === undefined ? {} : { userMetadata: user.userMetadata }),
+            ...(user.passwordHash === undefined
+              ? {}
+              : { passwordHash: user.passwordHash as unknown as ImportedPasswordHash }),
+            ...(user.identities === undefined ? {} : { identities: user.identities }),
+          }
+        }),
+      )
+      await context.audit({
+        action: "user.import",
+        details: { created: result.created, skipped: result.skipped, failed: result.failed.length },
+      })
+      return json(result)
+    },
+    "user.import",
   )
 
   route("GET", "users/:id", "users.read", async (context) => json(await userOf(context)))

@@ -290,6 +290,33 @@ suite("createCanopy with built in auth", () => {
     }
     expect(sessions.data.length).toBeGreaterThanOrEqual(1)
 
+    const imported = await admin("POST", "/users/import", {
+      users: [
+        {
+          email: "eve@example.com",
+          createdAt: "2024-05-01T00:00:00Z",
+          passwordHash: {
+            algorithm: "bcrypt",
+            hash: "$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+          },
+          identities: [{ provider: "github", subject: "4242" }],
+        },
+        { email: "carol@example.com" },
+        { email: "mal@example.com", passwordHash: { algorithm: "md5", hash: "x" } },
+      ],
+    })
+    expect(imported.status).toBe(200)
+    expect(await imported.json()).toEqual({
+      created: 1,
+      skipped: 1,
+      failed: [{ email: "mal@example.com", reason: 'Unknown password hash algorithm "md5"' }],
+    })
+    expect((await admin("POST", "/users/import", { users: [{ email: 7 }] })).status).toBe(422)
+    const imports = (await (await admin("GET", "/audit?action=user.import")).json()) as {
+      data: { details: unknown }[]
+    }
+    expect(imports.data[0]?.details).toEqual({ created: 1, skipped: 1, failed: 1 })
+
     const { closed } = await socketFor(await carol.token())
     expect((await admin("POST", `/users/${carolId}/ban`, { reason: "abuse" })).status).toBe(200)
     expect(await within(closed, 3000)).toBe(4003)

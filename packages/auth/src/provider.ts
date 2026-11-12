@@ -87,6 +87,52 @@ export interface ListUsersQuery {
   readonly email?: string
 }
 
+/** A password hash exported from another system. Base64 fields are standard base64. */
+export type ImportedPasswordHash =
+  | { readonly algorithm: "bcrypt"; readonly hash: string }
+  | { readonly algorithm: "argon2id"; readonly hash: string }
+  | {
+      readonly algorithm: "pbkdf2-sha256" | "pbkdf2-sha512" | "pbkdf2-sha1"
+      readonly iterations: number
+      readonly salt: string
+      readonly hash: string
+    }
+  | {
+      /** Firebase Auth's modified scrypt; the first four fields are the project's hash parameters. */
+      readonly algorithm: "firebase-scrypt"
+      readonly signerKey: string
+      readonly saltSeparator: string
+      readonly rounds: number
+      readonly memCost: number
+      readonly salt: string
+      readonly hash: string
+    }
+
+/** A user to import from another identity system. */
+export interface ImportUserInput {
+  readonly email: string
+  readonly emailVerified?: boolean
+  readonly name?: string
+  readonly createdAt?: Date
+  /** Imported banned, so the user cannot sign in until unbanned. */
+  readonly disabled?: boolean
+  readonly roles?: readonly string[]
+  readonly appMetadata?: Readonly<Record<string, unknown>>
+  readonly userMetadata?: Readonly<Record<string, unknown>>
+  /** Checked on the first sign in, then replaced by a native hash of the same password. */
+  readonly passwordHash?: ImportedPasswordHash
+  /** Linked OAuth accounts, so the user signs in with the same provider without a new account. */
+  readonly identities?: readonly { readonly provider: string; readonly subject: string }[]
+}
+
+/** The outcome of an import. */
+export interface ImportResult {
+  readonly created: number
+  /** Users whose email already exists; they are left unchanged. */
+  readonly skipped: number
+  readonly failed: readonly { readonly email: string; readonly reason: string }[]
+}
+
 /** Invites a user by email: the user is created if needed and receives a sign in link. */
 export interface InviteInput {
   readonly email: string
@@ -116,6 +162,8 @@ export interface UserAdmin {
    */
   revokeAllSessions(): Promise<number>
   invite(input: InviteInput): Promise<AuthUser>
+  /** Imports users with their password hashes and identities; absent when the provider cannot. */
+  import?(users: readonly ImportUserInput[]): Promise<ImportResult>
 }
 
 /**

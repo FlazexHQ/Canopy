@@ -60,6 +60,8 @@ describe("builtin()", () => {
       magicLink: true,
       emailOtp: true,
       anonymous: false,
+      twoFactor: true,
+      passkeys: true,
       providers: {},
       oidc: [],
       claims: undefined,

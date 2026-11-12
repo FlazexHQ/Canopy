@@ -187,6 +187,10 @@ export interface BuiltinAuthInput<Hook extends ClaimsHookFunction = ClaimsHookFu
   readonly emailOtp?: Value<boolean>
   /** @default false */
   readonly anonymous?: Value<boolean>
+  /** TOTP second factor with backup codes; users opt in. @default true */
+  readonly twoFactor?: Value<boolean>
+  /** WebAuthn passkeys for the public URL's host; users opt in. @default true */
+  readonly passkeys?: Value<boolean>
   readonly providers?: {
     readonly google?: OAuthClientInput
     readonly github?: OAuthClientInput
@@ -444,6 +448,8 @@ export interface ResolvedBuiltinAuth {
   readonly magicLink: boolean
   readonly emailOtp: boolean
   readonly anonymous: boolean
+  readonly twoFactor: boolean
+  readonly passkeys: boolean
   readonly providers: Readonly<
     Record<
       string,
