@@ -47,6 +47,7 @@
       "bson": "7.3.3",
       "class-variance-authority": "0.7.1",
       "clsx": "2.1.1",
+      "cm6-graphql": "1.0.0",
       "fake-indexeddb": "6.2.7",
       "fast-check": "4.10.2",
       "graphql": "16.15.0",

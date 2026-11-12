@@ -1,4 +1,5 @@
-import { waitFor, within } from "@testing-library/react"
+import { EditorView } from "@codemirror/view"
+import { act, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { querySnippet, reactSnippet, setupSnippet } from "../src/features/api/snippets.ts"
 import { renderStudio, screen } from "./harness.tsx"
@@ -164,5 +165,61 @@ describe("API reference and snippets", () => {
     await user.click(await screen.findByRole("tab", { name: "Types" }))
     expect(await screen.findByText("canopy gen types --check")).toBeTruthy()
     expect(screen.getByText("canopy gen types --role authenticated")).toBeTruthy()
+  })
+})
+
+describe("GraphQL explorer", () => {
+  it("loads the schema, inserts a starter operation and runs it through the admin API", async () => {
+    const { user, mock } = await renderStudio("/api", { policies: [exposedTodos] })
+    const calls: unknown[] = []
+    const fetchMock = mock.fetch.bind(mock)
+    mock.fetch = async (request) => {
+      if (new URL(request.url).pathname === "/admin/v1/graphql")
+        calls.push(await request.clone().json())
+      return fetchMock(request)
+    }
+    await user.click(await screen.findByRole("tab", { name: "GraphQL" }))
+    const pick = await screen.findByRole("button", { name: "Insert into the editor: todos" })
+    expect(pick.textContent).toBe("todos(limit: Int): TodosConnection!")
+    await user.click(pick)
+    await user.click(screen.getByRole("button", { name: "Run" }))
+    const result = await screen.findByTestId("graphql-result")
+    const body = JSON.parse(result.textContent ?? "{}") as {
+      data: { todos: { nodes: { title: string }[] } }
+    }
+    expect(body.data.todos.nodes).toHaveLength(10)
+    expect(body.data.todos.nodes[0]?.title).toBe("Buy milk")
+    expect(calls.at(-1)).toEqual({ query: expect.stringContaining("todos(limit: 10)") })
+  })
+
+  it("sends the impersonated caller and refuses variables that are not an object", async () => {
+    const { user, mock } = await renderStudio("/api", { policies: [exposedTodos] })
+    const bodies: Record<string, unknown>[] = []
+    const fetchMock = mock.fetch.bind(mock)
+    mock.fetch = async (request) => {
+      if (new URL(request.url).pathname === "/admin/v1/graphql")
+        bodies.push((await request.clone().json()) as Record<string, unknown>)
+      return fetchMock(request)
+    }
+    await user.click(await screen.findByRole("tab", { name: "GraphQL" }))
+    await screen.findByRole("button", { name: "Insert into the editor: todos" })
+    await user.selectOptions(screen.getByLabelText("Run as"), "authenticated")
+    await user.type(screen.getByLabelText("User ID (sub)"), "u_bob")
+    await waitFor(() =>
+      expect(bodies.some((body) => JSON.stringify(body["as"]) === '{"user":"u_bob"}')).toBe(true),
+    )
+    expect(screen.getByText(/Impersonated callers run read only/)).toBeTruthy()
+    const content = screen.getByRole("textbox", { name: "Variables (JSON)" })
+    const view = EditorView.findFromDOM(content)
+    if (view === null) throw new Error("no editor")
+    act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "[1, 2]" } }))
+    expect(await screen.findByText("Variables must be a JSON object.")).toBeTruthy()
+    expect((screen.getByRole("button", { name: "Run" }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("explains when GraphQL is off", async () => {
+    const { user } = await renderStudio("/api", { rest: false })
+    await user.click(await screen.findByRole("tab", { name: "GraphQL" }))
+    expect(await screen.findByText(/GraphQL is turned off in the config/)).toBeTruthy()
   })
 })

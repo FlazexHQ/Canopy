@@ -15,6 +15,8 @@ export {
   type OperationParams,
   type PersistedOperations,
   type PreparedOperation,
+  type RunOptions,
+  type RunResult,
 } from "./handler.ts"
 export {
   checkOperation,

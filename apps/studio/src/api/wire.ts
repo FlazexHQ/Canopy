@@ -37,6 +37,19 @@ export const wireAdminUser = object({
 
 export const wireSetupStatus = object({ claimed: boolean })
 
+export const wireGraphql = object({
+  data: optional(nullable(record(unknown))),
+  errors: optional(
+    array(
+      object({
+        message: string,
+        path: optional(array(unknown)),
+        extensions: optional(record(unknown)),
+      }),
+    ),
+  ),
+})
+
 export const wireTotpEnrollment = object({ secret: string, uri: string })
 
 export const wireClaim = object({ user: wireAdminUser, totp: wireTotpEnrollment })

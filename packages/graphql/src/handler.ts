@@ -92,8 +92,29 @@ export interface GraphqlHandler {
   prepare(request: Request, params: OperationParams): Promise<PreparedOperation>
   /** The schema a request sees. */
   schemaFor(request: Request): Promise<GraphQLSchema>
+  /**
+   * Runs a query or mutation for a caller that is already authenticated, such as an admin acting as
+   * `service` or impersonating a role. Subscriptions are refused (they need a transport), and so are
+   * mutations when `mutations` is `false`. Never throws: failures are in `errors`.
+   */
+  run(caller: Caller, params: OperationParams, options?: RunOptions): Promise<RunResult>
   /** Ends every live query. */
   close(): void
+}
+
+/** Options of {@link GraphqlHandler.run}. */
+export interface RunOptions {
+  readonly signal?: AbortSignal
+  /** Whether mutations may run. Defaults to `true`. */
+  readonly mutations?: boolean
+}
+
+/** The outcome of {@link GraphqlHandler.run}. */
+export interface RunResult {
+  readonly data?: Readonly<Record<string, unknown>> | null
+  readonly errors?: readonly GraphQLError[]
+  /** The kind of operation that ran, when the document could be parsed. */
+  readonly operation?: "query" | "mutation" | "subscription"
 }
 
 /** The parameters of one GraphQL operation. */
@@ -407,13 +428,16 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     return schema
   }
 
-  const contextOf = (session: Session, request: Request): RequestContext => {
+  const contextOf = (
+    session: Session,
+    signal: AbortSignal | undefined,
+    idempotency: string | undefined,
+  ): RequestContext => {
     const { caller } = session
-    const signal = request.signal
+    const readOptions = signal === undefined ? {} : { signal }
     const find = (findRequest: Parameters<ReadPath["find"]>[1]) =>
-      options.reads.find(caller, findRequest, { signal })
+      options.reads.find(caller, findRequest, readOptions)
     const loader = new RelationLoader(find, readLimits.maxLimit)
-    const idempotency = request.headers.get("idempotency-key") ?? undefined
     let writes = 0
     const context: RequestContext = {
       session,
@@ -424,16 +448,16 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     const services: RequestServices = {
       find,
       findById: async (collection, id) =>
-        (await options.reads.findById(caller, collection, id, undefined, { signal })).doc,
+        (await options.reads.findById(caller, collection, id, undefined, readOptions)).doc,
       count: async (collection, filter) =>
-        (await options.reads.count(caller, collection, filter, "exact", { signal })).count,
+        (await options.reads.count(caller, collection, filter, "exact", readOptions)).count,
       write: (writeRequest) => {
         writes += 1
         const keyed =
           idempotency !== undefined && context.operation.rootMutations === 1 && writes === 1
             ? { mutationId: idempotency }
             : {}
-        return options.writes.execute(caller, writeRequest, { signal, ...keyed })
+        return options.writes.execute(caller, writeRequest, { ...readOptions, ...keyed })
       },
       related: (spec, key, limit) => loader.load(spec, key, limit),
       ...(live === undefined
@@ -557,7 +581,12 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
             maxAge: cors.maxAgeSeconds ?? 600,
           },
     schema: async ({ request }) => schemaOf(await sessionOf(request)),
-    context: async ({ request }) => contextOf(await sessionOf(request), request),
+    context: async ({ request }) =>
+      contextOf(
+        await sessionOf(request),
+        request.signal,
+        request.headers.get("idempotency-key") ?? undefined,
+      ),
     maskedErrors: { maskError: (error) => maskError(error, options.onError) },
     plugins: [canopyPlugin],
   })
@@ -575,6 +604,64 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     async schemaFor(request: Request): Promise<GraphQLSchema> {
       return schemaOf(await sessionOf(request))
     },
+    async run(
+      caller: Caller,
+      params: OperationParams,
+      runOptions: RunOptions = {},
+    ): Promise<RunResult> {
+      const { execute, parse, validate } = await import("graphql")
+      try {
+        const session: Session = { caller, credentials: { key: "", token: undefined } }
+        const schema = await schemaOf(session)
+        const document = parse(persistedLookup(params))
+        const operation = operationOf(document, params.operationName)?.operation
+        const kind = operation === undefined ? {} : { operation }
+        const invalid = validate(schema, document)
+        if (invalid.length > 0)
+          return { ...kind, errors: invalid.map((error) => maskError(error, options.onError)) }
+        if (operation === "subscription")
+          return {
+            ...kind,
+            errors: [
+              new GraphQLError("Subscriptions need a transport; use /graphql/v1", {
+                extensions: { code: ErrorCode.InvalidQuery },
+              }),
+            ],
+          }
+        if (operation === "mutation" && runOptions.mutations === false)
+          return {
+            ...kind,
+            errors: [
+              new GraphQLError("Mutations are not allowed here", {
+                extensions: { code: ErrorCode.Forbidden },
+              }),
+            ],
+          }
+        const contextValue = contextOf(session, runOptions.signal, undefined)
+        const gated = gate(schema, document, params.variables, params.operationName, contextValue)
+        if (gated.length > 0) return { ...kind, errors: gated }
+        const result = await execute({
+          schema,
+          document,
+          contextValue,
+          ...(params.variables === undefined || params.variables === null
+            ? {}
+            : { variableValues: params.variables }),
+          ...(params.operationName === undefined || params.operationName === null
+            ? {}
+            : { operationName: params.operationName }),
+        })
+        return {
+          ...kind,
+          data: result.data ?? null,
+          ...(result.errors === undefined
+            ? {}
+            : { errors: result.errors.map((error) => maskError(error, options.onError)) }),
+        }
+      } catch (error: unknown) {
+        return { errors: [maskError(error, options.onError)] }
+      }
+    },
     async prepare(request: Request, params: OperationParams): Promise<PreparedOperation> {
       const { parse, validate } = await import("graphql")
       try {
@@ -585,7 +672,11 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
         const invalid = validate(schema, document)
         if (invalid.length > 0)
           return { ok: false, errors: invalid.map((error) => maskError(error, options.onError)) }
-        const contextValue = contextOf(session, request)
+        const contextValue = contextOf(
+          session,
+          request.signal,
+          request.headers.get("idempotency-key") ?? undefined,
+        )
         const gated = gate(schema, document, params.variables, params.operationName, contextValue)
         if (gated.length > 0) return { ok: false, errors: gated }
         return {

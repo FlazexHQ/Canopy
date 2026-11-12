@@ -18,6 +18,7 @@ export const logs = {
   surfaces: {
     all: "Every surface",
     rest: "Data API",
+    graphql: "GraphQL",
     auth: "Auth",
     admin: "Admin API",
     realtime: "Realtime",

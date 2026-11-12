@@ -9,8 +9,9 @@ import {
   type WriteRequest,
 } from "@canopy/rest"
 import { collectionName } from "../../policy-store.ts"
-import { boolean, integer, object, optional, string } from "../../schema.ts"
+import { boolean, document, integer, object, optional, string, unknownValue } from "../../schema.ts"
 import { json } from "../http.ts"
+import { can } from "../rbac.ts"
 import { type AdminDeps, type Context, mask, type RouteFn } from "./core.ts"
 
 /** Registers the collection and document routes. */
@@ -122,6 +123,53 @@ export function registerData(route: RouteFn, deps: AdminDeps): void {
         collections: names,
       }),
     )
+  })
+
+  route("POST", "graphql", "documents.read", async (context) => {
+    const graphql = options.graphql
+    if (graphql === undefined) throw new NotFoundError("GraphQL is turned off")
+    const body = object({
+      query: string({ max: 100_000 }),
+      variables: optional(document()),
+      operationName: optional(string({ max: 200 })),
+      as: optional(unknownValue()),
+    }).parse(await context.body())
+    let caller: Caller = service
+    let impersonated: unknown
+    if (body.as !== undefined) {
+      require(context, "documents.viewAs")
+      const as = await impersonate(body.as, undefined, options.engine())
+      caller = { context: as.context, subject: as.subject }
+      impersonated = as.as
+    }
+    const writer = can(context.session.user.role, "documents.write", config.environment)
+    const result = await graphql.run(
+      caller,
+      {
+        query: body.query,
+        ...(body.variables === undefined ? {} : { variables: body.variables }),
+        ...(body.operationName === undefined ? {} : { operationName: body.operationName }),
+      },
+      {
+        signal: context.request.signal,
+        mutations: impersonated === undefined && writer && !production,
+      },
+    )
+    if (impersonated !== undefined || result.operation === "mutation")
+      await context.audit({
+        action: impersonated === undefined ? "graphql.mutation" : "graphql.viewAs",
+        target: { operationName: body.operationName ?? null },
+        details: {
+          query: body.query,
+          ...(impersonated === undefined ? {} : { as: impersonated }),
+        },
+      })
+    return json({
+      ...(result.data === undefined ? {} : { data: result.data }),
+      ...(result.errors === undefined
+        ? {}
+        : { errors: result.errors.map((error) => error.toJSON()) }),
+    })
   })
 
   route("GET", "collections/:collection/stats", "collections.read", async (context) => {

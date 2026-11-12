@@ -18,6 +18,8 @@ import type {
   EmailTemplateVersion,
   EventTrace,
   FieldInfo,
+  GraphqlRequest,
+  GraphqlResponse,
   HistoryEntry,
   LogsPage,
   Me,
@@ -58,6 +60,7 @@ import {
   wireCreatedKey,
   wireDoctor,
   wireDocuments,
+  wireGraphql,
   wireHistory,
   wireLogin,
   wireLogs,
@@ -1038,6 +1041,14 @@ export class AdminApi {
 
   async revokeApiKey(id: string): Promise<void> {
     await this.request("DELETE", `/api-keys/${encodeSegment(id)}`, wireApiKey)
+  }
+
+  /**
+   * Runs a GraphQL query or mutation through the admin API, as `service` or as the caller `as`
+   * impersonates (read only). GraphQL errors come back in `errors`, not as a rejection.
+   */
+  graphql(input: GraphqlRequest, signal?: AbortSignal): Promise<GraphqlResponse> {
+    return this.request("POST", "/graphql", wireGraphql, { body: input, signal })
   }
 
   /** The OpenAPI document of the Data API as `role` sees it (`anon`, `authenticated`, `service` or custom). */

@@ -702,6 +702,7 @@ async function buildAdmin(
               policies: engine,
             }),
           realtime,
+          ...(data.graphql === undefined ? {} : { graphql: data.graphql }),
           viewTokens: auth.viewTokens,
           ...(lag === undefined ? {} : { lag }),
           logger,

@@ -461,6 +461,46 @@ suite("admin API", () => {
     expect(audit.data[0]?.details.as).toEqual({ user: "alice" })
   })
 
+  it("runs GraphQL for the explorer as service or as an impersonated caller, read only", async () => {
+    const graphql = async (client: Client | undefined, body: Record<string, unknown>) => {
+      const response = await client?.call("POST", "/graphql", body)
+      return { status: response?.status, body: (await response?.json()) as Record<string, unknown> }
+    }
+    const asService = await graphql(owner, {
+      query: "{ notes(sort: [{ field: _id }]) { nodes { _id secret } } }",
+    })
+    expect(asService.status).toBe(200)
+    expect(asService.body).toEqual({
+      data: {
+        notes: {
+          nodes: expect.arrayContaining([{ _id: "a", secret: "s1" }]),
+        },
+      },
+    })
+    const asAlice = await graphql(owner, {
+      query: "{ notes { nodes { _id body } } }",
+      as: { user: "alice" },
+    })
+    expect(asAlice.body).toEqual({ data: { notes: { nodes: [{ _id: "a", body: "hi" }] } } })
+    const hidden = await graphql(owner, {
+      query: "{ notes { nodes { secret } } }",
+      as: { user: "alice" },
+    })
+    expect(JSON.stringify(hidden.body["errors"])).toContain("Cannot query field")
+    const mutation = await graphql(owner, {
+      query: 'mutation { insertNote(doc: { ownerId: "alice" }) { _id } }',
+      as: { user: "alice" },
+    })
+    expect(JSON.stringify(mutation.body["errors"])).toContain("CANOPY_FORBIDDEN")
+    expect(
+      (await graphql(clients.viewer, { query: "{ __typename }", as: { user: "alice" } })).status,
+    ).toBe(403)
+    const audit = (await (await owner.call("GET", "/audit?action=graphql.viewAs")).json()) as {
+      data: { details: { as: unknown } }[]
+    }
+    expect(audit.data[0]?.details.as).toEqual({ user: "alice" })
+  })
+
   it("writes as an impersonated user only with a reason, through the policies", async () => {
     const as = encodeURIComponent(JSON.stringify({ user: "alice" }))
     expect(

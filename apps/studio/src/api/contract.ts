@@ -5,6 +5,7 @@ import {
   type wireApiKey,
   type wireConnection,
   type wireCreatedKey,
+  type wireGraphql,
   type wireObserver,
   type wireProviders,
   type wireRealtimeEvent,
@@ -368,5 +369,17 @@ export interface Settings {
   /** Addresses and CIDR ranges that may reach `/admin` and `/studio`; empty allows every address. */
   readonly adminAllowlist: readonly string[]
 }
+
+/** A GraphQL operation for the explorer, run as `service` or as the impersonated `as` (read only). */
+export interface GraphqlRequest {
+  readonly query: string
+  readonly variables?: Readonly<Record<string, unknown>>
+  readonly operationName?: string
+  /** The caller to impersonate, as the server's `as` input: `{ role }`, `{ user }` or `{ claims }`. */
+  readonly as?: { readonly role?: string; readonly user?: string }
+}
+
+/** A GraphQL result: `data` and the errors with their `extensions.code`. */
+export type GraphqlResponse = Infer<typeof wireGraphql>
 
 export { EMAIL_KINDS }

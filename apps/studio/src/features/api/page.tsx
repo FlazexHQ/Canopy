@@ -23,6 +23,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
 import { NativeSelect } from "../realtime/native-select.tsx"
+import { GraphqlExplorer } from "./graphql.tsx"
 import { KeysTab } from "./keys.tsx"
 import {
   insertSnippet,
@@ -205,7 +206,7 @@ export function ApiPage() {
           {tab === "reference" ? <ReferenceTab /> : null}
         </TabsContent>
         <TabsContent value="graphql" className="mt-4">
-          <EmptyState title={t("api.graphql.title")}>{t("api.graphql.body")}</EmptyState>
+          {tab === "graphql" ? <GraphqlExplorer /> : null}
         </TabsContent>
         <TabsContent value="snippets" className="mt-4">
           <SnippetsTab />

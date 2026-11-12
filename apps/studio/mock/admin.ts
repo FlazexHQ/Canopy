@@ -26,6 +26,7 @@ import {
   parse,
   stringify,
 } from "@canopy/protocol"
+import { buildSchema, type GraphQLSchema, graphql } from "graphql"
 import type { AdminRole, EmailKind } from "../src/api/contract.ts"
 import { EMAIL_KINDS } from "../src/api/wire.ts"
 import { ADMIN_PERMISSIONS, type AdminPermission, can } from "../src/app/permissions.ts"
@@ -1640,6 +1641,66 @@ export function createMockAdmin(options: MockAdminOptions = {}): MockAdmin {
   route("GET", "openapi", "collections.read", () => {
     if (options.rest === false) fail(ErrorCode.NotFound, "The Data API is turned off")
     return openapi()
+  })
+
+  /** A schema of every exposed collection: its documents' top level fields as `JSON`, and a list query. */
+  const graphqlSchema = (): { schema: GraphQLSchema; root: Record<string, unknown> } => {
+    const name = (value: string): string =>
+      value.replace(/[^_0-9A-Za-z]/g, "_").replace(/^(?=\d)/, "_")
+    const types: string[] = []
+    const queries: string[] = []
+    const root: Record<string, unknown> = {}
+    for (const doc of state.published.values()) {
+      if (!doc.exposed) continue
+      const field = name(doc._id)
+      const type = `${field.charAt(0).toUpperCase()}${field.slice(1)}`
+      const documents = state.collections.get(doc._id) ?? []
+      const keys = new Set(["_id"])
+      for (const document of documents) for (const key of Object.keys(document)) keys.add(key)
+      const fields = [...keys].filter((key) => name(key) === key)
+      types.push(`type ${type} { ${fields.map((key) => `${key}: JSON`).join(" ")} }`)
+      types.push(`type ${type}Connection { nodes: [${type}!]! next: String }`)
+      queries.push(`${field}(limit: Int = 100): ${type}Connection!`)
+      root[field] = ({ limit }: { limit: number }) => ({
+        nodes: documents.slice(0, limit).map((document) => encode(document)),
+        next: null,
+      })
+    }
+    const sdl = [
+      "scalar JSON",
+      `type Query { ${queries.length === 0 ? "_empty: Boolean" : queries.join(" ")} }`,
+      ...types,
+    ].join(" ")
+    return { schema: buildSchema(sdl), root }
+  }
+
+  route("POST", "graphql", "documents.read", async (context) => {
+    if (options.rest === false) fail(ErrorCode.NotFound, "GraphQL is turned off")
+    const body = asObject(await context.body(), "body")
+    const query = body["query"]
+    if (typeof query !== "string")
+      return fail(ErrorCode.ValidationFailed, "body.query must be a string")
+    const variables = body["variables"]
+    const { schema, root } = graphqlSchema()
+    const result = await graphql({
+      schema,
+      source: query,
+      rootValue: root,
+      ...(typeof variables === "object" && variables !== null
+        ? { variableValues: variables as Record<string, unknown> }
+        : {}),
+    })
+    return respond({
+      ...(result.data === undefined ? {} : { data: result.data }),
+      ...(result.errors === undefined
+        ? {}
+        : {
+            errors: result.errors.map((error) => ({
+              message: error.message,
+              extensions: { code: ErrorCode.InvalidQuery },
+            })),
+          }),
+    })
   })
 
   route("GET", "api-keys", "keys.read", () => respond({ data: state.apiKeys.map(keyView) }))

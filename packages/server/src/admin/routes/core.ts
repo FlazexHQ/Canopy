@@ -134,7 +134,7 @@ export function adminDeps(options: AdminApiOptions) {
   /** The request context of an impersonated caller, with its context lookups resolved. */
   const impersonate = async (
     input: unknown,
-    collection: string,
+    collection: string | undefined,
     engine: PolicyEngine,
   ): Promise<{
     readonly context: RequestContext
@@ -146,7 +146,7 @@ export function adminDeps(options: AdminApiOptions) {
     const roles = new Set(identity.roles)
     const claims = identity.claims === null ? null : { ...identity.claims }
     const base: RequestContext = { roles, claims, now: new Date() }
-    const names = engine.contextNames([collection], roles)
+    const names = engine.contextNames(collection === undefined ? undefined : [collection], roles)
     const context =
       names.length === 0
         ? base

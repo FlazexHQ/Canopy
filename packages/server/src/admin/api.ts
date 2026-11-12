@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import type { UserAdmin } from "@canopy/auth"
 import type { ResolvedConfig } from "@canopy/config"
+import type { GraphqlHandler } from "@canopy/graphql"
 import type { ContextResolver, PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
@@ -63,6 +64,8 @@ export interface AdminApiOptions {
   readonly engine: () => PolicyEngine
   readonly contexts: ContextResolver
   readonly writes: WritePath
+  /** The GraphQL handler, for the explorer's `POST /admin/v1/graphql`. */
+  readonly graphql?: GraphqlHandler
   readonly realtime: Realtime | undefined
   /** Signs the view tokens of `POST /admin/v1/realtime/token`; without it the route answers `404`. */
   readonly viewTokens?: ViewTokens

@@ -28,6 +28,8 @@ import {
   placeholder as placeholderExtension,
 } from "@codemirror/view"
 import { tags } from "@lezer/highlight"
+import { graphql as graphqlLanguage, updateSchema } from "cm6-graphql"
+import type { GraphQLSchema } from "graphql"
 import { useEffect, useRef } from "react"
 import { parseEjson } from "../lib/ejson.ts"
 import { cn } from "../lib/utils.ts"
@@ -177,8 +179,13 @@ function ejsonLinter(view: EditorView): Diagnostic[] {
 export interface CodeEditorProps {
   readonly value: string
   readonly onChange?: (value: string) => void
-  /** `ejson` adds JSON highlighting, linting and completion; `text` is plain monospace. */
-  readonly language?: "ejson" | "text"
+  /**
+   * `ejson` adds JSON highlighting, linting and completion; `graphql` adds GraphQL highlighting, and with
+   * `schema` validation and completion; `text` is plain monospace.
+   */
+  readonly language?: "ejson" | "graphql" | "text"
+  /** The schema GraphQL documents are checked and completed against. */
+  readonly schema?: GraphQLSchema
   readonly readOnly?: boolean
   /** The accessible name of the editing area. */
   readonly label: string
@@ -209,6 +216,7 @@ export function CodeEditor({
   maxHeight = "28rem",
   onSubmit,
   id,
+  schema,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
@@ -262,6 +270,7 @@ export function CodeEditor({
       }),
     ]
     if (placeholder !== undefined) extensions.push(placeholderExtension(placeholder))
+    if (language === "graphql") extensions.push(graphqlLanguage(schema), lintGutter())
     if (language === "ejson") {
       extensions.push(json(), linter(ejsonLinter, { delay: 300 }), lintGutter())
       extensions.push(
@@ -289,6 +298,11 @@ export function CodeEditor({
       editor.dispatch({ changes: { from: 0, to: current.length, insert: value } })
     }
   }, [value])
+
+  useEffect(() => {
+    const editor = view.current
+    if (editor !== null && language === "graphql") updateSchema(editor, schema)
+  }, [schema, language])
 
   useEffect(() => {
     const editor = view.current
