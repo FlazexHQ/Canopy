@@ -166,8 +166,58 @@ export interface ClientOptions {
    * than this minus 4 h are not replayed but reported through `onStaleMutations`.
    */
   readonly mutationTtlMs?: number
-  /** Reacts to `online`, `offline`, visibility and focus events where they exist. Defaults to true. */
-  readonly lifecycle?: boolean
+  /**
+   * Reacts to `online`, `offline`, visibility and focus events where they exist (`true`, the default),
+   * to none (`false`), or to a source of its own, such as `reactNativeLifecycle()` from
+   * `@canopy/client/react-native`.
+   */
+  readonly lifecycle?: boolean | LifecycleSource
+  /**
+   * Shares one connection between the tabs of an origin, such as `leaderTab()` from
+   * `@canopy/client/leader-tab`: one tab holds the socket and the others go through it.
+   */
+  readonly shared?: SharedConnection
+}
+
+/** What a {@link LifecycleSource} reports: the network came back or went away, or the app is in front again. */
+export interface LifecycleEvents {
+  online(): void
+  offline(): void
+  wake(): void
+}
+
+/** Calls the events as the platform reports them; returns a function that stops listening. */
+export type LifecycleSource = (events: LifecycleEvents) => () => void
+
+/** Opens the client's realtime connection in place of a WebSocket of its own. */
+export interface SharedConnection {
+  connect(url: string, protocol: string, WebSocketImpl: WebSocketConstructor): WebSocketLike
+}
+
+/** The server rendered result of one live query, from `@canopy/client/server`. */
+export interface Snapshot {
+  readonly c: string
+  readonly q: SubQuery
+  readonly docs: readonly Document[]
+  readonly ct: ClusterTime
+}
+
+/** Snapshots as plain JSON (canonical Extended JSON), to pass from server to browser. */
+export interface DehydratedState {
+  readonly canopy: 1
+  readonly queries: readonly unknown[]
+}
+
+/** The client's state for `@canopy/devtools`. Not a stable API. */
+export interface ClientInternals {
+  readonly sid: string | undefined
+  readonly rung: number
+  readonly subscriptions: ReadonlyMap<string, { readonly coll: string; readonly query: SubQuery }>
+  readonly outbox: readonly { readonly message: MutMessage; readonly sent: boolean }[]
+  /** Calls `listener` with every frame sent (`out`) and received (`in`). */
+  tap(listener: (direction: "in" | "out", text: string) => void): () => void
+  /** Rolls a pending mutation back as if the server had refused it. */
+  discard(mutationId: string): void
 }
 
 /** The confirmed outcome of a mutation. */
@@ -232,6 +282,11 @@ export interface LiveQuery<T = Document> {
   getState(): QueryState<T>
   /** Calls `listener` on every change. Returns a function that stops the subscription. */
   subscribe(listener: (state: QueryState<T>) => void): () => void
+}
+
+/** The key identical live queries share. */
+function queryKey(collection: string, query: SubQuery): string {
+  return `${collection}\u0000${encodeMessage({ t: "sub", id: "k", c: collection, q: query })}`
 }
 
 function backoff(attempt: number, maxMs: number): number {
@@ -323,6 +378,11 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   private stopLifecycle: (() => void) | undefined
   private stopAuth: (() => void) | undefined
   private staleToken = false
+  private readonly hydrated = new Map<
+    string,
+    { readonly state: QueryState; readonly ct: ClusterTime }
+  >()
+  private readonly taps = new Set<(direction: "in" | "out", text: string) => void>()
 
   constructor(options: ClientOptions) {
     this.options = options
@@ -442,7 +502,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     }
     const add = target.addEventListener
     const remove = target.removeEventListener
-    if (this.options.lifecycle === false || add === undefined || remove === undefined) return
+    const source = this.options.lifecycle
     const online = (): void => this.reconnectNow()
     const offline = (): void => {
       const socket = this.socket
@@ -459,6 +519,11 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       if (this.status === "reconnecting" && Date.now() - this.lastAttemptAt > 5000)
         this.reconnectNow()
     }
+    if (typeof source === "function") {
+      this.stopLifecycle = source({ online, offline, wake })
+      return
+    }
+    if (source === false || add === undefined || remove === undefined) return
     const events: [string, () => void][] = [
       ["online", online],
       ["offline", offline],
@@ -664,7 +729,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       if (pending.sent) continue
       pending.sent = true
       this.inFlight += 1
-      this.socket.send(encodeMessage(pending.message))
+      this.write(this.socket, encodeMessage(pending.message))
     }
   }
 
@@ -777,11 +842,13 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       ...(options.limit === undefined ? {} : { limit: options.limit }),
       ...(fields === undefined ? {} : { fields: fields }),
     }
-    const key = `${collection}\u0000${encodeMessage({ t: "sub", id: "k", c: collection, q: query })}`
+    const key = queryKey(collection, query)
     return {
       getState: () => {
         const sub = this.byQuery.get(key)
-        return (sub === undefined ? LOADING_STATE : this.store.state(sub.id)) as QueryState<Out>
+        if (sub === undefined)
+          return (this.hydrated.get(key)?.state ?? LOADING_STATE) as QueryState<Out>
+        return this.store.state(sub.id) as QueryState<Out>
       },
       subscribe: (listener) => {
         let sub = this.byQuery.get(key)
@@ -799,6 +866,14 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
               : { project: (doc: Document) => compileProjection(fields).apply(doc) }),
           })
           this.send({ t: "sub", id: sub.id, c: collection, q: query })
+          const seed = this.hydrated.get(key)
+          if (seed !== undefined) {
+            this.hydrated.delete(key)
+            this.store.seed(
+              sub.id,
+              seed.state.data.map((doc) => ({ id: doc["_id"], doc, ct: seed.ct })),
+            )
+          }
           if (this.options.cacheDocuments === true) this.cache(sub, key)
         }
         sub.refs += 1
@@ -824,10 +899,10 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 
   /** Seeds a new query from the document cache and keeps the cache current once it is ready. */
-  private cache(sub: Subscription, queryKey: string): void {
+  private cache(sub: Subscription, key: string): void {
     const persist = this.options.persist
     if (persist === undefined) return
-    const cacheKey = (): string => `${this.scope}\u0000${queryKey}`
+    const cacheKey = (): string => `${this.scope}\u0000${key}`
     void (this.restoring ?? Promise.resolve())
       .then(() => persist.get("docs", cacheKey()))
       .then((text) => {
@@ -851,7 +926,49 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
 
   private send(message: ClientMessage): void {
     if (this.socket !== undefined && this.welcomed && this.socket.readyState === 1)
-      this.socket.send(encodeMessage(message))
+      this.write(this.socket, encodeMessage(message))
+  }
+
+  private write(socket: WebSocketLike, text: string): void {
+    for (const tap of this.taps) tap("out", text)
+    socket.send(text)
+  }
+
+  /**
+   * Seeds live queries with server rendered results (`dehydrate()` from `@canopy/client/server`). A
+   * hydrated query shows its documents at once, as `stale`, and becomes `ready` when the server confirms
+   * it; events older than the snapshot are ignored.
+   */
+  hydrate(state: DehydratedState): void {
+    for (const encoded of state.queries) {
+      const snapshot = decode(encoded) as Snapshot
+      this.hydrated.set(queryKey(snapshot.c, snapshot.q), {
+        state: { data: snapshot.docs, status: "stale", error: undefined },
+        ct: snapshot.ct,
+      })
+    }
+  }
+
+  /** The client's internals, for `@canopy/devtools`. Not a stable API. */
+  devtools(): ClientInternals {
+    return {
+      sid: this.sid,
+      rung: this.rung,
+      subscriptions: this.subscriptions,
+      outbox: this.outbox,
+      tap: (listener) => {
+        this.taps.add(listener)
+        return () => this.taps.delete(listener)
+      },
+      discard: (mutationId) =>
+        this.acknowledge({
+          t: "ack",
+          m: mutationId,
+          ok: false,
+          seq: 0,
+          err: { code: ErrorCode.Conflict, msg: "Discarded in devtools" },
+        }),
+    }
   }
 
   private webSocket(): WebSocketConstructor | undefined {
@@ -880,8 +997,11 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
         this.httpUrl,
         this.options.fetch ?? globalThis.fetch.bind(globalThis),
       )
-    else if (WebSocketImpl !== undefined) socket = new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
-    else return
+    else if (WebSocketImpl === undefined) return
+    else
+      socket =
+        this.options.shared?.connect(this.socketUrl, SUBPROTOCOL, WebSocketImpl) ??
+        new WebSocketImpl(this.socketUrl, SUBPROTOCOL)
     this.socket = socket
     this.welcomed = false
     socket.onopen = () => {
@@ -913,7 +1033,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       caps: ["batch", "diff"],
       sdk: this.options.sdk ?? "canopy-js/0.1.0",
     }
-    socket.send(encodeMessage(message))
+    this.write(socket, encodeMessage(message))
     this.scheduleRefresh(token ?? undefined)
   }
 
@@ -947,6 +1067,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
 
   /** Feeds one server frame to the client. Public for transports and conformance tests. */
   receive(text: string): void {
+    for (const tap of this.taps) tap("in", text)
     this.lastInbound = Date.now()
     const message = decodeServerMessage(text)
     if (message === undefined) return
@@ -1156,7 +1277,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     this.stopLifecycle?.()
     this.stopAuth?.()
     if (this.socket !== undefined && this.socket.readyState === 1)
-      this.socket.send(encodeMessage({ t: "bye" }))
+      this.write(this.socket, encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")
     this.store.dispose()
     for (const pending of this.outbox.splice(0)) {

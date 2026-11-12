@@ -12,5 +12,12 @@
     "types": []
   },
   "include": ["."],
-  "references": [{ "path": ".." }]
+  "references": [
+    {
+      "path": ".."
+    },
+    {
+      "path": "../../testing"
+    }
+  ]
 }

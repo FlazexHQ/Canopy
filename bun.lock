@@ -328,6 +328,7 @@
         "@canopy/client": "workspace:*",
       },
       "devDependencies": {
+        "@canopy/testing": "workspace:*",
         "@types/react": "catalog:",
         "@types/react-dom": "catalog:",
         "happy-dom": "catalog:",
@@ -457,6 +458,8 @@
       "name": "@canopy/testing",
       "version": "0.0.0",
       "dependencies": {
+        "@canopy/client": "workspace:*",
+        "@canopy/protocol": "workspace:*",
         "fast-check": "catalog:",
         "mongodb": "catalog:",
         "vitest": "catalog:",

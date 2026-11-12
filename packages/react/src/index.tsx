@@ -1,7 +1,10 @@
+"use client"
+
 import type {
   CanopyClient,
   CollectionName,
   ConnectionStatus,
+  DehydratedState,
   Document,
   DocumentOf,
   Filter,
@@ -14,10 +17,12 @@ import type {
   ReplaceOptions,
   Schema,
   StaleMutation,
+  TokenSource,
   UntypedSchema,
   UpdateFilter,
   WriteOptions,
 } from "@canopy/client"
+import type { AuthUser } from "@canopy/client/auth"
 import {
   createContext,
   createElement,
@@ -25,6 +30,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
   useSyncExternalStore,
 } from "react"
@@ -64,6 +70,83 @@ export function useQuery<T>(query: LiveQuery<T>): QueryState<T> {
   const subscribe = useCallback((notify: () => void) => query.subscribe(() => notify()), [query])
   const read = useCallback(() => query.getState(), [query])
   return useSyncExternalStore(subscribe, read, read)
+}
+
+/** The state of one document, from {@link useDocument}. */
+export interface DocumentState<T> {
+  /** The document, or `undefined` while loading and when it does not exist or is not readable. */
+  readonly data: T | undefined
+  readonly status: QueryState<T>["status"]
+  readonly error: Error | undefined
+}
+
+/**
+ * Follows one document by `_id`: `useDocument("todos", id)`. Identical calls share one subscription, and
+ * optimistic writes to the document show at once.
+ */
+export function useDocument<
+  DB extends Schema<DB> = UntypedSchema,
+  C extends CollectionName<DB> = CollectionName<DB>,
+>(collection: C, id: IdOf<DocumentOf<DB, C>>): DocumentState<DocumentOf<DB, C>> {
+  const client = useCanopy() as CanopyClient
+  const state = useQuery(documentQuery(client, collection, id)) as QueryState<DocumentOf<DB, C>>
+  return useMemo(() => ({ data: state.data[0], status: state.status, error: state.error }), [state])
+}
+
+const documentQueries = new WeakMap<CanopyClient, Map<string, LiveQuery<Document>>>()
+
+/** One live query per client and document, so components following the same document share it. */
+function documentQuery(client: CanopyClient, collection: string, id: unknown): LiveQuery<Document> {
+  let queries = documentQueries.get(client)
+  if (queries === undefined) {
+    queries = new Map()
+    documentQueries.set(client, queries)
+  }
+  const tag = (id as { readonly _bsontype?: unknown } | null)?._bsontype ?? typeof id
+  const key = stableKey([collection, tag, id])
+  let query = queries.get(key)
+  if (query === undefined) {
+    query = client.live(collection, { _id: id }, { limit: 1 })
+    queries.set(key, query)
+  }
+  return query
+}
+
+/**
+ * The signed in user of built in auth (`createAuth()` from `@canopy/client/auth` passed as `auth`), or
+ * `undefined` when signed out. Updates on sign in, sign out and user changes.
+ */
+export function useSession(): AuthUser | undefined {
+  const client = useCanopy()
+  const auth = client.auth as (TokenSource & { readonly user?: AuthUser }) | undefined
+  const subscribe = useCallback(
+    (notify: () => void) => auth?.onChange?.(() => notify()) ?? (() => {}),
+    [auth],
+  )
+  const read = useCallback(() => auth?.user, [auth])
+  return useSyncExternalStore(subscribe, read, read)
+}
+
+/** Props of {@link Hydrate}. */
+export interface HydrateProps {
+  /** What `dehydrate()` from `@canopy/client/server` returned on the server. */
+  readonly state: DehydratedState
+  readonly children?: ReactNode
+}
+
+/**
+ * Seeds the client with server rendered results before its children render, so live queries with the
+ * same filter and options start with the server's documents (shown `stale` until the socket confirms
+ * them) instead of loading. Use it in a Client Component under {@link CanopyProvider}, with the state a
+ * Server Component read through `createServerClient()`.
+ */
+export function Hydrate({ state, children }: HydrateProps): ReactNode {
+  const client = useCanopy()
+  useState(() => {
+    client.hydrate(state)
+    return true
+  })
+  return children ?? null
 }
 
 /** The connection status: `connecting`, `live`, `fallback`, `reconnecting`, `offline` or `closed`. */

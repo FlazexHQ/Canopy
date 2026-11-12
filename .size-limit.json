@@ -3,7 +3,7 @@
     "name": "@canopy/client",
     "gzip": true,
     "path": "packages/client/dist/index.js",
-    "limit": "20.75 kB",
+    "limit": "21.25 kB",
     "ignore": ["@canopy/matcher/update"]
   },
   {
@@ -36,6 +36,26 @@
     "path": "packages/client/dist/auth.js",
     "ignore": ["@canopy/protocol"],
     "limit": "3 kB"
+  },
+  {
+    "name": "@canopy/client/server",
+    "gzip": true,
+    "path": "packages/client/dist/server.js",
+    "ignore": ["@canopy/protocol"],
+    "limit": "1.5 kB"
+  },
+  {
+    "name": "@canopy/client/leader-tab",
+    "gzip": true,
+    "path": "packages/client/dist/leader-tab.js",
+    "ignore": ["@canopy/protocol"],
+    "limit": "3.25 kB"
+  },
+  {
+    "name": "@canopy/client/react-native",
+    "gzip": true,
+    "path": "packages/client/dist/react-native.js",
+    "limit": "0.5 kB"
   },
   {
     "name": "@canopy/react",

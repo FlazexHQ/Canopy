@@ -11,6 +11,11 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./vectors": {
+      "types": "./dist/vectors.d.ts",
+      "@canopy/source": "./src/vectors.ts",
+      "default": "./dist/vectors.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -23,6 +28,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@canopy/client": "workspace:*",
+    "@canopy/protocol": "workspace:*",
     "fast-check": "catalog:",
     "mongodb": "catalog:",
     "vitest": "catalog:"

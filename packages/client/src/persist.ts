@@ -105,3 +105,30 @@ export function asyncStoragePersister(storage: AsyncStorageLike, prefix = "canop
     },
   }
 }
+
+/** The part of `react-native-mmkv`'s `MMKV` instance the persister uses. */
+export interface MmkvLike {
+  getString(key: string): string | undefined
+  set(key: string, value: string): void
+  delete(key: string): void
+  getAllKeys(): readonly string[]
+}
+
+/** Stores entries in an MMKV instance (React Native) under `prefix`; MMKV is synchronous and fast. */
+export function mmkvPersister(storage: MmkvLike, prefix = "canopy:"): Persister {
+  const full = (scope: PersistScope, key: string): string => `${prefix}${scope}:${key}`
+  return {
+    get: async (scope, key) => storage.getString(full(scope, key)),
+    set: async (scope, key, value) => storage.set(full(scope, key), value),
+    delete: async (scope, key) => storage.delete(full(scope, key)),
+    entries: async (scope) => {
+      const start = full(scope, "")
+      const out: (readonly [string, string])[] = []
+      for (const key of [...storage.getAllKeys()].filter((name) => name.startsWith(start)).sort()) {
+        const value = storage.getString(key)
+        if (value !== undefined) out.push([key.slice(start.length), value])
+      }
+      return out
+    },
+  }
+}

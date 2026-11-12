@@ -30,6 +30,7 @@
     "react": "^19.0.0"
   },
   "devDependencies": {
+    "@canopy/testing": "workspace:*",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "happy-dom": "catalog:",
