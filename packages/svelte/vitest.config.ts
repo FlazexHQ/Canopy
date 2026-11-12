@@ -5,7 +5,7 @@ import { sharedConfig } from "../../vitest.shared.ts"
 export default mergeConfig(
   sharedConfig,
   defineProject({
-    plugins: [svelte()],
+    plugins: [svelte({ configFile: false })],
     test: {
       name: "svelte",
       include: ["test/**/*.test.ts"],

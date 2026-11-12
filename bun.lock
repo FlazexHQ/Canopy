@@ -221,6 +221,20 @@
         "vitest": "catalog:",
       },
     },
+    "packages/devtools": {
+      "name": "@canopy/devtools",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/client": "workspace:*",
+        "@canopy/matcher": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "happy-dom": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/graphql": {
       "name": "@canopy/graphql",
       "version": "0.0.0",
@@ -690,6 +704,8 @@
     "@canopy/client": ["@canopy/client@workspace:packages/client"],
 
     "@canopy/config": ["@canopy/config@workspace:packages/config"],
+
+    "@canopy/devtools": ["@canopy/devtools@workspace:packages/devtools"],
 
     "@canopy/example-express-dropin": ["@canopy/example-express-dropin@workspace:examples/express-dropin"],
 

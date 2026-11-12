@@ -44,6 +44,8 @@
     { "path": "packages/client/test" },
     { "path": "packages/react" },
     { "path": "packages/react/test" },
+    { "path": "packages/devtools" },
+    { "path": "packages/devtools/test" },
     { "path": "packages/vue" },
     { "path": "packages/vue/test" },
     { "path": "packages/svelte" },
