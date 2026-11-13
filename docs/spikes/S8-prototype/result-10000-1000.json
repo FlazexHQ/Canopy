@@ -1,0 +1,97 @@
+{
+  "sockets": 10000,
+  "socketsPerDo": 1000,
+  "connectionDOs": 10,
+  "connectMs": 10822,
+  "workerdMemoryMb": {
+    "idle": 35,
+    "connected": 3308
+  },
+  "memoryPerSocketKb": 335.1,
+  "inbound": {
+    "messages": 1000,
+    "allAckedMs": 263
+  },
+  "scenarios": [
+    {
+      "mode": "broadcast",
+      "name": "1 private event",
+      "relayP50Ms": 30.1,
+      "p50Ms": 30.1,
+      "maxMs": 82.4,
+      "forwarded": 10,
+      "sent": 1,
+      "checked": 10000
+    },
+    {
+      "mode": "broadcast",
+      "name": "100 private events",
+      "relayP50Ms": 49.6,
+      "p50Ms": 49.6,
+      "maxMs": 67.4,
+      "forwarded": 10,
+      "sent": 100,
+      "checked": 1000000
+    },
+    {
+      "mode": "broadcast",
+      "name": "1000 private events",
+      "relayP50Ms": 171.2,
+      "p50Ms": 171.2,
+      "maxMs": 181.6,
+      "forwarded": 10,
+      "sent": 1000,
+      "checked": 10000000
+    },
+    {
+      "mode": "broadcast",
+      "name": "1 public event",
+      "relayP50Ms": 571.5,
+      "p50Ms": 571.5,
+      "maxMs": 645,
+      "forwarded": 10,
+      "sent": 10000,
+      "checked": 10000
+    },
+    {
+      "mode": "index",
+      "name": "1 private event",
+      "relayP50Ms": 15.4,
+      "p50Ms": 15.4,
+      "maxMs": 16.1,
+      "forwarded": 1,
+      "sent": 1,
+      "checked": 1
+    },
+    {
+      "mode": "index",
+      "name": "100 private events",
+      "relayP50Ms": 15.6,
+      "p50Ms": 15.6,
+      "maxMs": 24.8,
+      "forwarded": 10,
+      "sent": 100,
+      "checked": 100
+    },
+    {
+      "mode": "index",
+      "name": "1000 private events",
+      "relayP50Ms": 66.6,
+      "p50Ms": 66.6,
+      "maxMs": 74,
+      "forwarded": 10,
+      "sent": 1000,
+      "checked": 1000
+    },
+    {
+      "mode": "index",
+      "name": "1 public event",
+      "relayP50Ms": 462.5,
+      "p50Ms": 462.5,
+      "maxMs": 553.4,
+      "forwarded": 10,
+      "sent": 10000,
+      "checked": 10000
+    }
+  ]
+}

@@ -375,6 +375,25 @@ Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O1 to O4.
 - GraphQL conformance and limit tests green.
 - Every public export is documented (checked in CI).
 
+**Status (2026-11-12).** Every deliverable is on `master`: `@canopy/graphql` with the Studio
+explorer (CodeMirror with `cm6-graphql` instead of GraphiQL, whose Monaco editor conflicts with Studio's CSP),
+the Vue, Svelte 5 and Solid bindings, React Native support, the SSR helpers, leader tab sharing,
+`@canopy/devtools`, TOTP, passkeys and `aal2`, `canopy auth import`, `@canopy/tanstack-db`, the docs site in
+`apps/docs` with the three migration guides and a generated API reference, and S8. Exit criteria:
+
+- Protocol vectors pass through the React, Vue, Svelte and Solid bindings.
+- GraphQL conformance and limit tests pass (38 tests against MongoDB 8.0).
+- `bun run lint:docs` passes (1,000 of 1,000 public exports documented) and runs in CI, which also builds the
+  docs site.
+
+Against a MongoDB 8.0.34 replica set on Node with CI's 60 s timeouts, 1,447 tests pass, 1 fails and 4 are
+skipped; the failing `realtime/test/context.test.ts` case and `cli/test/remote.test.ts` (whose setup hook timed
+out) pass when run alone, so both flake only under heavy machine load. On Bun 1,451 of 1,452 pass; the failure is the wall clock
+assertion of T4 in `auth-builtin/test/password.test.ts`. With
+the default 5 s timeout, the slow auth and binary tests time out on a loaded Windows desktop, as they already
+did before Phase 4 (T4). Still open: O1 (the client core is 21.21 kB, the budget was raised to 21.25 kB),
+graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on Cloudflare.
+
 ### 3.5 Phase 5: Scale and edge → v0.6 to v0.9 (9 weeks)
 
 **Deliverables**
@@ -420,7 +439,7 @@ Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O1 to O4.
 | **S5** | `Bun.serve`, `ws` or uWebSockets.js: what does fan-out cost? | 10k to 50k connections; measure memory per connection, messages/s and p99 latency | Defaults chosen for Bun and for Node. CPU model in [03 §13](03-realtime-engine.md#13-scaling-out) calibrated. | Phase 0 |
 | **S6** | Does Better Auth fit, including the MongoDB adapter in its own DB, the JWT plugin, rotation, custom claims, anonymous and magic link, and a base path under `/auth/v1`? | Thin prototype plus a gap list against a GoTrue-like feature set | No blocking gaps, or a decision to build a custom provider | Phase 0 |
 | **S7** | Is echo-before-ack correct, including correlation on 8.0+ (shared `clusterTime`) and on sharded clusters? | Fuzz writes, transactions and concurrent clients, and verify that ack ordering holds | 0 ordering violations in 100k mutations | Done 2026-11-06 for replica sets on 7.0 and 8.0: 0 violations; sharded clusters still open ([write-up](../spikes/S7-echo-before-ack.md)) |
-| **S8** | How should Durable Objects fan-out be designed (topic/connection topology, hibernation, cost)? | Prototype at 10k, then 100k simulated sockets | Cost model and topology accepted | End of Phase 4 |
+| **S8** | How should Durable Objects fan-out be designed (topic/connection topology, hibernation, cost)? | Prototype at 10k, then 100k simulated sockets | Cost model and topology accepted | Done 2026-11-12 with a local workerd prototype at 10k sockets and a calibrated model at 100k: subject sharded connection DOs, topic DOs with a routing index; calibration on Cloudflare moves to Phase 5 ([write-up](../spikes/S8-durable-objects-fan-out.md)) |
 | **S9** | Single-binary distribution: `bun build --compile` or Node SEA, or containers only? | Build, measure size and startup, test on 3 OSes | Decision recorded | Phase 3 |
 
 ## 5. Cut lines

@@ -1,0 +1,1 @@
+{ "name": "s8-prototype", "private": true, "type": "module", "dependencies": { "miniflare": "4.20260730.0", "ws": "8.22.0" } }
