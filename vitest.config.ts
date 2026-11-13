@@ -22,6 +22,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["packages/*/src/**", "apps/*/src/**"],
+      exclude: ["apps/docs/**"],
       reporter: ["text-summary", "json-summary"],
       thresholds: floors,
     },
