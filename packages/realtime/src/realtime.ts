@@ -10,6 +10,7 @@ import {
   type Compiled,
   ContextResolver,
   deniedPaths,
+  deniesTextSearch,
   driverContextReader,
   explainAccess,
   explainContext,
@@ -21,6 +22,7 @@ import {
   projectReadable,
   type RequestContext,
   Role,
+  TEXT_SEARCH_DENIED,
   toFilter,
   usesNow,
 } from "@canopy/policy"
@@ -1168,6 +1170,8 @@ export class Realtime {
       throw new CanopyError(ErrorCode.NotFound, `No realtime collection ${coll}`)
     const parsed = parseQuery(message.q, { ...DEFAULT_LIMITS, maxLimit: this.limits.maxWindow })
     const readable = this.engine.readable(coll, ctx)
+    if (deniesTextSearch(readable, parsed.filter.filter))
+      throw new CanopyError(ErrorCode.InvalidQuery, TEXT_SEARCH_DENIED)
     const denied = deniedPaths(readable, parsed.paths)
     if (denied.length > 0) {
       throw new CanopyError(

@@ -544,6 +544,46 @@ suite("WritePath against MongoDB", () => {
       expect(filter.code).toBe(ErrorCode.InvalidQuery)
     })
 
+    it("refuses $text in filters and preconditions of a caller that cannot read every field", async () => {
+      await coll("todos").insertOne({ _id: 41, ownerId: "alice", internalNotes: "secret plan" })
+      await coll("todos").createIndex({ internalNotes: "text" })
+      try {
+        const search = { $text: { $search: "secret" } }
+        const where = await failure(
+          run(alice, {
+            op: "update",
+            collection: "todos",
+            id: 41,
+            update: { $set: { done: true } },
+            where: search,
+          }),
+        )
+        expect(where.code).toBe(ErrorCode.InvalidQuery)
+        expect(where.message).toMatch(/\$text/)
+        const filter = await failure(
+          run(alice, {
+            op: "updateMany",
+            collection: "todos",
+            filter: search,
+            update: { $set: { done: true } },
+            bulk: true,
+          }),
+        )
+        expect(filter.code).toBe(ErrorCode.InvalidQuery)
+        expect((await coll("todos").findOne({ _id: 41 }))?.["done"]).toBeUndefined()
+        const allowed = await run(service, {
+          op: "updateMany",
+          collection: "todos",
+          filter: search,
+          update: { $set: { done: true } },
+          bulk: true,
+        })
+        expect(allowed.matched).toBe(1)
+      } finally {
+        await coll("todos").dropIndex("internalNotes_text")
+      }
+    })
+
     it("decodes EJSON values in ids", async () => {
       const hex = "6728f0c2a1b2c3d4e5f60718"
       await coll("todos").insertOne({ _id: new BSON.ObjectId(hex), ownerId: "alice" })

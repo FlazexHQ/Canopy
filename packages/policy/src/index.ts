@@ -59,11 +59,13 @@ export {
 export {
   canAccess,
   deniedPaths,
+  deniesTextSearch,
   documentPaths,
   type FieldAccess,
   fieldAccess,
   intersectProjection,
   projectReadable,
+  TEXT_SEARCH_DENIED,
   toProjection,
 } from "./fields.ts"
 export { checkImplied } from "./implication.ts"

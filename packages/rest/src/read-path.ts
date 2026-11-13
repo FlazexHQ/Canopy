@@ -4,6 +4,7 @@ import {
   type Compiled,
   canAccess,
   deniedPaths,
+  deniesTextSearch,
   type FieldAccess,
   intersectProjection,
   OPERATIONS,
@@ -12,6 +13,7 @@ import {
   projectReadable,
   Role,
   securePipeline,
+  TEXT_SEARCH_DENIED,
   toFilter,
 } from "@canopy/policy"
 import {
@@ -548,6 +550,8 @@ export class ReadPath {
       },
       this.queryLimits,
     )
+    if (deniesTextSearch(planned.readable, parsed.filter.filter))
+      throw new InvalidQueryError(TEXT_SEARCH_DENIED)
     const denied = deniedPaths(planned.readable, parsed.paths)
     if (denied.length > 0)
       throw new InvalidQueryError(

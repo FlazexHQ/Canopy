@@ -10,6 +10,7 @@ import {
   canAccess,
   collection,
   createPolicySet,
+  deniesTextSearch,
   fieldAccess,
   fromStored,
   hashCollection,
@@ -303,6 +304,14 @@ describe("field level security", () => {
       kind: "omit",
       paths: ["b.c"],
     })
+  })
+
+  it("allows $text only to a caller that can read every field", () => {
+    const search = { $text: { $search: "x" }, a: 1 }
+    expect(deniesTextSearch({ kind: "all" }, search)).toBe(false)
+    expect(deniesTextSearch({ kind: "omit", paths: ["secret"] }, search)).toBe(true)
+    expect(deniesTextSearch({ kind: "only", paths: ["a", "b"] }, search)).toBe(true)
+    expect(deniesTextSearch({ kind: "omit", paths: ["secret"] }, { a: 1 })).toBe(false)
   })
 
   it("applies write rules to equal, nested and ancestor paths", () => {

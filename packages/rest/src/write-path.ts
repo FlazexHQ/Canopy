@@ -3,11 +3,13 @@ import {
   type Compiled,
   checkImplied,
   deniedPaths,
+  deniesTextSearch,
   type FieldAccess,
   type PolicyEngine,
   projectReadable,
   type RequestContext,
   Role,
+  TEXT_SEARCH_DENIED,
   toFilter,
   toProjection,
 } from "@canopy/policy"
@@ -1103,6 +1105,8 @@ class Scope {
   private parseCallerFilter(input: unknown, what: string): ParsedFilter {
     if (!isDocument(input)) throw new InvalidQueryError(`${what} must be a document`)
     const parsed = parseFilter(input, { context: "filter", limits: this.filterLimits })
+    if (deniesTextSearch(this.readable(), parsed.filter))
+      throw new InvalidQueryError(TEXT_SEARCH_DENIED)
     const denied = deniedPaths(this.readable(), parsed.paths)
     if (denied.length > 0)
       throw new InvalidQueryError(

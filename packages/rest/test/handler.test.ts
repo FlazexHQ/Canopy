@@ -368,6 +368,33 @@ suite("REST read endpoints against MongoDB", () => {
       await problem(await call(`/todos?filter=${nested}`), 400, ErrorCode.InvalidQuery)
     })
 
+    it("refuses $text to a caller that cannot read every field", async () => {
+      await db.collection("todos").createIndex({ internalNotes: "text" })
+      try {
+        const search = { $text: { $search: "secret" } }
+        const text = encodeURIComponent(JSON.stringify(search))
+        const find = await problem(await call(`/todos?filter=${text}`), 400, ErrorCode.InvalidQuery)
+        expect(find["detail"]).toMatch(/\$text/)
+        const count = await problem(
+          await call("/todos/_count", { body: { filter: search } }),
+          400,
+          ErrorCode.InvalidQuery,
+        )
+        expect(count["detail"]).toMatch(/\$text/)
+        await problem(
+          await call("/todos/_distinct", { body: { field: "status", filter: search } }),
+          400,
+          ErrorCode.InvalidQuery,
+        )
+        const service = await json(
+          await call(`/todos?filter=${text}&limit=1000`, { as: "service" }),
+        )
+        expect((service["data"] as unknown[]).length).toBe(data.length)
+      } finally {
+        await db.collection("todos").dropIndex("internalNotes_text")
+      }
+    })
+
     it("intersects requested fields with the readable ones", async () => {
       const body = await json(
         await call("/todos?fields=internalNotes,title&limit=1&sort=createdAt"),

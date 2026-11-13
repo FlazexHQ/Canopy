@@ -78,6 +78,20 @@ export function deniedPaths(access: FieldAccess, paths: readonly string[]): stri
   return paths.filter((path) => !canAccess(access, path))
 }
 
+/** The refusal of a `$text` search by a caller that cannot read every field. */
+export const TEXT_SEARCH_DENIED = "$text is not available when some fields are not readable"
+
+/**
+ * Whether a filter's `$text` search is out of reach for `access`. A text index may cover fields the caller
+ * cannot read, and `$text` names none of them, so it is allowed only when every field is readable.
+ */
+export function deniesTextSearch(
+  access: FieldAccess,
+  filter: Readonly<Record<string, unknown>>,
+): boolean {
+  return access.kind !== "all" && Object.hasOwn(filter, "$text")
+}
+
 /** Removes every field `access` does not allow from a document. `_id` is always kept. */
 export function projectReadable(
   access: FieldAccess,
