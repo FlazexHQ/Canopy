@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { createHash } from "node:crypto"
 import { basename, resolve } from "node:path"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { MongoClient, MongoServerError } from "mongodb"
 import { messageOf } from "./output.ts"
 
@@ -122,7 +123,10 @@ export async function waitForPrimary(uri: string, port: number, timeoutMs: numbe
     }
     await sleep(500)
   }
-  throw new Error(`MongoDB did not become a writable primary within ${timeoutMs} ms: ${last}`)
+  throw new CanopyError(
+    ErrorCode.Unavailable,
+    `MongoDB did not become a writable primary within ${timeoutMs} ms: ${last}`,
+  )
 }
 
 /**
@@ -137,19 +141,28 @@ export async function startLocalMongo(options: LocalMongoOptions): Promise<strin
   const image = options.image ?? DEFAULT_MONGO_IMAGE
   const state = await run(["inspect", "--format", "{{.State.Running}}", name])
   if (state.code === 127)
-    throw new Error("docker is not installed or not on PATH; --with-mongo needs Docker")
+    throw new CanopyError(
+      ErrorCode.Unavailable,
+      "docker is not installed or not on PATH; --with-mongo needs Docker",
+    )
   if (state.code !== 0) {
     log(
       `Starting ${image} as ${name}, data in the volume ${name}-data (the first run pulls the image)`,
     )
     const started = await run(dockerRunArgs(name, options.port, image))
     if (started.code !== 0)
-      throw new Error(`docker run failed: ${started.stderr.trim() || started.stdout.trim()}`)
+      throw new CanopyError(
+        ErrorCode.Unavailable,
+        `docker run failed: ${started.stderr.trim() || started.stdout.trim()}`,
+      )
   } else if (state.stdout.trim() !== "true") {
     log(`Starting the existing container ${name}`)
     const started = await run(["start", name])
     if (started.code !== 0)
-      throw new Error(`docker start failed: ${started.stderr.trim() || started.stdout.trim()}`)
+      throw new CanopyError(
+        ErrorCode.Unavailable,
+        `docker start failed: ${started.stderr.trim() || started.stdout.trim()}`,
+      )
   } else {
     log(`Reusing the running container ${name}`)
   }

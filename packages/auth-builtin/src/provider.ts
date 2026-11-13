@@ -8,7 +8,7 @@ import {
   resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
-import { ErrorCode, UnauthorizedError } from "@canopy/protocol"
+import { CanopyError, ErrorCode, UnauthorizedError } from "@canopy/protocol"
 import { type JSONWebKeySet, errors as joseErrors, jwtVerify } from "jose"
 import { type ChangeStream, MongoServerError } from "mongodb"
 import { type AuditDocument, AuditLog } from "./audit.ts"
@@ -290,7 +290,8 @@ class BetterAuthProvider implements BuiltinAuth {
       ...(rotation.refreshMs === undefined ? {} : { refreshMs: rotation.refreshMs }),
       logger,
       mint: keyMinter(settings.algorithm, async () => {
-        if (engine === undefined) throw new Error("The auth engine is not ready")
+        if (engine === undefined)
+          throw new CanopyError(ErrorCode.Unavailable, "The auth engine is not ready")
         return (await engine.context()).secret
       }),
     })
@@ -876,22 +877,26 @@ class BetterAuthProvider implements BuiltinAuth {
 function checkHookResult(result: unknown): ClaimsHookResult {
   if (result === undefined || result === null) return {}
   if (typeof result !== "object" || Array.isArray(result))
-    throw new Error("the hook must return an object")
+    throw new CanopyError(ErrorCode.AuthHookFailed, "the hook must return an object")
   const { app_metadata, roles, ...rest } = result as Record<string, unknown>
   const extra = Object.keys(rest)
   if (extra.length > 0)
-    throw new Error(`the hook may only return app_metadata and roles, not ${extra.join(", ")}`)
+    throw new CanopyError(
+      ErrorCode.AuthHookFailed,
+      `the hook may only return app_metadata and roles, not ${extra.join(", ")}`,
+    )
   if (
     app_metadata !== undefined &&
     (typeof app_metadata !== "object" || app_metadata === null || Array.isArray(app_metadata))
   )
-    throw new Error("app_metadata must be an object")
+    throw new CanopyError(ErrorCode.AuthHookFailed, "app_metadata must be an object")
   if (roles !== undefined) {
     if (
       !Array.isArray(roles) ||
       roles.some((role) => typeof role !== "string" || role === "" || RESERVED_ROLES.has(role))
     )
-      throw new Error(
+      throw new CanopyError(
+        ErrorCode.AuthHookFailed,
         "roles must be a list of names other than anon, authenticated, service and public",
       )
   }

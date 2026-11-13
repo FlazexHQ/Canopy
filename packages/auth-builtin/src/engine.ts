@@ -2,6 +2,7 @@ import type { InternalAdapter, SecretConfig } from "@better-auth/core"
 import { runWithTransaction } from "@better-auth/core/context"
 import { mongodbAdapter } from "@better-auth/mongo-adapter"
 import { passkey } from "@better-auth/passkey"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { hashPassword, symmetricEncrypt, verifyPassword } from "better-auth/crypto"
 import { betterAuth } from "better-auth/minimal"
 import { admin } from "better-auth/plugins/admin"
@@ -315,7 +316,10 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
         adapter: {
           getJwks: async () => hooks.keyring.signingKeys(),
           createJwk: async () => {
-            throw new Error("No active signing key: the key rotation job has not run")
+            throw new CanopyError(
+              ErrorCode.Internal,
+              "No active signing key: the key rotation job has not run",
+            )
           },
         },
         jwks: { keyPairConfig: keyPairConfig(settings.algorithm) },
@@ -324,7 +328,10 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
           audience: settings.publicUrl,
           expirationTime: `${settings.accessTokenTtlSeconds}s`,
           definePayload: () => {
-            throw new Error("Access tokens are minted only by /auth/v1/token")
+            throw new CanopyError(
+              ErrorCode.Internal,
+              "Access tokens are minted only by /auth/v1/token",
+            )
           },
         },
       }),
