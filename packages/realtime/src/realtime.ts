@@ -1,4 +1,12 @@
-import { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } from "@canopy/auth"
+import {
+  Authenticator,
+  type JwtAuthOptions,
+  type KeyOptions,
+  type Principal,
+  type RateLimits,
+  resolveClientAddress,
+  retryAfterSeconds,
+} from "@canopy/auth"
 import {
   type CompiledFilter,
   type CompiledProjection,
@@ -160,6 +168,14 @@ export interface RealtimeOptions {
    * built from `auth` and `keys`.
    */
   readonly authenticator?: Authenticator
+  /**
+   * Limits the frames that start work (`sub`, `mut` and `auth`) per caller, and the open connections of
+   * anonymous callers per client address. A frame over the budget is answered with `CANOPY_RATE_LIMITED`
+   * in the frame's own reply (`nosub`, a failed `ack` or `err`) and the connection stays open; a
+   * connection over the address cap is closed with `4029`. Callers with the `service` role are exempt
+   * unless the limits say otherwise. Counted in memory, so each instance limits on its own.
+   */
+  readonly rateLimits?: RateLimits
   /** How many recent event traces {@link Realtime.trace} keeps. Defaults to 0 (tracing off). */
   readonly traceCapacity?: number
   /**
@@ -283,6 +299,15 @@ export interface EventTrace extends EventSummary {
   readonly candidates: readonly ObserverOutcome[]
 }
 
+/** What a transport knows about a connection besides its socket. */
+export interface ConnectInfo {
+  /**
+   * The client address, from {@link Realtime.clientAddress}. Anonymous connections without one are in
+   * process (GraphQL subscriptions) and are limited by the transport that carries them.
+   */
+  readonly address?: string
+}
+
 /** A connection from any transport. */
 export interface ConnectionHandler {
   message(text: string): void
@@ -299,6 +324,8 @@ interface SubscriptionState {
 interface SessionState {
   readonly session: Session
   readonly key: string
+  /** The client address of the current connection, when the transport knows it. */
+  address: string | undefined
   readonly openedAt: Date
   principal: Principal
   readonly subs: Map<string, SubscriptionState>
@@ -318,6 +345,17 @@ interface SessionState {
   readonly pendingSubs: Map<string, SubMessage>
   ctxRetry: ReturnType<typeof setTimeout> | undefined
   readonly ctxFailed: Set<string>
+}
+
+interface AnonymousSlot {
+  release: (() => void) | undefined
+}
+
+function rateLimitedWire(seconds: number): WireError {
+  return {
+    code: ErrorCode.RateLimited,
+    msg: `Too many messages. Retry in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
+  }
 }
 
 function randomId(): string {
@@ -734,8 +772,9 @@ export class Realtime {
   }
 
   /** Accepts a new connection from any transport. */
-  connect(socket: RealtimeSocket): ConnectionHandler {
+  connect(socket: RealtimeSocket, info: ConnectInfo = {}): ConnectionHandler {
     let state: SessionState | undefined
+    const slot: AnonymousSlot = { release: undefined }
     let helloPending = true
     let lastInbound = Date.now()
     const helloTimer = setTimeout(() => {
@@ -787,9 +826,10 @@ export class Realtime {
           }
           helloPending = false
           clearTimeout(helloTimer)
-          this.hello(socket, message).then(
+          this.hello(socket, message, info.address, slot).then(
             (result) => {
               if (closed) {
+                slot.release?.()
                 result.session.disconnect()
                 this.scheduleDrop(result)
                 return
@@ -799,7 +839,11 @@ export class Realtime {
             (error: unknown) => {
               const canopy = toCanopyError(error)
               fail(
-                canopy.code === ErrorCode.Forbidden ? CloseCode.Forbidden : CloseCode.Unauthorized,
+                canopy.code === ErrorCode.Forbidden
+                  ? CloseCode.Forbidden
+                  : canopy.code === ErrorCode.RateLimited
+                    ? CloseCode.RateLimited
+                    : CloseCode.Unauthorized,
                 canopy,
               )
             },
@@ -817,6 +861,7 @@ export class Realtime {
       },
       close: () => {
         closed = true
+        slot.release?.()
         clearTimeout(helloTimer)
         clearInterval(silenceTimer)
         this.metrics.connections.add(-1)
@@ -830,12 +875,26 @@ export class Realtime {
     }
   }
 
-  private async hello(socket: RealtimeSocket, hello: HelloMessage): Promise<SessionState> {
+  private async hello(
+    socket: RealtimeSocket,
+    hello: HelloMessage,
+    address: string | undefined,
+    slot: AnonymousSlot,
+  ): Promise<SessionState> {
     if (hello.v !== PROTOCOL_VERSION) {
       socket.close(CloseCode.UnsupportedVersion, "unsupported protocol version")
       throw new CanopyError(ErrorCode.ProtocolError, "Unsupported protocol version")
     }
     const principal = await this.auth.authenticate(hello.key, hello.token)
+    const limits = this.options.rateLimits
+    if (limits !== undefined && principal.subject === "anon" && address !== undefined) {
+      slot.release?.()
+      slot.release = limits.openAnonymousConnection(address)
+      if (slot.release === undefined) {
+        this.metrics.rateLimited.inc({ kind: "connection" })
+        throw new CanopyError(ErrorCode.RateLimited, "Too many connections from this address")
+      }
+    }
     const caps = new Set((hello.caps ?? []).filter((cap) => cap === "batch" || cap === "diff"))
     const welcome = (sid: string, resumed: boolean) => ({
       t: "welcome" as const,
@@ -866,6 +925,7 @@ export class Realtime {
           if (existing.dropTimer !== undefined) clearTimeout(existing.dropTimer)
           existing.dropTimer = undefined
           existing.socket = socket
+          existing.address = address
           existing.principal = principal
           existing.session.connect(socket, welcome(existing.session.sid, true))
           existing.session.replayAfter(resume.seq)
@@ -877,7 +937,6 @@ export class Realtime {
     }
     const count = this.makeRoom(principal.subject)
     if (principal.subject !== "anon" && count >= this.limits.maxConnectionsPerSubject) {
-      socket.close(CloseCode.RateLimited, "too many connections")
       throw new CanopyError(ErrorCode.RateLimited, "Too many connections for this subject")
     }
     const sid = `${this.options.nodeId ?? "n1"}.${randomId()}`
@@ -889,6 +948,7 @@ export class Realtime {
     const state: SessionState = {
       session,
       key: hello.key,
+      address,
       openedAt: new Date(),
       principal,
       subs: new Map(),
@@ -951,14 +1011,40 @@ export class Realtime {
     }, delay)
   }
 
+  /**
+   * Spends a token of the caller's message budget. Returns the seconds to wait when it is over, else 0.
+   * Anonymous connections without an address are in process and limited by their transport.
+   */
+  private overBudget(state: SessionState): number {
+    const limits = this.options.rateLimits
+    if (limits === undefined) return 0
+    const { principal } = state
+    if (principal.subject === "anon" && state.address === undefined) return 0
+    const wait = limits.message({
+      key: principal.keyId ?? state.key,
+      subject: principal.subject,
+      roles: principal.context.roles,
+      address: state.address ?? "",
+    })
+    if (wait === 0) return 0
+    this.metrics.rateLimited.inc({ kind: "message" })
+    return retryAfterSeconds(wait)
+  }
+
   private dispatch(state: SessionState, socket: RealtimeSocket, message: ClientMessage): void {
     switch (message.t) {
       case "ping":
         socket.send(encodeMessage({ t: "pong", ts: message.ts }))
         return
-      case "sub":
+      case "sub": {
+        const wait = this.overBudget(state)
+        if (wait > 0) {
+          state.session.send({ t: "nosub", s: message.id, err: rateLimitedWire(wait) })
+          return
+        }
         this.subscribe(state, message)
         return
+      }
       case "unsub":
         if (state.pendingSubs.delete(message.id)) {
           state.session.send({ t: "nosub", s: message.id })
@@ -967,12 +1053,24 @@ export class Realtime {
           state.session.send({ t: "nosub", s: message.id })
         }
         return
-      case "auth":
+      case "auth": {
+        const wait = this.overBudget(state)
+        if (wait > 0) {
+          state.session.send({ t: "err", ...rateLimitedWire(wait) })
+          return
+        }
         this.reauthenticate(state, message.token)
         return
-      case "mut":
+      }
+      case "mut": {
+        const wait = this.overBudget(state)
+        if (wait > 0) {
+          state.session.send({ t: "ack", m: message.id, ok: false, err: rateLimitedWire(wait) })
+          return
+        }
         this.enqueueMutation(state, message)
         return
+      }
       case "bye":
         this.destroySession(state)
         socket.close(CloseCode.Normal, "bye")
@@ -1827,6 +1925,17 @@ export class Realtime {
     if (this.timeTimer !== undefined) clearInterval(this.timeTimer)
     this.echoes.close()
     await this.ingestor.stop()
+  }
+
+  /**
+   * The client address of a connection: the socket peer, or the forwarded address behind a trusted proxy
+   * (the proxies of the rate limits). Pass it to {@link Realtime.connect} as `info.address`.
+   */
+  clientAddress(headers: Headers, peer: string | undefined): string {
+    const limits = this.options.rateLimits
+    return limits === undefined
+      ? resolveClientAddress(headers, peer, [])
+      : limits.addressOf(headers, peer)
   }
 
   /** Renders metrics in the Prometheus text format. */

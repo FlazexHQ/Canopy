@@ -26,7 +26,8 @@ export interface HttpTransportOptions {
 export interface HttpTransport {
   /** Whether the request belongs to this transport. */
   matches(request: Request): boolean
-  fetch(request: Request): Promise<Response>
+  /** `info.ip` is the socket peer, which the rate limits turn into the client address. */
+  fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** Closes every HTTP session. */
   close(): void
 }
@@ -146,7 +147,7 @@ class HttpSession {
   private firstFrame: ((text: string | undefined) => void) | undefined
   private readonly retainBytes: number
 
-  constructor(realtime: Realtime, key: string, retainBytes: number) {
+  constructor(realtime: Realtime, key: string, retainBytes: number, address: string | undefined) {
     this.key = key
     this.retainBytes = retainBytes
     this.first = new Promise((resolve) => {
@@ -160,7 +161,7 @@ class HttpSession {
         return pendingBytes()
       },
     }
-    this.connection = realtime.connect(socket)
+    this.connection = realtime.connect(socket, address === undefined ? {} : { address })
   }
 
   private push(text: string): void {
@@ -336,7 +337,7 @@ export function createHttpTransport(
     return problem(401, ErrorCode.Unauthorized, "Send the key in the apikey header", 4001)
   }
 
-  const open = async (request: Request): Promise<Response> => {
+  const open = async (request: Request, peer: string | undefined): Promise<Response> => {
     const text = await readText(request, maxBody)
     if (text === undefined)
       return problem(413, ErrorCode.PayloadTooLarge, "The hello payload is too large")
@@ -361,7 +362,12 @@ export function createHttpTransport(
       ...(typeof token === "string" ? { token } : {}),
       ...(Array.isArray(caps) ? { caps: caps.filter((cap) => cap !== "batch") } : {}),
     }
-    const session = new HttpSession(realtime, key, retainBytes)
+    const session = new HttpSession(
+      realtime,
+      key,
+      retainBytes,
+      peer === undefined ? undefined : realtime.clientAddress(request.headers, peer),
+    )
     session.connection.message(JSON.stringify(hello))
     const timeout = setTimeout(
       () => session.end(CloseCode.InternalError, "no welcome in time"),
@@ -539,11 +545,11 @@ export function createHttpTransport(
     })
   }
 
-  const route = async (request: Request): Promise<Response> => {
+  const route = async (request: Request, peer: string | undefined): Promise<Response> => {
     const url = new URL(request.url)
     const path = url.pathname.slice(base.length)
     const method = request.method
-    if (path === "/sessions" && method === "POST") return open(request)
+    if (path === "/sessions" && method === "POST") return open(request, peer)
     if (path === "/tickets" && method === "POST") return ticket(request)
     const match = SESSION_PATH.exec(path)
     if (match === null) return problem(404, ErrorCode.NotFound, "No such endpoint")
@@ -577,7 +583,7 @@ export function createHttpTransport(
       const path = new URL(request.url).pathname
       return path.startsWith(`${base}/sessions`) || path === `${base}/tickets`
     },
-    fetch: async (request) => {
+    fetch: async (request, info = {}) => {
       const cors = corsHeaders(request)
       const hasCors = cors["access-control-allow-origin"] !== undefined
       if (request.method === "OPTIONS") {
@@ -594,7 +600,7 @@ export function createHttpTransport(
             : {},
         })
       }
-      const response = await route(request)
+      const response = await route(request, info.ip)
       if (!hasCors) return response
       const headers = new Headers(response.headers)
       for (const [name, value] of Object.entries(cors)) headers.set(name, value)

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createServer } from "node:http"
+import { RateLimits } from "@canopy/auth"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
@@ -68,6 +69,17 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
     nodeId: config.server.nodeId,
     logger,
     logVariableIssues: config.environment === "development",
+    ...(config.rateLimits === false
+      ? {}
+      : {
+          rateLimits: new RateLimits({
+            requests: config.rateLimits.requests,
+            messages: config.rateLimits.messages,
+            anonymousConnectionsPerAddress: config.rateLimits.anonymousConnectionsPerAddress,
+            exemptService: config.rateLimits.exemptService,
+            trustedProxies: config.server.trustedProxies,
+          }),
+        }),
   }
 }
 

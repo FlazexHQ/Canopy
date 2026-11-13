@@ -220,6 +220,10 @@ export class RealtimeMetrics {
     "Mutation received to ack enqueued",
     LATENCY,
   )
+  readonly rateLimited: Counter = new Counter(
+    "canopy_realtime_rate_limited_total",
+    "Messages and connections refused by the rate limits",
+  )
   readonly variableErrors: Counter = new Counter(
     "canopy_policy_variable_errors_total",
     "Policy variables that failed to resolve",
@@ -261,6 +265,7 @@ export class RealtimeMetrics {
       this.resyncs,
       this.denials,
       this.variableErrors,
+      this.rateLimited,
       this.contextFailures,
       this.contextInvalidations,
       this.rebinds,

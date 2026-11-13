@@ -43,6 +43,7 @@ export {
 } from "./policy-source.ts"
 export { type Readiness, type ReadinessOptions, readinessCheck } from "./readiness.ts"
 export {
+  type ConnectInfo,
   type ConnectionHandler,
   type ConnectionInfo,
   createRealtime,
