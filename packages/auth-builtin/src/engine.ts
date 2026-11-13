@@ -111,6 +111,13 @@ const AAL2_PATHS = new Set([
   "/passkey/verify-authentication",
 ])
 
+/**
+ * How long after a sign in a session may still do what needs a recent sign in: registering a passkey
+ * (which later signs in at `aal2`), listing sessions and unlinking an account. An older session has to
+ * sign in again first, so a stolen `aal1` session cannot add a factor of its own.
+ */
+const FRESH_SESSION_SECONDS = 15 * 60
+
 /** The assurance level of a session created on `path`. */
 function assuranceOf(path: string | undefined): "aal1" | "aal2" {
   return path !== undefined && AAL2_PATHS.has(path) ? "aal2" : "aal1"
@@ -265,6 +272,7 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
       },
       expiresIn: settings.session.expiresInSeconds,
       updateAge: settings.session.updateAgeSeconds,
+      freshAge: FRESH_SESSION_SECONDS,
     },
     account: { modelName: AUTH_COLLECTIONS.accounts },
     verification: { modelName: AUTH_COLLECTIONS.verifications },

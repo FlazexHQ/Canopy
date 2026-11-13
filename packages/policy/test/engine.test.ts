@@ -603,3 +603,43 @@ describe("and", () => {
     )
   })
 })
+
+describe("requiring a second factor", () => {
+  const vault = collection("vault", {
+    exposed: true,
+    policies: [
+      allow
+        .update("authenticated")
+        .where({ ownerId: auth("sub") })
+        .check({ ownerId: auth("sub") }),
+      restrict.update("authenticated").check({ $expr: { $eq: [auth("aal"), "aal2"] } }),
+    ],
+  })
+  const guarded = new PolicyEngine(createPolicySet([vault]))
+
+  it("compares the aal claim of the token in a check clause, so an aal1 session cannot write", () => {
+    expect(guarded.check("vault", "update", user({ sub: "u1", aal: "aal1" }))).toEqual({
+      kind: "filter",
+      filter: { $and: [{ ownerId: "u1" }, { $expr: { $eq: ["aal1", "aal2"] } }] },
+    })
+    expect(guarded.check("vault", "update", user({ sub: "u1", aal: "aal2" }))).toEqual({
+      kind: "filter",
+      filter: { $and: [{ ownerId: "u1" }, { $expr: { $eq: ["aal2", "aal2"] } }] },
+    })
+  })
+
+  it("denies when the token carries no aal claim", () => {
+    expect(guarded.check("vault", "update", user({ sub: "u1" }))).toEqual({ kind: "deny" })
+  })
+
+  it("cannot gate a using clause on a claim alone", () => {
+    expect(() =>
+      createPolicySet([
+        collection("vault", {
+          exposed: true,
+          policies: [allow.read("authenticated").where({ $expr: { $eq: [auth("aal"), "aal2"] } })],
+        }),
+      ]),
+    ).toThrow(/\$expr is only allowed in check clauses/)
+  })
+})

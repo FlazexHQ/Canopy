@@ -1,7 +1,15 @@
 import { createHmac } from "node:crypto"
 import { decodeJwt } from "jose"
 import { afterAll, beforeAll, expect, it } from "vitest"
-import { describeMongo, type Harness, signUpVerified, startAuth, tokenFor } from "./support.ts"
+import {
+  describeMongo,
+  type Harness,
+  linkOf,
+  signUpVerified,
+  startAuth,
+  tokenFor,
+  waitForMail,
+} from "./support.ts"
 
 /** RFC 4648 base32, as authenticator apps read TOTP secrets. */
 function base32(text: string): Buffer {
@@ -106,6 +114,47 @@ describeMongo("second factors, passkeys and user import", () => {
     expect(options.body["rp"]).toMatchObject({ id: new URL(h.url).hostname })
     expect(typeof options.body["challenge"]).toBe("string")
     expect((await h.client().get("/auth/v1/passkey/generate-register-options")).status).toBe(401)
+  })
+
+  it("does not let a passwordless session enrol TOTP, so a stolen aal1 session cannot reach aal2", async () => {
+    const email = "linkonly@example.com"
+    const web = h.client()
+    const before = h.outbox.length
+    await web.post("/auth/v1/sign-in/magic-link", { email })
+    const followed = await web.get(
+      linkOf(await waitForMail(h.outbox, email, /sign in link/, before)),
+    )
+    expect(followed.status).toBeLessThan(400)
+    expect(decodeJwt((await tokenFor(web)).token ?? "")["aal"]).toBe("aal1")
+    for (const password of [undefined, "", "guess password 1234"]) {
+      const enable = await web.post("/auth/v1/two-factor/enable", { password })
+      expect(enable.status).toBe(400)
+      expect(enable.body["totpURI"]).toBeUndefined()
+    }
+    expect(decodeJwt((await tokenFor(web)).token ?? "")["aal"]).toBe("aal1")
+  })
+
+  it("asks for a recent sign in before a passkey is registered, because a passkey sign in mints aal2", async () => {
+    const web = h.client()
+    await signUpVerified(h, web, "fresh@example.com", "fresh password 1234")
+    expect((await web.get("/auth/v1/passkey/generate-register-options")).status).toBe(200)
+    const aged = new Date(Date.now() - 20 * 60 * 1000)
+    const user = await h.side
+      .db(h.names.auth)
+      .collection("users")
+      .findOne({ email: "fresh@example.com" })
+    await h.side
+      .db(h.names.auth)
+      .collection("sessions")
+      .updateMany({ userId: user?._id }, { $set: { createdAt: aged } })
+    const stale = await web.get("/auth/v1/passkey/generate-register-options")
+    expect(stale.status).toBe(403)
+    const signedInAgain = await web.post("/auth/v1/sign-in/email", {
+      email: "fresh@example.com",
+      password: "fresh password 1234",
+    })
+    expect(signedInAgain.status).toBe(200)
+    expect((await web.get("/auth/v1/passkey/generate-register-options")).status).toBe(200)
   })
 
   it("requires user verification for passkeys, because a passkey sign in mints aal2", async () => {

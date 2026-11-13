@@ -33,8 +33,8 @@ Out of scope: the Phase 3 auth and admin surfaces (covered by the 2026-11-11 aud
 
 No DLS bypass was found. GraphQL does not evaluate policies itself: every resolver calls `ReadPath.find`,
 `findById`, `count` or `WritePath.execute` with the caller, so USING and CHECK clauses, field rules, filter
-and sort validation (unreadable fields, `$text`) and idempotency are the Data API's. Six defects were found
-and fixed; three residual risks are accepted and recorded.
+and sort validation (unreadable fields, `$text`) and idempotency are the Data API's. Seven defects were found
+and fixed; two residual risks are accepted and one gap is recorded.
 
 ## Findings fixed
 
@@ -49,6 +49,7 @@ without credentials or a weakened assurance level, Low needs privileges or devel
 | P4-4 | Medium | A passkey sign in creates an `aal2` session, but Better Auth's passkey plugin defaults to `userVerification: "preferred"` and accepts assertions without it. A stolen or unlocked authenticator that only proves presence therefore gave `aal2`. | Registration and sign in require user verification. `f3f4605` |
 | P4-5 | Low | The work factors of imported password hashes were bounded far too loosely (bcrypt cost 31, argon2id memory of 4 GiB, Firebase scrypt up to 4 GiB). A hash in an import file could make one sign in allocate gigabytes or run for minutes. Only holders of `users.manage` can import. | bcrypt cost 16, argon2id 256 MiB, 32 passes, 16 lanes, scrypt 16 rounds and memCost 16. `fbfd44e` |
 | P4-6 | Low | The devtools protocol log printed `hello` and `auth` frames in full, so the user's access token and a secret key were visible in the panel and in `devtools.log` (screen shares, bug reports). Development use only. | Tokens and `canopy_sk_` keys print as `[redacted]`. `a953424` |
+| P4-7 | Medium | Registering a passkey needs only a session that is at most `freshAge` old, and Better Auth defaults that to one day. A stolen `aal1` session could register an authenticator of the attacker and then sign in with it, which mints `aal2`. Found while reviewing residual risk 1. | `session.freshAge` is 15 minutes, so passkey registration, listing sessions and unlinking accounts need a recent sign in. The follow up review (below) added the test. |
 
 T1 (the `bunHandlers` test gap) was closed in the same review: `ce9bb08`, see below.
 
@@ -90,15 +91,21 @@ T1 (the `bunHandlers` test gap) was closed in the same review: `ce9bb08`, see be
 These are design properties, not defects fixed here. The maintainer should confirm them.
 
 1. **Enrolling a second factor mints `aal2`.** After `verify-totp` confirms a new enrolment, the replacement
-   session is `aal2`, the same behavior as Supabase. Better Auth refuses to enrol again once a factor is
-   verified, and requires the password when the account has one. For a passwordless account (magic link only),
-   someone holding a stolen `aal1` session can enrol their own factor and obtain `aal2`. Recommended
-   mitigation: require a fresh sign in (or an email code) before enrolment for passwordless accounts.
+   session is `aal2`, the same behavior as Supabase. The follow up review checked the worry that a stolen
+   `aal1` session on a passwordless account could enrol its own factor, and it cannot: Canopy does not set
+   Better Auth's `allowPasswordless`, so `/two-factor/enable` always demands the account password, and an
+   account without a credential (magic link, OAuth, anonymous) gets `400` whatever it sends. The test
+   `does not let a passwordless session enrol TOTP` pins that, and fails if `allowPasswordless` is ever
+   turned on. The real escalation path was passkey registration (P4-7). A stolen session on an account that
+   has a password still needs the password.
 2. **Magic link, email code, OAuth and anonymous sign ins do not ask for the second factor.** Better Auth
    applies the two factor step only to password sign ins. Those sessions are `aal1`, so a policy that requires
    `aal2` still denies them, but an application that only checks `authenticated` gets no MFA protection for a
    user who can also sign in by magic link. The docs should say that `aal2` policies are how a second factor
-   is enforced.
+   is enforced. A `using` clause cannot test a claim alone (`$expr` is limited to `check`), so the way to
+   require `aal2` is a restrictive `check` on writes; reads need a role or a document field. The two factor
+   guide now says so and `packages/policy/test/engine.test.ts` covers the `check` form, including a token
+   without `aal` being denied.
 3. **No end to end DLS equivalence test across REST, GraphQL and realtime** (plan item E12). Each entry point
    is tested alone and the sharing of the read and write paths is verified by reading, not by a property test.
 
@@ -110,7 +117,7 @@ subscribe, mutate (echo before ack) and resume round trip, the missing subprotoc
 (close code `1002`) and the fallback; it is skipped under Node and runs in the CI `bun --bun vitest run`
 steps. `deploy/binary/ws-smoke.ts` connects to the realtime socket of a running server, subscribes and
 mutates; both binary smoke steps in `.github/workflows/ci.yml` call it. It was run against the server started
-from source on Bun with `bun deploy/binary/ws-smoke.ts`; the compiled executables were not built here.
+from source on Bun with `bun deploy/binary/ws-smoke.ts`; the compiled executables were built and started afterwards (`45c3887`), which also fixed their startup.
 
 Gate state: R1, R2, T3 and T5 were done on 2026-11-07, T1 is done, and the security half of O4 is this
 document. The usability test half of O4 has not been run (plan item C14) and stays open; the maintainer
