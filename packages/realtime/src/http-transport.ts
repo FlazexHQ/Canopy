@@ -434,7 +434,9 @@ export function createHttpTransport(
           if (session.stopStream === finish) session.stopStream = undefined
           try {
             controller.close()
-          } catch {}
+          } catch {
+            // The client already cancelled the stream.
+          }
         }
         session.stopStream?.()
         session.wake?.()

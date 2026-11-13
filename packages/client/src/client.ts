@@ -735,7 +735,14 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
           ? undefined
           : (this.restoring ?? Promise.resolve()).then(async () => {
               const key = `${this.scope}\u0000${mutationId}`
-              await persist.set("mutations", key, JSON.stringify(encode(record))).catch(() => {})
+              await persist
+                .set("mutations", key, JSON.stringify(encode(record)))
+                .catch((error: unknown) =>
+                  console.warn(
+                    "Canopy could not store a queued mutation; it is lost if the page closes before it is sent",
+                    error,
+                  ),
+                )
               return key
             })
       this.outbox.push({

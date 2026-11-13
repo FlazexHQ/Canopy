@@ -66,7 +66,9 @@ async function failure(response: Response): Promise<CanopyError> {
         code: problem.code,
         msg: typeof problem.detail === "string" ? problem.detail : response.statusText,
       })
-  } catch {}
+  } catch {
+    // Not Problem Details: fall through to the generic error for the status.
+  }
   return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${response.status}`)
 }
 

@@ -50,7 +50,9 @@ export abstract class HttpSocket implements WebSocketLike, Handlers {
       try {
         const body = (await response.json()) as { close?: unknown }
         if (typeof body.close === "number") code = body.close
-      } catch {}
+      } catch {
+        // A body that is not JSON keeps the close code derived from the status.
+      }
     }
     this.end(code)
   }

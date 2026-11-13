@@ -7,7 +7,7 @@ import { WritePath } from "@canopy/rest"
 import { MONGODB_URI } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   type CanopyClient,
   type ClientOptions,
@@ -157,6 +157,24 @@ suite("offline queue and persistence", () => {
     ])
     await sleep(50)
     expect(await persist.entries("mutations")).toEqual([])
+  })
+
+  it("warns when a queued mutation cannot be stored", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const persist = memoryPersister()
+      const broken: Persister = {
+        ...persist,
+        set: () => Promise.reject(new Error("quota exceeded")),
+      }
+      const offline = open({ url: unreachable, persist: broken })
+      void offline.insert("todos", { _id: 6, ownerId: "alice", title: "unsaved" })
+      await until(() => warn.mock.calls.length > 0)
+      expect(String(warn.mock.calls[0]?.[0])).toMatch(/could not store a queued mutation/)
+      expect(offline.pendingMutations).toBe(1)
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it("shows restored mutations optimistically before the server confirms them", async () => {
