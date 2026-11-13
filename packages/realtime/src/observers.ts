@@ -79,7 +79,7 @@ interface Member {
 }
 
 function sameDoc(a: Doc, b: Doc): boolean {
-  return canonicalString(a) === canonicalString(b)
+  return a === b || canonicalString(a) === canonicalString(b)
 }
 
 /**
@@ -317,7 +317,7 @@ export abstract class Observer {
     for (const [key, member] of after) {
       const previous = before.get(key)
       if (previous === undefined) this.notifyAdded(key, member.id, member.doc, ct)
-      else if (!sameDoc(previous.doc, member.doc))
+      else if (previous !== member && !sameDoc(previous.doc, member.doc))
         this.notifyChanged(key, member.id, member.doc, ct)
     }
   }

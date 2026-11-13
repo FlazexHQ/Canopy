@@ -199,4 +199,30 @@ suite("observer lifecycle with a lingering registry", () => {
       snapshots.restore()
     }
   })
+
+  it("sends one change for an update to one document of a large window", async () => {
+    const docs = engine.db.collection("todos")
+    await docs.insertMany(
+      Array.from({ length: 200 }, (_, n) => ({
+        _id: (1000 + n) as never,
+        ownerId: "alice",
+        rank: n,
+      })),
+    )
+    const client = await connect()
+    await client.subscribe("w", "todos", {
+      filter: { rank: { $gte: 0 } },
+      sort: { rank: 1 },
+      limit: 200,
+    })
+    expect(client.ids("w")).toHaveLength(200)
+    const before = client.messages.length
+    await docs.updateOne({ _id: 1050 as never }, { $set: { note: "x" } })
+    await client.until(() => client.messages.slice(before).some((m) => m.t === "changed"))
+    await sleep(300)
+    const after = client.messages
+      .slice(before)
+      .filter((m) => m.t === "added" || m.t === "changed" || m.t === "removed")
+    expect(after.map((m) => [m.t, (m as { id?: unknown }).id])).toEqual([["changed", 1050]])
+  })
 })
