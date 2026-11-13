@@ -213,8 +213,10 @@ suite("realtime engine against MongoDB", () => {
       d: ErrorCode.InvalidQuery,
       e: ErrorCode.InvalidQuery,
     })
-    const text = client.messages.find((m) => m.t === "nosub" && m.s === "e")
-    expect(text?.err?.msg).toMatch(/\$text/)
+    const text = client.messages.flatMap((m) =>
+      m.t === "nosub" && m.s === "e" ? [m.err?.msg] : [],
+    )
+    expect(text[0]).toMatch(/\$text/)
   })
 
   it("refuses bad tokens and unknown keys", async () => {
