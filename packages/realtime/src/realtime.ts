@@ -1360,7 +1360,8 @@ export class Realtime {
 
   private observerFor(plan: ReturnType<Realtime["plan"]>): Observer {
     const existing = this.registry.get(plan.key)
-    if (existing !== undefined) {
+    if (existing?.isFailed() === true) this.destroyObserver(existing)
+    else if (existing !== undefined) {
       const linger = this.lingering.get(existing)
       if (linger !== undefined) {
         clearTimeout(linger)
@@ -1409,7 +1410,9 @@ export class Realtime {
     state.subs.delete(id)
     state.session.forget(id)
     this.metrics.subscriptions.add(-1)
-    if (sub.observer.detach(sub.listener)) this.lingerObserver(sub.observer)
+    if (!sub.observer.detach(sub.listener)) return
+    if (sub.observer.isFailed()) this.destroyObserver(sub.observer)
+    else this.lingerObserver(sub.observer)
   }
 
   private subscriptionFailed(state: SessionState, subId: string, error: WireError): void {
