@@ -104,7 +104,7 @@ async function metricsServer(canopy: Canopy, port: number, runtime: string): Pro
       "",
     ].join("\n")
     response.setHeader("content-type", "text/plain; version=0.0.4")
-    response.end(lines + (canopy.realtime?.renderMetrics() ?? ""))
+    response.end(lines + canopy.renderMetrics())
   })
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)

@@ -4,6 +4,7 @@ import {
   Authenticator,
   addressAllowed,
   type JwtAuthOptions,
+  RateLimits,
   resolveClientAddress,
 } from "@canopy/auth"
 import type { BuiltinAuth } from "@canopy/auth-builtin"
@@ -31,6 +32,7 @@ import {
   attach,
   type BunServerLike,
   bunHandlers,
+  Counter,
   createHttpTransport,
   createRealtime,
   databasePolicies,
@@ -145,6 +147,8 @@ export interface Canopy extends AsyncDisposable {
   readonly graphql: GraphqlHandler | undefined
   /** The realtime engine, when realtime is on. */
   readonly realtime: Realtime | undefined
+  /** Renders the metrics of the data plane and of realtime in the Prometheus text format. */
+  renderMetrics(): string
   /** Built in auth, when the config chooses `builtin()`; it serves `/auth/v1`. */
   readonly auth: BuiltinAuth | undefined
   /** The policies in force (hot reloaded). */
@@ -397,6 +401,14 @@ async function buildAuth(
 
 type Auth = Awaited<ReturnType<typeof buildAuth>>
 
+/** The proxies whose `X-Forwarded-For` is trusted, for the admin allowlist, built in auth and the rate limits. */
+function trustedProxiesOf(config: ResolvedConfig): string[] {
+  return [
+    ...config.server.trustedProxies,
+    ...(config.auth?.kind === "builtin" ? config.auth.trustedProxies : []),
+  ]
+}
+
 /**
  * The policy source with hot reload, the context lookup resolver, REST and the realtime engine. With
  * realtime on, its engine holds the policies; otherwise a standalone engine follows the source.
@@ -427,6 +439,21 @@ async function buildData(
     : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const schemas = new SchemaCache(db)
+  const limits = config.rateLimits
+  const rateLimits =
+    limits === false
+      ? undefined
+      : new RateLimits({
+          requests: limits.requests,
+          messages: limits.messages,
+          anonymousConnectionsPerAddress: limits.anonymousConnectionsPerAddress,
+          exemptService: limits.exemptService,
+          trustedProxies: trustedProxiesOf(config),
+        })
+  const httpRateLimited = new Counter(
+    "canopy_http_rate_limited_total",
+    "REST and GraphQL requests refused by the rate limits",
+  )
   const source: PolicySource =
     options.policies !== undefined
       ? staticPolicies(options.policies)
@@ -465,6 +492,9 @@ async function buildData(
               .map(([name, collection]) => [name, collection.idType]),
           ),
           ...(config.cors === undefined ? {} : { cors: config.cors }),
+          ...(rateLimits === undefined
+            ? {}
+            : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "rest" }) }),
           onError: (error) => logger.error({ err: error }, "REST request failed"),
         })
 
@@ -485,6 +515,7 @@ async function buildData(
         logger,
         traceCapacity: 256,
         logVariableIssues: development,
+        ...(rateLimits === undefined ? {} : { rateLimits }),
         ...(rest === undefined ? {} : { mutations: rest.writes }),
       }),
     )
@@ -527,6 +558,9 @@ async function buildData(
             ? {}
             : { persisted: await persistedOperations(config.graphql.persisted) }),
           ...(config.cors === undefined ? {} : { cors: config.cors }),
+          ...(rateLimits === undefined
+            ? {}
+            : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "graphql" }) }),
           onError: (error) => logger.error({ err: error }, "GraphQL request failed"),
         })
 
@@ -536,6 +570,9 @@ async function buildData(
     graphql,
     realtime: engineRealtime,
     engine,
+    /** The data plane limits, when they are on. */
+    rateLimits,
+    httpRateLimited,
     /** Stops following the policy source of a standalone engine. */
     stopReloading(): void {
       stopWatching?.()
@@ -749,10 +786,7 @@ async function buildAdmin(
     options.studio === false
       ? undefined
       : (options.studio ?? (adminApi === undefined ? undefined : createStudioHandler().fetch))
-  const trustedProxies = [
-    ...config.server.trustedProxies,
-    ...(config.auth?.kind === "builtin" ? config.auth.trustedProxies : []),
-  ]
+  const trustedProxies = trustedProxiesOf(config)
   const adminFetch = async (
     request: Request,
     peer: { readonly ip?: string } = {},
@@ -902,9 +936,9 @@ export async function createCanopy(
     const path = new URL(request.url).pathname
     if (isAdmin(path)) return admin.private ? plain(404, "Not found") : admin.fetch(request, info)
     if (isAuth(path)) return authFetch(request, info)
-    if (rest !== undefined && isRest(path)) return rest.fetch(request)
-    if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request)
-    if (http?.matches(request) === true) return http.fetch(request)
+    if (rest !== undefined && isRest(path)) return rest.fetch(request, info)
+    if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request, info)
+    if (http?.matches(request) === true) return http.fetch(request, info)
     return (
       (await health(path)) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
     )
@@ -924,6 +958,8 @@ export async function createCanopy(
     rest,
     graphql,
     realtime,
+    renderMetrics: () => `${data.httpRateLimited.render()}
+${realtime?.renderMetrics() ?? ""}`,
     auth: builtin,
     keys: auth.apiKeys,
     admin: admin.surface,

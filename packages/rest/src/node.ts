@@ -7,5 +7,5 @@ import type { RestHandler } from "./handler.ts"
  * the base path. Mount it before any body parser, which would consume the request body.
  */
 export function toNodeListener(handler: RestHandler): NodeListener {
-  return serveOnNode((request) => handler.fetch(request))
+  return serveOnNode((request, info) => handler.fetch(request, info))
 }

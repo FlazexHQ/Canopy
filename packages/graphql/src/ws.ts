@@ -79,12 +79,17 @@ export async function attachGraphqlWs(
             ctx.connectionParams as Readonly<Record<string, unknown>> | undefined,
           ),
         })
-        const prepared = await handler.prepare(request, {
-          query: payload.query,
-          variables: payload.variables ?? null,
-          operationName: payload.operationName ?? null,
-          extensions: payload.extensions ?? null,
-        })
+        const peer = ctx.extra.request.socket.remoteAddress
+        const prepared = await handler.prepare(
+          request,
+          {
+            query: payload.query,
+            variables: payload.variables ?? null,
+            operationName: payload.operationName ?? null,
+            extensions: payload.extensions ?? null,
+          },
+          peer === undefined ? {} : { ip: peer },
+        )
         if (!prepared.ok) return prepared.errors as readonly GraphQLError[]
         return {
           schema: prepared.schema,

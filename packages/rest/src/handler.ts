@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto"
-import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
+import {
+  type Authenticator,
+  credentialsFromHeaders,
+  type RateLimits,
+  retryAfterSeconds,
+} from "@canopy/auth"
 import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
@@ -7,6 +12,7 @@ import {
   ForbiddenError,
   InvalidQueryError,
   isDocument,
+  RateLimitError,
   toCanopyError,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
@@ -82,6 +88,14 @@ export interface RestHandlerOptions {
    * that reads the app database; without a change stream, its results only expire after their `ttl`.
    */
   readonly contexts?: ContextResolver
+  /**
+   * Limits requests per caller. A caller over its budget gets `429` with `Retry-After` and
+   * `CANOPY_RATE_LIMITED`, before any policy or database work. Callers with the `service` role are exempt
+   * unless the limits say otherwise. Counted in memory, so each instance limits on its own.
+   */
+  readonly rateLimits?: RateLimits
+  /** Called for every request the rate limits refused, for metrics. */
+  readonly onRateLimited?: () => void
   /** Called with every error that becomes a `5xx` response, for logging. */
   readonly onError?: (error: unknown, request: Request) => void
 }
@@ -91,9 +105,10 @@ export interface RestHandler {
   /**
    * Serves one request. Pass it to `Bun.serve({ fetch })`, `Deno.serve`, a Hono route
    * (`app.all('/rest/v1/*', (c) => rest.fetch(c.req.raw))`) or {@link toNodeListener} for `node:http` and
-   * Express. Never rejects: failures become Problem Details responses.
+   * Express. Never rejects: failures become Problem Details responses. `info.ip` is the socket peer, which
+   * the rate limits turn into the client address (anonymous callers are limited per address).
    */
-  fetch(request: Request): Promise<Response>
+  fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** The read path, for embedding without HTTP. */
   readonly reads: ReadPath
   /** The write path, shared with realtime mutations when both are embedded. */
@@ -340,7 +355,11 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     return { ...(route === undefined ? {} : { route }), allow: Object.keys(table) }
   }
 
-  const serve = async (request: Request, requestId: string): Promise<Response> => {
+  const serve = async (
+    request: Request,
+    requestId: string,
+    peer: string | undefined,
+  ): Promise<Response> => {
     const url = new URL(request.url)
     const instance = url.pathname
     const encoding = negotiate(request.headers.get("accept"))
@@ -374,6 +393,23 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
       const principal = await options.authenticator.authenticate(credentials.key, credentials.token)
       if (principal.readOnly === true)
         throw new ForbiddenError("A view token only follows data over realtime")
+      const limits = options.rateLimits
+      if (limits !== undefined) {
+        const wait = limits.request({
+          key: principal.keyId ?? credentials.key,
+          subject: principal.subject,
+          roles: principal.context.roles,
+          address: limits.addressOf(request.headers, peer),
+        })
+        if (wait > 0) {
+          options.onRateLimited?.()
+          const seconds = retryAfterSeconds(wait)
+          throw new RateLimitError(
+            `Too many requests. Retry in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
+            { details: { retryAfterSeconds: seconds } },
+          )
+        }
+      }
       const current = engine()
       const names = current.contextNames(lookupScope(segments), principal.context.roles)
       const context =
@@ -406,11 +442,11 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   return {
     reads,
     writes,
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, info: { readonly ip?: string } = {}): Promise<Response> {
       const requestId = requestIdOf(request.headers)
       let response: Response
       try {
-        response = await serve(request, requestId)
+        response = await serve(request, requestId, info.ip)
       } catch (error: unknown) {
         options.onError?.(error, request)
         response = new Response(null, { status: 500 })
