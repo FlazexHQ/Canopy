@@ -1794,15 +1794,23 @@ export class Realtime {
     if (this.closing) return
     this.closing = true
     const drainMs = options.drainMs ?? 0
+    const timers: ReturnType<typeof setTimeout>[] = []
     for (const state of this.sessions.values()) {
-      state.session.send({
-        t: "reconnect",
-        retryAfterMs: Math.floor(Math.random() * drainMs),
-        reason: "shutdown",
-      })
+      const retryAfterMs = Math.floor(Math.random() * drainMs)
+      state.session.send({ t: "reconnect", retryAfterMs, reason: "shutdown" })
       state.session.flush()
+      timers.push(
+        setTimeout(() => {
+          if (this.sessions.get(state.session.sid) !== state) return
+          state.session.close(CloseCode.ServiceRestart, "shutdown")
+          this.destroySession(state)
+        }, retryAfterMs),
+      )
     }
-    if (drainMs > 0) await new Promise((resolve) => setTimeout(resolve, Math.min(drainMs, 1000)))
+    const deadline = Date.now() + drainMs
+    while (this.sessions.size > 0 && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, Math.min(50, deadline - Date.now())))
+    for (const timer of timers) clearTimeout(timer)
     for (const state of [...this.sessions.values()]) {
       state.session.close(CloseCode.ServiceRestart, "shutdown")
       this.destroySession(state)
