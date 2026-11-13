@@ -234,8 +234,8 @@ noted.
 | A2 F13 | Done | Dropped with the size budget: the SDK core was 21.43 kB against a 21.25 kB budget, and the budget was removed on 2026-11-13 |
 | A3 F20 | Closed | Already done on `master`: one encode per page and a native hash; the existing tests cover it |
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
-| A1 F19 | Partly | `bun run check` added. Running `tools/repo-check` from `lefthook.yml` and CI conflicts with `CLAUDE.md` (G1), not done |
-| A1 F18, G1 | Blocked | `CLAUDE.md` says `docs/` and `tools/` are never committed and nothing references `tools/`; git tracks both. Needs the maintainer's decision |
+| A1 F19 | Done | `bun run check`, the repo-check hooks in `lefthook.yml`, a dash and workspace step in the CI `check` job and a `commit-rules` job for pull requests. The ignored `lefthook-local.yml` now duplicates the hooks and can be deleted |
+| A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` and `tools/repo-check` |
 | A5 | Open | The security review record is a maintainer task |
 | D2 | Done | `/readyz` pings MongoDB (2 s timeout, 1 s cache) and checks the change stream, on `canopy-server` and `canopy-realtime` |
 | D3 | Done | Sessions waiting for a resume end at once; `close()` with connected clients can now take up to `drainWindow` |
@@ -250,6 +250,7 @@ noted.
 | E9 | Not planned | The copies differ (base64 vs base64url, abortable sleep) and the client ones keep the SDK bundle small |
 | E10 | Open | Coverage on Windows reports no files for project filtered runs here, so floors could not be measured; measure on Linux (the CI `mongo` job on 8.0) and set them there. The docs site's Markdown is now excluded from coverage |
 | E17 | Dropped | Size limits removed on 2026-11-13: `size-limit`, `.size-limit.json`, the `size` script and the CI step are gone |
+| C13 | Done | `bun run dev` runs `canopy dev` from source against `deploy/dev`; started and stopped against the test replica set, `--with-mongo` (Docker) not verified |
 | E15 | Done | `test:integration` removed; `@canopy/policy` stays a client dev dependency because five e2e tests use it |
 
 Known failures on this machine before and after the work, all 5 s timeouts of tests that spawn a process
