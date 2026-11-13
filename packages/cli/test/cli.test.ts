@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -124,6 +125,18 @@ describe("canopy cli", () => {
     const flag = capture()
     expect(await run(["indexes", "advise", "--yes"], {}, flag.out)).toBe(1)
     expect(flag.errors).toEqual(["Unknown option --yes for indexes advise."])
+  })
+
+  it("prints the version of the package with --version, alone or after a command", async () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string }
+    const alone = capture()
+    expect(await run(["--version"], {}, alone.out)).toBe(0)
+    expect(alone.lines).toEqual([manifest.version])
+    const after = capture()
+    expect(await run(["doctor", "--version"], {}, after.out)).toBe(0)
+    expect(after.lines).toEqual([manifest.version])
   })
 
   it("lists the commands in the usage", async () => {

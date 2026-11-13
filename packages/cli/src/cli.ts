@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createInterface } from "node:readline/promises"
 import { Writable } from "node:stream"
@@ -130,13 +131,17 @@ Options:
   --op <op>              policies explain: read, insert, update or delete (default read)
   --filter <json>        policies explain: the caller's read filter
   --ctx <json>           policies explain: context lookup values instead of resolving them
+  --version              Print the version of the CLI
+  --debug                With an unexpected error, print its stack trace
   --help                 Show this help`
 
-const GLOBAL_FLAGS = ["help", "config", "dir", "mongodb-uri", "database"]
+const GLOBAL_FLAGS = ["help", "version", "debug", "config", "dir", "mongodb-uri", "database"]
 
 /** Flags that never take a value, so a word after them stays a positional argument. */
 const BOOLEAN_FLAGS = new Set([
   "help",
+  "version",
+  "debug",
   "check",
   "infer-enums",
   "sources",
@@ -556,6 +561,18 @@ function databaseOf(uri: string): string {
  * Runs the CLI and returns the exit code. `signal` stops long running commands (`dev`); without it they
  * run until the process ends.
  */
+/** The version of this package, from its `package.json` (one level above both `src/` and `dist/`). */
+function cliVersion(): string {
+  const manifest: unknown = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  )
+  const version =
+    typeof manifest === "object" && manifest !== null
+      ? (manifest as { version?: unknown }).version
+      : undefined
+  return typeof version === "string" ? version : "unknown"
+}
+
 export async function run(
   argv: readonly string[],
   env: Env,
@@ -564,6 +581,10 @@ export async function run(
   signal: AbortSignal = new AbortController().signal,
 ): Promise<number> {
   const { positional, flags } = parseArgs(argv)
+  if (flags.has("version")) {
+    out.log(cliVersion())
+    return 0
+  }
   if (flags.has("help") || positional.length === 0) {
     out.log(USAGE)
     return positional.length === 0 && !flags.has("help") ? 1 : 0
@@ -1035,9 +1056,15 @@ if (isMain) {
       process.exitCode = code
     },
     (error: unknown) => {
-      process.stderr.write(
-        `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-      )
+      const debug = process.argv.includes("--debug")
+      const detail =
+        error instanceof Error
+          ? debug
+            ? (error.stack ?? error.message)
+            : error.message
+          : String(error)
+      const hint = debug ? "" : "Run again with --debug for the stack trace.\n"
+      process.stderr.write(`${detail}\n${hint}`)
       process.exitCode = 1
     },
   )
