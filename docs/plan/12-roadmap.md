@@ -214,7 +214,7 @@ Phase 4, **P3** when the code is next touched.
 | `$ctx` lookups with live invalidation | Done (`packages/policy/src/context.ts`, invalidation in `packages/realtime/src/realtime.ts`) |
 | Studio v1, every area of [08 §2](08-studio-and-cli.md#2-information-architecture) | **Partly.** Four screens call admin endpoints the server does not have (R2). GraphQL explorer belongs to Phase 4. |
 | CLI: `init`, `dev --with-mongo`, `policies push/pull/diff/history/rollback`, `keys`, `admin`, `realtime enable-images`, `indexes advise`, `migrate`, `login` | Done (`packages/cli`) |
-| Spike S9 (single binary) | Built and smoke tested in CI (`deploy/binary/build.ts`), but there is no write-up in `docs/spikes/` and no decision in §4 |
+| Spike S9 (single binary) | Built and smoke tested in CI (`deploy/binary/build.ts`); written up on 2026-11-13 in [S9](../spikes/S9-single-binary.md) |
 
 | Exit criterion | State |
 |---|---|
@@ -322,7 +322,7 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 |---|---|---|
 | O1 | SDK core 20.3 kB against 15 kB | Dropped: the maintainer removed the size budget on 2026-11-13. |
 | O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 5. |
-| O3 | S9 decision | Write up `docs/spikes/S9-single-binary.md` with sizes, startup times and the 3 OS results, and record the decision in §4. |
+| O3 | S9 decision | Done 2026-11-13: [S9](../spikes/S9-single-binary.md) has the sizes, startup times (Windows only) and the decision. |
 | O4 | Phase 3 exit criteria | The internal security review is recorded in [reviews/2026-11-13-phase-4-security-review.md](../reviews/2026-11-13-phase-4-security-review.md). The usability test (plan C14) has not been run. |
 
 #### Gate before Phase 4
@@ -435,15 +435,15 @@ graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on
 
 | ID | Question | Method | Success criteria | When |
 |---|---|---|---|---|
-| **S1** | What is the best full-document strategy: `updateLookup`, pre-/post-images, or lazy batched lookups? | 3-node MongoDB 8.x replica set at 1k/5k/20k writes/s; measure lag, CPU and oplog load | A default chosen. `auto` mode keeps lag ≤ 1 s at 5k writes/s on the reference hardware. | Phase 0 |
-| **S2** | Can the Node driver reliably give us the snapshot cluster time (snapshot sessions, `atClusterTime`, `operationTime`)? | Randomized concurrent-write test comparing snapshot plus stream against an oracle | Zero gaps or duplicates in 10k runs. API path documented. | Phase 0 |
+| **S1** | What is the best full-document strategy: `updateLookup`, pre-/post-images, or lazy batched lookups? | 3-node MongoDB 8.x replica set at 1k/5k/20k writes/s; measure lag, CPU and oplog load | A default chosen. `auto` mode keeps lag ≤ 1 s at 5k writes/s on the reference hardware. | Done 2026-11-13 as a decision: `auto` mode with lazy batched lookups, images and `updateLookup` selectable; the 5k writes/s lag measurement is still open ([write-up](../spikes/S1-full-document-strategy.md)) |
+| **S2** | Can the Node driver reliably give us the snapshot cluster time (snapshot sessions, `atClusterTime`, `operationTime`)? | Randomized concurrent-write test comparing snapshot plus stream against an oracle | Zero gaps or duplicates in 10k runs. API path documented. | Done 2026-11-13: snapshot session `snapshotTime` with `operationTime` fallback; the seeded simulation runs 10k seeds nightly ([write-up](../spikes/S2-snapshot-cluster-time.md)) |
 | **S3** | What does transactional `check` enforcement plus idempotency records cost? | Benchmark the write path against plain writes at 1k writes/s | p99 overhead ≤ 15 ms. Fast-path rules defined. | Done 2026-11-06: go; one process sustains about 600 transactional writes/s, so 1k/s needs more gateway processes ([write-up](../spikes/S3-write-path-cost.md)) |
-| **S4** | Should the matcher be custom-built or adopted (for example Mingo or sift)? | Prototype the core operators, run the differential harness, compare speed and bundle size | Custom wins on fidelity and speed, or the adopted library passes the differential tests within budget ([ADR-0005](../adr/0005-custom-matcher-with-differential-testing.md)) | Phase 0 |
-| **S5** | `Bun.serve`, `ws` or uWebSockets.js: what does fan-out cost? | 10k to 50k connections; measure memory per connection, messages/s and p99 latency | Defaults chosen for Bun and for Node. CPU model in [03 §13](03-realtime-engine.md#13-scaling-out) calibrated. | Phase 0 |
-| **S6** | Does Better Auth fit, including the MongoDB adapter in its own DB, the JWT plugin, rotation, custom claims, anonymous and magic link, and a base path under `/auth/v1`? | Thin prototype plus a gap list against a GoTrue-like feature set | No blocking gaps, or a decision to build a custom provider | Phase 0 |
+| **S4** | Should the matcher be custom-built or adopted (for example Mingo or sift)? | Prototype the core operators, run the differential harness, compare speed and bundle size | Custom wins on fidelity and speed, or the adopted library passes the differential tests within budget ([ADR-0005](../adr/0005-custom-matcher-with-differential-testing.md)) | Done 2026-11-13: custom matcher verified by differential tests against MongoDB; no library comparison needed ([write-up](../spikes/S4-matcher-build-or-adopt.md)) |
+| **S5** | `Bun.serve`, `ws` or uWebSockets.js: what does fan-out cost? | 10k to 50k connections; measure memory per connection, messages/s and p99 latency | Defaults chosen for Bun and for Node. CPU model in [03 §13](03-realtime-engine.md#13-scaling-out) calibrated. | Chosen 2026-11-13: `Bun.serve` on Bun, `ws` on Node, no native dependency; fan out cost at 10k to 50k sockets not measured, moved to Phase 5 with the S8 calibration ([write-up](../spikes/S5-websocket-server-choice.md)) |
+| **S6** | Does Better Auth fit, including the MongoDB adapter in its own DB, the JWT plugin, rotation, custom claims, anonymous and magic link, and a base path under `/auth/v1`? | Thin prototype plus a gap list against a GoTrue-like feature set | No blocking gaps, or a decision to build a custom provider | Done 2026-11-13: Better Auth fits, gaps handled in Canopy's layer; Q4 not yet decided by the maintainers ([write-up](../spikes/S6-better-auth-fit.md)) |
 | **S7** | Is echo-before-ack correct, including correlation on 8.0+ (shared `clusterTime`) and on sharded clusters? | Fuzz writes, transactions and concurrent clients, and verify that ack ordering holds | 0 ordering violations in 100k mutations | Done 2026-11-06 for replica sets on 7.0 and 8.0: 0 violations; sharded clusters still open ([write-up](../spikes/S7-echo-before-ack.md)) |
 | **S8** | How should Durable Objects fan-out be designed (topic/connection topology, hibernation, cost)? | Prototype at 10k, then 100k simulated sockets | Cost model and topology accepted | Done 2026-11-12 with a local workerd prototype at 10k sockets and a calibrated model at 100k: subject sharded connection DOs, topic DOs with a routing index; calibration on Cloudflare moves to Phase 5 ([write-up](../spikes/S8-durable-objects-fan-out.md)) |
-| **S9** | Single-binary distribution: `bun build --compile` or Node SEA, or containers only? | Build, measure size and startup, test on 3 OSes | Decision recorded | Phase 3 |
+| **S9** | Single-binary distribution: `bun build --compile` or Node SEA, or containers only? | Build, measure size and startup, test on 3 OSes | Decision recorded | Done 2026-11-13: `bun build --compile` executables next to the container image, measured on Windows ([write-up](../spikes/S9-single-binary.md)) |
 
 ## 5. Cut lines
 

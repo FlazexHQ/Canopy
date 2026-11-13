@@ -251,6 +251,10 @@ noted.
 | E17 | Dropped | Size limits removed on 2026-11-13: `size-limit`, `.size-limit.json`, the `size` script and the CI step are gone |
 | C13 | Done | `bun run dev` runs `canopy dev` from source against `deploy/dev`; started and stopped against the test replica set, `--with-mongo` (Docker) not verified |
 | E15 | Done | `test:integration` removed; `@canopy/policy` stays a client dev dependency because five e2e tests use it |
+| B4 | Done | `packages/testing/scripts/install-test.ts` packs the 22 published packages with `bun pm pack`, installs the tarballs with Bun, npm, pnpm and Yarn (a manager that is not installed runs through `bun x`) and imports all 35 entry points under Node, and checks declaration files and `bin` targets. Run locally with all four managers; it fails when a `files` list drops `dist`. CI job `install` on Linux, Windows and macOS |
+| G2 | Done | `.github/pull_request_template.md` has the phase gate, the repository rules and the DLS invariants |
+| G5 | Done | Spike records S1, S2, S4, S5, S6 and S9 in `docs/spikes/` and the roadmap table updated. S1 and S5 are answered by the implementation but not measured. ADR 0008 and ADR 0012 stay Proposed: roadmap Q4 is still "pending S6" and there is no license decision |
+| B (binaries) | Done | Found while measuring S9: both standalone executables stopped at startup since the passkey commit (tsyringe before `reflect-metadata` in Bun's bundle) and `canopy --version` failed in them; fixed, and the CI smoke steps now run `--version` and a WebSocket round trip |
 
 Known failures on this machine before and after the work, all 5 s timeouts of tests that spawn a process
 from source or measure timing: `server/test/bin.test.ts` (argument errors), `server/test/admin-accounts.test.ts`
