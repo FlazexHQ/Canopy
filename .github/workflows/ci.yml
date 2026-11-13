@@ -135,6 +135,7 @@ jobs:
           exe=""
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          "binaries/canopy$exe" --version
           "binaries/canopy$exe" policies lint --dir policies
           MONGODB_URI="$CANOPY_TEST_MONGODB_URI" CANOPY_DB=binary CANOPY_POLICIES=policies \
             CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
@@ -292,6 +293,7 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          binaries/canopy-linux-x64 --version
           binaries/canopy-linux-x64 policies lint --dir policies
           MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary \
             CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \

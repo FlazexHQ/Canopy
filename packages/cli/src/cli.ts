@@ -558,14 +558,16 @@ function databaseOf(uri: string): string {
 }
 
 /**
- * Runs the CLI and returns the exit code. `signal` stops long running commands (`dev`); without it they
- * run until the process ends.
+ * The version of this package, from its `package.json` (one level above both `src/` and `dist/`). A
+ * standalone executable has no such file, so `build.ts` embeds the version as `CANOPY_BUILD_VERSION`.
  */
-/** The version of this package, from its `package.json` (one level above both `src/` and `dist/`). */
 function cliVersion(): string {
-  const manifest: unknown = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-  )
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
+  } catch {
+    return process.env["CANOPY_BUILD_VERSION"] ?? "unknown"
+  }
   const version =
     typeof manifest === "object" && manifest !== null
       ? (manifest as { version?: unknown }).version
@@ -573,6 +575,10 @@ function cliVersion(): string {
   return typeof version === "string" ? version : "unknown"
 }
 
+/**
+ * Runs the CLI and returns the exit code. `signal` stops long running commands (`dev`); without it they
+ * run until the process ends.
+ */
 export async function run(
   argv: readonly string[],
   env: Env,
