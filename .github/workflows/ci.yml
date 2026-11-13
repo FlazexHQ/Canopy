@@ -83,6 +83,7 @@ jobs:
         runtime: [bun, "24", "26"]
     env:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      CANOPY_REQUIRE_MONGODB: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -162,10 +163,12 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run ${{ matrix.mongo == '8.0.34' && '--coverage --testTimeout=60000' || '' }}
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CANOPY_REQUIRE_MONGODB: "1"
       - name: Integration and differential tests (Bun)
         run: bun --bun vitest run
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CANOPY_REQUIRE_MONGODB: "1"
       - if: failure()
         run: docker compose -f deploy/compose/dev.yaml logs mongo
       - if: always()
