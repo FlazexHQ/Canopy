@@ -587,7 +587,21 @@ export class PollingObserver extends Observer {
     })
   }
 
+  protected override readLimit(): number {
+    const cap = this.limits.maxTrackedDocs + 1
+    return this.query.limit === undefined ? cap : Math.min(this.query.limit, cap)
+  }
+
   protected load(docs: readonly Doc[]): void {
+    if (docs.length > this.limits.maxTrackedDocs) {
+      this.fail(
+        new CanopyError(
+          ErrorCode.SubscriptionTooLarge,
+          `The subscription matches more than ${this.limits.maxTrackedDocs} documents; add a limit`,
+        ),
+      )
+      return
+    }
     for (const key of this.members.keys()) this.hooks.memberRemoved(this, key)
     this.members = new Map()
     this.order = []

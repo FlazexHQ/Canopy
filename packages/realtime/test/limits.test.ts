@@ -79,3 +79,60 @@ suite("connections per subject", () => {
     expect(resumed.welcome).toMatchObject({ sid, resumed: true })
   })
 })
+
+suite("tracked documents per subscription", () => {
+  const dbName = `canopy_rt_tracked_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+  let keys: Keys
+  let engine: Running
+  let alice: string
+  const clients: TestClient[] = []
+  const polled = { title: { $regex: "^(a)\\1" } }
+
+  beforeAll(async () => {
+    keys = await makeKeys()
+    engine = await startEngine(MONGODB_URI ?? "", dbName, keys, [todos], {
+      limits: { maxTrackedDocs: 3 },
+    })
+    alice = await token(keys, { sub: "alice" })
+  })
+
+  afterAll(async () => {
+    await engine.db.dropDatabase()
+    await engine.stop()
+  })
+
+  afterEach(async () => {
+    for (const client of clients.splice(0)) client.bye()
+    await engine.db.collection("todos").deleteMany({})
+  })
+
+  const nosub = (client: TestClient, id: string): string | undefined =>
+    client.messages.flatMap((m) => (m.t === "nosub" && m.s === id ? [m.err?.code] : []))[0]
+
+  it("refuses a polling subscription that matches more documents than the cap", async () => {
+    await engine.db
+      .collection<{ _id: number; title: string }>("todos")
+      .insertMany([1, 2, 3, 4, 5].map((n) => ({ _id: n, title: `aa${n}` })))
+    const client = await TestClient.connect(engine.url, alice)
+    clients.push(client)
+    await client.subscribe("p", "todos", { filter: polled })
+    expect(client.ready.has("p")).toBe(false)
+    expect(nosub(client, "p")).toBe("CANOPY_SUBSCRIPTION_TOO_LARGE")
+    await client.subscribe("l", "todos", { filter: polled, sort: { _id: 1 }, limit: 2 })
+    expect(client.ready.has("l")).toBe(true)
+    expect(client.ids("l").map(Number)).toEqual([1, 2])
+  })
+
+  it("serves a polling subscription within the cap", async () => {
+    await engine.db
+      .collection<{ _id: number; title: string }>("todos")
+      .insertMany([1, 2, 3].map((n) => ({ _id: n, title: `aa${n}` })))
+    const client = await TestClient.connect(engine.url, alice)
+    clients.push(client)
+    await client.subscribe("p", "todos", { filter: polled })
+    expect(client.ready.has("p")).toBe(true)
+    await client.until(() => client.ids("p").length === 3)
+    expect(client.ids("p").map(Number).sort()).toEqual([1, 2, 3])
+    expect(client.messages.some((m) => m.t === "nosub")).toBe(false)
+  })
+})
