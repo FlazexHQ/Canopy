@@ -212,6 +212,30 @@ describe("operation limits", () => {
     ).toBe(15)
   })
 
+  it("counts the field default when a limit variable has no value, or the limit is null", () => {
+    const unset = parse("query Q($n: Int) { todos(limit: $n) { nodes { title } } }")
+    expect(measureOperation(schema, unset, {}).complexity).toBe(201)
+    expect(measureOperation(schema, unset, { n: null }).complexity).toBe(201)
+    expect(
+      measureOperation(schema, parse("{ todos(limit: null) { nodes { title } } }"), {}).complexity,
+    ).toBe(201)
+  })
+
+  it("counts the default of a variable definition when the variable is not sent", () => {
+    const document = parse("query Q($n: Int = 50) { todos(limit: $n) { nodes { title } } }")
+    expect(measureOperation(schema, document, {}).complexity).toBe(101)
+    expect(measureOperation(schema, document, { n: 7 }).complexity).toBe(15)
+    expect(
+      checkOperation(
+        schema,
+        parse("query Q($n: Int = 1000) { todos(limit: $n) { nodes { title } } }"),
+        {},
+        undefined,
+        limits,
+      ).map((error) => error.extensions["details"]),
+    ).toEqual([expect.objectContaining({ limit: "complexity", value: 2001 })])
+  })
+
   it("follows fragments and inline fragments", () => {
     const document = parse(`
       query { me { ...F } }

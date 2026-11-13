@@ -71,6 +71,8 @@ export interface GraphqlHandlerOptions {
   readonly limits?: Partial<OperationLimits>
   /** The most operations in one batched request. Defaults to 10. */
   readonly maxBatch?: number
+  /** The largest request body in bytes. Defaults to 1 MiB, like the Data API. */
+  readonly maxBodyBytes?: number
   /** Defaults to `always`; the server uses `authenticated` in production, so `anon` cannot introspect. */
   readonly introspection?: IntrospectionMode
   readonly persisted?: PersistedOperations
@@ -265,6 +267,57 @@ class RelationLoader {
   }
 }
 
+const DEFAULT_BODY_BYTES = 1024 * 1024
+
+function tooLarge(maxBytes: number): Response {
+  return Response.json(
+    {
+      errors: [
+        {
+          message: `The request body may not exceed ${maxBytes} bytes`,
+          extensions: { code: ErrorCode.PayloadTooLarge },
+        },
+      ],
+    },
+    { status: 413 },
+  )
+}
+
+/**
+ * Reads a request body up to `maxBytes`. Returns the request again with the buffered body, or the
+ * `413` response when the declared or the streamed size is above the limit.
+ */
+async function withinLimit(request: Request, maxBytes: number): Promise<Request | Response> {
+  if (request.body === null) return request
+  const declared = request.headers.get("content-length")
+  if (declared !== null && Number(declared) > maxBytes) return tooLarge(maxBytes)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > maxBytes) {
+      await reader.cancel()
+      return tooLarge(maxBytes)
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: bytes,
+    signal: request.signal,
+  })
+}
+
 function operationOf(
   document: DocumentNode,
   name: string | null | undefined,
@@ -351,6 +404,7 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
       : () => options.policies as PolicyEngine
   const limits: OperationLimits = { ...DEFAULT_OPERATION_LIMITS, ...options.limits }
   const introspection = options.introspection ?? "always"
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
   const live = options.realtime === undefined ? undefined : new LiveQueries(options.realtime)
   const readLimits = options.reads.readLimits
   const schemaCache = new Map<string, GraphQLSchema>()
@@ -510,14 +564,17 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     const hash = (params.extensions?.["persistedQuery"] as { sha256Hash?: unknown } | undefined)
       ?.sha256Hash
     if (typeof hash === "string") {
-      const found = persisted?.operations[hash]
+      const found =
+        persisted !== undefined && Object.hasOwn(persisted.operations, hash)
+          ? persisted.operations[hash]
+          : undefined
       if (found === undefined)
         throw new GraphQLError("PersistedQueryNotFound", {
           extensions: { code: ErrorCode.NotFound, http: { status: 404 } },
         })
       return found
     }
-    if (persisted?.only === true && persisted.operations[sha256Hex(params.query)] === undefined)
+    if (persisted?.only === true && !Object.hasOwn(persisted.operations, sha256Hex(params.query)))
       throw new GraphQLError("Only persisted operations are allowed", {
         extensions: { code: ErrorCode.Forbidden, http: { status: 403 } },
       })
@@ -595,7 +652,9 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     path,
     async fetch(request: Request): Promise<Response> {
       try {
-        return await yoga.fetch(request)
+        const bounded = await withinLimit(request, maxBodyBytes)
+        if (bounded instanceof Response) return bounded
+        return await yoga.fetch(bounded)
       } catch (error: unknown) {
         options.onError?.(error)
         return new Response(null, { status: 500 })

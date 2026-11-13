@@ -521,6 +521,7 @@ async function buildData(
             maxAliases: config.graphql.maxAliases,
           },
           maxBatch: config.graphql.maxBatch,
+          ...(config.rest === false ? {} : { maxBodyBytes: config.rest.maxBodyBytes }),
           introspection: config.graphql.introspection,
           ...(config.graphql.persisted === undefined
             ? {}
