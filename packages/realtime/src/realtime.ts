@@ -1808,8 +1808,12 @@ export class Realtime {
       )
     }
     const deadline = Date.now() + drainMs
-    while (this.sessions.size > 0 && Date.now() < deadline)
+    for (;;) {
+      for (const state of [...this.sessions.values()])
+        if (state.socket === undefined) this.destroySession(state)
+      if (this.sessions.size === 0 || Date.now() >= deadline) break
       await new Promise((resolve) => setTimeout(resolve, Math.min(50, deadline - Date.now())))
+    }
     for (const timer of timers) clearTimeout(timer)
     for (const state of [...this.sessions.values()]) {
       state.session.close(CloseCode.ServiceRestart, "shutdown")

@@ -57,4 +57,16 @@ suite("draining on shutdown", () => {
     await closing
     expect(Date.now() - started).toBeLessThan(3000)
   })
+
+  it("does not wait for sessions that only wait for a resume", async () => {
+    const { engine, alice } = await start()
+    const client = await TestClient.connect(engine.url, alice)
+    client.close()
+    await client.until(() => client.closeCode !== undefined)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(engine.realtime.stats().sessions).toBe(1)
+    const started = Date.now()
+    await engine.realtime.close({ drainMs: 10_000 })
+    expect(Date.now() - started).toBeLessThan(2000)
+  })
 })

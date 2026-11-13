@@ -54,7 +54,7 @@ suite("createCanopy against MongoDB", () => {
       mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: metaName },
       auth: { kind: "external", jwks: { keys: [jwk] }, issuer: ISSUER, audience: AUDIENCE },
       keys: { publishable: [KEY] },
-      realtime: { checkpoints: "off" },
+      realtime: { checkpoints: "off", drainWindow: "1s" },
     })
 
   beforeAll(async () => {
