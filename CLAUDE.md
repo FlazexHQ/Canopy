@@ -68,7 +68,7 @@ Fixed decisions (do not change without the user saying so):
   documentation: interfaces, classes, exported functions and types, public APIs. A comment on a single line is
   allowed only when it is temporary or the line is genuinely complex. Never narrate what the code does.
   Do not cite the planning docs in comments (no "(plan 05 §5)", "plan 02 §8", "ADR 0005" and the like) unless
-  the comment is temporary; explain the behavior itself instead, since `docs/` is not in the repository.
+  the comment is temporary; explain the behavior itself instead, because published packages do not ship `docs/`.
 - **No dashes:** do not use dashes as punctuation anywhere in the codebase: no em dash (U+2014), en dash
   (U+2013), or a hyphen standing in for one (a hyphen with a space on each side) in comments, docs, strings,
   error messages, commit messages or PR text.
