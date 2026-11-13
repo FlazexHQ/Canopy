@@ -376,6 +376,7 @@ const SESSION_ONLY: ReadonlySet<string> = new Set([
   "PATCH admins/:id",
   "POST admins/:id/reset-totp",
   "DELETE admins/:id",
+  "POST api-keys",
   "GET tokens",
   "POST tokens",
   "DELETE tokens/:id",

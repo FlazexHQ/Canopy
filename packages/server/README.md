@@ -149,8 +149,8 @@ Tokens start with `canopy_pat_` and are stored only as a SHA-256 hash in `canopy
 accepted only as `Authorization: Bearer` on `/admin/v1`, never as a cookie (so there is no CSRF surface) and
 never on the app routes (`/rest/v1`, `/realtime/v1`, `/auth/v1`). A token acts as its admin with the lower
 of its own role and the admin's current role, so demoting an admin demotes their tokens, and disabling or
-removing the admin stops them. Tokens cannot create or revoke tokens, change passwords or TOTP, or manage
-admins, so a leaked token cannot outlive its revocation. Every use is written to the audit log as
+removing the admin stops them. Tokens cannot create API keys, create or revoke tokens, change passwords or
+TOTP, or manage admins, so a leaked token cannot outlive its revocation. Every use is written to the audit log as
 `admin_token.use` (refused uses with the reason: `revoked`, `expired`, `admin disabled`), changes made with a
 token carry `actor.tokenId`, and `lastUsedAt` is updated at most once a minute.
 
