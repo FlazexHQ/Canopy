@@ -6,6 +6,8 @@
       "name": "canopy-monorepo",
       "devDependencies": {
         "@biomejs/biome": "catalog:",
+        "@canopy/config": "workspace:*",
+        "@canopy/policy": "workspace:*",
         "@changesets/cli": "catalog:",
         "@types/node": "catalog:",
         "@vitest/coverage-v8": "catalog:",

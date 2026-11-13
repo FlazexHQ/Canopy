@@ -94,6 +94,7 @@
     "check": "bun run lint && bun run typecheck && bun run lint:exports && bun run lint:docs && bun run test:all",
     "db:up": "docker compose -f deploy/compose/dev.yaml up -d --wait",
     "db:down": "docker compose -f deploy/compose/dev.yaml down",
+    "dev": "bun --conditions=@canopy/source packages/cli/src/cli.ts dev --config deploy/dev/canopy.config.ts",
     "db:smoke": "docker compose -f deploy/compose/dev.yaml exec -T mongo mongosh --quiet --file /canopy/mongo-smoke.js",
     "changeset": "changeset",
     "version-packages": "changeset version",
@@ -101,6 +102,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@canopy/config": "workspace:*",
+    "@canopy/policy": "workspace:*",
     "@changesets/cli": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",

@@ -114,14 +114,18 @@ bun run test:coverage                      # V8 coverage, with floors for matche
 bun run db:up                              # single node replica set from deploy/compose/dev.yaml on localhost:27017
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
+bun run dev                                # canopy dev from source against deploy/dev (see below)
 bun --filter @canopy/matcher test          # one package
 bun --filter @canopy/rest bench            # write path cost benchmark against the dev replica set
 bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
 CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test:all   # include MongoDB suites
 ```
 
-There is no root `dev` script yet; `canopy dev --with-mongo` (`packages/cli/src/dev.ts`) starts a replica set, the
-server and Studio. Integration and differential
+`bun run dev` runs `canopy dev` from source (`packages/cli/src/dev.ts`) with the config in `deploy/dev/` (REST,
+realtime, Studio, API keys generated for the session, a scratch `notes` collection). It needs a replica set
+already running: it uses `mongodb://localhost:27017/?replicaSet=rs0` (what `bun run db:up` starts) unless
+`MONGODB_URI` is set or `deploy/dev/.env.local` defines it. Pass flags after `--`, for example
+`bun run dev --port 3000`; `--with-mongo` starts a replica set in Docker instead. Integration and differential
 tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
 by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,

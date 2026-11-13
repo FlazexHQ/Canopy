@@ -110,16 +110,17 @@ they do not work on a standalone server.
 
 ## Common tasks
 
-| Task                        | Command                                            |
-| --------------------------- | -------------------------------------------------- |
-| Type check every project    | `bun run typecheck`                                |
-| Lint and check formatting   | `bun run lint`                                     |
-| Format                      | `bun run format`                                   |
-| Run every test suite        | `bun run test:all`                                 |
-| Include the MongoDB suites  | set `CANOPY_TEST_MONGODB_URI` to a replica set URI |
-| Run tests through Turborepo | `bun run test`                                     |
-| Add a changeset             | `bun run changeset`                                |
-| Stop the database           | `bun run db:down`                                  |
+| Task                           | Command                                                         |
+| ------------------------------ | --------------------------------------------------------------- |
+| Type check every project       | `bun run typecheck`                                             |
+| Lint and check formatting      | `bun run lint`                                                  |
+| Format                         | `bun run format`                                                |
+| Run every test suite           | `bun run test:all`                                              |
+| Include the MongoDB suites     | set `CANOPY_TEST_MONGODB_URI` to a replica set URI              |
+| Run tests through Turborepo    | `bun run test`                                                  |
+| Add a changeset                | `bun run changeset`                                             |
+| Run Canopy locally from source | `bun run dev` (uses `deploy/dev/`, needs the replica set above) |
+| Stop the database              | `bun run db:down`                                               |
 
 ## Repository layout
 
