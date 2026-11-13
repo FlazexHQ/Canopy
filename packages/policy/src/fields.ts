@@ -11,15 +11,22 @@ export type FieldAccess =
 
 const ALL: FieldAccess = { kind: "all" }
 
+/** Keeps the outermost of paths that contain each other: `profile` covers `profile.name`. */
+function pruneDescendants(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths)]
+  return unique.filter((path) => !unique.some((other) => other !== path && isWithin(path, other)))
+}
+
 function fromRule(rule: FieldRule): FieldAccess {
-  if ("only" in rule) return rule.only.includes("*") ? ALL : { kind: "only", paths: [...rule.only] }
-  return rule.omit.length === 0 ? ALL : { kind: "omit", paths: [...rule.omit] }
+  if ("only" in rule)
+    return rule.only.includes("*") ? ALL : { kind: "only", paths: pruneDescendants(rule.only) }
+  return rule.omit.length === 0 ? ALL : { kind: "omit", paths: pruneDescendants(rule.omit) }
 }
 
 function union(a: FieldAccess, b: FieldAccess): FieldAccess {
   if (a.kind === "all" || b.kind === "all") return ALL
   if (a.kind === "only" && b.kind === "only")
-    return { kind: "only", paths: [...new Set([...a.paths, ...b.paths])] }
+    return { kind: "only", paths: pruneDescendants([...a.paths, ...b.paths]) }
   if (a.kind === "omit" && b.kind === "omit") {
     const hidden = new Set<string>()
     for (const x of a.paths)
@@ -27,12 +34,12 @@ function union(a: FieldAccess, b: FieldAccess): FieldAccess {
         if (isWithin(x, y)) hidden.add(x)
         else if (isWithin(y, x)) hidden.add(y)
       }
-    return hidden.size === 0 ? ALL : { kind: "omit", paths: [...hidden] }
+    return hidden.size === 0 ? ALL : { kind: "omit", paths: pruneDescendants([...hidden]) }
   }
   const only = a.kind === "only" ? a : (b as { kind: "only"; paths: readonly string[] })
   const omit = a.kind === "omit" ? a : (b as { kind: "omit"; paths: readonly string[] })
   const hidden = omit.paths.filter((x) => !only.paths.some((allowed) => isWithin(x, allowed)))
-  return hidden.length === 0 ? ALL : { kind: "omit", paths: hidden }
+  return hidden.length === 0 ? ALL : { kind: "omit", paths: pruneDescendants(hidden) }
 }
 
 /**

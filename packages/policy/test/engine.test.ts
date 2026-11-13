@@ -24,6 +24,7 @@ import {
   restrict,
   shiftDate,
   toFilter,
+  toProjection,
   toStored,
   type VariableIssue,
 } from "../src/index.ts"
@@ -304,6 +305,32 @@ describe("field level security", () => {
       kind: "omit",
       paths: ["b.c"],
     })
+  })
+
+  it("keeps the outer path when allowed or hidden paths contain each other", () => {
+    const rules = { x: { only: ["profile"] }, y: { only: ["profile.name"] } }
+    const both = fieldAccess(rules, new Set(["x", "y"]))
+    expect(both).toEqual({ kind: "only", paths: ["profile"] })
+    expect(toProjection(both)).toEqual({ profile: 1 })
+    const doc = { _id: 1, profile: { name: "a", ssn: "b" }, x: 1 }
+    expect(projectReadable(both, doc)).toEqual({ _id: 1, profile: { name: "a", ssn: "b" } })
+    expect(fieldAccess({ default: { only: ["a", "a.b"] } }, new Set(["r"]))).toEqual({
+      kind: "only",
+      paths: ["a"],
+    })
+    const omit = fieldAccess({ default: { omit: ["a.b", "a"] } }, new Set(["r"]))
+    expect(omit).toEqual({ kind: "omit", paths: ["a"] })
+    expect(projectReadable(omit, { _id: 1, a: { b: 1, c: 2 }, d: 3 })).toEqual({ _id: 1, d: 3 })
+    expect(canAccess(both, "profile.name.first")).toBe(true)
+    expect(canAccess(both, "profile.ssn")).toBe(true)
+    expect(canAccess(both, "other")).toBe(false)
+    expect(canAccess(omit, "a.c")).toBe(false)
+    expect(canAccess(omit, "d")).toBe(true)
+    const mixed = fieldAccess(
+      { x: { omit: ["s", "s.t", "u"] }, y: { omit: ["s", "s.t"] } },
+      new Set(["x", "y"]),
+    )
+    expect(mixed).toEqual({ kind: "omit", paths: ["s"] })
   })
 
   it("allows $text only to a caller that can read every field", () => {
