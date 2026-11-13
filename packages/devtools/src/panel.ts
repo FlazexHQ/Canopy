@@ -70,6 +70,17 @@ function table(
   return node
 }
 
+const REDACTED = "[redacted]"
+
+/** Hides the credentials a frame carries: user tokens and secret keys. */
+function redact(frame: Frame): Frame {
+  const copy: Record<string, unknown> = { ...frame }
+  if (typeof copy["token"] === "string" && copy["token"] !== "") copy["token"] = REDACTED
+  if (typeof copy["key"] === "string" && copy["key"].startsWith("canopy_sk_"))
+    copy["key"] = REDACTED
+  return copy
+}
+
 function json(value: unknown): string {
   try {
     return JSON.stringify(value)
@@ -251,7 +262,7 @@ export function attachDevtools(client: CanopyClient, options: DevtoolsOptions = 
         type: String(frame.t),
         seq: typeof frame.seq === "number" ? frame.seq : undefined,
         ct: typeof frame.ct === "string" ? frame.ct : undefined,
-        text: json(frame),
+        text: json(redact(frame)),
       })
     }
     if (log.length > logSize) log.splice(0, log.length - logSize)

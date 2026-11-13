@@ -117,6 +117,30 @@ describe("devtools panel", () => {
     expect(document.querySelector("[data-canopy-devtools]")).toBeNull()
   })
 
+  it("keeps tokens and secret keys out of the protocol log and the panel", async () => {
+    const client = new CanopyClient({
+      url: "http://canopy.test",
+      publishableKey: "canopy_sk_do_not_show",
+      WebSocket: Socket,
+      lifecycle: false,
+      auth: { getToken: () => "header.payload.signature" },
+    })
+    clients.push(client)
+    const devtools = attachDevtools(client, { open: true, warnings: false })
+    await flush()
+    const hello = devtools.log.find((entry) => entry.type === "hello")
+    expect(hello?.direction).toBe("out")
+    for (const entry of devtools.log) {
+      expect(entry.text).not.toContain("header.payload.signature")
+      expect(entry.text).not.toContain("canopy_sk_do_not_show")
+    }
+    ;[...document.querySelectorAll("button")].find((node) => node.textContent === "Log")?.click()
+    expect(document.body.textContent).not.toContain("header.payload.signature")
+    expect(document.body.textContent).not.toContain("canopy_sk_do_not_show")
+    expect(document.body.textContent).toContain("hello")
+    devtools.destroy()
+  })
+
   it("discards a pending mutation from the panel", async () => {
     const { client } = await connected()
     const devtools = attachDevtools(client, { open: true, warnings: false })
