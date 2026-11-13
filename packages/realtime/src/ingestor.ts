@@ -103,7 +103,15 @@ export class Ingestor {
   async start(): Promise<void> {
     this.running = true
     this.token = await this.options.checkpoints.load()
-    await this.open()
+    try {
+      await this.open()
+    } catch (error: unknown) {
+      if (!this.historyLost(error)) throw error
+      await this.stream?.close().catch(() => {})
+      this.token = undefined
+      await this.open()
+      this.options.handlers.onRestart("history_lost")
+    }
     this.timer = setInterval(() => {
       this.checkpoint(true).catch((error: unknown) =>
         this.options.logger.warn({ err: error }, "checkpoint failed"),
@@ -207,10 +215,7 @@ export class Ingestor {
       await this.open()
       return
     }
-    const code = serverErrorCode(error)
-    if (code !== undefined && HISTORY_LOST.has(code)) {
-      this.options.metrics.restarts.inc({ reason: "history_lost" })
-      this.options.logger.error({ err: error }, "change stream history lost, restarting from now")
+    if (this.historyLost(error)) {
       this.token = undefined
       await this.open()
       this.options.handlers.onRestart("history_lost")
@@ -228,6 +233,15 @@ export class Ingestor {
       await this.open().catch(() => {})
       this.options.handlers.onRestart("reopen_failed")
     }
+  }
+
+  /** Whether the stream cannot resume from its token; logs and counts the restart when so. */
+  private historyLost(error: unknown): boolean {
+    const code = serverErrorCode(error)
+    if (code === undefined || !HISTORY_LOST.has(code)) return false
+    this.options.metrics.restarts.inc({ reason: "history_lost" })
+    this.options.logger.error({ err: error }, "change stream history lost, restarting from now")
+    return true
   }
 
   private async process(raw: Record<string, unknown>[]): Promise<void> {
