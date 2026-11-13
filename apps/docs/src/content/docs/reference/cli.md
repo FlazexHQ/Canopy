@@ -59,7 +59,10 @@ requests and `canopy policies push --env production --comment "$GIT_SHA"` on mer
 ## Remote projects
 
 `canopy login <url> [--env <name>]` checks an admin token and stores it in the OS keychain (macOS Keychain,
-the Linux Secret Service, or a credentials file elsewhere). With `--env <name>`, `policies push`, `diff`,
+the Linux Secret Service). On Windows the token goes to `%APPDATA%\canopy\credentials.json`, encrypted for
+your Windows account with DPAPI (the protection Credential Manager uses; any program running as you can
+still decrypt it, as with the other keychains), and a token that an older version saved in plain text is
+encrypted the next time it is read. Elsewhere without a keychain it is a credentials file with mode 0600. With `--env <name>`, `policies push`, `diff`,
 `pull`, `history`, `rollback`, `auth import` and `admin tokens` work on that project through its admin API.
 `CANOPY_ADMIN_URL` and `CANOPY_ADMIN_TOKEN` override the stored login, which is how CI jobs authenticate.
 `canopy logout <url>` removes the token.

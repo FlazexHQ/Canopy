@@ -8,6 +8,7 @@ import {
   projectKey,
   readEnvironment,
   readToken,
+  saveToken,
   type ToolResult,
 } from "../src/credentials.ts"
 import { login, logout } from "../src/login.ts"
@@ -220,6 +221,87 @@ describe("canopy login", () => {
       /run canopy login again/,
     )
   })
+
+  it("encrypts a token that an older version stored in plain text on Windows when it is read", async () => {
+    await mkdir(scratch, { recursive: true })
+    const config = await mkdtemp(join(scratch, "migrate-"))
+    const env = { APPDATA: config }
+    const file = credentialsFile(env, "win32")
+    await mkdir(join(config, "canopy"), { recursive: true })
+    await writeFile(
+      file,
+      JSON.stringify({ "https://old.example": "tok_plain", "https://keep.example": "tok_keep" }),
+    )
+    const run = async (_program: string, args: readonly string[], input?: string) => {
+      const script = args.at(-1) ?? ""
+      if (script.includes("::Protect("))
+        return { code: 0, stdout: Buffer.from(`sealed:${input}`).toString("base64") }
+      return {
+        code: 0,
+        stdout: Buffer.from(input ?? "", "base64")
+          .toString("utf8")
+          .slice(7),
+      }
+    }
+    expect(await readToken("https://old.example", { env, platform: "win32", run })).toBe(
+      "tok_plain",
+    )
+    const stored = JSON.parse(await readFile(file, "utf8")) as Record<string, string>
+    expect(stored["https://old.example"]).toBe(
+      `dpapi:${Buffer.from("sealed:tok_plain").toString("base64")}`,
+    )
+    expect(stored["https://keep.example"]).toBe("tok_keep")
+    expect(await readFile(file, "utf8")).not.toContain("tok_plain")
+    expect(await readToken("https://old.example", { env, platform: "win32", run })).toBe(
+      "tok_plain",
+    )
+    const failing = async () => ({ code: 1, stdout: "" })
+    expect(await readToken("https://keep.example", { env, platform: "win32", run: failing })).toBe(
+      "tok_keep",
+    )
+    expect(JSON.parse(await readFile(file, "utf8"))["https://keep.example"]).toBe("tok_keep")
+    const explicit = join(config, "explicit.json")
+    await writeFile(explicit, JSON.stringify({ "https://x.example": "tok_x" }))
+    const calls: string[] = []
+    const recording = async (program: string) => {
+      calls.push(program)
+      return { code: 1, stdout: "" }
+    }
+    await readToken("https://x.example", {
+      env: { CANOPY_CREDENTIALS: explicit },
+      platform: "win32",
+      run: recording,
+    })
+    expect(calls).toEqual([])
+  })
+
+  it.runIf(process.platform === "win32")(
+    "keeps tokens out of the file with the real Windows DPAPI and reads them back",
+    { timeout: 60_000 },
+    async () => {
+      await mkdir(scratch, { recursive: true })
+      const config = await mkdtemp(join(scratch, "real-dpapi-"))
+      const env = { APPDATA: config }
+      const secret = "tok_real_dpapi_Zq9é中`$x"
+      expect(await saveToken("https://real.example", secret, { env })).toBe("protected")
+      const text = await readFile(credentialsFile(env), "utf8")
+      expect(text).toContain("dpapi:")
+      expect(text).not.toContain("tok_real_dpapi")
+      expect(await readToken("https://real.example", { env })).toBe(secret)
+      const file = credentialsFile(env)
+      const stored = JSON.parse(text) as Record<string, string>
+      await writeFile(file, JSON.stringify({ ...stored, "https://legacy.example": "tok_legacy" }))
+      expect(await readToken("https://legacy.example", { env })).toBe("tok_legacy")
+      const migrated = await readFile(file, "utf8")
+      expect(migrated).not.toContain("tok_legacy")
+      expect(await readToken("https://legacy.example", { env })).toBe("tok_legacy")
+      stored["https://real.example"] = `dpapi:${Buffer.from("not a dpapi blob").toString("base64")}`
+      await writeFile(file, JSON.stringify(stored))
+      await expect(readToken("https://real.example", { env })).rejects.toThrow(
+        /run canopy login again/,
+      )
+    },
+  )
 
   it("refuses to overwrite a credentials file it cannot parse", async () => {
     await mkdir(scratch, { recursive: true })

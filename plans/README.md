@@ -243,7 +243,7 @@ noted.
 | D5 | Done | `pk_dev`, `sk_dev_change_me`, `canopy_pk_dev` and `canopy dev` keys are refused in production |
 | D6 | Done | Standalone servers and MongoDB older than 7.0 stop `canopy-server` at startup |
 | C7 | Done | Seven `errors/<slug>` pages and a test that fails on a slug without a page |
-| C11 | Partly | `--version`, `--debug`; the Windows Credential Manager token store is not done |
+| C11 | Done | `--version`, `--debug`. The Windows token store stays DPAPI: tokens were already encrypted for the account (the survey line above was stale). A Credential Manager store would need P/Invoke through `Add-Type` or the WinRT `PasswordVault` from Windows PowerShell 5.1, with the same DPAPI protection underneath and no gain against a process running as the same user, so it was not added. New: tokens that older versions left in plain text are encrypted when read, and a Windows only test exercises the real DPAPI |
 | E6 | Done | `auth-builtin` and `cli`. The four framework binding errors stay plain: importing `CanopyError` would pull the client into their 2 kB bundles |
 | E7 | Done | A failed persist now warns in the console; the six empty `catch` blocks carry their reason |
 | E9 | Not planned | The copies differ (base64 vs base64url, abortable sleep) and the client ones keep the SDK bundle small |
