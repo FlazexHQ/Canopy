@@ -19,7 +19,7 @@ messages are for people and may change.
 | `CANOPY_DUPLICATE_KEY`          | 409  | `CanopyError`          | A unique index refused the write                                                  |
 | `CANOPY_PAYLOAD_TOO_LARGE`      | 413  | `CanopyError`          | The body or document is over the size limit                                       |
 | `CANOPY_VALIDATION_FAILED`      | 422  | `ValidationError`      | The collection's validator refused the document                                   |
-| `CANOPY_RATE_LIMITED`           | 429  | `RateLimitError`       | Too many requests; retry after the indicated delay                                |
+| `CANOPY_RATE_LIMITED`           | 429  | `RateLimitError`       | Too many requests or messages; wait for `Retry-After` (REST, GraphQL) or `retryAfterSeconds` |
 | `CANOPY_LIMIT_SUBSCRIPTIONS`    | 429  | `CanopyError`          | Too many live queries on one connection                                           |
 | `CANOPY_SUBSCRIPTION_TOO_LARGE` | 400  | `CanopyError`          | A live query's result is over the limit; add or lower `limit`                     |
 | `CANOPY_BULK_LIMIT`             | 400  | `CanopyError`          | A bulk write matched more documents than allowed                                  |

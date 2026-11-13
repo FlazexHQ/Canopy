@@ -33,6 +33,7 @@ export default defineConfig({
             "guides/server-rendering",
             "guides/react-native",
             "guides/multi-tab",
+            "guides/rate-limits",
             "guides/devtools",
             "guides/tanstack-db",
             "guides/two-factor-and-passkeys",

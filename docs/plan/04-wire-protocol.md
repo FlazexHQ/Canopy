@@ -128,6 +128,11 @@ Example:
 | `CANOPY_COLLECTION_DROPPED` | DDL on a subscribed collection |
 | `CANOPY_TIMEOUT` / `CANOPY_UNAVAILABLE` / `CANOPY_INTERNAL` | Server-side problems |
 
+`CANOPY_RATE_LIMITED` for a frame that is over the caller's message budget travels in the reply of that frame
+(`nosub.err` for `sub`, `ack.err` with `ok: false` for `mut`, an `err` frame for `auth`) and the connection stays
+open; refused frames did no work and may be sent again. A connection refused at the handshake because its
+address has too many anonymous connections gets an `err` frame and close code `4029`.
+
 **WebSocket close codes** and how the SDK should react:
 
 | Code | Meaning | SDK reaction |

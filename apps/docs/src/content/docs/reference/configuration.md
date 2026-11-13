@@ -86,6 +86,21 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
 
+## `rateLimits`
+
+Per caller token buckets for the data plane, counted in memory by each instance. `false` turns them off. See
+[Rate limits](/guides/rate-limits/).
+
+| Setting                          | Variable                                  | Default                       |
+| -------------------------------- | ----------------------------------------- | ----------------------------- |
+| `enabled`                        | `CANOPY_RATE_LIMITS`                      | `true`                        |
+| `requests.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_REQUESTS`, `..._REQUEST_BURST` | 50 and 200            |
+| `messages.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_MESSAGES`, `..._MESSAGE_BURST` | 20 and 100            |
+| `anonymousConnectionsPerAddress` | `CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS` | 50                            |
+| `exemptService`                  | `CANOPY_RATE_LIMIT_EXEMPT_SERVICE`        | `true`                        |
+
+`requests` covers REST and GraphQL requests; `messages` covers the realtime frames `sub`, `mut` and `auth`.
+
 ## `collections`
 
 Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`, and
