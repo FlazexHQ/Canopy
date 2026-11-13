@@ -28,16 +28,42 @@ function count(value: number, name: string, min: number, max: number): number {
   return value
 }
 
+const MAX_BCRYPT_COST = 16
+const MAX_SCRYPT_ROUNDS = 16
+const MAX_SCRYPT_MEM_COST = 16
+const MAX_ARGON2_MEMORY_KIB = 262_144
+const MAX_ARGON2_PASSES = 32
+const MAX_ARGON2_LANES = 16
+
+function argon2Parameter(hash: string, name: "m" | "t" | "p"): number {
+  return Number(new RegExp(`[$,]${name}=(\\d+)`).exec(hash)?.[1])
+}
+
+function checkArgon2(hash: string): void {
+  const memory = argon2Parameter(hash, "m")
+  const passes = argon2Parameter(hash, "t")
+  const lanes = argon2Parameter(hash, "p")
+  if (!(memory >= 8 && memory <= MAX_ARGON2_MEMORY_KIB))
+    throw new ValidationError(`The argon2id memory must be from 8 to ${MAX_ARGON2_MEMORY_KIB} KiB`)
+  if (!(passes >= 1 && passes <= MAX_ARGON2_PASSES))
+    throw new ValidationError(`The argon2id passes must be from 1 to ${MAX_ARGON2_PASSES}`)
+  if (!(lanes >= 1 && lanes <= MAX_ARGON2_LANES))
+    throw new ValidationError(`The argon2id lanes must be from 1 to ${MAX_ARGON2_LANES}`)
+}
+
 /** Checks a legacy hash and turns it into the form stored in the `password` field of the account. */
 export function encodeLegacyHash(legacy: ImportedPasswordHash): string {
   switch (legacy.algorithm) {
     case "bcrypt":
       if (!/^\$2[abxy]?\$\d{2}\$[./A-Za-z0-9]{53}$/.test(legacy.hash))
         throw new ValidationError("The bcrypt hash is not in the $2b$ format")
+      if (Number(legacy.hash.split("$")[2]) > MAX_BCRYPT_COST)
+        throw new ValidationError(`The bcrypt cost may not exceed ${MAX_BCRYPT_COST}`)
       return `${LEGACY_PREFIX}bcrypt$${legacy.hash}`
     case "argon2id":
       if (!legacy.hash.startsWith("$argon2id$"))
         throw new ValidationError("The argon2id hash is not in the PHC format")
+      checkArgon2(legacy.hash)
       return `${LEGACY_PREFIX}argon2id$${legacy.hash}`
     case "pbkdf2-sha1":
     case "pbkdf2-sha256":
@@ -49,8 +75,8 @@ export function encodeLegacyHash(legacy: ImportedPasswordHash): string {
     case "firebase-scrypt":
       base64(legacy.signerKey, "signerKey")
       base64(legacy.saltSeparator, "saltSeparator")
-      count(legacy.rounds, "rounds", 1, 32)
-      count(legacy.memCost, "memCost", 1, 20)
+      count(legacy.rounds, "rounds", 1, MAX_SCRYPT_ROUNDS)
+      count(legacy.memCost, "memCost", 1, MAX_SCRYPT_MEM_COST)
       base64(legacy.salt, "salt")
       base64(legacy.hash, "hash")
       return [
