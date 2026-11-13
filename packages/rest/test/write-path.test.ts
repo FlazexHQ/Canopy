@@ -894,6 +894,56 @@ suite("WritePath against MongoDB", () => {
       expect(await docs("todos")).toHaveLength(1)
     })
 
+    it("rejects a mutation ID reused for a different request or role set", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", count: 0 })
+      const bump = (by: number): WriteRequest => ({
+        op: "update",
+        collection: "todos",
+        id: 1,
+        update: { $inc: { count: by } },
+      })
+      await run(alice, bump(1), "m-fingerprint")
+      const body = await failure(run(alice, bump(5), "m-fingerprint"))
+      expect(body.code).toBe(ErrorCode.Conflict)
+      expect(body.message).toMatch(/different write/)
+      const roles: Caller = {
+        context: { ...alice.context, roles: new Set(["authenticated", "editor"]) },
+        subject: "alice",
+      }
+      const elevated = await failure(run(roles, bump(1), "m-fingerprint"))
+      expect(elevated.code).toBe(ErrorCode.Conflict)
+      expect((await run(alice, bump(1), "m-fingerprint")).replayed).toBe(true)
+      expect((await byId("todos", 1))?.["count"]).toBe(1)
+
+      const batch = (title: string): WriteRequest[] => [
+        { op: "update", collection: "todos", id: 1, update: { $set: { title } } },
+      ]
+      await writes.executeBatch(alice, batch("a"), { mutationId: "m-fingerprint-batch" })
+      const otherBatch = await failure(
+        writes.executeBatch(alice, batch("b"), { mutationId: "m-fingerprint-batch" }),
+      )
+      expect(otherBatch.code).toBe(ErrorCode.Conflict)
+      expect((await byId("todos", 1))?.["title"]).toBe("a")
+    })
+
+    it("still replays records written before mutation IDs were bound to their request", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", count: 0 })
+      const bump = (by: number): WriteRequest => ({
+        op: "update",
+        collection: "todos",
+        id: 1,
+        update: { $inc: { count: by } },
+      })
+      await run(alice, bump(1), "m-legacy-record")
+      await client
+        .db(metaName)
+        .collection<{ _id: string }>("mutations")
+        .updateOne({ _id: "m-legacy-record" }, { $unset: { fp: "" } })
+      const replayed = await run(alice, bump(5), "m-legacy-record")
+      expect(replayed.replayed).toBe(true)
+      expect((await byId("todos", 1))?.["count"]).toBe(1)
+    })
+
     it("records nothing when the write fails, so a corrected retry with the same ID applies", async () => {
       await failure(
         run(

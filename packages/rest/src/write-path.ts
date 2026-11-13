@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import {
   and,
   type Compiled,
@@ -223,11 +224,21 @@ interface MutationRecord {
   result?: Outcome
   /** The outcomes of an atomic batch, in operation order. */
   results?: Outcome[]
+  /** The fingerprint of the request and roles that wrote the record; absent on older records. */
+  fp?: string
 }
 
 interface RecordKey {
   readonly c: string
   readonly op: string
+  readonly fp: string
+}
+
+/** Binds a mutation ID to one request: the same ID with another body or role set is another write. */
+function fingerprint(caller: Caller, request: unknown): string {
+  return createHash("sha256")
+    .update(canonicalString({ request, roles: [...caller.context.roles].sort() }))
+    .digest("base64url")
 }
 
 class Replay extends Error {}
@@ -353,7 +364,11 @@ export class WritePath {
     if (plan.fast && options.mutationId === undefined) return this.executeFast(plan.run, service)
     const committed = await this.transact(
       caller,
-      { c: request.collection, op: request.op },
+      {
+        c: request.collection,
+        op: request.op,
+        fp: options.mutationId === undefined ? "" : fingerprint(caller, request),
+      },
       [plan],
       options,
     )
@@ -446,7 +461,16 @@ export class WritePath {
         throw atIndex(toCanopyError(error), index)
       }
     })
-    const committed = await this.transact(caller, { c: "", op: "batch" }, plans, options)
+    const committed = await this.transact(
+      caller,
+      {
+        c: "",
+        op: "batch",
+        fp: options.mutationId === undefined ? "" : fingerprint(caller, requests),
+      },
+      plans,
+      options,
+    )
     const outcomes =
       committed.replayed && read
         ? await Promise.all(
@@ -643,7 +667,11 @@ export class WritePath {
       if (record === null) return undefined
       if (record.sub !== caller.subject)
         throw new ConflictError("The mutation ID was used by another caller")
-      if (record.c !== key.c || record.op !== key.op)
+      if (
+        record.c !== key.c ||
+        record.op !== key.op ||
+        (record.fp !== undefined && record.fp !== key.fp)
+      )
         throw new ConflictError("The mutation ID was used for a different write")
       const stored =
         key.op === "batch"
@@ -1413,6 +1441,7 @@ function recordOf(
     sub: caller.subject,
     c: key.c,
     op: key.op,
+    fp: key.fp,
     at: new Date(),
     ...(key.op === "batch" ? { results: stored } : first === undefined ? {} : { result: first }),
   }
