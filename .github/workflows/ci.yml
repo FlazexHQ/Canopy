@@ -126,6 +126,7 @@ jobs:
           done
           curl -fsS -X POST 127.0.0.1:18090/rest/v1/notes -H "apikey: sk_ci" \
             -H "content-type: application/json" -d '{"ownerId":"user_1"}' || { cat server.log; exit 1; }
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci || { cat server.log; exit 1; }
           if [ "$RUNNER_OS" = "Windows" ]; then
             kill "$server"
           else
@@ -281,6 +282,7 @@ jobs:
           done
           curl -fsS -X POST localhost:18090/rest/v1/notes -H "apikey: sk_ci" \
             -H "content-type: application/json" -d '{"ownerId":"user_1"}'
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
           kill -TERM %1
           wait %1
           grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
