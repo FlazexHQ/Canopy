@@ -20,6 +20,7 @@ import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from
 import {
   CloseCode,
   DiagnosticError,
+  deploymentDiagnostic,
   diagnoseMongoError,
   ForbiddenError,
   formatDiagnostic,
@@ -253,6 +254,20 @@ async function connect(config: ResolvedConfig, options: CreateCanopyOptions, log
     }
   }
   await diagnosed(() => mongo.connect())
+  const admin = mongo.db("admin")
+  const [hello, build] = await diagnosed(() =>
+    Promise.all([admin.command({ hello: 1 }), admin.command({ buildInfo: 1 })]),
+  )
+  const unsupported = deploymentDiagnostic(
+    hello,
+    String(build["version"] ?? "0"),
+    mongoTarget(config.mongodb.uri, config.mongodb.database),
+  )
+  if (unsupported !== undefined) {
+    report(formatDiagnostic(unsupported))
+    if (ownsMongo) await mongo.close().catch(() => {})
+    throw new DiagnosticError(unsupported)
+  }
   const meta = mongo.db(config.mongodb.metaDatabase)
   if (options.migrate !== false) await diagnosed(() => migrateMeta(meta, { logger }))
   return {

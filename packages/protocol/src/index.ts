@@ -24,6 +24,7 @@ export {
 export {
   type Diagnostic,
   DiagnosticError,
+  deploymentDiagnostic,
   diagnoseMongoError,
   diagnosticOf,
   type FormatDiagnosticOptions,

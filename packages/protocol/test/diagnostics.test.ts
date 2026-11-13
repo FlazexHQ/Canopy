@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   CanopyError,
   DiagnosticError,
+  deploymentDiagnostic,
   diagnoseMongoError,
   diagnosticOf,
   ErrorCode,
@@ -230,5 +231,34 @@ describe("serverErrorCode", () => {
       codeName: "Location40573x",
     })
     expect(diagnoseMongoError(error)?.docs).toBe("standalone-mongodb")
+  })
+})
+
+describe("deploymentDiagnostic", () => {
+  const target = { host: "db:27017" }
+
+  it("accepts a replica set or a sharded cluster on MongoDB 7.0 or newer", () => {
+    expect(deploymentDiagnostic({ setName: "rs0" }, "7.0.45", target)).toBeUndefined()
+    expect(deploymentDiagnostic({ setName: "rs0" }, "8.0.34", target)).toBeUndefined()
+    expect(deploymentDiagnostic({ msg: "isdbgrid" }, "9.0.4", target)).toBeUndefined()
+  })
+
+  it("refuses a standalone server with the same advice as its driver error", () => {
+    const found = deploymentDiagnostic({ isWritablePrimary: true }, "8.0.34", target)
+    expect(found).toMatchObject({
+      summary: "change streams are not available",
+      docs: "standalone-mongodb",
+    })
+    expect(found?.cause).toContain("db:27017")
+  })
+
+  it("refuses MongoDB older than 7.0 and versions it cannot read", () => {
+    expect(deploymentDiagnostic({ setName: "rs0" }, "6.0.20", target)).toMatchObject({
+      code: ErrorCode.Unavailable,
+      summary: "MongoDB is too old",
+    })
+    expect(deploymentDiagnostic({ setName: "rs0" }, "unknown", target)?.summary).toBe(
+      "MongoDB is too old",
+    )
   })
 })
