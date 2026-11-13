@@ -247,7 +247,7 @@ noted.
 | E6 | Done | `auth-builtin` and `cli`. The four framework binding errors stay plain: importing `CanopyError` would pull the client into their 2 kB bundles |
 | E7 | Done | A failed persist now warns in the console; the six empty `catch` blocks carry their reason |
 | E9 | Not planned | The copies differ (base64 vs base64url, abortable sleep) and the client ones keep the SDK bundle small |
-| E10 | Open | Coverage on Windows reports no files for project filtered runs here, so floors could not be measured; measure on Linux (the CI `mongo` job on 8.0) and set them there. The docs site's Markdown is now excluded from coverage |
+| E10 | Done | Floors for `rest`, `server`, `client`, `auth`, `auth-builtin`, `graphql` and `protocol`, 1 to 2 points under the whole suite on Node against MongoDB 8.0.34 (lines / branches measured: rest 95.8 / 85.9, server 84.1 / 73.0, client 90.6 / 74.5, auth 99.1 / 95.2, auth-builtin 89.6 / 79.8, graphql 92.8 / 77.1, protocol 97.4 / 86.9). Coverage does work on Windows. A run limited with `--project` resolves `coverage.include` against the project folder, so the old glob matched nothing; `src/**` is now included as well, but floors are only checked by a full run |
 | E17 | Dropped | Size limits removed on 2026-11-13: `size-limit`, `.size-limit.json`, the `size` script and the CI step are gone |
 | C13 | Done | `bun run dev` runs `canopy dev` from source against `deploy/dev`; started and stopped against the test replica set, `--with-mongo` (Docker) not verified |
 | E15 | Done | `test:integration` removed; `@canopy/policy` stays a client dev dependency because five e2e tests use it |
