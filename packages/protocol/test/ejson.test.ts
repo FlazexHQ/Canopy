@@ -96,6 +96,8 @@ describe("decode", () => {
     ["a numeric $numberDouble", { $numberDouble: 1 }],
     ["an empty $numberDouble", { $numberDouble: "" }],
     ["a bad decimal", { $numberDecimal: "abc" }],
+    ["a decimal with an exponent out of range", { $numberDecimal: "1e300000000" }],
+    ["a decimal with an exponent just out of range", { $numberDecimal: "1e6211" }],
     ["a date that is not ISO", { $date: "yesterday" }],
     ["a date given as a number", { $date: 1 }],
     ["a bad binary subtype", { $binary: { base64: "AA==", subType: "zz" } }],
@@ -106,6 +108,14 @@ describe("decode", () => {
     ["an undefined value", { $undefined: true }],
   ])("rejects %s", (_name, wrapper) => {
     invalid(() => decode({ a: wrapper }))
+  })
+
+  it("bounds the exponent of a decimal", () => {
+    for (const ok of ["1e6210", "1e-6210", "0.000001", "123.456", "NaN", "Infinity", "-Infinity"])
+      expect(new Decimal128(ok).value).toBe(ok)
+    expect(new Decimal128("1.5e6211").value).toBe("1.5e6211")
+    for (const bad of ["1e300000000", "1e6211", "1e-6211", "1.5e-6210", "-1E+99999"])
+      expect(() => new Decimal128(bad), bad).toThrow(TypeError)
   })
 
   it("leaves query operators alone", () => {

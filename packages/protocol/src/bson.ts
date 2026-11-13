@@ -126,12 +126,27 @@ export class Long {
 
 const DECIMAL = /^[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity|inf|NaN)$/i
 
+/**
+ * The largest magnitude of a decimal's exponent once its fraction digits are folded in. Decimal128 holds
+ * exponents from -6176 to 6111 for a coefficient of up to 34 digits, so anything beyond this bound cannot be
+ * a Decimal128, and computing with it would cost time and memory in proportion to the exponent.
+ */
+const MAX_DECIMAL_EXPONENT = 6210
+
+function decimalExponent(value: string): number {
+  const written = /[eE]([+-]?\d+)$/.exec(value)?.[1]
+  const fraction = /\.(\d*)/.exec(value)?.[1] ?? ""
+  return Number.parseInt(written ?? "0", 10) - fraction.length
+}
+
 /** A Decimal128 value, kept in its string form. Arithmetic is not supported. */
 export class Decimal128 {
   readonly value: string
 
   constructor(value: string) {
     if (!DECIMAL.test(value)) throw new TypeError(`Invalid Decimal128 string: ${value}`)
+    if (Math.abs(decimalExponent(value)) > MAX_DECIMAL_EXPONENT)
+      throw new TypeError("Invalid Decimal128 string: exponent out of range")
     this.value = value
   }
 

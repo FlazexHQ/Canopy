@@ -15,6 +15,7 @@ import {
   bsonTypeOf,
   compareStrings,
   compareValues,
+  compileFilter,
   equalityKey,
   valuesEqual,
 } from "../src/index.ts"
@@ -53,6 +54,10 @@ describe("compareValues", () => {
     expect(compareValues(new Decimal128("1E+400"), Number.MAX_VALUE)).toBeGreaterThan(0)
     expect(compareValues(Number.POSITIVE_INFINITY, new Decimal128("1E+400"))).toBeGreaterThan(0)
     expect(compareValues(-0, 0)).toBe(0)
+    expect(compareValues(new Decimal128("1e6000"), new Decimal128("1e-6000"))).toBeGreaterThan(0)
+    const huge = compileFilter({ n: { $gte: new Decimal128("1e6000") } })
+    expect(huge.matches({ n: new Decimal128("2e6000") })).toBe(true)
+    expect(huge.matches({ n: Number.MAX_VALUE })).toBe(false)
     expect(compareValues(Number.NaN, Number.NaN)).toBe(0)
     expect(compareValues(Number.NaN, Number.NEGATIVE_INFINITY)).toBeLessThan(0)
     expect(compareValues(new Decimal128("NaN"), Number.NaN)).toBe(0)
