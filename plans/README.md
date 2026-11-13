@@ -244,7 +244,6 @@ noted.
 | D6 | Done | Standalone servers and MongoDB older than 7.0 stop `canopy-server` at startup |
 | C7 | Done | Seven `errors/<slug>` pages and a test that fails on a slug without a page |
 | C11 | Partly | `--version`, `--debug`; the Windows Credential Manager token store is not done |
-| C13 | Open | A root `dev` script needs a config at the repository root; dropping the promise means editing `CLAUDE.md` |
 | E6 | Done | `auth-builtin` and `cli`. The four framework binding errors stay plain: importing `CanopyError` would pull the client into their 2 kB bundles |
 | E7 | Done | A failed persist now warns in the console; the six empty `catch` blocks carry their reason |
 | E9 | Not planned | The copies differ (base64 vs base64url, abortable sleep) and the client ones keep the SDK bundle small |
