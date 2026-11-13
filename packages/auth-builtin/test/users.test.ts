@@ -137,6 +137,25 @@ describeMongo("user admin", () => {
     ).resolves.toBeDefined()
   })
 
+  it("signs in again from the browser whose session was revoked", async () => {
+    const user = await h.auth.users.create({
+      email: "again@example.com",
+      password: "again password 1",
+      emailVerified: true,
+    })
+    const client = h.client()
+    const credentials = { email: "again@example.com", password: "again password 1" }
+    await client.post("/auth/v1/sign-in/email", credentials)
+    expect((await tokenFor(client)).reply.status).toBe(200)
+    expect(await h.auth.users.revokeSessions(user.id)).toBe(1)
+    expect((await tokenFor(client)).reply.status).toBe(401)
+    await sleep(1100)
+    expect((await client.post("/auth/v1/sign-in/email", credentials)).status).toBe(200)
+    const { reply, token } = await tokenFor(client)
+    expect(reply.status).toBe(200)
+    await expect(h.auth.verifyAccessToken(token ?? "")).resolves.toMatchObject({ sub: user.id })
+  })
+
   it("lists and revokes sessions of a user", async () => {
     const user = await h.auth.users.create({
       email: "sess@example.com",

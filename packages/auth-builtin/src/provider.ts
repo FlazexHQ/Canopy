@@ -111,6 +111,19 @@ const CEREMONY_REQUEST_HEADER = "x-canopy-ceremony"
 
 const CEREMONY_COOKIE = /^(?:__Secure-)?canopy\.(?:two_factor|better-auth-passkey)$/
 
+const SESSION_COOKIE = /^(?:__Secure-)?canopy\.(?:session_token|session_data|dont_remember)$/
+
+/** Routes that end in a new session, after which the engine looks at the session the request arrived with. */
+const SESSION_STARTING = [
+  "/sign-in",
+  "/sign-up",
+  "/callback",
+  "/magic-link/verify",
+  "/email-otp/verify-email",
+  "/passkey/verify-authentication",
+  "/verify-email",
+]
+
 /**
  * A second factor and a passkey sign in each keep a short lived, signed cookie between their two steps.
  * Bearer clients (cross site SPAs, native apps) do not keep cookies, so the cookie travels in headers:
@@ -534,6 +547,8 @@ class BetterAuthProvider implements BuiltinAuth {
     if (path === "/upgrade" && request.method === "POST")
       response = await this.upgrade(headers, body, ip)
     else {
+      if (SESSION_STARTING.some((prefix) => path.startsWith(prefix)))
+        await this.dropEndedSession(headers)
       response = await this.engine.handler(
         new Request(request.url, {
           method: request.method,
@@ -551,6 +566,28 @@ class BetterAuthProvider implements BuiltinAuth {
       if (wait > 0) await sleep(wait)
     }
     return response
+  }
+
+  /**
+   * Removes the session cookies of a session that no longer exists (revoked, ended by a password or role
+   * change, or expired). After a sign in the engine reads the session the request arrived with, to link an
+   * anonymous user; finding none, it deletes the session cookies, which would also remove the new session's.
+   */
+  private async dropEndedSession(headers: Headers): Promise<void> {
+    const cookie = headers.get("cookie")
+    if (cookie === null) return
+    const pairs = cookie
+      .split(";")
+      .map((pair) => pair.trim())
+      .filter((pair) => pair !== "")
+    const isSession = (pair: string): boolean =>
+      SESSION_COOKIE.test(pair.slice(0, pair.indexOf("=")))
+    if (!pairs.some(isSession)) return
+    const { found } = await this.engine.getSession(headers)
+    if (found !== null) return
+    const kept = pairs.filter((pair) => !isSession(pair))
+    if (kept.length === 0) headers.delete("cookie")
+    else headers.set("cookie", kept.join("; "))
   }
 
   private emailOf(body: ArrayBuffer): string | undefined {
