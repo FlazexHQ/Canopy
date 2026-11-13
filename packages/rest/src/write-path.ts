@@ -5,6 +5,7 @@ import {
   deniedPaths,
   deniesTextSearch,
   type FieldAccess,
+  immutableViolations,
   type PolicyEngine,
   projectReadable,
   type RequestContext,
@@ -50,7 +51,7 @@ import {
 } from "mongodb"
 import { abortCheck, EXACT_BSON, toDriver } from "./driver.ts"
 import { fromDriverError } from "./errors.ts"
-import { immutableViolations, leafPaths } from "./paths.ts"
+import { leafPaths } from "./paths.ts"
 import { validateCollectionName, validateId } from "./validation.ts"
 
 /** A write requested by a caller. Values may hold protocol BSON classes decoded from EJSON. */

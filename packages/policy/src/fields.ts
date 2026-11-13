@@ -78,6 +78,21 @@ export function deniedPaths(access: FieldAccess, paths: readonly string[]): stri
   return paths.filter((path) => !canAccess(access, path))
 }
 
+/**
+ * Returns the written paths that touch an immutable path: equal to it, beneath it or an ancestor of it.
+ * Array indexes are ignored, so `lines.0.sku` touches an immutable `lines.sku`.
+ */
+export function immutableViolations(
+  written: readonly string[],
+  immutable: readonly string[],
+): string[] {
+  const frozen = immutable.map(stripIndexes)
+  return written.filter((path) => {
+    const stripped = stripIndexes(path)
+    return frozen.some((field) => pathsOverlap(stripped, field))
+  })
+}
+
 /** The refusal of a `$text` search by a caller that cannot read every field. */
 export const TEXT_SEARCH_DENIED = "$text is not available when some fields are not readable"
 

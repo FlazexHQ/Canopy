@@ -1,8 +1,8 @@
 import { applyUpdate, compileFilter } from "@canopy/matcher"
 import { CanopyError, isDocument } from "@canopy/protocol"
-import { parseUpdate, pathsOverlap } from "@canopy/query"
+import { parseUpdate } from "@canopy/query"
 import { type Compiled, type PolicyEngine, toFilter } from "./engine.ts"
-import { canAccess, documentPaths, projectReadable } from "./fields.ts"
+import { canAccess, documentPaths, immutableViolations, projectReadable } from "./fields.ts"
 import { type RequestContext, Role } from "./model.ts"
 import type { CollectionName, DocumentOf, Registered } from "./typed.ts"
 
@@ -246,9 +246,7 @@ export function evaluateInMemory(
         const denied = written.filter((path) => !canAccess(writable, path))
         if (denied.length > 0)
           return { allowed: false, reason: `fields not writable: ${denied.join(", ")}` }
-        const immutable = written.filter((path) =>
-          engine.immutable(collection).some((field) => pathsOverlap(path, field)),
-        )
+        const immutable = immutableViolations(written, engine.immutable(collection))
         if (immutable.length > 0)
           return { allowed: false, reason: `immutable fields: ${immutable.join(", ")}` }
       }

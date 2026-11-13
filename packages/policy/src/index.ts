@@ -63,6 +63,7 @@ export {
   documentPaths,
   type FieldAccess,
   fieldAccess,
+  immutableViolations,
   intersectProjection,
   projectReadable,
   TEXT_SEARCH_DENIED,

@@ -86,6 +86,15 @@ const notes = collection("notes", {
   fields: { read: { default: { omit: ["secret"] } } },
 })
 
+const orders = collection("orders", {
+  exposed: true,
+  policies: [
+    allow.read("authenticated").where({ ownerId: auth("sub") }),
+    allow.update("authenticated").where({ ownerId: auth("sub") }),
+  ],
+  immutable: ["lines.sku"],
+})
+
 const slots = collection("slots", {
   exposed: true,
   policies: [
@@ -171,7 +180,7 @@ suite("WritePath against MongoDB", () => {
     await client.connect()
     db = client.db(dbName)
     const engine = new PolicyEngine(
-      createPolicySet([todos, boards, plain, inbox, hidden, notes, slots]),
+      createPolicySet([todos, boards, plain, inbox, hidden, notes, slots, orders]),
     )
     writes = new WritePath({
       client,
@@ -181,7 +190,7 @@ suite("WritePath against MongoDB", () => {
       limits: { maxBulk: 3, maxInsertMany: 5 },
     })
     await writes.ensureIndexes()
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots", "orders"])
       await db.createCollection(name)
   })
 
@@ -192,7 +201,7 @@ suite("WritePath against MongoDB", () => {
   })
 
   beforeEach(async () => {
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots", "orders"])
       await coll(name).deleteMany({})
     await client.db(metaName).collection("mutations").deleteMany({})
   })
@@ -464,6 +473,40 @@ suite("WritePath against MongoDB", () => {
       })
     })
 
+    it("applies immutable fields to every element of an array", async () => {
+      await coll("orders").insertOne({
+        _id: 1,
+        ownerId: "alice",
+        lines: [
+          { sku: "a", qty: 1 },
+          { sku: "b", qty: 2 },
+        ],
+      })
+      const updates: Document[] = [
+        { $set: { "lines.0.sku": "x" } },
+        { $set: { "lines.$[].sku": "x" } },
+        { $set: { "lines.1": { sku: "x", qty: 2 } } },
+        { $unset: { "lines.0.sku": "" } },
+      ]
+      for (const update of updates) {
+        const error = await failure(
+          run(alice, { op: "update", collection: "orders", id: 1, update }),
+        )
+        expect(error.code).toBe(ErrorCode.PolicyViolation)
+      }
+      const allowed = await run(alice, {
+        op: "update",
+        collection: "orders",
+        id: 1,
+        update: { $inc: { "lines.0.qty": 1 } },
+      })
+      expect(allowed.modified).toBe(1)
+      expect((await byId("orders", 1))?.["lines"]).toEqual([
+        { sku: "a", qty: 2 },
+        { sku: "b", qty: 2 },
+      ])
+    })
+
     it("lets service change anything, including immutable fields", async () => {
       const result = await run(service, {
         op: "update",
@@ -570,7 +613,7 @@ suite("WritePath against MongoDB", () => {
           }),
         )
         expect(filter.code).toBe(ErrorCode.InvalidQuery)
-        expect((await coll("todos").findOne({ _id: 41 }))?.["done"]).toBeUndefined()
+        expect((await byId("todos", 41))?.["done"]).toBeUndefined()
         const allowed = await run(service, {
           op: "updateMany",
           collection: "todos",

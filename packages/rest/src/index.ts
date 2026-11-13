@@ -1,3 +1,4 @@
+export { immutableViolations } from "@canopy/policy"
 export { mongoContextReader } from "./context-reader.ts"
 export {
   type CursorKey,
@@ -42,7 +43,7 @@ export {
   splitList,
   typedValue,
 } from "./params.ts"
-export { immutableViolations, leafPaths } from "./paths.ts"
+export { leafPaths } from "./paths.ts"
 export {
   DEFAULT_PROBLEM_TYPE_BASE,
   PROBLEM_MEDIA_TYPE,

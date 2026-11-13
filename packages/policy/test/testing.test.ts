@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createPolicySet, PolicyEngine } from "../src/index.ts"
+import { allow, auth, collection, createPolicySet, PolicyEngine } from "../src/index.ts"
 import {
   as,
   describePolicies,
@@ -45,6 +45,30 @@ describe("policy test runner", () => {
     const results = await runPolicyTests(suites, [memoryBackend(engine)])
     expect(results.filter((result) => !result.passed).map((result) => result.failures)).toEqual([])
     expect(results).toHaveLength(12)
+  })
+
+  it("refuses writes to an immutable field inside array elements", async () => {
+    const orders = collection("orders", {
+      exposed: true,
+      policies: [
+        allow.read("authenticated").where({ ownerId: auth("sub") }),
+        allow.update("authenticated").where({ ownerId: auth("sub") }),
+      ],
+      immutable: ["lines.sku"],
+    })
+    takeRegisteredSuites()
+    describePolicies("orders", ({ doc, expect: expectThat }) => {
+      const alice = as.user({ sub: "u_alice" })
+      const order = doc({ _id: "o1", ownerId: "u_alice", lines: [{ sku: "a", qty: 1 }] })
+      expectThat(alice).cannot.update(order, { $set: { "lines.0.sku": "b" } })
+      expectThat(alice).cannot.update(order, { $set: { "lines.0": { sku: "b", qty: 1 } } })
+      expectThat(alice).can.update(order, { $inc: { "lines.0.qty": 1 } })
+    })
+    const results = await runPolicyTests(takeRegisteredSuites(), [
+      memoryBackend(new PolicyEngine(createPolicySet([orders]))),
+    ])
+    expect(results.filter((result) => !result.passed).map((result) => result.failures)).toEqual([])
+    expect(results).toHaveLength(3)
   })
 
   it("fails a case whose expectation is wrong, with a reason", async () => {

@@ -1,5 +1,4 @@
 import { isDocument } from "@canopy/protocol"
-import { pathsOverlap } from "@canopy/query"
 
 /**
  * Lists the paths a stored document writes, down to its leaves. Subdocuments, including those inside
@@ -27,12 +26,4 @@ export function leafPaths(doc: Record<string, unknown>): string[] {
     if (doc[key] !== undefined) walk(doc[key], key)
   }
   return [...out]
-}
-
-/** Returns the written paths that touch an immutable path: equal to it, beneath it or an ancestor of it. */
-export function immutableViolations(
-  written: readonly string[],
-  immutable: readonly string[],
-): string[] {
-  return written.filter((path) => immutable.some((frozen) => pathsOverlap(path, frozen)))
 }
