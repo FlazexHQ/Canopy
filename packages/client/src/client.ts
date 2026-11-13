@@ -464,7 +464,8 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
 
   /** Brings persisted mutations back: recent ones are queued again, older ones become stale. */
   private async restore(persist: Persister): Promise<void> {
-    this.scope = await this.subject()
+    const sub = claims(await this.options.auth?.getToken()).sub
+    this.scope = typeof sub === "string" ? sub : "anon"
     const prefix = `${this.scope}\u0000`
     const cutoff = Date.now() - ((this.options.mutationTtlMs ?? 24 * HOUR) - 4 * HOUR)
     const restored: PendingMutation[] = []
