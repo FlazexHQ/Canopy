@@ -143,6 +143,11 @@ const withDefault = (spec: Spec, def: unknown, range?: Range): Spec => ({
 
 const MINUTE = 60_000
 const DAY = 86_400_000
+const POSITIVE: Range = {
+  min: 1,
+  message: (value) => `Received ${value}.
+Expected a whole number of at least 1.`,
+}
 const PORT: Range = {
   min: 0,
   max: 65_535,
@@ -295,6 +300,22 @@ const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
       persisted: obj({ file: str, only: withDefault(bool, false) }),
     }),
   },
+  rateLimits: {
+    t: "toggle",
+    of: obj({
+      enabled: withDefault(bool, true),
+      requests: obj({
+        perSecond: withDefault(int, 50, POSITIVE),
+        burst: withDefault(int, 200, POSITIVE),
+      }),
+      messages: obj({
+        perSecond: withDefault(int, 20, POSITIVE),
+        burst: withDefault(int, 100, POSITIVE),
+      }),
+      anonymousConnectionsPerAddress: withDefault(int, 50, POSITIVE),
+      exemptService: withDefault(bool, true),
+    }),
+  },
   collections: {
     t: "record",
     of: obj({
@@ -344,6 +365,13 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RESUME_WINDOW", "realtime.resumeWindow", duration],
   ["CANOPY_CHECKPOINTS", "realtime.checkpoints", oneOf("meta", "off")],
   ["CANOPY_DRAIN_WINDOW", "realtime.drainWindow", duration],
+  ["CANOPY_RATE_LIMITS", "rateLimits.enabled", bool],
+  ["CANOPY_RATE_LIMIT_REQUESTS", "rateLimits.requests.perSecond", int],
+  ["CANOPY_RATE_LIMIT_REQUEST_BURST", "rateLimits.requests.burst", int],
+  ["CANOPY_RATE_LIMIT_MESSAGES", "rateLimits.messages.perSecond", int],
+  ["CANOPY_RATE_LIMIT_MESSAGE_BURST", "rateLimits.messages.burst", int],
+  ["CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS", "rateLimits.anonymousConnectionsPerAddress", int],
+  ["CANOPY_RATE_LIMIT_EXEMPT_SERVICE", "rateLimits.exemptService", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
   ["METRICS_PORT", "server.metricsPort", int],
@@ -368,6 +396,7 @@ const NEEDS: Readonly<Record<Command, ReadonlySet<string> | "all">> = {
     "keys",
     "policies",
     "realtime",
+    "rateLimits",
     "cors",
     "server",
     "log",
@@ -1040,6 +1069,22 @@ function normalize(
           drainWindowMs: at<number>("realtime.drainWindow"),
         }
 
+  const rateLimits: ResolvedConfig["rateLimits"] =
+    tree["rateLimits"] === false || get(tree, "rateLimits.enabled") === false
+      ? false
+      : {
+          requests: {
+            perSecond: at<number>("rateLimits.requests.perSecond"),
+            burst: at<number>("rateLimits.requests.burst"),
+          },
+          messages: {
+            perSecond: at<number>("rateLimits.messages.perSecond"),
+            burst: at<number>("rateLimits.messages.burst"),
+          },
+          anonymousConnectionsPerAddress: at<number>("rateLimits.anonymousConnectionsPerAddress"),
+          exemptService: at<boolean>("rateLimits.exemptService"),
+        }
+
   const graphqlTree = tree["graphql"]
   const persistedFile = get(tree, "graphql.persisted.file")
   const persistedOnly = get(tree, "graphql.persisted.only") === true
@@ -1167,6 +1212,7 @@ function normalize(
     rest,
     graphql,
     realtime,
+    rateLimits,
     collections,
     cors,
     server: {

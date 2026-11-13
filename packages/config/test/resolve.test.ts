@@ -502,3 +502,63 @@ describe("GraphQL settings", () => {
     ).toEqual(["collections.people.typeName", "collections.people.relations.team"])
   })
 })
+
+describe("rateLimits", () => {
+  const DEFAULTS = {
+    requests: { perSecond: 50, burst: 200 },
+    messages: { perSecond: 20, burst: 100 },
+    anonymousConnectionsPerAddress: 50,
+    exemptService: true,
+  }
+
+  it("is on by default, with limits ordinary apps do not reach", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.rateLimits).toEqual(DEFAULTS)
+    expect(resolve({ mongodb: { uri: URI }, rateLimits: true }).config.rateLimits).toEqual(DEFAULTS)
+  })
+
+  it("takes overrides from the file and from variables", () => {
+    const { config, sources } = resolve(
+      { mongodb: { uri: URI }, rateLimits: { requests: { perSecond: 5 } } },
+      {
+        CANOPY_RATE_LIMIT_REQUEST_BURST: "9",
+        CANOPY_RATE_LIMIT_MESSAGES: "3",
+        CANOPY_RATE_LIMIT_MESSAGE_BURST: "4",
+        CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS: "7",
+        CANOPY_RATE_LIMIT_EXEMPT_SERVICE: "false",
+      },
+    )
+    expect(config.rateLimits).toEqual({
+      requests: { perSecond: 5, burst: 9 },
+      messages: { perSecond: 3, burst: 4 },
+      anonymousConnectionsPerAddress: 7,
+      exemptService: false,
+    })
+    expect(sources.get("rateLimits.requests.burst")).toMatchObject({
+      kind: "env",
+      name: "CANOPY_RATE_LIMIT_REQUEST_BURST",
+    })
+  })
+
+  it("turns off with false in the file or with CANOPY_RATE_LIMITS=false", () => {
+    expect(resolve({ mongodb: { uri: URI }, rateLimits: false }).config.rateLimits).toBe(false)
+    expect(
+      resolve({ mongodb: { uri: URI } }, { CANOPY_RATE_LIMITS: "false" }).config.rateLimits,
+    ).toBe(false)
+    expect(
+      resolve({ mongodb: { uri: URI }, rateLimits: { enabled: false } }).config.rateLimits,
+    ).toBe(false)
+  })
+
+  it("refuses a bucket that could never hold a token, and a variable against a disabled file", () => {
+    expect(
+      problems(() =>
+        resolve({ mongodb: { uri: URI }, rateLimits: { requests: { perSecond: 0, burst: 0 } } }),
+      ).map((problem) => problem.path),
+    ).toEqual(["rateLimits.requests.perSecond", "rateLimits.requests.burst"])
+    expect(
+      problems(() =>
+        resolve({ mongodb: { uri: URI }, rateLimits: false }, { CANOPY_RATE_LIMIT_REQUESTS: "5" }),
+      )[0]?.path,
+    ).toBe("rateLimits.requests.perSecond")
+  })
+})

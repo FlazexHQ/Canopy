@@ -323,6 +323,32 @@ export interface RealtimeInput {
   readonly drainWindow?: Value<number | string>
 }
 
+/** One token bucket: the rate a caller can sustain and the burst it can spend at once. */
+export interface BucketInput {
+  /** Tokens added per second. */
+  readonly perSecond?: Value<number>
+  /** The most tokens a bucket holds. */
+  readonly burst?: Value<number>
+}
+
+/**
+ * Limits on the data plane, counted in memory by each instance. Callers are keyed by API key and subject;
+ * anonymous callers are keyed by client address too (see `server.trustedProxies`). `false` turns every
+ * limit off.
+ */
+export interface RateLimitsInput {
+  /** Set to `false` to turn every limit off. @default true */
+  readonly enabled?: Value<boolean>
+  /** REST and GraphQL requests, one token each. @default { perSecond: 50, burst: 200 } */
+  readonly requests?: BucketInput
+  /** Realtime `sub`, `mut` and `auth` frames, one token each. @default { perSecond: 20, burst: 100 } */
+  readonly messages?: BucketInput
+  /** Open realtime connections of anonymous callers per client address. @default 50 */
+  readonly anonymousConnectionsPerAddress?: Value<number>
+  /** Whether callers with the `service` role (secret keys) are exempt. @default true */
+  readonly exemptService?: Value<boolean>
+}
+
 /** The input of {@link defineConfig}. Every setting may also be an {@link env} marker. */
 export interface CanopyConfigInput {
   readonly mongodb?: {
@@ -357,6 +383,8 @@ export interface CanopyConfigInput {
   readonly graphql?: boolean | GraphqlInput
   /** `true` for the defaults, `false` to turn realtime off. @default true */
   readonly realtime?: boolean | RealtimeInput
+  /** `true` for the defaults, `false` to turn the data plane limits off. @default true */
+  readonly rateLimits?: boolean | RateLimitsInput
   readonly collections?: Readonly<Record<string, CollectionInput>>
   readonly cors?: { readonly origins: Value<readonly string[]> | "*" }
   readonly server?: {
@@ -515,6 +543,14 @@ export interface ResolvedConfig {
         readonly resumeWindowMs: number
         readonly checkpoints: "meta" | "off"
         readonly drainWindowMs: number
+      }
+  readonly rateLimits:
+    | false
+    | {
+        readonly requests: { readonly perSecond: number; readonly burst: number }
+        readonly messages: { readonly perSecond: number; readonly burst: number }
+        readonly anonymousConnectionsPerAddress: number
+        readonly exemptService: boolean
       }
   readonly collections: Readonly<Record<string, ResolvedCollection>>
   readonly cors: { readonly origins: readonly string[] | "*" } | undefined

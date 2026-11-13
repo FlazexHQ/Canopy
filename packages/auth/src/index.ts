@@ -46,4 +46,13 @@ export type {
   UserAdmin,
   UserPage,
 } from "./provider.ts"
+export {
+  type BucketSpec,
+  DEFAULT_RATE_LIMITS,
+  type LimitCaller,
+  type RateLimitOptions,
+  RateLimits,
+  retryAfterSeconds,
+  TokenBuckets,
+} from "./rate-limit.ts"
 export { RevocationSet } from "./revocations.ts"

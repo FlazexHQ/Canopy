@@ -24,6 +24,7 @@ export {
 export {
   type Auth0Input,
   type AuthInput,
+  type BucketInput,
   type BuiltinAuthInput,
   type CanopyConfigInput,
   type ClaimsHookFunction,
@@ -45,6 +46,7 @@ export {
   type OAuthClientInput,
   type OidcProviderInput,
   type PoliciesInput,
+  type RateLimitsInput,
   type RealtimeInput,
   type RelationInput,
   type ResolvedBuiltinAuth,
