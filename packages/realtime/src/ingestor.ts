@@ -89,6 +89,8 @@ export class Ingestor {
   private timer: ReturnType<typeof setInterval> | undefined
   private loop: Promise<void> | undefined
   private reopenRequested = false
+  /** True while a batch is normalized and delivered; its events are not yet reflected downstream. */
+  private processing = false
 
   constructor(options: IngestorOptions) {
     this.options = options
@@ -245,6 +247,17 @@ export class Ingestor {
   }
 
   private async process(raw: Record<string, unknown>[]): Promise<void> {
+    this.processing = true
+    try {
+      await this.deliver(raw)
+    } finally {
+      this.processing = false
+    }
+    this.sinceCheckpoint += raw.length
+    await this.checkpoint(false)
+  }
+
+  private async deliver(raw: Record<string, unknown>[]): Promise<void> {
     const events: NormalizedEvent[] = []
     const flush = async (): Promise<void> => {
       if (events.length === 0) return
@@ -274,11 +287,15 @@ export class Ingestor {
       events.push(event)
     }
     await flush()
-    this.sinceCheckpoint += raw.length
-    await this.checkpoint(false)
   }
 
+  /**
+   * Reports progress and saves the stream position when due. Skipped while a batch is delivered: the stream
+   * position and `lastCt` are then ahead of what subscribers have received, and reporting them would let a
+   * mutation acknowledge its echo before its events were sent, or lose those events after a crash.
+   */
   private async checkpoint(force: boolean): Promise<void> {
+    if (this.processing) return
     const token = this.stream?.resumeToken ?? this.token
     if (token === undefined) return
     const due =

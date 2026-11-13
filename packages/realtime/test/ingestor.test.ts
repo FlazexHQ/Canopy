@@ -1,27 +1,32 @@
+import { compareCt, toCt } from "@canopy/protocol"
 import type { Db, MongoClient } from "mongodb"
-import { MongoServerError } from "mongodb"
+import { MongoServerError, Timestamp } from "mongodb"
 import { describe, expect, it } from "vitest"
 import { Ingestor } from "../src/ingestor.ts"
 import { RealtimeMetrics } from "../src/metrics.ts"
 
-/** A change stream that fails its first read with `error`, or stays open and empty. */
+/** A change stream that fails its first read with `error`, or returns `first` and then stays open. */
 class FakeStream {
   readonly resumeToken: unknown
   private readonly error: unknown
+  private first: Record<string, unknown> | undefined
   private closed: () => void = () => {}
   private readonly ended = new Promise<never>((_, reject) => {
     this.closed = () => reject(new Error("closed"))
   })
 
-  constructor(error: unknown, resumeToken: unknown) {
+  constructor(error: unknown, resumeToken: unknown, first?: Record<string, unknown>) {
     this.error = error
     this.resumeToken = resumeToken
+    this.first = first
     this.ended.catch(() => {})
   }
 
-  async tryNext(): Promise<null> {
+  async tryNext(): Promise<Record<string, unknown> | null> {
     if (this.error !== undefined) throw this.error
-    return null
+    const first = this.first
+    this.first = undefined
+    return first ?? null
   }
 
   next(): Promise<never> {
@@ -93,5 +98,71 @@ describe("Ingestor start", () => {
     await subject.stop()
     expect(opened).toHaveLength(1)
     expect(restarts).toEqual([])
+  })
+})
+
+describe("Ingestor progress", () => {
+  it("reports progress past an event only after the event was delivered", async () => {
+    const at = new Timestamp({ t: 1_800_000_000, i: 7 })
+    const ct = toCt(at) ?? "0"
+    const insert = {
+      _id: { _data: "event" },
+      operationType: "insert",
+      clusterTime: at,
+      ns: { db: "app", coll: "todos" },
+      documentKey: { _id: 1 },
+      fullDocument: { _id: 1 },
+    }
+    let deliver: () => void = () => {}
+    let delivering = false
+    const progress: string[] = []
+    const saved: string[] = []
+    const db = {
+      watch: () => new FakeStream(undefined, { _data: "event" }, insert),
+    } as unknown as Db
+    const subject = new Ingestor({
+      client: {} as MongoClient,
+      db,
+      mode: "auto",
+      collections: () => ["todos"],
+      checkpoints: {
+        load: async () => undefined,
+        save: async (_token, position) => {
+          saved.push(position)
+        },
+      },
+      handlers: {
+        onEvents: () => {
+          delivering = true
+          return new Promise<void>((resolve) => {
+            deliver = resolve
+          })
+        },
+        onControl: () => {},
+        onRestart: () => {},
+        onProgress: (position) => {
+          progress.push(position)
+        },
+      },
+      logger: quiet,
+      metrics: new RealtimeMetrics(),
+      checkpointIntervalMs: 10,
+    })
+    await subject.start()
+    try {
+      for (let waited = 0; !delivering && waited < 2000; waited += 10)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(delivering).toBe(true)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      expect(progress.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
+      expect(saved.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
+      deliver()
+      for (let waited = 0; !progress.includes(ct) && waited < 2000; waited += 10)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(progress).toContain(ct)
+    } finally {
+      deliver()
+      await subject.stop()
+    }
   })
 })
