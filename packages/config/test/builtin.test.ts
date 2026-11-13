@@ -158,6 +158,40 @@ describe("builtin()", () => {
     expect(missing).toEqual(["auth.email"])
   })
 
+  it("refuses well known development API keys in production only", () => {
+    const keys = (publishable: string[], secret: string[]) => ({ publishable, secret })
+    const refused = problems(() =>
+      resolve({ ...production, keys: keys(["pk_dev"], ["sk_dev_change_me"]) }),
+    ).map((problem) => problem.path)
+    expect(refused).toEqual(["keys.publishable", "keys.secret"])
+    const generated = problems(() =>
+      resolve({
+        ...production,
+        keys: keys(["canopy_pk_live_1"], [`canopy_sk_dev_${"a".repeat(36)}`]),
+      }),
+    ).map((problem) => problem.path)
+    expect(generated).toEqual(["keys.secret"])
+    expect(
+      resolve({ ...production, keys: keys(["canopy_pk_live_1"], [`sk_${"x".repeat(40)}`]) }).config
+        .keys.secret,
+    ).toEqual([`sk_${"x".repeat(40)}`])
+    expect(
+      resolve({ mongodb: { uri: URI }, keys: keys(["pk_dev"], ["sk_dev_change_me"]) }).config.keys,
+    ).toEqual(keys(["pk_dev"], ["sk_dev_change_me"]))
+    expect(
+      problems(() =>
+        resolve(
+          { mongodb: { uri: URI } },
+          {
+            CANOPY_ENV: "production",
+            CANOPY_MASTER_KEY: KEY,
+            CANOPY_SECRET_KEYS: "sk_dev_change_me",
+          },
+        ),
+      ).map((problem) => problem.path),
+    ).toEqual(["keys.secret"])
+  })
+
   it("refuses unsafe lifetimes, short passwords and bad provider ids", () => {
     const found = problems(() =>
       resolve({

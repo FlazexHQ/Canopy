@@ -5,8 +5,8 @@
 # picks another folder) and reloaded when they change.
 #
 # Settings come from the environment of `docker compose` (or an .env file next to this one):
-#   CANOPY_PUBLISHABLE_KEYS  Publishable keys for browsers (the anon role). Default: pk_dev
-#   CANOPY_SECRET_KEYS       Secret keys for servers (the service role). Default: sk_dev_change_me
+#   CANOPY_PUBLISHABLE_KEYS  Publishable keys for browsers (the anon role). Default: pk_dev, refused in production
+#   CANOPY_SECRET_KEYS       Secret keys for servers (the service role). Default: sk_dev_change_me, refused in production
 #   CANOPY_JWT_JWKS_URL, CANOPY_JWT_ISSUER, CANOPY_JWT_AUDIENCE, CANOPY_JWT_ROLES_CLAIM
 #                            Your identity provider. Without them only API keys authenticate.
 #   CANOPY_DB                The app database. Default: app

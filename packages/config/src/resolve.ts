@@ -150,6 +150,13 @@ const PORT: Range = {
 }
 
 const ENVIRONMENTS = ["development", "production"] as const
+
+/** API keys published in examples, the compose file and `canopy dev` output, which anyone can know. */
+const DEVELOPMENT_KEYS = new Set(["pk_dev", "sk_dev_change_me", "canopy_pk_dev", "canopy_sk_dev"])
+
+function isDevelopmentKey(key: string): boolean {
+  return DEVELOPMENT_KEYS.has(key) || /^canopy_(?:pk|sk)_dev_/.test(key)
+}
 const FULL_DOCUMENT = ["auto", "updateLookup", "images"] as const
 const TRANSPORTS = ["websocket", "sse", "long-poll"] as const
 const ID_TYPES = ["auto", "objectId", "string", "uuid", "number"] as const
@@ -1126,6 +1133,15 @@ function normalize(
       "dev.insecure",
       "Development mode switches are refused when CANOPY_ENV is production.",
     )
+  if (production)
+    for (const kind of ["publishable", "secret"] as const) {
+      const keys = (get(tree, `keys.${kind}`) as readonly string[] | undefined) ?? []
+      if (keys.some(isDevelopmentKey))
+        resolver.problem(
+          `keys.${kind}`,
+          "Development API keys (such as pk_dev or sk_dev_change_me from the compose file, or keys made by canopy dev) are refused in production. Generate new keys.",
+        )
+    }
   const masterKey = get(tree, "masterKey") as string | undefined
   if (
     production &&
