@@ -49,6 +49,11 @@ export default defineConfig({
           items: ["migrating/atlas-app-services", "migrating/parse", "migrating/firebase"],
         },
         {
+          label: "Troubleshooting",
+          collapsed: true,
+          items: [{ autogenerate: { directory: "errors" } }],
+        },
+        {
           label: "Reference",
           items: [
             "reference/configuration",
