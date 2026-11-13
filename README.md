@@ -6,18 +6,35 @@ Canopy is an open source, self hostable backend platform for MongoDB: realtime l
 Security (rules in the style of Postgres Row Level Security), auth, generated REST and GraphQL APIs, and an admin
 dashboard. It works with an existing MongoDB deployment without changing its schema.
 
-**Status: Phase 1 (v0.1, drop in realtime) in progress.** Nothing is published to npm yet.
+**Status: Phases 1 to 4 are implemented** (DLS core and realtime, Data API and optimistic SDK, auth, server and
+Studio, GraphQL and the framework bindings). Phase 5 (scale and edge) has not started. Nothing is published to
+npm yet, so every quickstart starts from a clone of this repository.
 
-| Package            | Contents                                                                                       |
-| ------------------ | ---------------------------------------------------------------------------------------------- |
-| `@canopy/protocol` | The `canopy.v1` wire protocol, the EJSON-lite codec, error codes and conformance vectors       |
-| `@canopy/matcher`  | BSON ordering, filter matching, sort, projection and update operators, checked against MongoDB |
-| `@canopy/query`    | Validation of untrusted queries: operator allowlists, limits and canonical hashing             |
-| `@canopy/policy`   | Document Level Security: the policy DSL, compiler, field rules, explain, lint and tests        |
-| `@canopy/realtime` | The realtime engine and the `canopy-realtime` sidecar                                          |
-| `@canopy/client`   | The client SDK read path: cache, live queries, reconnect, resume and resync                    |
-| `@canopy/react`    | `CanopyProvider`, `useQuery`, `useCanopyStatus` and `createReactDb`                            |
-| `@canopy/cli`      | `canopy doctor` and `canopy policies lint` and `canopy policies test`                          |
+| Package                | Contents                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `@canopy/protocol`     | The `canopy.v1` wire protocol: message types, the EJSON-lite codec, error codes and test vectors           |
+| `@canopy/matcher`      | BSON comparison order, filter matching, sort, projection and update operators, checked against MongoDB     |
+| `@canopy/query`        | Parsing and validation of untrusted filters, updates and live queries: operator allowlists and limits      |
+| `@canopy/policy`       | Document Level Security: the policy DSL, compiler, field rules, explain, lint and the policy test runner   |
+| `@canopy/schema`       | Collection schemas: inference from sampled documents, `$jsonSchema` validators and TypeScript generation   |
+| `@canopy/auth`         | API keys and bring your own identity provider tokens (JWKS), turned into DLS request contexts              |
+| `@canopy/auth-builtin` | Built in app user auth on Better Auth: email and password, magic links, OTP, OAuth, anonymous users, MFA   |
+| `@canopy/config`       | The config file: `defineConfig`, `env()` markers, identity provider presets and a validating loader        |
+| `@canopy/node-http`    | Serves Web standard fetch handlers on `node:http` and Express                                              |
+| `@canopy/rest`         | The Data API: DLS enforced REST endpoints and the transactional write path shared with realtime mutations  |
+| `@canopy/graphql`      | The GraphQL API: a schema generated per role set from policies and schemas, with subscriptions and limits  |
+| `@canopy/realtime`     | The realtime engine and the `canopy-realtime` sidecar                                                      |
+| `@canopy/server`       | The server: REST, GraphQL, realtime, auth and policies composed from one config with `createCanopy`        |
+| `@canopy/studio`       | The built Studio assets and a fetch style handler that serves them at `/studio`                            |
+| `@canopy/client`       | The client SDK: document cache, live queries, optimistic mutations, offline queue, reconnect and resume    |
+| `@canopy/react`        | React bindings: `CanopyProvider`, `useQuery`, `useCanopyStatus` and `createReactDb`                        |
+| `@canopy/vue`          | Vue bindings: `useQuery` returning `ShallowRef`s, `useMutation` and a plugin                               |
+| `@canopy/svelte`       | Svelte 5 bindings: `createQuery` returns a reactive object that is also a store                            |
+| `@canopy/solid`        | Solid bindings: `createQuery` with signals and a context                                                   |
+| `@canopy/tanstack-db`  | Canopy collections as TanStack DB collections, synced from live queries                                    |
+| `@canopy/devtools`     | An in page panel for the connection, subscriptions, store and pending mutations, plus development warnings |
+| `@canopy/cli`          | The `canopy` command: init, dev, doctor, policies, type generation, indexes and realtime images            |
+| `@canopy/testing`      | Private test support: a MongoDB replica set harness and value generators                                   |
 
 ## Canopy Realtime in two minutes
 
@@ -65,7 +82,10 @@ const db = createReactDb(canopy)
 const { data, status } = db.todos.useQuery({ done: false }, { sort: { createdAt: -1 }, limit: 50 })
 ```
 
-Check a deployment and test policies with `canopy doctor` and `canopy policies test --mongodb-uri ...`.
+Check a deployment and test policies with `canopy doctor` and `canopy policies test --mongodb-uri ...`. To run the
+whole platform (REST, GraphQL, realtime, auth and Studio) from one config, see
+[`packages/server/README.md`](packages/server/README.md) and `canopy dev` in
+[`packages/cli/README.md`](packages/cli/README.md).
 
 The full walkthrough is the [sidecar quickstart](packages/realtime/README.md#sidecar-quickstart-about-10-minutes),
 and [`examples/express-dropin`](examples/express-dropin) turns an Express, Mongoose and Auth0 helpdesk into a live
@@ -103,13 +123,16 @@ they do not work on a standalone server.
 
 ## Repository layout
 
-| Path              | Contents                                                              |
-| ----------------- | --------------------------------------------------------------------- |
-| `packages/`       | Libraries published as `@canopy/*`                                    |
-| `apps/`           | Applications such as Studio and the docs site                         |
-| `examples/`       | Runnable example apps with end to end tests                           |
-| `deploy/`         | Docker Compose files and deployment assets                            |
-| `tsconfig.*.json` | Shared TypeScript 6 settings: `server`, `universal`, `web` and `edge` |
+| Path              | Contents                                                                                        |
+| ----------------- | ----------------------------------------------------------------------------------------------- |
+| `packages/`       | The `@canopy/*` libraries (not published yet)                                                   |
+| `apps/`           | `studio` (the admin dashboard) and `docs` (the documentation site)                              |
+| `examples/`       | Runnable example apps with end to end tests                                                     |
+| `deploy/`         | Docker Compose files and deployment assets                                                      |
+| `docs/`           | Design documents, decision records and spike write ups, from [`docs/README.md`](docs/README.md) |
+| `plans/`          | The improvement plan and its status                                                             |
+| `tools/`          | Standalone repository tools (`repo-check`), not workspace members                               |
+| `tsconfig.*.json` | Shared TypeScript 6 settings: `server`, `universal`, `web` and `edge`                           |
 
 ## Contributing
 
