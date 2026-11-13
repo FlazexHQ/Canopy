@@ -13,21 +13,21 @@
    sees a status value.
 4. **Correct.** The client converges to the server's result for every query. Gaps are repaired. Server-side DLS
    is authoritative; the client never tries to enforce it.
-5. **Small and typed.** Core ≤ 15 kB gzip. Types are generated from the database.
+5. **Typed.** Types are generated from the database. There is no bundle size budget: the maintainer dropped it on 2026-11-13.
 6. **Works in drop-in mode** against a team's existing API (§13).
 
-## 2. Packages and size budgets
+## 2. Packages and entries
 
-| Package / entry | Contents | Budget (min+gzip) |
-|---|---|---|
-| `@canopy/client` | Store, live queries, mutations, WebSocket transport, EJSON-lite, matcher subset, REST query builder | ≤ 15 kB |
-| `@canopy/client/auth` | Built-in auth client (sessions, refresh, OAuth redirects) | ≤ 4 kB |
-| `@canopy/client/fallback` | SSE and long-poll transports (lazy-loaded) | ≤ 2 kB |
-| `@canopy/client/persist` | IndexedDB / AsyncStorage persisters | ≤ 2 kB each |
-| `@canopy/react` | Provider, hooks, `createReactDb` | ≤ 2 kB |
-| `@canopy/vue`, `@canopy/svelte`, `@canopy/solid` | Bindings | ≤ 2 kB each |
+| Package / entry | Contents |
+|---|---|
+| `@canopy/client` | Store, live queries, mutations, WebSocket transport, EJSON-lite, matcher subset, REST query builder |
+| `@canopy/client/auth` | Built-in auth client (sessions, refresh, OAuth redirects) |
+| `@canopy/client/fallback` | SSE and long-poll transports (lazy-loaded) |
+| `@canopy/client/persist` | IndexedDB / AsyncStorage persisters |
+| `@canopy/react` | Provider, hooks, `createReactDb` |
+| `@canopy/vue`, `@canopy/svelte`, `@canopy/solid` | Bindings |
 
-Budgets are enforced in CI with `size-limit` ([11 §7](11-engineering.md#7-cicd)). All packages are ESM-only,
+Bundle size budgets were dropped by the maintainer on 2026-11-13, and CI no longer measures bundle size. All packages are ESM-only,
 `sideEffects: false`, and have no runtime dependencies beyond workspace packages.
 
 ## 3. API tour

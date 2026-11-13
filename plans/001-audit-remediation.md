@@ -955,9 +955,8 @@ private reidentify(): void {
 3. After Bob signs in, a live query by Bob never emits a document that only Alice may read.
 Case 1 must fail on the old code.
 
-**Verify.** `bunx vitest run --project client` -> pass (MongoDB needed for e2e files); `bun run size`
--> exit 0 (the SDK has a size budget in `.size-limit.json`; if it fails by a small amount, STOP and report the
-numbers instead of raising the limit).
+**Verify.** `bunx vitest run --project client` -> pass (MongoDB needed for e2e files). (The bundle size
+budget this step used to check was dropped by the maintainer on 2026-11-13.)
 
 **Commit.** `fix(client): do not replay one user's queued mutations as another user`. Changeset
 `@canopy/client` patch.
@@ -1075,9 +1074,9 @@ what CI runs.
         run: bun tools/repo-check/src/cli.ts commit-msg {1}
   ```
 - `tools/repo-check/src/cli.ts` is tracked; commands `workspace`, `dashes`, `commit-msg <file>`.
-- Root `package.json` scripts include `typecheck`, `lint`, `lint:exports`, `size`, `test:all`.
+- Root `package.json` scripts include `typecheck`, `lint`, `lint:exports`, `test:all`.
 - `.github/workflows/ci.yml` job `check` runs, in order: install, `bunx biome ci .`, `bun run typecheck`,
-  `bun run lint:exports`, `bunx size-limit`, `bun --bun vitest run`. Actions are pinned by commit SHA; keep
+  `bun run lint:exports`, `bun --bun vitest run`. Actions are pinned by commit SHA; keep
   existing pins and copy the pinned `actions/checkout` line already in the file for new jobs.
 
 **Steps.**
@@ -1098,7 +1097,7 @@ what CI runs.
    Keep the existing comment at the top accurate (personal hooks still go in `lefthook-local.yml`). Tell the
    operator in your report that their local file now duplicates these hooks and can be deleted (do not edit it).
 3. In `package.json` add the script
-   `"check": "bun run lint && bun run typecheck && bun run lint:exports && bun run size && bun run test:all"`.
+   `"check": "bun run lint && bun run typecheck && bun run lint:exports && bun run test:all"`.
    No env assignment or shell specific syntax.
 4. In `ci.yml` job `check`, after the install step, add a step `bun tools/repo-check/src/cli.ts workspace dashes`.
    Add a new job `commit-rules` (only `if: github.event_name == 'pull_request'`) with `fetch-depth: 0` on the
@@ -1162,8 +1161,7 @@ If these do not hold, the maintainer changed course again: STOP and report.
      reference it except `lefthook.yml` and CI, which now run `repo-check`, and `knip.json` ignores it.
    - Commands block: replace the comment on `bun run dev` ("arrives with the server") with: there is no root
      `dev` script; `canopy dev --with-mongo` (`packages/cli/src/dev.ts`) starts the replica set, server and
-     Studio. Verify that file exists before writing this. Add `bun run check` (from F19) and `bun run size`
-     (bundle size budgets, a CI gate) and `bun --filter @canopy/rest bench` is already listed; add that CI also
+     Studio. Verify that file exists before writing this. Add `bun run check` (from F19) and `bun --filter @canopy/rest bench` is already listed; add that CI also
      runs the Studio and todo-react Playwright suites, the Docker images job and the changeset check.
 2. `README.md`: replace the status line about Phase 1, rewrite the package table so it lists every directory in
    `packages/` with a one line description taken from its `package.json`/README, remove the claim that `apps/`
@@ -1194,7 +1192,6 @@ All must hold (items you could not do are listed in your report and marked in th
 - [ ] `bun tools/repo-check/src/cli.ts workspace dashes` exits 0.
 - [ ] With MongoDB up and `CANOPY_TEST_MONGODB_URI` set: `bun run test:all` passes with the same number of
       skipped tests as the baseline run before F10 or fewer, and on Bun too: `bun --bun vitest run`.
-- [ ] `bun run size` exits 0.
 - [ ] New tests exist for F1, F2, F3, F4, F5, F6, F7, F8, F9, F12, F13, F14, F15, F16, F17, F20 and F11's
       behavior test; each marked "must fail on old code" was observed failing before its fix (say so in the
       report, with the failing output line).

@@ -17,5 +17,4 @@ sessions that only wait for a resume are dropped before a new connection is refu
 counts against it, so reloading a page many times no longer locks a user out.
 
 The repository gains the `todo-react` example (optimistic, live, offline capable, with Playwright tests of
-multiple tabs, multiple users, conflicts, rollback and offline replay) and bundle size budgets enforced
-with `size-limit` in CI.
+multiple tabs, multiple users, conflicts, rollback and offline replay).

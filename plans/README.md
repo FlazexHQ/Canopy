@@ -31,7 +31,7 @@ Against the roadmap in `docs/plan/12-roadmap.md` (seven phases, 0 to 6):
 |-------|-------|
 | 0 Foundations | Done in practice. Spike write ups exist for S3, S7 and S8 only |
 | 1 DLS core and realtime | Done |
-| 2 Data API and optimistic SDK | Done, except the SDK core size: the budget is 21.25 kB against a 15 kB goal |
+| 2 Data API and optimistic SDK | Done. The 15 kB SDK size goal was dropped by the maintainer on 2026-11-13 |
 | 3 Auth, server, Studio | Mostly done. The usability test with outside developers and the security review are not recorded |
 | 4 GraphQL and frameworks | Code is on `master`. Its entry gate (finding T1 and review O4 closed) was not met |
 | 5 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
@@ -165,7 +165,7 @@ Rule from here on: no new feature package merges while a P0 item is open.
 | E14 | Bench gates for the matcher and realtime fan out, like the existing `packages/rest/bench/check.ts` | Only the REST ratios are gated | S |
 | E15 | Remove dead configuration: `test:integration` in `turbo.json` is defined by no package; `@canopy/policy` in the dev dependencies of `client` deserves a comment or a move of those tests | Survey | S |
 | E16 | API stability before 1.0: API Extractor (or `tsc` declaration snapshots) per published package, so a pull request shows every public surface change | No guard today | M |
-| E17 | Get the SDK core back toward 15 kB or change the goal in the roadmap: measure what the 6 kB is (store, EJSON, matcher), move more behind lazy entry points | `.size-limit.json` allows 21.25 kB | M |
+| E17 | Dropped: size limits removed | The maintainer removed the bundle size budgets on 2026-11-13; `size-limit` and `.size-limit.json` are gone | none |
 
 ### F. Product gaps (P2, each needs a short design first)
 
@@ -202,7 +202,7 @@ and F12 (same files). C2 before C4 and C5. D1 before any public demo instance.
 
 - License and final name (blocks all of B).
 - Whether `docs/`, `tools/` and `plans/` are meant to be tracked (G1).
-- Whether the SDK size goal stays 15 kB (E17).
+- Decided: the SDK size budget is dropped (E17, 2026-11-13).
 - From the earlier plan, still open: read back of every inserted document on bulk insert, and whether SDK
   mutations may use the transaction free fast path.
 - Whether storage (F1) moves ahead of Phase 5 (F4). Recommendation: yes, storage first.
@@ -231,7 +231,7 @@ noted.
 | A1 F4 | Done | Two token tests used key creation as their example write; they now revoke a key |
 | A1 F5 | Done | Found and fixed a related bug: signing in again from a browser whose session was revoked lost the new session (Better Auth's anonymous plugin deleted the cookie) |
 | A2 F15, F16, F12, F7, F6, F11, F8, F9, F13, F14, F17 | Done | F7 and F6 tests need `observerLingerMs` above 0 (the harness default is 0); F11 is behavior preserving, its test is a regression net |
-| A2 F13 | Done, budget exceeded | The SDK core is 21.43 kB against a 21.25 kB budget (21.24 kB before F13 and E7). Not raised; needs a decision (E17) |
+| A2 F13 | Done | Dropped with the size budget: the SDK core was 21.43 kB against a 21.25 kB budget, and the budget was removed on 2026-11-13 |
 | A3 F20 | Closed | Already done on `master`: one encode per page and a native hash; the existing tests cover it |
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
 | A1 F19 | Partly | `bun run check` added. Running `tools/repo-check` from `lefthook.yml` and CI conflicts with `CLAUDE.md` (G1), not done |
@@ -249,6 +249,7 @@ noted.
 | E7 | Done | A failed persist now warns in the console; the six empty `catch` blocks carry their reason |
 | E9 | Not planned | The copies differ (base64 vs base64url, abortable sleep) and the client ones keep the SDK bundle small |
 | E10 | Open | Coverage on Windows reports no files for project filtered runs here, so floors could not be measured; measure on Linux (the CI `mongo` job on 8.0) and set them there. The docs site's Markdown is now excluded from coverage |
+| E17 | Dropped | Size limits removed on 2026-11-13: `size-limit`, `.size-limit.json`, the `size` script and the CI step are gone |
 | E15 | Done | `test:integration` removed; `@canopy/policy` stays a client dev dependency because five e2e tests use it |
 
 Known failures on this machine before and after the work, all 5 s timeouts of tests that spawn a process

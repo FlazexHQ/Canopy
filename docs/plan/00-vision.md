@@ -93,7 +93,6 @@ Concept 2 wraps that core with auth, APIs and a UI. Concept 3 is the client half
 | Security | No open DLS-bypass issues, external audit passed, fuzzing and differential suites running in CI |
 | Fan-out latency | p99 ≤ 25 ms from event to socket at 10k connections and 1k events/s on a 2 vCPU node (see [10 §7](10-operations.md#7-performance-targets-and-benchmarking)) |
 | End-to-end latency | p99 ≤ 150 ms from a write to another client's render, same region |
-| SDK size | Core ≤ 15 kB gzip, React binding ≤ 2 kB gzip |
 | Compatibility | MongoDB 8.0+ replica sets and sharded clusters, MongoDB Atlas; Bun, Node.js 24/26 LTS and Deno, in that priority order, each on Windows, Linux (glibc and musl distributions) and macOS |
 | Docs | Every public API documented; migration guides from Atlas App Services, Parse Server and Firebase |
 

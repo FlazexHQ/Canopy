@@ -8,7 +8,7 @@
 
 The matcher is the hottest code path (events × candidates) and the most security-sensitive one. If it disagrees
 with MongoDB, realtime and REST give different answers, which can mean a data leak. It also ships in the client
-SDK (≤ 15 kB budget) for optimistic predictions, and in the edge worker.
+SDK for optimistic predictions, and in the edge worker.
 
 ## Decision
 
@@ -22,7 +22,7 @@ SDK (≤ 15 kB budget) for optimistic predictions, and in the edge worker.
 - Anything outside the verified set (non-simple collation, `$text`, geo, PCRE-only regex, `$expr`) is never
   matched in-process. It goes to the polling observer on the server, and gets no local prediction on the client.
 - Spike S4 compares this approach with adopting an existing library (for example Mingo or sift) behind the same
-  interface. A library is adopted only if it passes the differential suite and meets the speed and size budgets.
+  interface. A library is adopted only if it passes the differential suite and meets the speed budget.
 
 ## Consequences
 

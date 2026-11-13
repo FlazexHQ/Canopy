@@ -32,8 +32,6 @@ jobs:
         run: bun run lint:exports
       - name: Every public export is documented
         run: bun run lint:docs
-      - name: Bundle size budgets
-        run: bunx size-limit
       - run: bun --bun vitest run
 
   docs:

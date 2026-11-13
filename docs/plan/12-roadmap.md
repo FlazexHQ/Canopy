@@ -121,7 +121,7 @@ gantt
 - Playwright multi-tab and multi-user end-to-end tests (conflicts, rollback, offline replay) green.
 - OpenAPI validates.
 - Write overhead within the targets set by S3.
-- SDK core ≤ 15 kB gzip.
+- SDK core ≤ 15 kB gzip. Dropped: the maintainer removed the size budget on 2026-11-13.
 
 **Status (2026-11-07).** M3 to M11 are implemented on `master` (not pushed). Exit criteria:
 
@@ -131,16 +131,14 @@ gantt
 | Playwright multi-tab and multi-user tests | Green, 7 scenarios, repeated 4× without flakes (`examples/todo-react/e2e`) |
 | OpenAPI validates | Green (OpenAPI 3.1 validator in `packages/rest/test/openapi.test.ts`) |
 | Write overhead within S3 | Met: p99 overhead at 250 writes/s about 0 ms (update) and 3 ms (insert), against ≤ 15 ms |
-| SDK core ≤ 15 kB gzip | **Not met: 20.3 kB** initial load. `size-limit` guards 20.5 kB; the entries `fallback` (1.3 kB), `rest-polling` (2.0 kB), `persist` (0.7 kB) and `@canopy/react` (0.6 kB) meet their budgets. |
+| SDK core ≤ 15 kB gzip | **Dropped.** The core measured 20.3 kB at the time; the maintainer removed the size budget on 2026-11-13. |
 
 Two cuts brought the core from 27.9 kB to 20.3 kB: `@canopy/matcher/lite` drops the regex translator
 (3.7 kB), and the update engine is a separate entry, `@canopy/matcher/update`, that the client imports
 dynamically right after creation (about 4.8 kB of its own), so update layers made in the first moments
 show once it arrives (`client.updateEngine`). What remains is the filter (9 kB minified), the client and
-store (24 kB) and the protocol codec (18 kB). The rest of the gap needs a decision: raise the budget to
-about 21 kB, or ship a client matcher subset that drops rare query operators (those queries would trust the
-server for membership). Moving the persistence logic into `@canopy/client/persist` would save only about
-0.5 kB, since the outbox and layers must stay in the core.
+store (24 kB) and the protocol codec (18 kB). The maintainer dropped the size budget on 2026-11-13, so
+the gap is no longer an open decision.
 
 Deviations from the plan made during Phase 2:
 
@@ -322,7 +320,7 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 
 | ID | Item | Note |
 |---|---|---|
-| O1 | SDK core 20.3 kB against 15 kB | The decision of §3.2 (raise the budget or ship a smaller client matcher) is still open. |
+| O1 | SDK core 20.3 kB against 15 kB | Dropped: the maintainer removed the size budget on 2026-11-13. |
 | O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 5. |
 | O3 | S9 decision | Write up `docs/spikes/S9-single-binary.md` with sizes, startup times and the 3 OS results, and record the decision in §4. |
 | O4 | Phase 3 exit criteria | The usability test and the internal security review need to happen and be recorded here. |
@@ -354,7 +352,7 @@ MongoDB 8.0.34 replica set on Node and on Bun (127 files, 1262 tests), and every
   84.8, `query` 88.7 and 80.3, `realtime` 82.5 and 71.7 (87.5 % lines and 76.4 % branches overall). The
   floors in `vitest.config.ts` sit just under these; the target stays 90 % lines and 80 % branches.
 
-Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O1 to O4.
+Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4.
 
 ### 3.4 Phase 4: GraphQL, ecosystem and developer experience → v0.5 (7 weeks)
 
@@ -391,7 +389,7 @@ skipped; the failing `realtime/test/context.test.ts` case and `cli/test/remote.t
 out) pass when run alone, so both flake only under heavy machine load. On Bun 1,451 of 1,452 pass; the failure is the wall clock
 assertion of T4 in `auth-builtin/test/password.test.ts`. With
 the default 5 s timeout, the slow auth and binary tests time out on a loaded Windows desktop, as they already
-did before Phase 4 (T4). Still open: O1 (the client core is 21.21 kB, the budget was raised to 21.25 kB),
+did before Phase 4 (T4). Still open:
 graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on Cloudflare.
 
 ### 3.5 Phase 5: Scale and edge → v0.6 to v0.9 (9 weeks)
