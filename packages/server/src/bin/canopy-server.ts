@@ -10,6 +10,7 @@ import {
   parseBinaryArgs,
   UsageError,
 } from "@canopy/config/process"
+import { tryPathname } from "@canopy/node-http"
 import { redacting } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
 
@@ -88,7 +89,7 @@ async function listen(canopy: Canopy, port: number): Promise<Listening> {
 async function metricsServer(canopy: Canopy, port: number, runtime: string): Promise<Server> {
   const started = Date.now()
   const server = createServer((request, response) => {
-    if (new URL(request.url ?? "/", "http://localhost").pathname !== "/metrics") {
+    if (tryPathname(request) !== "/metrics") {
       response.statusCode = 404
       response.end()
       return

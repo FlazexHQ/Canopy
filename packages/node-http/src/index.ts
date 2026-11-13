@@ -26,11 +26,30 @@ export interface NodeListenerOptions {
   readonly matches?: (url: URL) => boolean
 }
 
-/** The URL of a request; under Express the original URL, so mounting on a path keeps the base path. */
-export function requestUrl(request: IncomingMessage): URL {
+/**
+ * The URL of a request; under Express the original URL, so mounting on a path keeps the base path. A `Host`
+ * header that does not parse is ignored. Returns `undefined` when the request target itself does not parse
+ * (an empty authority such as `//`), which callers answer with `400`.
+ */
+export function tryRequestUrl(request: IncomingMessage): URL | undefined {
   const original = (request as IncomingMessage & { originalUrl?: unknown }).originalUrl
   const path = typeof original === "string" ? original : (request.url ?? "/")
-  return new URL(path, `http://${request.headers.host ?? "localhost"}`)
+  return (
+    parse(path, `http://${request.headers.host ?? "localhost"}`) ?? parse(path, "http://localhost")
+  )
+}
+
+/** The path of a request, or `undefined` when its target does not parse. */
+export function tryPathname(request: IncomingMessage): string | undefined {
+  return parse(request.url ?? "/", "http://localhost")?.pathname
+}
+
+function parse(path: string, base: string): URL | undefined {
+  try {
+    return new URL(path, base)
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -44,7 +63,12 @@ export function toNodeListener(
   options: NodeListenerOptions = {},
 ): NodeListener {
   return (request, response, next) => {
-    const url = requestUrl(request)
+    const url = tryRequestUrl(request)
+    if (url === undefined) {
+      response.statusCode = 400
+      response.end("Bad request")
+      return
+    }
     if (options.matches !== undefined && !options.matches(url)) {
       if (next !== undefined) next()
       else {

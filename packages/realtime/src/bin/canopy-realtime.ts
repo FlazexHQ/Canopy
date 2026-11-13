@@ -3,6 +3,7 @@ import { createServer } from "node:http"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
+import { tryPathname } from "@canopy/node-http"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
@@ -119,7 +120,7 @@ async function main(): Promise<void> {
     path === "/healthz" || path === "/readyz" ? { status: 200, body: "ok" } : undefined
 
   const metrics = createServer((request, response) => {
-    if (new URL(request.url ?? "/", "http://localhost").pathname !== "/metrics") {
+    if (tryPathname(request) !== "/metrics") {
       response.statusCode = 404
       response.end()
       return
@@ -158,9 +159,10 @@ async function main(): Promise<void> {
     const fallbackTransports = http === undefined ? undefined : toNodeHandler(http)
     const server = createServer((request, response) => {
       const fallback = (): void => {
-        const result = health(new URL(request.url ?? "/", "http://localhost").pathname)
-        response.statusCode = result?.status ?? 404
-        response.end(result?.body ?? "Not found")
+        const path = tryPathname(request)
+        const result = path === undefined ? undefined : health(path)
+        response.statusCode = result?.status ?? (path === undefined ? 400 : 404)
+        response.end(result?.body ?? (path === undefined ? "Bad request" : "Not found"))
       }
       if (fallbackTransports === undefined) fallback()
       else fallbackTransports(request, response, fallback)

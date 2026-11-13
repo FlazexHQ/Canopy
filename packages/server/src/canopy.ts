@@ -15,7 +15,7 @@ import {
   resolveConfig,
 } from "@canopy/config"
 import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
-import { toNodeListener as serveOnNode } from "@canopy/node-http"
+import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
 import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
 import {
   CloseCode,
@@ -308,7 +308,8 @@ async function buildStores(connection: Connection, logger: Logger) {
   }
   /** Records a `node:http` request in the request log once its response is written. */
   const logNode = (request: IncomingMessage, response: ServerResponse): void => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    const path = tryPathname(request)
+    if (path === undefined) return
     const surface = surfaceOf(path)
     if (surface === undefined) return
     const started = performance.now()
@@ -912,7 +913,12 @@ export async function createCanopy(
       const authListener = serveOnNode(authFetch)
       return (request, response) => {
         logNode(request, response)
-        const path = new URL(request.url ?? "/", "http://localhost").pathname
+        const path = tryPathname(request)
+        if (path === undefined) {
+          response.statusCode = 400
+          response.end("Bad request")
+          return
+        }
         if (isAuth(path)) return authListener(request, response)
         if (isAdmin(path)) {
           if (!admin.private) return adminListener(request, response)

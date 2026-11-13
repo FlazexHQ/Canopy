@@ -3,6 +3,14 @@ import type { Duplex } from "node:stream"
 import type { GraphQLError } from "graphql"
 import type { GraphqlHandler } from "./handler.ts"
 
+function pathOf(request: IncomingMessage): string | undefined {
+  try {
+    return new URL(request.url ?? "/", "http://localhost").pathname
+  } catch {
+    return undefined
+  }
+}
+
 /** The subprotocol of graphql-ws. */
 export const GRAPHQL_WS_SUBPROTOCOL = "graphql-transport-ws"
 
@@ -49,7 +57,11 @@ export async function attachGraphqlWs(
       protocols.has(GRAPHQL_WS_SUBPROTOCOL) ? GRAPHQL_WS_SUBPROTOCOL : false,
   })
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    const path = pathOf(request)
+    if (path === undefined) {
+      socket.destroy()
+      return
+    }
     if (path !== handler.path) return
     const protocols = String(request.headers["sec-websocket-protocol"] ?? "")
     if (!protocols.split(",").some((value) => value.trim() === GRAPHQL_WS_SUBPROTOCOL)) return

@@ -1,6 +1,6 @@
 import type { IncomingMessage, Server } from "node:http"
 import type { Duplex } from "node:stream"
-import { type NodeListener, toNodeListener } from "@canopy/node-http"
+import { type NodeListener, toNodeListener, tryPathname } from "@canopy/node-http"
 import { CloseCode, SUBPROTOCOL } from "@canopy/protocol"
 import type { HttpTransport } from "./http-transport.ts"
 import type { Realtime } from "./realtime.ts"
@@ -19,10 +19,6 @@ export interface AttachOptions {
 /** A handle to detach the transport again. */
 export interface Attachment {
   close(): Promise<void>
-}
-
-function pathOf(request: IncomingMessage): string {
-  return new URL(request.url ?? "/", "http://localhost").pathname
 }
 
 /**
@@ -45,7 +41,12 @@ export async function attach(
     handleProtocols: (protocols) => (protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : false),
   })
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    if (pathOf(request) !== path) return
+    const target = tryPathname(request)
+    if (target === undefined) {
+      socket.destroy()
+      return
+    }
+    if (target !== path) return
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (ws.protocol !== SUBPROTOCOL) {
         ws.close(CloseCode.UnsupportedVersion, "unsupported subprotocol")
