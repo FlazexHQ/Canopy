@@ -61,6 +61,39 @@ suite("observer lifecycle with a lingering registry", () => {
     }
   }
 
+  /** Lets snapshot reads run, but holds their results until released. */
+  const holdSnapshots = (): { started(): Promise<void>; release(): void; restore(): void } => {
+    const reader = (engine.realtime as unknown as { reader: { read: Read } }).reader
+    const original = reader.read
+    let started = 0
+    let open: () => void = () => {}
+    const released = new Promise<void>((resolve) => {
+      open = resolve
+    })
+    reader.read = async function (this: unknown, ...args: unknown[]) {
+      const result = await original.apply(this, args)
+      started++
+      await released
+      return result
+    }
+    return {
+      async started() {
+        for (let waited = 0; started === 0 && waited < 5000; waited += 20) await sleep(20)
+        expect(started).toBeGreaterThan(0)
+      },
+      release: () => open(),
+      restore() {
+        reader.read = original
+      },
+    }
+  }
+
+  /** Waits until an unrelated live subscription saw the document leave, so the engine processed the event. */
+  const processed = async (probe: TestClient, id: string, docId: number): Promise<void> => {
+    await probe.until(() => !probe.ids(id).map(Number).includes(docId))
+    await sleep(50)
+  }
+
   const failed = (client: TestClient, id: string): boolean =>
     client.messages.some((m) => m.t === "nosub" && m.s === id)
 
@@ -118,6 +151,50 @@ suite("observer lifecycle with a lingering registry", () => {
       await third.subscribe("c", "todos", { filter })
       expect(third.ready.has("c")).toBe(true)
       expect(third.ids("c").map(Number)).toEqual([2])
+    } finally {
+      snapshots.restore()
+    }
+  })
+
+  it("does not serve a document deleted while the snapshot was loading", async () => {
+    const docs = engine.db.collection("todos")
+    await docs.insertOne({ _id: 10 as never, ownerId: "alice", title: "ghost" })
+    const probe = await connect()
+    await probe.subscribe("all", "todos")
+    expect(probe.ids("all").map(Number)).toContain(10)
+    const snapshots = holdSnapshots()
+    try {
+      const client = await connect()
+      client.send({ t: "sub", id: "g", c: "todos", q: { filter: { title: "ghost" } } } as never)
+      await snapshots.started()
+      await docs.deleteOne({ _id: 10 as never })
+      await processed(probe, "all", 10)
+      snapshots.release()
+      await client.until(() => client.ready.has("g"))
+      await sleep(100)
+      expect(client.ids("g").map(Number)).toEqual([])
+    } finally {
+      snapshots.restore()
+    }
+  })
+
+  it("does not serve a document that left the query while the snapshot was loading", async () => {
+    const docs = engine.db.collection("todos")
+    await docs.insertOne({ _id: 11 as never, ownerId: "alice", title: "leaving" })
+    const probe = await connect()
+    await probe.subscribe("mine", "todos", { filter: { title: { $exists: true } } })
+    expect(probe.ids("mine").map(Number)).toContain(11)
+    const snapshots = holdSnapshots()
+    try {
+      const client = await connect()
+      client.send({ t: "sub", id: "l", c: "todos", q: { filter: { title: "leaving" } } } as never)
+      await snapshots.started()
+      await docs.updateOne({ _id: 11 as never }, { $set: { ownerId: "bob" } })
+      await processed(probe, "mine", 11)
+      snapshots.release()
+      await client.until(() => client.ready.has("l"))
+      await sleep(100)
+      expect(client.ids("l").map(Number)).toEqual([])
     } finally {
       snapshots.restore()
     }

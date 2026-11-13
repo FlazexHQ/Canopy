@@ -49,6 +49,12 @@ export interface ObserverListener {
 export interface MembershipHooks {
   memberAdded(observer: Observer, key: string): void
   memberRemoved(observer: Observer, key: string): void
+  /**
+   * Called when the observer starts and stops reading a snapshot. While it reads, it must see every event of
+   * its collection: it does not know its members yet, and a delete or an update that moves a document out of
+   * the query would otherwise miss it and leave the document from the older snapshot in place.
+   */
+  buffering(observer: Observer, on: boolean): void
 }
 
 /** The observer types: in process filter, sorted window, and MongoDB polling. */
@@ -205,6 +211,7 @@ export abstract class Observer {
       return
     }
     this.refreshing = true
+    this.hooks.buffering(this, true)
     const before = initial ? new Map<string, Member>() : new Map(this.visible())
     this.reader
       .read({
@@ -216,6 +223,7 @@ export abstract class Observer {
       .then(
         ({ docs, ct }) => {
           this.refreshing = false
+          this.hooks.buffering(this, false)
           if (this.state === "failed") return
           const pending = this.buffered
           this.buffered = []
@@ -251,6 +259,7 @@ export abstract class Observer {
         },
         (error: unknown) => {
           this.refreshing = false
+          this.hooks.buffering(this, false)
           this.fail(
             error instanceof CanopyError
               ? error
@@ -275,6 +284,8 @@ export abstract class Observer {
     if (this.state === "failed") return
     this.state = "failed"
     this.failure = error
+    this.buffered = []
+    this.hooks.buffering(this, false)
     for (const key of [...this.trackedKeys()]) this.hooks.memberRemoved(this, key)
     const all = [...this.listeners, ...this.waiting]
     this.listeners.clear()

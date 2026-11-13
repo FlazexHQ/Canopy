@@ -52,6 +52,27 @@ describe("ObserverRegistry", () => {
     expect([...registry.candidates(deleted("d1"))]).toEqual([])
   })
 
+  it("routes every event of its collection to an observer only while it reads a snapshot", () => {
+    const registry = new ObserverRegistry()
+    const loading = observer("loading")
+    const live = observer("live")
+    const elsewhere = { ...observer("elsewhere"), query: { ...observer("x").query, coll: "notes" } }
+    registry.add(loading)
+    registry.add(live)
+    registry.add(elsewhere as Observer)
+    registry.buffering(loading, true)
+    registry.buffering(elsewhere as Observer, true)
+    expect([...registry.candidates(deleted("d1"))]).toEqual([loading])
+    registry.buffering(loading, false)
+    expect([...registry.candidates(deleted("d1"))]).toEqual([])
+
+    registry.buffering(loading, true)
+    registry.remove(loading)
+    expect([...registry.candidates(deleted("d1"))]).toEqual([])
+    registry.buffering(loading, true)
+    expect([...registry.candidates(deleted("d1"))]).toEqual([])
+  })
+
   it("forgets documents an observer released before it was removed", () => {
     const registry = new ObserverRegistry()
     const a = observer("a")

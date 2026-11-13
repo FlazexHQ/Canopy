@@ -82,6 +82,8 @@ interface CollectionIndex {
   readonly byPath: Map<string, Set<Observer>>
   readonly polling: Set<Observer>
   readonly docRefs: Map<string, Set<Observer>>
+  /** Observers reading a snapshot, which see every event of the collection until they are done. */
+  readonly buffering: Set<Observer>
 }
 
 /**
@@ -105,6 +107,7 @@ export class ObserverRegistry implements MembershipHooks {
         byPath: new Map(),
         polling: new Set(),
         docRefs: new Map(),
+        buffering: new Set(),
       }
       this.indexes.set(coll, index)
     }
@@ -175,6 +178,7 @@ export class ObserverRegistry implements MembershipHooks {
     const index = this.index(observer.query.coll)
     index.polling.delete(observer)
     index.unindexed.delete(observer)
+    index.buffering.delete(observer)
     const conjunct = this.conjuncts.get(observer)
     if (conjunct !== undefined) {
       const byKey = index.byValue.get(conjunct.field)
@@ -214,6 +218,13 @@ export class ObserverRegistry implements MembershipHooks {
     held.add(key)
   }
 
+  buffering(observer: Observer, on: boolean): void {
+    if (on && this.observers.get(observer.key) !== observer) return
+    const index = this.index(observer.query.coll)
+    if (on) index.buffering.add(observer)
+    else index.buffering.delete(observer)
+  }
+
   memberRemoved(observer: Observer, key: string): void {
     const index = this.index(observer.query.coll)
     const set = index.docRefs.get(key)
@@ -224,8 +235,8 @@ export class ObserverRegistry implements MembershipHooks {
 
   /**
    * Returns the observers an event can affect: those that hold the document, those whose
-   * equality conjunct the new document satisfies, unindexed ones, polling ones, and for updates without a
-   * post image, those that read a changed field.
+   * equality conjunct the new document satisfies, unindexed ones, polling ones, those reading a snapshot,
+   * and for updates without a post image, those that read a changed field.
    */
   candidates(event: NormalizedEvent): Set<Observer> {
     const index = this.indexes.get(event.coll)
@@ -233,6 +244,7 @@ export class ObserverRegistry implements MembershipHooks {
     if (index === undefined) return out
     for (const observer of index.docRefs.get(event.key) ?? []) out.add(observer)
     for (const observer of index.polling) out.add(observer)
+    for (const observer of index.buffering) out.add(observer)
     if (event.op === "delete") return out
     const post = event.post
     if (post !== undefined && post !== null) {
