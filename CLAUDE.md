@@ -37,8 +37,9 @@ locally, but do not commit them or link to them from committed files.
 
 `tools/` is still not a Bun workspace member (it would change `bun.lock` and break
 `bun install --frozen-lockfile`). Each tool under `tools/` is a standalone package with its own lockfile and
-install, and the root `tsconfig.json`, `vitest.config.ts` and `knip.json` (which ignores `tools/**`) do not
-reference it.
+install. The root `tsconfig.json`, `vitest.config.ts` and `knip.json` (which ignores `tools/**`) do not
+reference it; only `lefthook.yml` and the CI `check` and `commit-rules` jobs run `tools/repo-check` (it resolves
+`typescript` from the root install, so it needs no install of its own).
 
 Fixed decisions (do not change without the user saying so):
 
@@ -147,9 +148,9 @@ the same scripts on Bun. Their tests spawn `canopy-realtime` from source with `-
 Adding a package: create `packages/<name>/` by hand with `package.json` (`@canopy/<name>`, `"type": "module"`),
 a `tsconfig.json` that extends one of the root `tsconfig.{server,universal,web,edge}.json` and sets `rootDir`,
 and `vitest.config.ts`; then add it to `references` in the root `tsconfig.json`. Shared versions go in the
-`catalog` of the root `package.json`. The local checker enforces this:
-`bun tools/repo-check/src/cli.ts workspace dashes` (also run by the `lefthook-local.yml` hooks, with
-`commit-msg` checking Conventional Commits, sign off and dashes).
+`catalog` of the root `package.json`. The repository checker enforces this:
+`bun tools/repo-check/src/cli.ts workspace dashes` (run by the tracked `lefthook.yml` pre-commit hook and the CI
+`check` job; the `commit-msg` hook and the CI `commit-rules` job check Conventional Commits, sign off and dashes).
 
 ## Architecture (big picture)
 

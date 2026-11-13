@@ -27,6 +27,8 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
+      - name: Repository rules (workspace layout and dashes)
+        run: bun tools/repo-check/src/cli.ts workspace dashes
       - run: bun run typecheck
       - name: Unused exports
         run: bun run lint:exports
@@ -303,3 +305,23 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bunx changeset status --since=origin/${{ github.base_ref }}
+
+  commit-rules:
+    name: Commit messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Conventional Commits, sign off and dashes
+        run: |
+          for sha in $(git rev-list --no-merges "origin/${{ github.base_ref }}..HEAD"); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
+            bun tools/repo-check/src/cli.ts commit-msg "$RUNNER_TEMP/message"
+          done
