@@ -362,6 +362,7 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
             passkey({
               rpID: new URL(settings.publicUrl).hostname,
               rpName: settings.appName,
+              authenticatorSelection: { userVerification: "required", residentKey: "preferred" },
               origin: [
                 ...new Set([new URL(settings.publicUrl).origin, ...settings.trustedOrigins]),
               ],

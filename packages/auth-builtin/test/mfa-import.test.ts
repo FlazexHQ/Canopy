@@ -108,6 +108,16 @@ describeMongo("second factors, passkeys and user import", () => {
     expect((await h.client().get("/auth/v1/passkey/generate-register-options")).status).toBe(401)
   })
 
+  it("requires user verification for passkeys, because a passkey sign in mints aal2", async () => {
+    const web = h.client()
+    await signUpVerified(h, web, "uv@example.com", "uv password 1234")
+    const register = await web.get("/auth/v1/passkey/generate-register-options")
+    expect(register.body["authenticatorSelection"]).toMatchObject({ userVerification: "required" })
+    const authenticate = await h.client().get("/auth/v1/passkey/generate-authenticate-options")
+    expect(authenticate.status).toBe(200)
+    expect(authenticate.body["userVerification"]).toBe("required")
+  })
+
   it("imports users with legacy hashes and identities, then rehashes on the first sign in", {
     timeout: 30_000,
   }, async () => {
