@@ -308,7 +308,7 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 
 | ID | P | Gap | Proposal |
 |---|---|---|---|
-| T1 | P1 | Bun is the primary runtime, yet `bunHandlers` (the `Bun.serve` WebSocket path used by `canopy-server` and `canopy-realtime` on Bun) has no test, and the CI binary smoke test only calls REST. | A test under `bun --bun vitest` that serves `bunHandlers` and runs a subscribe, mutate and resume round trip; add a WebSocket step to the binary smoke test. |
+| T1 | P1 | Bun is the primary runtime, yet `bunHandlers` (the `Bun.serve` WebSocket path used by `canopy-server` and `canopy-realtime` on Bun) has no test, and the CI binary smoke test only calls REST. | **Done 2026-11-13** (`packages/realtime/test/bun-handlers.test.ts`, `deploy/binary/ws-smoke.ts`). A test under `bun --bun vitest` that serves `bunHandlers` and runs a subscribe, mutate and resume round trip; add a WebSocket step to the binary smoke test. |
 | T2 | P2 | Both binaries have 0 % measured coverage: argument parsing, signal handling and shutdown are only checked by the Linux smoke test (`"msg":"stopped"`); on Windows CI the process is killed without checking a clean stop. | After D3, unit test the shared module; on Windows send the `"shutdown"` IPC message and check the drain. |
 | T3 | P1 | Revocation store failure paths (R1). | Tests that inject a stream error, a failing reload and failing writes, and check a revocation inserted during a reload is still applied. |
 | T4 | P2 | Wall clock assertions: `packages/auth-builtin/test/password.test.ts:131` (medians within 20 ms) failed in both coverage runs; `flows.test.ts:391` (under 380 ms) is similar. They will flake on loaded CI runners. | Measure the work done (for example the number of hash calls on both paths) instead of time, or run timing tests serially with more samples and a relative bound. |
@@ -323,13 +323,18 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 | O1 | SDK core 20.3 kB against 15 kB | Dropped: the maintainer removed the size budget on 2026-11-13. |
 | O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 5. |
 | O3 | S9 decision | Write up `docs/spikes/S9-single-binary.md` with sizes, startup times and the 3 OS results, and record the decision in §4. |
-| O4 | Phase 3 exit criteria | The usability test and the internal security review need to happen and be recorded here. |
+| O4 | Phase 3 exit criteria | The internal security review is recorded in [reviews/2026-11-13-phase-4-security-review.md](../reviews/2026-11-13-phase-4-security-review.md). The usability test (plan C14) has not been run. |
 
 #### Gate before Phase 4
 
 Phase 4 starts when R1, R2 (implemented or cut), T1, T3 and T5 are done and O4 is recorded. The P2 items
 fit into Phase 4: D1 to D3 and C1 to C4 should land before GraphQL adds another entry point on top of
 the admin API and the Node bridges.
+
+**Status (2026-11-13):** R1, R2, T3 and T5 were done on 2026-11-07, T1 on 2026-11-13, and the security review of
+O4 is recorded. The usability test of O4 is still open, so the gate is met except for that test; the
+maintainers decide whether to run it or to waive it. Phase 4 code was already on `master` before the gate was
+met; the review of that code found no DLS bypass and six defects, all fixed.
 
 #### Progress (2026-11-07, stopped here)
 
@@ -352,7 +357,7 @@ MongoDB 8.0.34 replica set on Node and on Bun (127 files, 1262 tests), and every
   84.8, `query` 88.7 and 80.3, `realtime` 82.5 and 71.7 (87.5 % lines and 76.4 % branches overall). The
   floors in `vitest.config.ts` sit just under these; the target stays 90 % lines and 80 % branches.
 
-Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4.
+Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4. (T1 and the security review of O4 were closed on 2026-11-13, see the status above.)
 
 ### 3.4 Phase 4: GraphQL, ecosystem and developer experience → v0.5 (7 weeks)
 

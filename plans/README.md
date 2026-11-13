@@ -236,7 +236,7 @@ noted.
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
 | A1 F19 | Done | `bun run check`, the repo-check hooks in `lefthook.yml`, a dash and workspace step in the CI `check` job and a `commit-rules` job for pull requests. The ignored `lefthook-local.yml` now duplicates the hooks and can be deleted |
 | A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` and `tools/repo-check` |
-| A5 | Open | The security review record is a maintainer task |
+| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The usability test half of O4 (C14) is still open |
 | D2 | Done | `/readyz` pings MongoDB (2 s timeout, 1 s cache) and checks the change stream, on `canopy-server` and `canopy-realtime` |
 | D3 | Done | Sessions waiting for a resume end at once; `close()` with connected clients can now take up to `drainWindow` |
 | D4 | Done | |
