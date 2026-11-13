@@ -239,6 +239,10 @@ export class EngineUserAdmin implements UserAdmin {
     if (input.userMetadata !== undefined) data["userMetadata"] = { ...input.userMetadata }
     const hash =
       input.password === undefined ? undefined : await context.hashPassword(input.password)
+    const sensitive =
+      input.password !== undefined ||
+      input.roles !== undefined ||
+      (email !== undefined && email !== existing.email)
     let updated: EngineUser
     try {
       updated = await context.transaction(async () => {
@@ -257,6 +261,7 @@ export class EngineUserAdmin implements UserAdmin {
             })
           else await context.internalAdapter.updatePassword(id, hash)
         }
+        if (sensitive) await context.internalAdapter.deleteUserSessions(id)
         return user
       })
     } catch (error: unknown) {
@@ -264,6 +269,7 @@ export class EngineUserAdmin implements UserAdmin {
         throw new ConflictError("A user with this email exists", { cause: error })
       throw error
     }
+    if (sensitive) await this.revokeEverywhere(id, "changed")
     return toAuthUser(updated)
   }
 

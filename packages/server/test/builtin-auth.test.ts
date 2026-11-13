@@ -279,6 +279,7 @@ suite("createCanopy with built in auth", () => {
     expect(list.total).toBe(1)
     expect(list.data[0]?.id).toBe(carolId)
     expect((await admin("GET", `/users/${carolId}`)).status).toBe(200)
+    const before = await socketFor(await carol.token())
     const patched = await admin("PATCH", `/users/${carolId}`, {
       roles: ["editor"],
       appMetadata: { tier: "pro" },
@@ -288,7 +289,17 @@ suite("createCanopy with built in auth", () => {
     const sessions = (await (await admin("GET", `/users/${carolId}/sessions`)).json()) as {
       data: unknown[]
     }
-    expect(sessions.data.length).toBeGreaterThanOrEqual(1)
+    expect(sessions.data).toEqual([])
+    expect(await within(before.closed, 3000)).toBe(4001)
+    expect((await carol.send("GET", "/auth/v1/token")).status).toBe(401)
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    const password = "carol@example.com password"
+    const again = await carol.send("POST", "/auth/v1/sign-in/email", {
+      email: "carol@example.com",
+      password,
+    })
+    expect(again.status).toBe(200)
+    expect(decodeJwt(await carol.token())["roles"]).toEqual(["editor"])
 
     const imported = await admin("POST", "/users/import", {
       users: [
