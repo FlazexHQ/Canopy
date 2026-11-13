@@ -131,6 +131,34 @@ const SESSION_STARTING = [
  * back into a cookie. Only those cookie names pass; they are signed by the engine, so a client cannot
  * forge one.
  */
+/**
+ * Reads a request body of at most `max` bytes, stopping as soon as it is exceeded, so a body without a
+ * `Content-Length` cannot make the server buffer more than the limit. Returns `null` beyond the limit.
+ */
+async function readLimited(request: Request, max: number): Promise<ArrayBuffer | null> {
+  if (request.body === null) return new ArrayBuffer(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => {})
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes.buffer
+}
+
 function bridgeCeremonyCookies(headers: Headers): void {
   const carried = headers.get(CEREMONY_REQUEST_HEADER)
   headers.delete(CEREMONY_REQUEST_HEADER)
@@ -503,8 +531,8 @@ class BetterAuthProvider implements BuiltinAuth {
     const body =
       request.method === "GET" || request.method === "HEAD"
         ? undefined
-        : await request.arrayBuffer()
-    if (body !== undefined && body.byteLength > MAX_BODY_BYTES)
+        : await readLimited(request, MAX_BODY_BYTES)
+    if (body === null)
       return failure(ErrorCode.PayloadTooLarge, 413, "The request body is too large")
     const ip = resolveClientAddress(
       request.headers,

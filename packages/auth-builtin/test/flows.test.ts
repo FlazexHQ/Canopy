@@ -64,6 +64,28 @@ describeMongo("built in auth flows", () => {
     await idpServer?.close()
   })
 
+  it("stops reading a body without a length once it passes the limit", async () => {
+    let pulled = 0
+    const chunk = new Uint8Array(16 * 1024).fill(32)
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.byteLength
+        if (pulled > 64 * 1024 * 1024) controller.close()
+        else controller.enqueue(chunk)
+      },
+    })
+    const response = await h.auth.handler(
+      new Request(`${h.url}/auth/v1/sign-in/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: APP_ORIGIN },
+        body: endless,
+        duplex: "half",
+      } as RequestInit),
+    )
+    expect(response.status).toBe(413)
+    expect(pulled).toBeLessThan(1024 * 1024)
+  })
+
   it("serves the JWKS on every path with caching, the standby key included", async () => {
     const replies = await Promise.all(
       ["/.well-known/jwks.json", "/auth/v1/jwks", "/auth/v1/.well-known/jwks.json"].map((path) =>
