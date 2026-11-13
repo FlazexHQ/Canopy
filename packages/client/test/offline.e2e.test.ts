@@ -202,6 +202,77 @@ suite("offline queue and persistence", () => {
     expect((await rows().findOne({ _id: 1 }))?.["title"]).toBe("by alice")
   })
 
+  /** A token source whose user can be switched; Alice's sign in can be held so her queue is never sent. */
+  const switchable = (holdAlice: boolean) => {
+    let user = "alice"
+    let calls = 0
+    const listeners = new Set<() => void>()
+    return {
+      source: {
+        getToken: (): string | undefined | Promise<string | undefined> => {
+          calls++
+          if (user === "alice" && holdAlice && calls > 1) return new Promise(() => {})
+          return tokens[user]
+        },
+        onChange: (listener: () => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+      },
+      switchTo(next: string) {
+        user = next
+        for (const listener of listeners) listener()
+      },
+    }
+  }
+
+  it("does not send one user's queued mutations as the next user", async () => {
+    const persist = memoryPersister()
+    const auth = switchable(true)
+    const client = open({ persist, auth: auth.source })
+    await sleep(50)
+    const queued = client.insert("todos", { _id: 9, ownerId: "alice", title: "alice's" })
+    await sleep(100)
+    expect(client.connectionStatus).not.toBe("live")
+    expect((await persist.entries("mutations")).length).toBe(1)
+    auth.switchTo("bob")
+    await expect(queued).rejects.toMatchObject({ code: "CANOPY_UNAUTHORIZED" })
+    await until(() => client.connectionStatus === "live")
+    await sleep(300)
+    expect(client.pendingMutations).toBe(0)
+    expect(client.store.pendingLayers).toBe(0)
+    expect(await rows().countDocuments({ _id: 9 })).toBe(0)
+    expect((await persist.entries("mutations")).length).toBe(1)
+    void client.insert("todos", { _id: 10, ownerId: "bob", title: "bob's" })
+    await until(() => client.pendingMutations === 0)
+    expect((await rows().findOne({ _id: 10 }))?.["ownerId"]).toBe("bob")
+
+    const alice = open({ persist })
+    await until(() => alice.connectionStatus === "live" && alice.pendingMutations === 0)
+    expect(await rows().findOne({ _id: 9 })).toEqual({
+      _id: 9,
+      ownerId: "alice",
+      title: "alice's",
+    })
+    await sleep(50)
+    expect(await persist.entries("mutations")).toEqual([])
+  })
+
+  it("shows the next user none of the previous user's documents once its queries are ready", async () => {
+    const auth = switchable(false)
+    const client = open({ auth: auth.source })
+    const live = client.from("todos").find({})
+    let seen: readonly unknown[] = []
+    live.subscribe((state) => {
+      seen = state.data
+    })
+    await until(() => seen.length === 1)
+    auth.switchTo("bob")
+    await until(() => client.connectionStatus === "live" && seen.length === 0)
+    await sleep(200)
+    expect(seen).toEqual([])
+  })
+
   it("holds back mutations older than the idempotency window and lets the app retry or discard them", async () => {
     const persist = memoryPersister()
     const old = Date.now() - 21 * 3_600_000

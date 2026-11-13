@@ -397,14 +397,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       (engine) => this.store.useUpdater((doc, update) => engine.applyUpdate(doc, update)),
       () => {},
     )
-    if (options.persist !== undefined) {
-      this.restoring = this.restore(options.persist)
-        .catch(() => {})
-        .finally(() => {
-          this.restoring = undefined
-          this.pump()
-        })
-    }
+    if (options.persist !== undefined) this.track(this.restore(options.persist))
     this.watchLifecycle()
     this.stopAuth = options.auth?.onChange?.(() => this.reidentify())
     this.connect()
@@ -415,8 +408,34 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     return this.options.auth
   }
 
+  /** Holds back sending (and persisting) mutations until `work` settles. */
+  private track(work: Promise<void>): void {
+    const restoring: Promise<void> = work
+      .catch(() => {})
+      .finally(() => {
+        if (this.restoring !== restoring) return
+        this.restoring = undefined
+        this.pump()
+      })
+    this.restoring = restoring
+  }
+
   /** Starts a fresh session as the current user: the server refuses `auth` frames that switch subject. */
   private reidentify(): void {
+    const previous = this.scope
+    const before = this.restoring
+    this.track(
+      (async () => {
+        await before
+        if ((await this.subject()) === previous) return
+        // The previous user's queue must not be sent as this user: it stays persisted for their return.
+        this.abandon(ErrorCode.Unauthorized, "The user changed")
+        this.stale = []
+        for (const listener of this.staleListeners) listener(this.stale)
+        if (this.options.persist === undefined) this.scope = await this.subject()
+        else await this.restore(this.options.persist)
+      })(),
+    )
     this.sid = undefined
     const socket = this.socket
     if (socket !== undefined) {
@@ -429,10 +448,23 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     this.connect()
   }
 
+  /** Drops every queued mutation's optimistic layer and rejects its promise. */
+  private abandon(code: ErrorCode, reason: string): void {
+    this.inFlight = 0
+    for (const pending of this.outbox.splice(0)) {
+      this.store.dropLayer(pending.message.id)
+      pending.reject(new CanopyError(code, `${reason} before the server confirmed the mutation`))
+    }
+  }
+
+  private async subject(): Promise<string> {
+    const sub = claims(await this.options.auth?.getToken()).sub
+    return typeof sub === "string" ? sub : "anon"
+  }
+
   /** Brings persisted mutations back: recent ones are queued again, older ones become stale. */
   private async restore(persist: Persister): Promise<void> {
-    const sub = claims(await this.options.auth?.getToken()).sub
-    this.scope = typeof sub === "string" ? sub : "anon"
+    this.scope = await this.subject()
     const prefix = `${this.scope}\u0000`
     const cutoff = Date.now() - ((this.options.mutationTtlMs ?? 24 * HOUR) - 4 * HOUR)
     const restored: PendingMutation[] = []
@@ -1280,15 +1312,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       this.write(this.socket, encodeMessage({ t: "bye" }))
     this.socket?.close(1000, "bye")
     this.store.dispose()
-    for (const pending of this.outbox.splice(0)) {
-      this.store.dropLayer(pending.message.id)
-      pending.reject(
-        new CanopyError(
-          ErrorCode.Unavailable,
-          "The client was closed before the server confirmed the mutation",
-        ),
-      )
-    }
+    this.abandon(ErrorCode.Unavailable, "The client was closed")
     this.setStatus("closed")
   }
 }
