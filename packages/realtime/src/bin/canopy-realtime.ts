@@ -8,6 +8,7 @@ import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
 import { type Logger, redacting } from "../logger.ts"
+import { readinessCheck } from "../readiness.ts"
 import { createRealtime, type RealtimeOptions } from "../realtime.ts"
 import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../transports.ts"
 
@@ -116,8 +117,18 @@ async function main(): Promise<void> {
         })
       : undefined
   const { port, metricsPort } = config.server
-  const health = (path: string): { status: number; body: string } | undefined =>
-    path === "/healthz" || path === "/readyz" ? { status: 200, body: "ok" } : undefined
+  const readiness = readinessCheck({
+    mongo: options.mongo,
+    changeStream: () => realtime.changeStreamOpen,
+  })
+  const health = async (path: string): Promise<{ status: number; body: string } | undefined> => {
+    if (path === "/healthz") return { status: 200, body: "ok" }
+    if (path !== "/readyz") return undefined
+    const state = await readiness()
+    return state.ready
+      ? { status: 200, body: "ok" }
+      : { status: 503, body: `not ready: ${state.reason ?? "unknown"}` }
+  }
 
   const metrics = createServer((request, response) => {
     if (tryPathname(request) !== "/metrics") {
@@ -133,8 +144,8 @@ async function main(): Promise<void> {
   const bun = (
     globalThis as { Bun?: { serve(options: Record<string, unknown>): { stop(): void } } }
   ).Bun
-  const notFound = (path: string): Response => {
-    const result = health(path)
+  const notFound = async (path: string): Promise<Response> => {
+    const result = await health(path)
     return new Response(result?.body ?? "Not found", { status: result?.status ?? 404 })
   }
   let stopServer: () => Promise<void>
@@ -160,9 +171,10 @@ async function main(): Promise<void> {
     const server = createServer((request, response) => {
       const fallback = (): void => {
         const path = tryPathname(request)
-        const result = path === undefined ? undefined : health(path)
-        response.statusCode = result?.status ?? (path === undefined ? 400 : 404)
-        response.end(result?.body ?? (path === undefined ? "Bad request" : "Not found"))
+        void (path === undefined ? Promise.resolve(undefined) : health(path)).then((result) => {
+          response.statusCode = result?.status ?? (path === undefined ? 400 : 404)
+          response.end(result?.body ?? (path === undefined ? "Bad request" : "Not found"))
+        })
       }
       if (fallbackTransports === undefined) fallback()
       else fallbackTransports(request, response, fallback)

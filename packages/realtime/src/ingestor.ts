@@ -101,6 +101,11 @@ export class Ingestor {
     return this.lastCt
   }
 
+  /** Whether the stream is running and open (not between a failure and its reopening). */
+  get streaming(): boolean {
+    return this.running && this.stream !== undefined && !this.stream.closed
+  }
+
   /** Opens the stream and starts processing. Resolves once the stream is open. */
   async start(): Promise<void> {
     this.running = true

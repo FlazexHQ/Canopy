@@ -41,6 +41,7 @@ export {
   type PolicySource,
   staticPolicies,
 } from "./policy-source.ts"
+export { type Readiness, type ReadinessOptions, readinessCheck } from "./readiness.ts"
 export {
   type ConnectionHandler,
   type ConnectionInfo,

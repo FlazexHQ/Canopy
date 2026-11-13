@@ -38,6 +38,7 @@ import {
   type Logger,
   type PolicySource,
   type Realtime,
+  readinessCheck,
   silentLogger,
   staticPolicies,
   toNodeHandler,
@@ -853,11 +854,18 @@ export async function createCanopy(
   const { builtin } = auth
   const { logResponse, logNode } = stores
   let closing = false
+  const readiness = readinessCheck({
+    mongo: connection.mongo,
+    ...(realtime === undefined ? {} : { changeStream: () => realtime.changeStreamOpen }),
+  })
 
-  const health = (path: string): Response | undefined => {
-    if (path === "/healthz") return plain(200, "ok")
-    if (path === "/readyz") return closing ? plain(503, "draining") : plain(200, "ready")
-    return undefined
+  const health = (path: string): Promise<Response> | undefined => {
+    if (path === "/healthz") return Promise.resolve(plain(200, "ok"))
+    if (path !== "/readyz") return undefined
+    if (closing) return Promise.resolve(plain(503, "draining"))
+    return readiness().then((state) =>
+      state.ready ? plain(200, "ready") : plain(503, `not ready: ${state.reason ?? "unknown"}`),
+    )
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
   const isGraphql = (path: string): boolean =>
@@ -881,7 +889,9 @@ export async function createCanopy(
     if (rest !== undefined && isRest(path)) return rest.fetch(request)
     if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request)
     if (http?.matches(request) === true) return http.fetch(request)
-    return health(path) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
+    return (
+      (await health(path)) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
+    )
   }
 
   const fetch = async (
@@ -932,9 +942,16 @@ export async function createCanopy(
         const notRealtime = (): void => {
           const answer = health(path)
           if (answer !== undefined) {
-            response.statusCode = answer.status
-            response.setHeader("content-type", "text/plain; charset=utf-8")
-            void answer.text().then((body) => response.end(body))
+            void answer
+              .then(async (result) => {
+                response.statusCode = result.status
+                response.setHeader("content-type", "text/plain; charset=utf-8")
+                response.end(await result.text())
+              })
+              .catch(() => {
+                response.statusCode = 500
+                response.end()
+              })
             return
           }
           if (nodeOptions.fallback !== undefined) {

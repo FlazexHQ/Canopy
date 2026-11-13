@@ -728,6 +728,11 @@ export class Realtime {
     }
   }
 
+  /** Whether the engine's change stream is open, for readiness probes. */
+  get changeStreamOpen(): boolean {
+    return this.ingestor.streaming
+  }
+
   /** Accepts a new connection from any transport. */
   connect(socket: RealtimeSocket): ConnectionHandler {
     let state: SessionState | undefined

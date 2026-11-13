@@ -65,7 +65,7 @@ connects, with every problem listed.
 | `/auth/v1`            | Built in auth                                        |
 | `/admin/v1`           | The admin API                                        |
 | `/studio`             | [Studio](/guides/studio/)                            |
-| `/healthz`, `/readyz` | Liveness and readiness                               |
+| `/healthz`, `/readyz` | Liveness (always `200`), and readiness: `503` while MongoDB does not answer a ping, the change stream is down or the server drains |
 | `/metrics`            | Prometheus metrics on the metrics port               |
 
 ## Create the first admin
