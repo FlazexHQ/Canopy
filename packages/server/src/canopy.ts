@@ -52,6 +52,7 @@ import {
   type RestHandler,
   SchemaCache,
   toNodeListener,
+  type WriteEvent,
   WritePath,
 } from "@canopy/rest"
 import { createStudioHandler } from "@canopy/studio"
@@ -287,6 +288,24 @@ async function connect(config: ResolvedConfig, options: CreateCanopyOptions, log
 
 type Connection = Awaited<ReturnType<typeof connect>>
 
+/** Records a committed data plane write in the audit log, without its documents. */
+function auditWrite(audit: AuditLog, logger: Logger): (event: WriteEvent) => void {
+  return (event) => {
+    audit
+      .record({
+        action: `data.${event.op}`,
+        actor: { type: "user", id: event.subject },
+        target: { collection: event.collection, ids: event.ids },
+        details: {
+          roles: event.roles,
+          ct: event.ct,
+          ...(event.mutationId === undefined ? {} : { mutationId: event.mutationId }),
+        },
+      })
+      .catch((error: unknown) => logger.error({ err: error }, "could not audit a write"))
+  }
+}
+
 /** The audit log, the request log and the runtime settings, reread every few seconds. */
 async function buildStores(connection: Connection, logger: Logger) {
   const { meta } = connection
@@ -417,6 +436,7 @@ async function buildData(
   config: ResolvedConfig,
   connection: Connection,
   auth: Auth,
+  stores: Stores,
   options: CreateCanopyOptions,
   logger: Logger,
 ) {
@@ -497,6 +517,7 @@ async function buildData(
             ? {}
             : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "rest" }) }),
           onError: (error) => logger.error({ err: error }, "REST request failed"),
+          ...(config.audit.dataWrites ? { onWrite: auditWrite(stores.audit, logger) } : {}),
         })
 
   const realtimeConfig = config.realtime
@@ -896,7 +917,7 @@ export async function createCanopy(
   const connection = await connect(config, options, logger)
   const stores = await buildStores(connection, logger)
   const auth = await buildAuth(config, connection, stores, logger)
-  const data = await buildData(config, connection, auth, options, logger)
+  const data = await buildData(config, connection, auth, stores, options, logger)
   closeRevokedConnections(auth, data.realtime, logger)
   const admin = await buildAdmin(config, connection, stores, auth, data, options, logger)
   const transports = buildTransports(config, data.realtime)

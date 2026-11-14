@@ -73,6 +73,7 @@ export {
   type Caller,
   DEFAULT_WRITE_LIMITS,
   type ReturnedDocument,
+  type WriteEvent,
   type WriteLimits,
   type WriteOptions,
   WritePath,

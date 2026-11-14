@@ -46,7 +46,7 @@ import {
 import { DEFAULT_PROBLEM_TYPE_BASE, toProblem } from "./problem.ts"
 import { type FindRequest, type FindResult, type ReadLimits, ReadPath } from "./read-path.ts"
 import { SchemaCache } from "./schema-source.ts"
-import { type WriteLimits, WritePath } from "./write-path.ts"
+import { type WriteEvent, type WriteLimits, WritePath } from "./write-path.ts"
 import { writeRoutes } from "./write-routes.ts"
 
 /** Options for {@link createRestHandler}. */
@@ -94,6 +94,8 @@ export interface RestHandlerOptions {
    * unless the limits say otherwise. Counted in memory, so each instance limits on its own.
    */
   readonly rateLimits?: RateLimits
+  /** Called after each committed write of the Data API and of everything sharing its write path. */
+  readonly onWrite?: (event: WriteEvent) => void
   /** Called for every request the rate limits refused, for metrics. */
   readonly onRateLimited?: () => void
   /** Called with every error that becomes a `5xx` response, for logging. */
@@ -128,6 +130,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     ...(options.queryLimits === undefined ? {} : { queryLimits: options.queryLimits }),
   })
   const writes = new WritePath({
+    ...(options.onWrite === undefined ? {} : { onWrite: options.onWrite }),
     client: options.client,
     database: options.database,
     policies: options.policies,

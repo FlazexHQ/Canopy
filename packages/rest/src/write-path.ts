@@ -188,6 +188,23 @@ export interface WritePathOptions {
   readonly queryLimits?: QueryLimits
   /** How long idempotency records live. Defaults to 24 hours. */
   readonly mutationTtlSeconds?: number
+  /**
+   * Called once per committed write (each operation of a batch on its own), after the commit; replays of
+   * a mutation ID are not reported again. An exception thrown here is ignored: the write has committed.
+   */
+  readonly onWrite?: (event: WriteEvent) => void
+}
+
+/** A committed write, as reported to {@link WritePathOptions.onWrite}. */
+export interface WriteEvent {
+  readonly subject: string
+  readonly roles: readonly string[]
+  readonly collection: string
+  readonly op: WriteRequest["op"]
+  /** The `_id` of every document the write inserted, changed or deleted, as driver values. */
+  readonly ids: readonly unknown[]
+  readonly ct: ClusterTime
+  readonly mutationId?: string
 }
 
 const MUTATION_ID = /^[A-Za-z0-9_-]{8,128}$/
@@ -294,6 +311,7 @@ export class WritePath {
   private readonly limits: WriteLimits
   private readonly queryLimits: QueryLimits
   private readonly ttlSeconds: number
+  private readonly onWrite: ((event: WriteEvent) => void) | undefined
   private indexes: Promise<void> | undefined
   private bulkSupport: Promise<boolean> | undefined
 
@@ -308,6 +326,7 @@ export class WritePath {
     this.limits = { ...DEFAULT_WRITE_LIMITS, ...options.limits }
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
     this.ttlSeconds = options.mutationTtlSeconds ?? 86_400
+    this.onWrite = options.onWrite
   }
 
   /** The write limits in force. */
@@ -361,7 +380,11 @@ export class WritePath {
     const read = options.returnDocuments !== false
     const engine = this.engine()
     const plan = this.plan(engine, caller.context, request, read)
-    if (plan.fast && options.mutationId === undefined) return this.executeFast(plan.run, service)
+    if (plan.fast && options.mutationId === undefined) {
+      const result = await this.executeFast(plan.run, service)
+      this.report(caller, request, result, result.ct, undefined)
+      return result
+    }
     const committed = await this.transact(
       caller,
       {
@@ -374,6 +397,7 @@ export class WritePath {
     )
     const [stored] = committed.outcomes
     if (stored === undefined) throw new CanopyError(ErrorCode.Internal, "The write has no outcome")
+    if (!committed.replayed) this.report(caller, request, stored, committed.ct, options.mutationId)
     const outcome =
       committed.replayed && read ? await this.readBack(engine, caller, request, stored) : stored
     return { ...withoutCt(outcome), ct: committed.ct, replayed: committed.replayed }
@@ -471,6 +495,12 @@ export class WritePath {
       plans,
       options,
     )
+    if (!committed.replayed)
+      for (const [index, outcome] of committed.outcomes.entries()) {
+        const request = requests[index]
+        if (request !== undefined)
+          this.report(caller, request, outcome, committed.ct, options.mutationId)
+      }
     const outcomes =
       committed.replayed && read
         ? await Promise.all(
@@ -569,6 +599,31 @@ export class WritePath {
    * majority: it is on every node that can be primary afterwards, so a primary read that starts after the
    * acknowledgment sees it.
    */
+  private report(
+    caller: Caller,
+    request: WriteRequest,
+    outcome: Outcome,
+    ct: ClusterTime,
+    mutationId: string | undefined,
+  ): void {
+    if (this.onWrite === undefined) return
+    const ids = outcome.changedIds
+    if (ids.length === 0) return
+    try {
+      this.onWrite({
+        subject: caller.subject,
+        roles: [...caller.context.roles].sort(),
+        collection: request.collection,
+        op: request.op,
+        ids,
+        ct,
+        ...(mutationId === undefined ? {} : { mutationId }),
+      })
+    } catch {
+      // The write has committed; a failing observer must not turn it into an error.
+    }
+  }
+
   private async executeFast(fast: Run, service: boolean): Promise<WriteResult> {
     const session = this.client.startSession({ causalConsistency: true })
     try {

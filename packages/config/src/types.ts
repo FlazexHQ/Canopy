@@ -392,6 +392,14 @@ export interface CanopyConfigInput {
   readonly rateLimits?: boolean | RateLimitsInput
   readonly collections?: Readonly<Record<string, CollectionInput>>
   readonly cors?: { readonly origins: Value<readonly string[]> | "*" }
+  readonly audit?: {
+    /**
+     * Records every committed write of the data plane (REST, GraphQL and realtime mutations) in the audit
+     * log: who wrote, the collection, the operation and the document ids, never the documents themselves.
+     * It costs one insert into the meta database per write. @default false
+     */
+    readonly dataWrites?: Value<boolean>
+  }
   readonly server?: {
     /** @default 8080 */
     readonly port?: Value<number>
@@ -568,6 +576,7 @@ export interface ResolvedConfig {
       }
   readonly collections: Readonly<Record<string, ResolvedCollection>>
   readonly cors: { readonly origins: readonly string[] | "*" } | undefined
+  readonly audit: { readonly dataWrites: boolean }
   readonly server: {
     readonly port: number
     readonly metricsPort: number

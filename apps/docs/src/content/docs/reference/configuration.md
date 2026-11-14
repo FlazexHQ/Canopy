@@ -104,6 +104,18 @@ Per caller token buckets for the data plane, counted in memory by each instance.
 
 `requests` covers REST and GraphQL requests; `messages` covers the realtime frames `sub`, `mut` and `auth`.
 
+## `audit`
+
+| Setting      | Variable                   | Default | Description                                                    |
+| ------------ | -------------------------- | ------- | -------------------------------------------------------------- |
+| `dataWrites` | `CANOPY_AUDIT_DATA_WRITES` | `false` | Record every committed REST, GraphQL and realtime write in the audit log |
+
+Each entry is a `data.<op>` action (`data.insert`, `data.updateMany`, ...) with the caller's subject as the
+actor, the collection and the `_id` of every document written as the target, and the caller's roles, the
+cluster time and the mutation ID as details. Documents are never copied into the log. Entries are written after
+the commit, one insert into the meta database per write; a failed insert is logged and does not fail the
+write. Studio shows them on the Audit page, and the audit retention setting expires them like other entries.
+
 ## `collections`
 
 Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`, and
