@@ -66,7 +66,12 @@ connects, with every problem listed.
 | `/admin/v1`           | The admin API                                        |
 | `/studio`             | [Studio](/guides/studio/)                            |
 | `/healthz`, `/readyz` | Liveness (always `200`), and readiness: `503` while MongoDB does not answer a ping, the change stream is down or the server drains |
-| `/metrics`            | Prometheus metrics on the metrics port               |
+| `/metrics`            | Prometheus metrics on the metrics port (see below)   |
+
+The metrics port (9464) binds `127.0.0.1` by default, so only a scraper on the same machine reaches it. The
+container images bind `0.0.0.0`; there, publish the port only on a private network, or set
+`CANOPY_METRICS_TOKEN` and configure the scraper with `authorization: { credentials: <token> }`, which sends
+it as a bearer token.
 
 ## Create the first admin
 

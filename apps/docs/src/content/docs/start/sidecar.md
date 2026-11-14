@@ -106,5 +106,6 @@ orders this user may read. Keep writing through your own API: every change reach
 
 - Serve the sidecar over TLS behind your load balancer.
 - Give it its own MongoDB user with `read` on the app database and `readWrite` on the meta database.
-- Keep the metrics port private.
+- Keep the metrics port private: it binds `127.0.0.1` unless `METRICS_HOST` says otherwise (the image sets
+  `0.0.0.0`), and `CANOPY_METRICS_TOKEN` makes it require a bearer token.
 - Stop it with SIGTERM. Clients are told to reconnect and catch up through resume or a full resync.

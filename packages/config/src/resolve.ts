@@ -335,6 +335,8 @@ const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
   server: obj({
     port: withDefault(int, 8080, PORT),
     metricsPort: withDefault(int, 9464, PORT),
+    metricsHost: withDefault(str, "127.0.0.1"),
+    metricsToken: str,
     adminListen: str,
     nodeId: withDefault(str, "n1"),
     trustedProxies: withDefault(list, []),
@@ -381,6 +383,8 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
   ["METRICS_PORT", "server.metricsPort", int],
+  ["METRICS_HOST", "server.metricsHost", str],
+  ["CANOPY_METRICS_TOKEN", "server.metricsToken", str],
   ["CANOPY_ADMIN_LISTEN", "server.adminListen", str],
   ["CANOPY_NODE_ID", "server.nodeId", str],
   ["CANOPY_TRUSTED_PROXIES", "server.trustedProxies", list],
@@ -388,7 +392,12 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_DEV_INSECURE", "dev.insecure", bool],
 ]
 
-const SECRET_PATHS = new Set(["masterKey", "previousMasterKeys", "keys.secret"])
+const SECRET_PATHS = new Set([
+  "masterKey",
+  "previousMasterKeys",
+  "keys.secret",
+  "server.metricsToken",
+])
 
 /** The sections each command needs. Unset variables elsewhere are not reported. */
 const NEEDS: Readonly<Record<Command, ReadonlySet<string> | "all">> = {
@@ -1197,6 +1206,9 @@ function normalize(
           "Development API keys (such as pk_dev or sk_dev_change_me from the compose file, or keys made by canopy dev) are refused in production. Generate new keys.",
         )
     }
+  const metricsToken = get(tree, "server.metricsToken")
+  if (typeof metricsToken === "string" && metricsToken.length < 16)
+    resolver.problem("server.metricsToken", "The metrics token must have at least 16 characters.")
   const masterKey = get(tree, "masterKey") as string | undefined
   if (
     production &&
@@ -1228,6 +1240,8 @@ function normalize(
     server: {
       port: at<number>("server.port"),
       metricsPort: at<number>("server.metricsPort"),
+      metricsHost: at<string>("server.metricsHost"),
+      metricsToken: at<string | undefined>("server.metricsToken"),
       adminListen: at<string | undefined>("server.adminListen"),
       nodeId: at<string>("server.nodeId"),
       trustedProxies: at<string[]>("server.trustedProxies"),

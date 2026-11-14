@@ -140,3 +140,5 @@ async function serve(
   }
   response.end()
 }
+
+export { isLoopbackHost, type MetricsServerOptions, serveMetrics } from "./metrics.ts"

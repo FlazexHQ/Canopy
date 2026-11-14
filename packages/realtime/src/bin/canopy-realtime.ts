@@ -4,7 +4,7 @@ import { RateLimits } from "@canopy/auth"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
-import { tryPathname } from "@canopy/node-http"
+import { serveMetrics, tryPathname } from "@canopy/node-http"
 import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
@@ -143,16 +143,12 @@ async function main(): Promise<void> {
       : { status: 503, body: `not ready: ${state.reason ?? "unknown"}` }
   }
 
-  const metrics = createServer((request, response) => {
-    if (tryPathname(request) !== "/metrics") {
-      response.statusCode = 404
-      response.end()
-      return
-    }
-    response.setHeader("content-type", "text/plain; version=0.0.4")
-    response.end(realtime.renderMetrics())
+  const metrics = await serveMetrics({
+    port: metricsPort,
+    host: config.server.metricsHost,
+    token: config.server.metricsToken,
+    render: () => realtime.renderMetrics(),
   })
-  metrics.listen(metricsPort)
 
   const bun = (
     globalThis as { Bun?: { serve(options: Record<string, unknown>): { stop(): void } } }

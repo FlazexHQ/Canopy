@@ -26,6 +26,8 @@ masked. An invalid config stops every command before it connects, with all probl
 | `cors.origins`          | `CANOPY_CORS_ORIGINS`        | `publicUrl`                 | Allowed browser origins, or `"*"`                        |
 | `server.port`           | `PORT`                       | 8080                        | The HTTP and WebSocket port                              |
 | `server.metricsPort`    | `METRICS_PORT`               | 9464                        | Prometheus metrics; keep it private                      |
+| `server.metricsHost`    | `METRICS_HOST`               | `127.0.0.1`                 | Address the metrics port binds; the images use `0.0.0.0` |
+| `server.metricsToken`   | `CANOPY_METRICS_TOKEN`       | none                        | Bearer token scrapers must send, 16 characters or more   |
 | `server.adminListen`    | `CANOPY_ADMIN_LISTEN`        |                             | Serves `/admin` and `/studio` only on this address       |
 | `server.nodeId`         | `CANOPY_NODE_ID`             | `n1`                        | Names this instance in logs and metrics                  |
 | `server.trustedProxies` | `CANOPY_TRUSTED_PROXIES`     |                             | Proxies whose `X-Forwarded-For` is trusted               |

@@ -22,6 +22,7 @@ COPY --from=build /src/packages ./packages
 ENV NODE_ENV=production \
     PORT=8080 \
     METRICS_PORT=9464 \
+    METRICS_HOST=0.0.0.0 \
     CANOPY_POLICIES=/app/policies
 USER 65532:65532
 EXPOSE 8080 9464

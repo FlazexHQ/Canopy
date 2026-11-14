@@ -397,6 +397,14 @@ export interface CanopyConfigInput {
     readonly port?: Value<number>
     /** @default 9464 */
     readonly metricsPort?: Value<number>
+    /**
+     * The address the metrics port binds. The default only accepts scrapers on this machine; in a container
+     * or behind a private network use `0.0.0.0` together with {@link metricsToken} or a network policy.
+     * @default "127.0.0.1"
+     */
+    readonly metricsHost?: Value<string>
+    /** A bearer token scrapers must send to `/metrics` (`CANOPY_METRICS_TOKEN`). */
+    readonly metricsToken?: Value<string>
     /** Serves `/admin` and `/studio` only on this address, for example `127.0.0.1:8081`. */
     readonly adminListen?: Value<string>
     /** @default "n1" */
@@ -563,6 +571,8 @@ export interface ResolvedConfig {
   readonly server: {
     readonly port: number
     readonly metricsPort: number
+    readonly metricsHost: string
+    readonly metricsToken: string | undefined
     readonly adminListen: string | undefined
     readonly nodeId: string
     readonly trustedProxies: readonly string[]

@@ -1,7 +1,8 @@
 # Canopy as one server next to a single node replica set. From the repository root:
 #   docker compose -f deploy/compose/canopy.yaml up -d --build --wait
 # The server listens on http://localhost:8080 (REST on /rest/v1, realtime on /realtime/v1) and serves
-# Prometheus metrics on http://localhost:9464/metrics. Policies are read from ./policies (CANOPY_POLICY_DIR
+# Prometheus metrics on http://localhost:9464/metrics, published on the loopback address only (set
+# CANOPY_METRICS_TOKEN to require a bearer token). Policies are read from ./policies (CANOPY_POLICY_DIR
 # picks another folder) and reloaded when they change.
 #
 # Settings come from the environment of `docker compose` (or an .env file next to this one):
@@ -48,10 +49,11 @@ services:
         condition: service_healthy
     ports:
       - "${CANOPY_PORT:-8080}:8080"
-      - "${CANOPY_METRICS_PORT:-9464}:9464"
+      - "127.0.0.1:${CANOPY_METRICS_PORT:-9464}:9464"
     environment:
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       CANOPY_DB: ${CANOPY_DB:-app}
+      CANOPY_METRICS_TOKEN: ${CANOPY_METRICS_TOKEN:-}
       CANOPY_ENV: ${CANOPY_ENV:-development}
       CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:-}
       CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:-pk_dev}

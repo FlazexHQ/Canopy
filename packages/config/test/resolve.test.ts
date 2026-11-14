@@ -69,11 +69,30 @@ describe("resolveConfig", () => {
     expect(config.server).toEqual({
       port: 8080,
       metricsPort: 9464,
+      metricsHost: "127.0.0.1",
+      metricsToken: undefined,
       adminListen: undefined,
       nodeId: "n1",
       trustedProxies: [],
     })
     expect(config.cors).toBeUndefined()
+  })
+
+  it("binds metrics to loopback unless told otherwise, and keeps the metrics token secret", () => {
+    const resolution = resolve(
+      { mongodb: { uri: URI } },
+      { METRICS_HOST: "0.0.0.0", CANOPY_METRICS_TOKEN: "a-long-metrics-token" },
+    )
+    expect(resolution.config.server.metricsHost).toBe("0.0.0.0")
+    expect(resolution.config.server.metricsToken).toBe("a-long-metrics-token")
+    const text = formatConfig(resolution, { sources: true })
+    expect(text).not.toContain("a-long-metrics-token")
+    expect(text).toContain('server.metricsToken = "••••"  (env CANOPY_METRICS_TOKEN)')
+    expect(
+      problems(() => resolve({ mongodb: { uri: URI }, server: { metricsToken: "short" } })).map(
+        (problem) => problem.path,
+      ),
+    ).toEqual(["server.metricsToken"])
   })
 
   it("resolves env markers with their types and defaults", () => {

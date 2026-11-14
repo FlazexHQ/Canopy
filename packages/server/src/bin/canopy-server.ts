@@ -10,7 +10,7 @@ import {
   parseBinaryArgs,
   UsageError,
 } from "@canopy/config/process"
-import { tryPathname } from "@canopy/node-http"
+import { serveMetrics } from "@canopy/node-http"
 import { redacting } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
 
@@ -86,31 +86,24 @@ async function listen(canopy: Canopy, port: number): Promise<Listening> {
   }
 }
 
-async function metricsServer(canopy: Canopy, port: number, runtime: string): Promise<Server> {
+function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
   const started = Date.now()
-  const server = createServer((request, response) => {
-    if (tryPathname(request) !== "/metrics") {
-      response.statusCode = 404
-      response.end()
-      return
-    }
-    const lines = [
-      "# HELP canopy_build_info Canopy server process information.",
-      "# TYPE canopy_build_info gauge",
-      `canopy_build_info{runtime="${runtime}",node_id="${canopy.config.server.nodeId}"} 1`,
-      "# HELP canopy_uptime_seconds Seconds since the server started.",
-      "# TYPE canopy_uptime_seconds gauge",
-      `canopy_uptime_seconds ${((Date.now() - started) / 1000).toFixed(3)}`,
-      "",
-    ].join("\n")
-    response.setHeader("content-type", "text/plain; version=0.0.4")
-    response.end(lines + canopy.renderMetrics())
+  const { metricsPort, metricsHost, metricsToken } = canopy.config.server
+  return serveMetrics({
+    port: metricsPort,
+    host: metricsHost,
+    token: metricsToken,
+    render: () =>
+      [
+        "# HELP canopy_build_info Canopy server process information.",
+        "# TYPE canopy_build_info gauge",
+        `canopy_build_info{runtime="${runtime}",node_id="${canopy.config.server.nodeId}"} 1`,
+        "# HELP canopy_uptime_seconds Seconds since the server started.",
+        "# TYPE canopy_uptime_seconds gauge",
+        `canopy_uptime_seconds ${((Date.now() - started) / 1000).toFixed(3)}`,
+        "",
+      ].join("\n") + canopy.renderMetrics(),
   })
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(port, () => resolve())
-  })
-  return server
 }
 
 async function main(): Promise<void> {
@@ -119,7 +112,7 @@ async function main(): Promise<void> {
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
   const canopy = await createCanopy(config, { logger })
   const http = await listen(canopy, config.server.port)
-  const metrics = await metricsServer(canopy, config.server.metricsPort, runtime)
+  const metrics = await metricsServer(canopy, runtime)
   const admin = await canopy.admin.listen()
   if (admin !== undefined) logger.info({ address: admin.address }, "admin listening")
   const realtime = config.realtime
