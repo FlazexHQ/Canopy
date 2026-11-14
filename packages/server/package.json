@@ -46,6 +46,7 @@
     "jose": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "ws": "catalog:"
+    "ws": "catalog:",
+    "yaml": "catalog:"
   }
 }

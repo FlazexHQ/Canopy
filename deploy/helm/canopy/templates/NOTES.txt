@@ -1,0 +1,14 @@
+Canopy is starting as {{ include "canopy.fullname" . }} with {{ .Values.replicaCount }} pods.
+
+The pods read MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS and CANOPY_SECRET_KEYS from the secret
+"{{ .Values.existingSecret }}". Until it exists the pods do not start. Create it with:
+
+  kubectl create secret generic {{ .Values.existingSecret }} \
+    --from-literal=MONGODB_URI='mongodb://...' \
+    --from-literal=CANOPY_MASTER_KEY="$(openssl rand -base64 32)" \
+    --from-literal=CANOPY_PUBLISHABLE_KEYS="canopy_pk_$(openssl rand -hex 24)" \
+    --from-literal=CANOPY_SECRET_KEYS="canopy_sk_$(openssl rand -hex 24)" \
+    --from-literal=CANOPY_METRICS_TOKEN="$(openssl rand -hex 24)"
+
+Inside the cluster the API is http://{{ include "canopy.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+(REST on /rest/v1, realtime on /realtime/v1, GraphQL on /graphql/v1).

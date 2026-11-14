@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "canopy.fullname" . }}
+  labels:
+    {{- include "canopy.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "canopy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+{{- if .Values.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "canopy.fullname" . }}-metrics
+  labels:
+    {{- include "canopy.labels" . | nindent 4 }}
+    app.kubernetes.io/component: metrics
+spec:
+  clusterIP: None
+  selector:
+    {{- include "canopy.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+{{- end }}

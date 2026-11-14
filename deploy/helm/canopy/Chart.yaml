@@ -1,0 +1,6 @@
+apiVersion: v2
+name: canopy
+description: Canopy server (Data API, realtime, GraphQL and Studio) for a MongoDB replica set
+type: application
+version: 0.1.0
+appVersion: "0.0.0"

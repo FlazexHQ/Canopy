@@ -43,7 +43,7 @@ export default defineConfig({
         },
         {
           label: "Operations",
-          items: ["operations/several-instances"],
+          items: ["operations/kubernetes", "operations/several-instances"],
         },
         {
           label: "Recipes",
