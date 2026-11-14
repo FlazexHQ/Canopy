@@ -42,6 +42,10 @@ export default defineConfig({
           ],
         },
         {
+          label: "Operations",
+          items: ["operations/several-instances"],
+        },
+        {
           label: "Recipes",
           items: ["recipes/pagination", "recipes/infinite-lists", "recipes/multi-tenant"],
         },

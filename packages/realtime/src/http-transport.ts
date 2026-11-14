@@ -43,7 +43,7 @@ interface Ticket {
   readonly expiresAt: number
 }
 
-const SESSION_PATH = /^\/sessions\/([^/]+)(?:\/(events|messages|poll))?$/
+const SESSION_PATH = /^\/sessions\/([^/]+)(?:\/(events|messages|poll|tickets))?$/
 const CLIENT_TYPES = new Set(["sub", "unsub", "mut", "auth", "ping"])
 const HELLO_TIMEOUT_MS = 15_000
 const encoder = new TextEncoder()
@@ -264,8 +264,13 @@ class HttpSession {
  * `text/event-stream`; each event's `id` is its `seq`, so `Last-Event-ID` resumes.
  * `GET …/poll?after={seq}&wait=25` answers with a JSON array. `POST …/messages` takes a JSON array of
  * `sub`, `unsub`, `mut`, `auth` and `ping`. `DELETE {base}/sessions/{sid}` is `bye`.
- * `POST {base}/tickets` issues a single use ticket, valid for 30 s, for `EventSource`, which cannot send
- * headers.
+ * `POST {base}/sessions/{sid}/tickets` (or `POST {base}/tickets` with `{ "sid" }`) issues a single use
+ * ticket, valid for 30 s, for `EventSource`, which cannot send headers.
+ *
+ * Sessions live in the memory of the node that opened them, and their IDs start with the node ID
+ * (`n1.…`), so with several nodes every request after the open must reach the same node: route
+ * `{base}/sessions/{nodeId}.*` to that node, or use sticky sessions. A request that reaches another node is
+ * answered `409 CANOPY_SESSION_MOVED`, and the SDK opens a new session.
  *
  * Requests for a session carry the session's key in `apikey` (or a ticket); the token is only checked
  * when the session opens and on `auth`, as on a WebSocket.
@@ -537,6 +542,10 @@ export function createHttpTransport(
       return problem(400, ErrorCode.ProtocolError, "The body must name the session as sid")
     const found = lookup(request, new URL(request.url), sid, false)
     if (found instanceof Response) return found
+    return issueTicket(sid)
+  }
+
+  const issueTicket = (sid: string): Response => {
     const value = randomToken()
     tickets.set(value, { sid, expiresAt: Date.now() + 30_000 })
     return new Response(JSON.stringify({ ticket: value, expiresIn: 30 }), {
@@ -557,7 +566,7 @@ export function createHttpTransport(
     const allowed =
       action === undefined
         ? method === "DELETE"
-        : action === "messages"
+        : action === "messages" || action === "tickets"
           ? method === "POST"
           : method === "GET"
     if (!allowed) return problem(405, ErrorCode.ProtocolError, `${method} is not allowed here`)
@@ -571,6 +580,8 @@ export function createHttpTransport(
         return poll(request, url, session)
       case "messages":
         return messages(request, session)
+      case "tickets":
+        return issueTicket(sid)
       default:
         if (session.closed === undefined) session.connection.message('{"t":"bye"}')
         sessions.delete(sid)
