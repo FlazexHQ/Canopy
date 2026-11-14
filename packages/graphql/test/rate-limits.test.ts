@@ -100,7 +100,9 @@ suite("GraphQL rate limits against MongoDB", () => {
     await client?.close()
   })
 
-  function setup(options: { exemptService?: boolean; limited?: boolean; cors?: boolean } = {}) {
+  function setup(
+    options: { exemptService?: boolean; limited?: boolean; cors?: boolean; failures?: number } = {},
+  ) {
     let now = 9_000_000
     const refused: number[] = []
     const limits = new RateLimits({
@@ -108,6 +110,9 @@ suite("GraphQL rate limits against MongoDB", () => {
       messages: { perSecond: 1, burst: 1 },
       anonymousConnectionsPerAddress: 1,
       now: () => now,
+      ...(options.failures === undefined
+        ? {}
+        : { failedAuthentications: { perSecond: 1, burst: options.failures } }),
       ...(options.exemptService === undefined ? {} : { exemptService: options.exemptService }),
     })
     const graphql = createGraphqlHandler({
@@ -192,6 +197,21 @@ suite("GraphQL rate limits against MongoDB", () => {
       expect((await post("alice", undefined, { apikey: "bad" })).status).toBe(401)
     }
     expect((await post("alice")).status).toBe(200)
+  })
+
+  it("refuses an address that keeps failing to authenticate, before checking its key", async () => {
+    const { post, refused, advance } = setup({ failures: 2 })
+    for (let i = 0; i < 2; i++)
+      expect((await post("anon", "198.51.100.5", { apikey: `guess_${i}` })).status).toBe(401)
+    const blocked = await post("alice", "198.51.100.5")
+    expect(blocked.status).toBe(429)
+    expect(await blocked.json()).toMatchObject({
+      errors: [{ extensions: { code: "CANOPY_RATE_LIMITED" } }],
+    })
+    expect(refused).toHaveLength(1)
+    expect((await post("alice", "198.51.100.6")).status).toBe(200)
+    advance(1000)
+    expect((await post("alice", "198.51.100.5")).status).toBe(200)
   })
 
   it("lets browsers read the 429 and its Retry-After", async () => {

@@ -503,6 +503,25 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     return retryAfterSeconds(wait)
   }
 
+  /** The seconds to wait when the client address has used up its failed authentications. */
+  const failuresBlocked = (headers: Headers, peer: string | undefined): number | undefined => {
+    const limits = options.rateLimits
+    if (limits === undefined) return undefined
+    const wait = limits.authenticationBlocked(limits.addressOf(headers, peer))
+    if (wait === 0) return undefined
+    options.onRateLimited?.()
+    return retryAfterSeconds(wait)
+  }
+
+  /** The request's session, counting a failed authentication against the client address. */
+  const guardedSession = (request: Request, peer: string | undefined): Promise<Session> => {
+    const limits = options.rateLimits
+    if (limits === undefined) return sessionOf(request)
+    return limits.guardAuthentication(limits.addressOf(request.headers, peer), () =>
+      sessionOf(request),
+    )
+  }
+
   const sessionOf = (request: Request): Promise<Session> => {
     let session = sessions.get(request)
     if (session === undefined) {
@@ -729,7 +748,10 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
         const bounded = await withinLimit(request, maxBodyBytes)
         if (bounded instanceof Response) return bounded
         if (options.rateLimits !== undefined) {
-          const session = await sessionOf(bounded).catch(() => undefined)
+          const blocked = failuresBlocked(bounded.headers, info.ip)
+          if (blocked !== undefined)
+            return rateLimited(blocked, cors, bounded.headers.get("origin"))
+          const session = await guardedSession(bounded, info.ip).catch(() => undefined)
           const wait =
             session === undefined ? undefined : overBudget(session, bounded.headers, info.ip)
           if (wait !== undefined) return rateLimited(wait, cors, bounded.headers.get("origin"))
@@ -808,7 +830,9 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     ): Promise<PreparedOperation> {
       const { parse, validate } = await import("graphql")
       try {
-        const session = await sessionOf(request)
+        const blocked = failuresBlocked(request.headers, info.ip)
+        if (blocked !== undefined) return { ok: false, errors: [rateLimitedError(blocked)] }
+        const session = await guardedSession(request, info.ip)
         const wait = overBudget(session, request.headers, info.ip)
         if (wait !== undefined) return { ok: false, errors: [rateLimitedError(wait)] }
         const schema = await schemaOf(session)

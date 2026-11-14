@@ -508,6 +508,7 @@ describe("rateLimits", () => {
     requests: { perSecond: 50, burst: 200 },
     messages: { perSecond: 20, burst: 100 },
     anonymousConnectionsPerAddress: 50,
+    failedAuthentications: { perSecond: 1, burst: 30 },
     exemptService: true,
   }
 
@@ -524,6 +525,8 @@ describe("rateLimits", () => {
         CANOPY_RATE_LIMIT_MESSAGES: "3",
         CANOPY_RATE_LIMIT_MESSAGE_BURST: "4",
         CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS: "7",
+        CANOPY_RATE_LIMIT_FAILED_AUTH: "2",
+        CANOPY_RATE_LIMIT_FAILED_AUTH_BURST: "6",
         CANOPY_RATE_LIMIT_EXEMPT_SERVICE: "false",
       },
     )
@@ -531,6 +534,7 @@ describe("rateLimits", () => {
       requests: { perSecond: 5, burst: 9 },
       messages: { perSecond: 3, burst: 4 },
       anonymousConnectionsPerAddress: 7,
+      failedAuthentications: { perSecond: 2, burst: 6 },
       exemptService: false,
     })
     expect(sources.get("rateLimits.requests.burst")).toMatchObject({

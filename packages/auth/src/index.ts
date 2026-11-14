@@ -52,6 +52,7 @@ export {
   type LimitCaller,
   type RateLimitOptions,
   RateLimits,
+  rateLimitError,
   retryAfterSeconds,
   TokenBuckets,
 } from "./rate-limit.ts"

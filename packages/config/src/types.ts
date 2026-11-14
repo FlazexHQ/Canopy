@@ -345,6 +345,11 @@ export interface RateLimitsInput {
   readonly messages?: BucketInput
   /** Open realtime connections of anonymous callers per client address. @default 50 */
   readonly anonymousConnectionsPerAddress?: Value<number>
+  /**
+   * Failed authentications (an unknown API key, a bad token) per client address. An address over this
+   * budget is refused before its credentials are checked. @default { perSecond: 1, burst: 30 }
+   */
+  readonly failedAuthentications?: BucketInput
   /** Whether callers with the `service` role (secret keys) are exempt. @default true */
   readonly exemptService?: Value<boolean>
 }
@@ -550,6 +555,7 @@ export interface ResolvedConfig {
         readonly requests: { readonly perSecond: number; readonly burst: number }
         readonly messages: { readonly perSecond: number; readonly burst: number }
         readonly anonymousConnectionsPerAddress: number
+        readonly failedAuthentications: { readonly perSecond: number; readonly burst: number }
         readonly exemptService: boolean
       }
   readonly collections: Readonly<Record<string, ResolvedCollection>>

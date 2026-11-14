@@ -885,8 +885,16 @@ export class Realtime {
       socket.close(CloseCode.UnsupportedVersion, "unsupported protocol version")
       throw new CanopyError(ErrorCode.ProtocolError, "Unsupported protocol version")
     }
-    const principal = await this.auth.authenticate(hello.key, hello.token)
     const limits = this.options.rateLimits
+    const authenticate = () => this.auth.authenticate(hello.key, hello.token)
+    const principal =
+      limits === undefined || address === undefined
+        ? await authenticate()
+        : await limits.guardAuthentication(address, authenticate).catch((error: unknown) => {
+            if (toCanopyError(error).code === ErrorCode.RateLimited)
+              this.metrics.rateLimited.inc({ kind: "authentication" })
+            throw error
+          })
     if (limits !== undefined && principal.subject === "anon" && address !== undefined) {
       slot.release?.()
       slot.release = limits.openAnonymousConnection(address)

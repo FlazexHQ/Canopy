@@ -1,3 +1,4 @@
+import { ErrorCode, RateLimitError, UnauthorizedError } from "@canopy/protocol"
 import { resolveClientAddress } from "./client-address.ts"
 
 /** The size and refill speed of a token bucket. */
@@ -60,6 +61,19 @@ export class TokenBuckets {
     return Math.max(1, Math.ceil((missing / this.spec.perSecond) * 1000 - 1e-6))
   }
 
+  /**
+   * The milliseconds until `key` could spend `cost` tokens, without spending them: 0 when it could now.
+   */
+  peek(key: string, cost = 1): number {
+    const bucket = this.buckets.get(key)
+    if (bucket === undefined) return 0
+    const elapsed = Math.max(0, this.now() - bucket.at)
+    const tokens = Math.min(this.spec.burst, bucket.tokens + (elapsed * this.spec.perSecond) / 1000)
+    if (tokens >= cost) return 0
+    const missing = Math.min(cost, this.spec.burst) - tokens
+    return Math.max(1, Math.ceil((missing / this.spec.perSecond) * 1000 - 1e-6))
+  }
+
   /** The number of keys held. */
   get size(): number {
     return this.buckets.size
@@ -97,6 +111,12 @@ export interface RateLimitOptions {
   readonly messages: BucketSpec
   /** Open realtime connections of anonymous callers per client address. */
   readonly anonymousConnectionsPerAddress: number
+  /**
+   * Failed authentications (an unknown API key, a bad or expired token) per client address. Once an
+   * address has spent its budget, its requests are refused before their credentials are checked, so
+   * guessing keys or tokens stays slow. Defaults to {@link DEFAULT_RATE_LIMITS}.
+   */
+  readonly failedAuthentications?: BucketSpec
   /** Whether callers with the `service` role are exempt. Defaults to `true`. */
   readonly exemptService?: boolean
   /** Proxies whose `X-Forwarded-For` is trusted when resolving the client address. */
@@ -111,6 +131,7 @@ export const DEFAULT_RATE_LIMITS = {
   requests: { perSecond: 50, burst: 200 },
   messages: { perSecond: 20, burst: 100 },
   anonymousConnectionsPerAddress: 50,
+  failedAuthentications: { perSecond: 1, burst: 30 },
   exemptService: true,
 } as const
 
@@ -122,6 +143,7 @@ export const DEFAULT_RATE_LIMITS = {
 export class RateLimits {
   private readonly requestBuckets: TokenBuckets
   private readonly messageBuckets: TokenBuckets
+  private readonly failureBuckets: TokenBuckets
   private readonly anonymousConnections = new Map<string, number>()
   private readonly options: RateLimitOptions
 
@@ -133,6 +155,10 @@ export class RateLimits {
     }
     this.requestBuckets = new TokenBuckets(options.requests, shared)
     this.messageBuckets = new TokenBuckets(options.messages, shared)
+    this.failureBuckets = new TokenBuckets(
+      options.failedAuthentications ?? DEFAULT_RATE_LIMITS.failedAuthentications,
+      shared,
+    )
   }
 
   /** The client address of a request: the socket peer, or the forwarded address behind a trusted proxy. */
@@ -153,6 +179,36 @@ export class RateLimits {
   /** Counts one realtime frame that starts work. Returns 0 to proceed, or the milliseconds to wait. */
   message(caller: LimitCaller): number {
     return this.exempt(caller) ? 0 : this.messageBuckets.take(callerKey(caller))
+  }
+
+  /**
+   * Whether `address` has used up its budget of failed authentications. Returns 0 to go on and check the
+   * credentials, or the milliseconds to wait. Nothing is spent.
+   */
+  authenticationBlocked(address: string): number {
+    return this.failureBuckets.peek(address)
+  }
+
+  /** Counts one failed authentication from `address`. */
+  authenticationFailed(address: string): void {
+    this.failureBuckets.take(address)
+  }
+
+  /**
+   * Runs `authenticate` for a request from `address`: refuses with a {@link RateLimitError} when the
+   * address has no failed authentications left, and counts an {@link UnauthorizedError} against it (an
+   * expired token is not counted: it was genuine once).
+   */
+  async guardAuthentication<T>(address: string, authenticate: () => Promise<T>): Promise<T> {
+    const wait = this.authenticationBlocked(address)
+    if (wait > 0) throw rateLimitError(wait)
+    try {
+      return await authenticate()
+    } catch (error: unknown) {
+      if (error instanceof UnauthorizedError && error.code === ErrorCode.Unauthorized)
+        this.authenticationFailed(address)
+      throw error
+    }
   }
 
   /**
@@ -177,6 +233,15 @@ export class RateLimits {
 function callerKey(caller: LimitCaller): string {
   const base = `${caller.key ?? ""}\u0000${caller.subject}`
   return caller.subject === "anon" ? `${base}\u0000${caller.address}` : base
+}
+
+/** The error for a request over a budget, carrying `retryAfterSeconds` in its details. */
+export function rateLimitError(waitMs: number): RateLimitError {
+  const seconds = retryAfterSeconds(waitMs)
+  return new RateLimitError(
+    `Too many requests. Retry in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
+    { details: { retryAfterSeconds: seconds } },
+  )
 }
 
 /** The `Retry-After` value in whole seconds for a wait in milliseconds. */

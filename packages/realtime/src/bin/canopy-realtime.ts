@@ -76,6 +76,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
             requests: config.rateLimits.requests,
             messages: config.rateLimits.messages,
             anonymousConnectionsPerAddress: config.rateLimits.anonymousConnectionsPerAddress,
+            failedAuthentications: config.rateLimits.failedAuthentications,
             exemptService: config.rateLimits.exemptService,
             trustedProxies: config.server.trustedProxies,
           }),

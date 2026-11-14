@@ -1,3 +1,4 @@
+import { ErrorCode, ForbiddenError, RateLimitError, UnauthorizedError } from "@canopy/protocol"
 import { describe, expect, it } from "vitest"
 import { RateLimits, retryAfterSeconds, TokenBuckets } from "../src/index.ts"
 
@@ -150,6 +151,71 @@ describe("RateLimits", () => {
     expect(limits.addressOf(headers, "10.1.2.3")).toBe("198.51.100.9")
     expect(limits.addressOf(headers, "192.0.2.5")).toBe("192.0.2.5")
     expect(limits.addressOf(headers, undefined)).toBe("unknown")
+  })
+})
+
+describe("RateLimits failed authentications", () => {
+  const limits = (time: ReturnType<typeof clock>) =>
+    new RateLimits({
+      requests: { perSecond: 1, burst: 1 },
+      messages: { perSecond: 1, burst: 1 },
+      anonymousConnectionsPerAddress: 1,
+      failedAuthentications: { perSecond: 1, burst: 2 },
+      now: time.now,
+    })
+  const unauthorized = () => Promise.reject(new UnauthorizedError("Invalid API key"))
+
+  it("counts unauthorized attempts per address and blocks before calling the authenticator", async () => {
+    const time = clock()
+    const guard = limits(time)
+    await expect(guard.guardAuthentication("a", unauthorized)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    )
+    await expect(guard.guardAuthentication("a", unauthorized)).rejects.toBeInstanceOf(
+      UnauthorizedError,
+    )
+    let called = false
+    const error = await guard
+      .guardAuthentication("a", async () => {
+        called = true
+        return "principal"
+      })
+      .catch((e: unknown) => e)
+    expect(called).toBe(false)
+    expect(error).toBeInstanceOf(RateLimitError)
+    expect(error).toMatchObject({ code: ErrorCode.RateLimited, details: { retryAfterSeconds: 1 } })
+    expect(guard.authenticationBlocked("a")).toBe(1000)
+    await expect(guard.guardAuthentication("b", async () => "principal")).resolves.toBe("principal")
+    time.advance(1000)
+    await expect(guard.guardAuthentication("a", async () => "principal")).resolves.toBe("principal")
+  })
+
+  it("does not count expired tokens, other errors or successes", async () => {
+    const guard = limits(clock())
+    for (let i = 0; i < 5; i++) {
+      await expect(
+        guard.guardAuthentication("a", () =>
+          Promise.reject(new UnauthorizedError("Token expired", {}, true)),
+        ),
+      ).rejects.toMatchObject({ code: ErrorCode.TokenExpired })
+      await expect(
+        guard.guardAuthentication("a", () => Promise.reject(new ForbiddenError("Banned"))),
+      ).rejects.toBeInstanceOf(ForbiddenError)
+      await guard.guardAuthentication("a", async () => "principal")
+    }
+    expect(guard.authenticationBlocked("a")).toBe(0)
+  })
+
+  it("peeks without spending", () => {
+    const time = clock()
+    const buckets = new TokenBuckets({ perSecond: 2, burst: 1 }, { now: time.now })
+    expect(buckets.peek("a")).toBe(0)
+    expect(buckets.take("a")).toBe(0)
+    expect(buckets.peek("a")).toBe(500)
+    expect(buckets.peek("a")).toBe(500)
+    time.advance(500)
+    expect(buckets.peek("a")).toBe(0)
+    expect(buckets.take("a")).toBe(0)
   })
 })
 

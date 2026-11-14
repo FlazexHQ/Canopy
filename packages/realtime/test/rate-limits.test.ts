@@ -42,6 +42,7 @@ suite("realtime rate limits", () => {
       exemptService?: boolean
       trusted?: string[]
       limited?: boolean
+      failures?: number
     } = {},
   ) {
     let now = 3_000_000
@@ -50,6 +51,9 @@ suite("realtime rate limits", () => {
       messages: options.messages ?? { perSecond: 1, burst: 2 },
       anonymousConnectionsPerAddress: options.anonymous ?? 2,
       now: () => now,
+      ...(options.failures === undefined
+        ? {}
+        : { failedAuthentications: { perSecond: 1, burst: options.failures } }),
       ...(options.exemptService === undefined ? {} : { exemptService: options.exemptService }),
       ...(options.trusted === undefined ? {} : { trustedProxies: options.trusted }),
     })
@@ -59,13 +63,13 @@ suite("realtime rate limits", () => {
     })
     engines.push(engine)
     const connect = async (
-      as: "alice" | "bob" | "anon" | "service",
+      as: "alice" | "bob" | "anon" | "service" | "guess",
       headers: Record<string, string> = {},
     ): Promise<TestClient> => {
       const client = await TestClient.connect(
         engine.url,
         as === "alice" ? alice : as === "bob" ? bob : undefined,
-        as === "service" ? { key: "sk_test" } : {},
+        as === "service" ? { key: "sk_test" } : as === "guess" ? { key: "pk_guess" } : {},
         headers,
       )
       clients.push(client)
@@ -197,6 +201,21 @@ suite("realtime rate limits", () => {
     await new Promise((resolve) => setTimeout(resolve, 50))
     const again = await connect("anon")
     expect(again.welcome).toBeDefined()
+  })
+
+  it("refuses connections from an address that keeps failing to authenticate", async () => {
+    const { connect, engine, advance } = await start({ failures: 2 })
+    for (let i = 0; i < 2; i++) {
+      const guess = await connect("guess")
+      expect(guess.welcome).toBeUndefined()
+      expect(guess.closeCode).toBe(4001)
+    }
+    const blocked = await connect("alice")
+    expect(blocked.welcome).toBeUndefined()
+    expect(blocked.closeCode).toBe(4029)
+    expect(engine.realtime.metrics.rateLimited.get({ kind: "authentication" })).toBe(1)
+    advance(1000)
+    expect((await connect("alice")).welcome).toBeDefined()
   })
 
   it("does not cap signed in connections by address", async () => {

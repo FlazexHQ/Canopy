@@ -3,7 +3,7 @@ import {
   type Authenticator,
   credentialsFromHeaders,
   type RateLimits,
-  retryAfterSeconds,
+  rateLimitError,
 } from "@canopy/auth"
 import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
@@ -390,24 +390,29 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
         return response
       }
       const credentials = credentialsFromHeaders(request.headers)
-      const principal = await options.authenticator.authenticate(credentials.key, credentials.token)
+      const limits = options.rateLimits
+      const address = limits?.addressOf(request.headers, peer)
+      const authenticate = () =>
+        options.authenticator.authenticate(credentials.key, credentials.token)
+      const principal =
+        limits === undefined || address === undefined
+          ? await authenticate()
+          : await limits.guardAuthentication(address, authenticate).catch((error: unknown) => {
+              if (error instanceof RateLimitError) options.onRateLimited?.()
+              throw error
+            })
       if (principal.readOnly === true)
         throw new ForbiddenError("A view token only follows data over realtime")
-      const limits = options.rateLimits
-      if (limits !== undefined) {
+      if (limits !== undefined && address !== undefined) {
         const wait = limits.request({
           key: principal.keyId ?? credentials.key,
           subject: principal.subject,
           roles: principal.context.roles,
-          address: limits.addressOf(request.headers, peer),
+          address,
         })
         if (wait > 0) {
           options.onRateLimited?.()
-          const seconds = retryAfterSeconds(wait)
-          throw new RateLimitError(
-            `Too many requests. Retry in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
-            { details: { retryAfterSeconds: seconds } },
-          )
+          throw rateLimitError(wait)
         }
       }
       const current = engine()

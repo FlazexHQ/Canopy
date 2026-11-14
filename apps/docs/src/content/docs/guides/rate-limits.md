@@ -12,6 +12,7 @@ excess gets `CANOPY_RATE_LIMITED`.
 | REST and GraphQL requests                    | each request    | 50 per second, burst 200   |
 | Realtime `sub`, `mut` and `auth` frames      | each frame      | 20 per second, burst 100   |
 | Anonymous realtime connections per address   | each connection | 50 open at a time          |
+| Failed authentications per address           | each failure    | 1 per second, burst 30     |
 
 Pings, `unsub` and `bye` are free, so a connection never gets cut off for staying alive. A batched GraphQL request
 costs one token however many operations it holds (the `maxBatch` limit bounds it).
@@ -23,6 +24,11 @@ and one noisy user cannot use up another's. Anonymous callers all share the publ
 by client address as well. The address is the socket peer, or, when the peer is one of `server.trustedProxies`,
 the rightmost `X-Forwarded-For` hop that is not a trusted proxy. Behind a load balancer, list its address
 there; without it every anonymous caller looks like the balancer and shares one budget.
+
+Failed authentications (an unknown API key or a token that does not verify) are counted per client address,
+on REST, GraphQL and the realtime handshake together. Once an address has used up that budget its requests are
+refused with `CANOPY_RATE_LIMITED` before their credentials are checked, so guessing keys or tokens stays slow.
+An expired token does not count: it was genuine once, and the SDK refreshes it.
 
 The `service` role (secret keys) is exempt by default, because servers legitimately burst. Set
 `exemptService: false` to limit it too.
@@ -53,6 +59,7 @@ export default defineConfig({
     requests: { perSecond: 100, burst: 400 },
     messages: { perSecond: 40, burst: 200 },
     anonymousConnectionsPerAddress: 100,
+    failedAuthentications: { perSecond: 1, burst: 30 },
     exemptService: true,
   },
 })
@@ -60,7 +67,8 @@ export default defineConfig({
 
 `rateLimits: false` turns every limit off. Each value also has a variable: `CANOPY_RATE_LIMITS=false`,
 `CANOPY_RATE_LIMIT_REQUESTS`, `CANOPY_RATE_LIMIT_REQUEST_BURST`, `CANOPY_RATE_LIMIT_MESSAGES`,
-`CANOPY_RATE_LIMIT_MESSAGE_BURST`, `CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS` and
+`CANOPY_RATE_LIMIT_MESSAGE_BURST`, `CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS`, `CANOPY_RATE_LIMIT_FAILED_AUTH`,
+`CANOPY_RATE_LIMIT_FAILED_AUTH_BURST` and
 `CANOPY_RATE_LIMIT_EXEMPT_SERVICE`. See the [configuration reference](/reference/configuration/#ratelimits).
 
 ## Limits are per instance
@@ -73,7 +81,7 @@ instances is not built yet.
 ## Metrics
 
 `canopy_http_rate_limited_total{surface="rest"|"graphql"}` and
-`canopy_realtime_rate_limited_total{kind="message"|"connection"}` count the refusals on the metrics port. A
+`canopy_realtime_rate_limited_total{kind="message"|"connection"|"authentication"}` count the refusals on the metrics port. A
 steady rate of them means a client is looping, or the limits are too low for the app.
 
 Failed sign ins to the admin surface and to built in auth have their own limits and are not part of this.

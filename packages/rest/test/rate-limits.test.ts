@@ -30,6 +30,7 @@ suite("REST rate limits against MongoDB", () => {
   let tokens: Record<"alice" | "bob", string>
   let authenticator: Authenticator
   let policies: PolicyEngine
+  let signingKey: Awaited<ReturnType<typeof generateKeyPair>>["privateKey"]
 
   beforeAll(async () => {
     client = new MongoClient(MONGODB_URI ?? "")
@@ -37,6 +38,7 @@ suite("REST rate limits against MongoDB", () => {
     db = client.db(dbName)
     await db.collection("todos").insertOne({ title: "one", ownerId: "alice" })
     const pair = await generateKeyPair("EdDSA", { crv: "Ed25519" })
+    signingKey = pair.privateKey
     const jwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
     const sign = (sub: string): Promise<string> =>
       new SignJWT({ sub })
@@ -58,13 +60,23 @@ suite("REST rate limits against MongoDB", () => {
     await client.close()
   })
 
-  function setup(options: { exemptService?: boolean; limits?: boolean; trusted?: string[] } = {}) {
+  function setup(
+    options: {
+      exemptService?: boolean
+      limits?: boolean
+      trusted?: string[]
+      failures?: number
+    } = {},
+  ) {
     let now = 5_000_000
     const limits = new RateLimits({
       requests: { perSecond: 1, burst: 3 },
       messages: { perSecond: 1, burst: 1 },
       anonymousConnectionsPerAddress: 1,
       now: () => now,
+      ...(options.failures === undefined
+        ? {}
+        : { failedAuthentications: { perSecond: 1, burst: options.failures } }),
       ...(options.exemptService === undefined ? {} : { exemptService: options.exemptService }),
       ...(options.trusted === undefined ? {} : { trustedProxies: options.trusted }),
     })
@@ -170,12 +182,44 @@ suite("REST rate limits against MongoDB", () => {
     expect(refused).toEqual([])
   })
 
-  it("does not count requests that fail to authenticate", async () => {
+  it("keeps requests that fail to authenticate out of the caller's request budget", async () => {
     const { call } = setup()
     for (let i = 0; i < 10; i++) {
       const response = await call("alice", undefined, { apikey: "wrong" })
       expect(response.status).toBe(401)
     }
     expect((await call("alice")).status).toBe(200)
+  })
+
+  it("refuses an address that keeps failing to authenticate before checking its credentials", async () => {
+    const { call, advance, refused } = setup({ failures: 3 })
+    for (let i = 0; i < 3; i++)
+      expect((await call("anon", "198.51.100.1", { apikey: `guess_${i}` })).status).toBe(401)
+    const blocked = await call("alice", "198.51.100.1")
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers.get("retry-after")).toBe("1")
+    expect(refused).toHaveLength(1)
+    expect((await call("alice", "198.51.100.2")).status).toBe(200)
+    advance(1000)
+    expect((await call("anon", "198.51.100.1", { apikey: "guess_3" })).status).toBe(401)
+    expect((await call("alice", "198.51.100.1")).status).toBe(429)
+    advance(1000)
+    expect((await call("alice", "198.51.100.1")).status).toBe(200)
+  })
+
+  it("does not count an expired token as a failed authentication", async () => {
+    const { call } = setup({ failures: 1 })
+    const expired = await new SignJWT({ sub: "alice" })
+      .setProtectedHeader({ alg: "EdDSA", kid: "k1" })
+      .setIssuer(ISSUER)
+      .setIssuedAt(Math.floor(Date.now() / 1000) - 3600)
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 1800)
+      .sign(signingKey)
+    for (let i = 0; i < 3; i++) {
+      const response = await call("anon", "198.51.100.3", { authorization: `Bearer ${expired}` })
+      expect(response.status).toBe(401)
+      expect(await response.json()).toMatchObject({ code: ErrorCode.TokenExpired })
+    }
+    expect((await call("alice", "198.51.100.3")).status).toBe(200)
   })
 })

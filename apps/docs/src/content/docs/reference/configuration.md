@@ -97,6 +97,7 @@ Per caller token buckets for the data plane, counted in memory by each instance.
 | `requests.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_REQUESTS`, `..._REQUEST_BURST` | 50 and 200            |
 | `messages.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_MESSAGES`, `..._MESSAGE_BURST` | 20 and 100            |
 | `anonymousConnectionsPerAddress` | `CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS` | 50                            |
+| `failedAuthentications.perSecond`, `.burst` | `CANOPY_RATE_LIMIT_FAILED_AUTH`, `..._FAILED_AUTH_BURST` | 1 and 30 |
 | `exemptService`                  | `CANOPY_RATE_LIMIT_EXEMPT_SERVICE`        | `true`                        |
 
 `requests` covers REST and GraphQL requests; `messages` covers the realtime frames `sub`, `mut` and `auth`.

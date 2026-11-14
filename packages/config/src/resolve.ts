@@ -313,6 +313,10 @@ const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
         burst: withDefault(int, 100, POSITIVE),
       }),
       anonymousConnectionsPerAddress: withDefault(int, 50, POSITIVE),
+      failedAuthentications: obj({
+        perSecond: withDefault(int, 1, POSITIVE),
+        burst: withDefault(int, 30, POSITIVE),
+      }),
       exemptService: withDefault(bool, true),
     }),
   },
@@ -371,6 +375,8 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RATE_LIMIT_MESSAGES", "rateLimits.messages.perSecond", int],
   ["CANOPY_RATE_LIMIT_MESSAGE_BURST", "rateLimits.messages.burst", int],
   ["CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS", "rateLimits.anonymousConnectionsPerAddress", int],
+  ["CANOPY_RATE_LIMIT_FAILED_AUTH", "rateLimits.failedAuthentications.perSecond", int],
+  ["CANOPY_RATE_LIMIT_FAILED_AUTH_BURST", "rateLimits.failedAuthentications.burst", int],
   ["CANOPY_RATE_LIMIT_EXEMPT_SERVICE", "rateLimits.exemptService", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
@@ -1082,6 +1088,10 @@ function normalize(
             burst: at<number>("rateLimits.messages.burst"),
           },
           anonymousConnectionsPerAddress: at<number>("rateLimits.anonymousConnectionsPerAddress"),
+          failedAuthentications: {
+            perSecond: at<number>("rateLimits.failedAuthentications.perSecond"),
+            burst: at<number>("rateLimits.failedAuthentications.burst"),
+          },
           exemptService: at<boolean>("rateLimits.exemptService"),
         }
 

@@ -447,6 +447,7 @@ async function buildData(
           requests: limits.requests,
           messages: limits.messages,
           anonymousConnectionsPerAddress: limits.anonymousConnectionsPerAddress,
+          failedAuthentications: limits.failedAuthentications,
           exemptService: limits.exemptService,
           trustedProxies: trustedProxiesOf(config),
         })
