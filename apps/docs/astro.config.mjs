@@ -46,6 +46,7 @@ export default defineConfig({
           items: [
             "operations/kubernetes",
             "operations/several-instances",
+            "operations/tracing",
             "operations/backup-and-restore",
             "operations/key-rotation",
             "operations/change-stream-history",

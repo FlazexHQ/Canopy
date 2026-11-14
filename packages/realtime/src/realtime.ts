@@ -179,6 +179,15 @@ export interface RealtimeOptions {
   /** How many recent event traces {@link Realtime.trace} keeps. Defaults to 0 (tracing off). */
   readonly traceCapacity?: number
   /**
+   * Wraps work in a span of the host's tracer (OpenTelemetry in `@canopy/server`): each batch of change
+   * events fanned out (`canopy.realtime.fanout`) and each policy set loaded (`canopy.policy.load`).
+   */
+  readonly span?: <T>(
+    name: string,
+    attributes: Readonly<Record<string, string | number | boolean>>,
+    run: () => T,
+  ) => T
+  /**
    * Logs a debug line the first time a policy drops out because of a variable issue, naming the policy, the
    * variable and the kind of issue but never the value. For development; off by default.
    */
@@ -489,7 +498,12 @@ export class Realtime {
       logger: this.logger,
       metrics: this.metrics,
       handlers: {
-        onEvents: (events) => this.processEvents(events),
+        onEvents: (events) =>
+          this.options.span === undefined
+            ? this.processEvents(events)
+            : this.options.span("canopy.realtime.fanout", { events: events.length }, () =>
+                this.processEvents(events),
+              ),
         onControl: (event) => this.processControl(event),
         onRestart: (reason) => {
           this.contexts.invalidateAll()
@@ -526,6 +540,12 @@ export class Realtime {
   )
 
   private createEngine(set: PolicySet): PolicyEngine {
+    const { span } = this.options
+    if (span === undefined) return this.buildEngine(set)
+    return span("canopy.policy.load", { version: set.version }, () => this.buildEngine(set))
+  }
+
+  private buildEngine(set: PolicySet): PolicyEngine {
     return new PolicyEngine(set, {
       onVariableIssue: (issue) => {
         this.metrics.variableErrors.inc({ coll: issue.collection, kind: issue.kind })

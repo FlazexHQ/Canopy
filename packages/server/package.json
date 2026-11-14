@@ -39,8 +39,20 @@
     "@canopy/studio": "workspace:*",
     "mongodb": "catalog:"
   },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@canopy/testing": "workspace:*",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/context-async-hooks": "catalog:",
+    "@opentelemetry/core": "catalog:",
+    "@opentelemetry/sdk-trace-base": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "catalog:",
     "jose": "catalog:",

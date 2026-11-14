@@ -400,6 +400,14 @@ export interface CanopyConfigInput {
      */
     readonly dataWrites?: Value<boolean>
   }
+  readonly telemetry?: {
+    /**
+     * Records OpenTelemetry spans: each HTTP request (continuing an incoming `traceparent`), each MongoDB
+     * command, each policy load and each realtime fan out. Needs the `@opentelemetry/api` package; spans
+     * are exported by the SDK the app registers, so without one they cost almost nothing. @default false
+     */
+    readonly tracing?: Value<boolean>
+  }
   readonly server?: {
     /** @default 8080 */
     readonly port?: Value<number>
@@ -577,6 +585,7 @@ export interface ResolvedConfig {
   readonly collections: Readonly<Record<string, ResolvedCollection>>
   readonly cors: { readonly origins: readonly string[] | "*" } | undefined
   readonly audit: { readonly dataWrites: boolean }
+  readonly telemetry: { readonly tracing: boolean }
   readonly server: {
     readonly port: number
     readonly metricsPort: number

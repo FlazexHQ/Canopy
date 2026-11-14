@@ -116,6 +116,12 @@ cluster time and the mutation ID as details. Documents are never copied into the
 the commit, one insert into the meta database per write; a failed insert is logged and does not fail the
 write. Studio shows them on the Audit page, and the audit retention setting expires them like other entries.
 
+## `telemetry`
+
+| Setting   | Variable         | Default | Description                                                              |
+| --------- | ---------------- | ------- | ------------------------------------------------------------------------ |
+| `tracing` | `CANOPY_TRACING` | `false` | OpenTelemetry spans for requests, MongoDB commands, policy loads and fan out; see [metrics and tracing](/operations/tracing/) |
+
 ## `collections`
 
 Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`, and

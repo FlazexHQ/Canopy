@@ -72,6 +72,7 @@ import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { PolicyStore } from "./policy-store.ts"
 import { RequestLog, surfaceOf } from "./request-log.ts"
+import { loadTracing, type Tracing } from "./tracing.ts"
 import { ViewTokens } from "./view-tokens.ts"
 
 /** How often each node rereads the runtime settings (the admin allowlist, request log sampling). */
@@ -239,9 +240,20 @@ function reporter(options: CreateCanopyOptions, logger: Logger, level: "error" |
 }
 
 /** Connects to MongoDB and brings the meta database up to date. */
-async function connect(config: ResolvedConfig, options: CreateCanopyOptions, logger: Logger) {
+async function connect(
+  config: ResolvedConfig,
+  options: CreateCanopyOptions,
+  logger: Logger,
+  tracing: Tracing | undefined,
+) {
   const ownsMongo = options.mongo === undefined
-  const mongo = options.mongo ?? new MongoClient(config.mongodb.uri, { appName: "canopy" })
+  const mongo =
+    options.mongo ??
+    new MongoClient(config.mongodb.uri, {
+      appName: "canopy",
+      ...(tracing === undefined ? {} : { monitorCommands: true }),
+    })
+  tracing?.instrument(mongo)
   const report = reporter(options, logger, "error")
   /** Runs a startup step, turning a MongoDB failure into a diagnostic and closing a client of our own. */
   const diagnosed = async <T>(step: () => Promise<T>): Promise<T> => {
@@ -439,6 +451,7 @@ async function buildData(
   stores: Stores,
   options: CreateCanopyOptions,
   logger: Logger,
+  tracing: Tracing | undefined,
 ) {
   const { mongo, db } = connection
   const development = config.environment === "development"
@@ -536,18 +549,27 @@ async function buildData(
         contexts,
         logger,
         traceCapacity: 256,
+        ...(tracing === undefined ? {} : { span: tracing.span }),
         logVariableIssues: development,
         ...(rateLimits === undefined ? {} : { rateLimits }),
         ...(rest === undefined ? {} : { mutations: rest.writes }),
       }),
     )
   } else {
-    let current = new PolicyEngine(await source.load(), variableHooks)
+    const load = (set: PolicySet): PolicyEngine =>
+      tracing === undefined
+        ? new PolicyEngine(set, variableHooks)
+        : tracing.span(
+            "canopy.policy.load",
+            { version: set.version },
+            () => new PolicyEngine(set, variableHooks),
+          )
+    let current = load(await source.load())
     standalone = current
     if (watch && source.watch !== undefined) {
       stopWatching = source.watch(
         (set) => {
-          current = new PolicyEngine(set, variableHooks)
+          current = load(set)
           standalone = current
         },
         (error) =>
@@ -914,10 +936,11 @@ export async function createCanopy(
 ): Promise<Canopy> {
   const config = resolveInput(input, options)
   const logger = options.logger ?? silentLogger
-  const connection = await connect(config, options, logger)
+  const tracing = config.telemetry.tracing ? await loadTracing() : undefined
+  const connection = await connect(config, options, logger, tracing)
   const stores = await buildStores(connection, logger)
   const auth = await buildAuth(config, connection, stores, logger)
-  const data = await buildData(config, connection, auth, stores, options, logger)
+  const data = await buildData(config, connection, auth, stores, options, logger, tracing)
   closeRevokedConnections(auth, data.realtime, logger)
   const admin = await buildAdmin(config, connection, stores, auth, data, options, logger)
   const transports = buildTransports(config, data.realtime)
@@ -972,7 +995,11 @@ export async function createCanopy(
     info: { readonly ip?: string } = {},
   ): Promise<Response> => {
     const started = performance.now()
-    return logResponse(request, await route(request, fallback, info), started, info.ip)
+    const response =
+      tracing === undefined
+        ? await route(request, fallback, info)
+        : await tracing.fetch(request, () => route(request, fallback, info))
+    return logResponse(request, response, started, info.ip)
   }
 
   const canopy: Canopy = {
@@ -995,7 +1022,7 @@ ${realtime?.renderMetrics() ?? ""}`,
       const streaming = http === undefined ? undefined : toNodeHandler(http)
       const adminListener = serveOnNode(admin.fetch)
       const authListener = serveOnNode(authFetch)
-      return (request, response) => {
+      const serve = (request: IncomingMessage, response: ServerResponse) => {
         logNode(request, response)
         const path = tryPathname(request)
         if (path === undefined) {
@@ -1038,6 +1065,8 @@ ${realtime?.renderMetrics() ?? ""}`,
         if (streaming === undefined) notRealtime()
         else streaming(request, response, notRealtime)
       }
+      if (tracing === undefined) return serve
+      return (request, response) => tracing.node(request, response, () => serve(request, response))
     },
     async attach(server) {
       if (graphql !== undefined && realtime !== undefined) {
@@ -1072,9 +1101,11 @@ ${realtime?.renderMetrics() ?? ""}`,
           if (rest !== undefined && isRest(path)) {
             const started = performance.now()
             const ip = peer(request, server).ip
-            return rest
-              .fetch(request)
-              .then((response) => logResponse(request, response, started, ip))
+            const served =
+              tracing === undefined
+                ? rest.fetch(request)
+                : tracing.fetch(request, () => rest.fetch(request))
+            return served.then((response) => logResponse(request, response, started, ip))
           }
           if (!transports.websocket && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)

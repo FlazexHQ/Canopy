@@ -333,6 +333,7 @@ const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
   },
   cors: obj({ origins: { t: "origins" } }),
   audit: obj({ dataWrites: withDefault(bool, false) }),
+  telemetry: obj({ tracing: withDefault(bool, false) }),
   server: obj({
     port: withDefault(int, 8080, PORT),
     metricsPort: withDefault(int, 9464, PORT),
@@ -382,6 +383,7 @@ const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RATE_LIMIT_FAILED_AUTH_BURST", "rateLimits.failedAuthentications.burst", int],
   ["CANOPY_RATE_LIMIT_EXEMPT_SERVICE", "rateLimits.exemptService", bool],
   ["CANOPY_AUDIT_DATA_WRITES", "audit.dataWrites", bool],
+  ["CANOPY_TRACING", "telemetry.tracing", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
   ["METRICS_PORT", "server.metricsPort", int],
@@ -1240,6 +1242,7 @@ function normalize(
     collections,
     cors,
     audit: { dataWrites: at<boolean>("audit.dataWrites") },
+    telemetry: { tracing: at<boolean>("telemetry.tracing") },
     server: {
       port: at<number>("server.port"),
       metricsPort: at<number>("server.metricsPort"),
