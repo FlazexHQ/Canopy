@@ -131,7 +131,7 @@ by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
 `tsc -b`, Knip, the docs export check, the docs site build and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
 sets on MongoDB 7.0 and 8.0 (with V8 coverage and its floors on 8.0 under Node), the Studio and todo-react Playwright suites, the Docker
-images job and the Changesets check; `nightly.yml` runs the long differential and simulation runs, the browser tests on
+images job, the Changesets check and a license check of everything the published packages install (`bun packages/testing/scripts/licenses.ts`); `security.yml` runs dependency review on pull requests, CodeQL and secret scanning; `nightly.yml` runs the long differential and simulation runs, the browser tests on
 Windows and macOS, Linux arm64, Alpine (musl) and Deno. Actions are pinned to commit SHAs. Without Docker (the
 Windows and macOS runners), `bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder>` downloads
 the official binaries and starts a replica set on localhost:27017. MongoDB 8 does not start on Linux kernels

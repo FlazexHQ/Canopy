@@ -29,6 +29,8 @@ jobs:
       - run: bunx biome ci .
       - name: Repository rules (workspace layout and dashes)
         run: bun tools/repo-check/src/cli.ts workspace dashes
+      - name: Licenses of what the published packages install (MIT, Apache 2.0, BSD, ISC)
+        run: bun packages/testing/scripts/licenses.ts
       - run: bun run typecheck
       - name: Unused exports
         run: bun run lint:exports
