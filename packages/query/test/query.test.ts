@@ -212,8 +212,15 @@ describe("validateStoredDocument", () => {
     [{ a: { $x: 1 } }],
     [{ a: [{ "b.c": 1 }] }],
     [JSON.parse('{"__proto__": 1}')],
+    [{ "": 1 }],
+    [{ a: { "": null } }],
+    [{ a: [{ "": 1 }] }],
   ])("rejects %j", (doc) => {
     rejects(() => validateStoredDocument(doc))
+  })
+
+  it("accepts ordinary nested documents and arrays", () => {
+    expect(() => validateStoredDocument({ a: { b: [1, { c: "x" }] }, "d e": true })).not.toThrow()
   })
 })
 

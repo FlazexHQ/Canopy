@@ -211,6 +211,7 @@ function validateValueForStorage(value: unknown, limits: QueryLimits, depth: num
   if (!isDocument(value)) return
   for (const key of Object.keys(value)) {
     if (isForbiddenKey(key)) fail(`The key "${key}" is not allowed`)
+    if (key === "") fail("Field names may not be empty")
     if (key.startsWith("$")) fail(`Field names may not start with $: ${key}`)
     if (key.includes(".")) fail(`Field names may not contain dots: ${key}`)
     if (key.includes("\0")) fail("Field names may not contain NUL characters")
@@ -219,8 +220,8 @@ function validateValueForStorage(value: unknown, limits: QueryLimits, depth: num
 }
 
 /**
- * Validates a document that will be inserted or used as a replacement: no `$` prefixed or dotted keys and no
- * prototype keys at any depth.
+ * Validates a document that will be inserted or used as a replacement: no empty, `$` prefixed or dotted keys
+ * and no prototype keys at any depth.
  */
 export function validateStoredDocument(doc: unknown, limits: QueryLimits = DEFAULT_LIMITS): void {
   if (!isDocument(doc)) fail("A document must be an object")
