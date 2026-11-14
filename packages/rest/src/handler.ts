@@ -94,6 +94,11 @@ export interface RestHandlerOptions {
    * unless the limits say otherwise. Counted in memory, so each instance limits on its own.
    */
   readonly rateLimits?: RateLimits
+  /**
+   * Explains refused writes in `details.explain` (which policies decided, or which fields). It reveals the
+   * policy structure, so turn it on in development only.
+   */
+  readonly explainDenials?: boolean
   /** Called after each committed write of the Data API and of everything sharing its write path. */
   readonly onWrite?: (event: WriteEvent) => void
   /** Called for every request the rate limits refused, for metrics. */
@@ -131,6 +136,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   })
   const writes = new WritePath({
     ...(options.onWrite === undefined ? {} : { onWrite: options.onWrite }),
+    ...(options.explainDenials === true ? { explainDenials: true } : {}),
     client: options.client,
     database: options.database,
     policies: options.policies,

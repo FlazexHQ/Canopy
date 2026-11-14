@@ -15,4 +15,6 @@ before any document is looked at. Revoked keys and banned users get it too.
   `allow.read("authenticated").where({ ownerId: auth("sub") })`.
 - Check the roles the caller really has: anonymous callers have `anon`, signed in users `authenticated` plus
   the roles claim of their token, secret keys `service`.
-- In development, `canopy policies explain <collection> --role <role> --op <op>` shows which rules apply.
+- In development, the error's `details.explain` lists the collection's policies with whether each applies to
+  the caller and why not; `canopy policies explain <collection> --role <role> --op <op>` shows the same for
+  any role.

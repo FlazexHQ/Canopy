@@ -7,6 +7,7 @@ import {
   deniesTextSearch,
   type FieldAccess,
   immutableViolations,
+  type Operation,
   type PolicyEngine,
   projectReadable,
   type RequestContext,
@@ -193,6 +194,12 @@ export interface WritePathOptions {
    * a mutation ID are not reported again. An exception thrown here is ignored: the write has committed.
    */
   readonly onWrite?: (event: WriteEvent) => void
+  /**
+   * Explains refused writes in the error details (`details.explain`): the policies of the operation with
+   * their outcome and resolved clauses, or the fields at fault. It reveals the policy structure, so it is
+   * for development only.
+   */
+  readonly explainDenials?: boolean
 }
 
 /** A committed write, as reported to {@link WritePathOptions.onWrite}. */
@@ -312,6 +319,7 @@ export class WritePath {
   private readonly queryLimits: QueryLimits
   private readonly ttlSeconds: number
   private readonly onWrite: ((event: WriteEvent) => void) | undefined
+  private readonly explainDenials: boolean
   private indexes: Promise<void> | undefined
   private bulkSupport: Promise<boolean> | undefined
 
@@ -327,6 +335,7 @@ export class WritePath {
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
     this.ttlSeconds = options.mutationTtlSeconds ?? 86_400
     this.onWrite = options.onWrite
+    this.explainDenials = options.explainDenials === true
   }
 
   /** The write limits in force. */
@@ -753,6 +762,7 @@ export class WritePath {
     return new Scope(engine, ctx, this.db, name, {
       maxTimeMS: this.limits.maxTimeMS,
       filterLimits: this.queryLimits,
+      explain: this.explainDenials,
     })
   }
 
@@ -800,12 +810,12 @@ export class WritePath {
       validateStoredDocument(doc, this.queryLimits)
       const record = doc as Record<string, unknown>
       if (!scope.service && writable.kind !== "all")
-        assertWritable(writable, leafPaths(record), scope.name)
+        assertWritable(scope, writable, leafPaths(record))
       validateId(record["_id"])
       return idFirst(toDriver(record))
     })
     const check = scope.engine.check(scope.name, "insert", scope.ctx)
-    if (check.kind === "deny") throw violation("insert", scope.name)
+    if (check.kind === "deny") throw violation(scope, "insert")
     const precheck = single && BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
     const ids = prepared.map((doc) => doc["_id"])
     const [first] = prepared
@@ -855,8 +865,8 @@ export class WritePath {
         "An update needs update operators; use replace for whole documents",
       )
     if (!scope.service) {
-      assertWritable(scope.writable("update"), parsed.writtenPaths, scope.name)
-      assertMutable(parsed.writtenPaths, scope.engine.immutable(scope.name))
+      assertWritable(scope, scope.writable("update"), parsed.writtenPaths)
+      assertMutable(scope, parsed.writtenPaths)
     }
     const base = scope.selector(selector)
     const where = scope.precondition(rawWhere)
@@ -961,7 +971,7 @@ export class WritePath {
         throw new ForbiddenError(
           `The field rules of '${scope.name}' do not allow replacing whole documents; send an update`,
         )
-      if (upsert) assertWritable(scope.writable("insert"), leafPaths(doc), scope.name)
+      if (upsert) assertWritable(scope, scope.writable("insert"), leafPaths(doc))
     }
     const base = scope.selector({ id: request.id })
     const where = scope.precondition(request.where)
@@ -985,7 +995,7 @@ export class WritePath {
       if (result.matchedCount === 0) {
         if (where.kind !== "all") await scope.assertNoConflict(session, visible)
         if (insertCheck === undefined) return withCt(empty(), ct)
-        if (insertCheck.kind === "deny") throw violation("insert", scope.name)
+        if (insertCheck.kind === "deny") throw violation(scope, "insert")
         await scope.coll.insertOne(replacement, scope.writeOptions(session))
         ct = scope.fastTime(session)
         const documents = await scope.verify(session, [id], insertCheck, "insert", read)
@@ -1095,6 +1105,8 @@ class Scope {
   readonly ctx: RequestContext
   readonly coll: Collection<Document>
   readonly name: string
+  /** Whether refusals carry `details.explain`. */
+  readonly explain: boolean
   private readonly db: Db
   private readonly maxTimeMS: number
   private readonly filterLimits: QueryLimits
@@ -1105,8 +1117,13 @@ class Scope {
     ctx: RequestContext,
     db: Db,
     name: string,
-    limits: { readonly maxTimeMS: number; readonly filterLimits: QueryLimits },
+    limits: {
+      readonly maxTimeMS: number
+      readonly filterLimits: QueryLimits
+      readonly explain: boolean
+    },
   ) {
+    this.explain = limits.explain
     this.maxTimeMS = limits.maxTimeMS
     this.filterLimits = limits.filterLimits
     this.engine = engine
@@ -1173,7 +1190,10 @@ class Scope {
 
   requireGrant(op: "insert" | "update" | "delete"): void {
     if (!this.engine.hasGrant(this.name, op, this.ctx))
-      throw new ForbiddenError(`No policy grants ${op} on '${this.name}'`)
+      throw new ForbiddenError(
+        `No policy grants ${op} on '${this.name}'`,
+        explained(this, op, "using"),
+      )
   }
 
   writable(op: "insert" | "update"): FieldAccess {
@@ -1263,7 +1283,7 @@ class Scope {
     op: "insert" | "update",
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
-    if (check?.kind === "deny") throw violation(op, this.name)
+    if (check?.kind === "deny") throw violation(this, op)
     const [only] = ids
     if (ids.length === 1 && (check === undefined || check.kind === "all"))
       return read ? [await this.readOne(session, only)] : undefined
@@ -1273,7 +1293,7 @@ class Scope {
           { $and: [{ _id: { $in: [...ids] } }, { $nor: [toDriver(check.filter)] }] } as Document,
           { ...this.readSession(session), limit: 1, maxTimeMS: this.maxTimeMS },
         )
-        if (failing > 0) throw violation(op, this.name)
+        if (failing > 0) throw violation(this, op)
       }
       return undefined
     }
@@ -1300,7 +1320,7 @@ class Scope {
     check: Compiled,
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
-    if (check.kind === "deny") throw violation("insert", this.name)
+    if (check.kind === "deny") throw violation(this, "insert")
     const ids = docs.map((doc) => doc["_id"])
     const facet = this.facets(ids, check, read)
     if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
@@ -1360,7 +1380,7 @@ class Scope {
     read: boolean,
   ): (ReturnedDocument | null)[] | undefined {
     const bad = (out?.["bad"] as Document[] | undefined)?.[0]?.["n"]
-    if (bad !== undefined && Number(bad) > 0) throw violation(op, this.name)
+    if (bad !== undefined && Number(bad) > 0) throw violation(this, op)
     if (!read) return undefined
     const access = this.readable()
     const docs = (out?.["docs"] as Document[] | undefined) ?? []
@@ -1400,27 +1420,65 @@ function bulkLimit(max: number): CanopyError {
   )
 }
 
-function violation(op: "insert" | "update", collection: string): PolicyViolationError {
+/**
+ * The error options of a refusal: with `scope.explain`, `details.explain` lists the policies of the
+ * operation's clause with their outcome and resolved filter, so a denial in development says which policy
+ * decided it.
+ */
+function explained(
+  scope: Scope,
+  op: Operation,
+  clause: "using" | "check",
+): { details: Record<string, unknown> } | undefined {
+  if (!scope.explain) return undefined
+  const explanation = scope.engine.explain(scope.name, op, scope.ctx, clause)
+  return {
+    details: {
+      explain: {
+        collection: scope.name,
+        op,
+        clause,
+        roles: explanation.roles,
+        policies: explanation.policies.map((policy) => ({
+          name: policy.name,
+          kind: policy.kind,
+          applies: policy.applies,
+          reason: policy.reason,
+          ...(policy.resolved === undefined ? {} : { filter: policy.resolved }),
+        })),
+      },
+    },
+  }
+}
+
+function violation(scope: Scope, op: "insert" | "update"): PolicyViolationError {
   return new PolicyViolationError(
-    `The resulting document does not satisfy the ${op} check for collection '${collection}'`,
+    `The resulting document does not satisfy the ${op} check for collection '${scope.name}'`,
+    explained(scope, op, "check"),
   )
 }
 
-function assertWritable(access: FieldAccess, paths: readonly string[], collection: string): void {
+function assertWritable(scope: Scope, access: FieldAccess, paths: readonly string[]): void {
   const denied = deniedPaths(
     access,
     paths.filter((path) => path !== "_id"),
   )
   if (denied.length > 0)
     throw new PolicyViolationError(
-      `The caller may not write ${denied.join(", ")} in collection '${collection}'`,
+      `The caller may not write ${denied.join(", ")} in collection '${scope.name}'`,
+      scope.explain
+        ? { details: { explain: { rule: "fields.write", fields: denied } } }
+        : undefined,
     )
 }
 
-function assertMutable(written: readonly string[], immutable: readonly string[]): void {
-  const frozen = immutableViolations(written, immutable)
+function assertMutable(scope: Scope, written: readonly string[]): void {
+  const frozen = immutableViolations(written, scope.engine.immutable(scope.name))
   if (frozen.length > 0)
-    throw new PolicyViolationError(`Immutable fields cannot be changed: ${frozen.join(", ")}`)
+    throw new PolicyViolationError(
+      `Immutable fields cannot be changed: ${frozen.join(", ")}`,
+      scope.explain ? { details: { explain: { rule: "immutable", fields: frozen } } } : undefined,
+    )
 }
 
 /** The document with `_id` as its first field, as MongoDB stores it, and a new ObjectId when it has none. */

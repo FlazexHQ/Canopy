@@ -531,6 +531,7 @@ async function buildData(
             : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "rest" }) }),
           onError: (error) => logger.error({ err: error }, "REST request failed"),
           ...(config.audit.dataWrites ? { onWrite: auditWrite(stores.audit, logger) } : {}),
+          ...(development ? { explainDenials: true } : {}),
         })
 
   const realtimeConfig = config.realtime

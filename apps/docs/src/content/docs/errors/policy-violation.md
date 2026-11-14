@@ -14,4 +14,8 @@ an immutable field changed. Nothing was written: the check runs inside the write
 - Compare the document after the write with the `check` clauses of the operation, for example an insert that
   sets `ownerId` to someone else's id.
 - Fields outside `fields.write` and fields listed in `immutable` cannot be written by the role.
-- In development, `canopy policies explain` replays the decision for a role and names the clause.
+- In development (`CANOPY_ENV=development`, as under `canopy dev`), the error's `details.explain` says why:
+  for a failed check, every policy of the clause with whether it applied, the reason, and its filter with the
+  caller's values filled in; for a field rule or an immutable field, `{ "rule": "fields.write" }` or
+  `{ "rule": "immutable" }` with the fields. Production responses never include it.
+- `canopy policies explain` replays the decision for any role.
