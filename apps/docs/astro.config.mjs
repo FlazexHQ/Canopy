@@ -43,7 +43,14 @@ export default defineConfig({
         },
         {
           label: "Operations",
-          items: ["operations/kubernetes", "operations/several-instances"],
+          items: [
+            "operations/kubernetes",
+            "operations/several-instances",
+            "operations/backup-and-restore",
+            "operations/key-rotation",
+            "operations/change-stream-history",
+            "operations/upgrades",
+          ],
         },
         {
           label: "Recipes",
