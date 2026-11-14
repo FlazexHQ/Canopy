@@ -66,6 +66,7 @@ function summary(
   url: string,
   cwd: string,
   generated: boolean,
+  setupToken: string | undefined,
 ): string[] {
   const ws = url.replace(/^http/, "ws")
   const set = canopy.policies.set
@@ -79,6 +80,7 @@ function summary(
     "",
     `  REST      ${canopy.rest === undefined ? "off" : `${url}/rest/v1`}`,
     `  Realtime  ${canopy.realtime === undefined ? "off" : `${ws}/realtime/v1`}`,
+    `  GraphQL   ${canopy.graphql === undefined ? "off" : `${url}/graphql/v1`}`,
     `  MongoDB   ${redactUri(config.mongodb.uri)}  (app database ${config.mongodb.database})`,
   ]
   const publishable = config.keys.publishable[0]
@@ -97,6 +99,12 @@ function summary(
   lines.push(
     `  Policies  ${set.collections.size} collections, ${policies} policies from ${source}, ${errors} lint errors`,
   )
+  if (canopy.admin.api !== undefined) {
+    const admin = config.server.adminListen
+    lines.push(`  Studio    ${admin === undefined ? url : `http://${admin}`}/studio`)
+    if (setupToken !== undefined)
+      lines.push(`            no owner yet: claim it in Studio with the setup token ${setupToken}`)
+  }
   lines.push("")
   lines.push(
     "Watching the config and env files (restart) and the policies (hot reload). Ctrl+C stops.",
@@ -148,12 +156,19 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   const start = async (config: ResolvedConfig): Promise<Running | undefined> => {
     let canopy: Canopy | undefined
     try {
-      canopy = await createCanopy(config, { logger })
+      let setupToken: string | undefined
+      canopy = await createCanopy(config, {
+        logger,
+        onSetupToken: (token) => {
+          setupToken = token
+        },
+      })
       const server = createServer(canopy.node())
       await canopy.attach(server)
       const port = await listen(server, options.port ?? config.server.port)
       const url = `http://localhost:${port}`
-      for (const line of summary(config, canopy, url, options.cwd, generated)) out.log(line)
+      for (const line of summary(config, canopy, url, options.cwd, generated, setupToken))
+        out.log(line)
       options.onReady?.(url)
       return { canopy, server, url }
     } catch (error: unknown) {

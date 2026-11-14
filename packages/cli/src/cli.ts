@@ -22,8 +22,14 @@ import { genTypes } from "./gen-types.ts"
 import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
 import { keysCreate, keysList, keysRevoke, migrate } from "./keys.ts"
-import { DEFAULT_MONGO_IMAGE, startLocalMongo } from "./local-mongo.ts"
+import { DEFAULT_MONGO_IMAGE, dockerAvailable, startLocalMongo } from "./local-mongo.ts"
 import { login, logout } from "./login.ts"
+import {
+  DEFAULT_MONGO_VERSION,
+  mongoCacheDir,
+  type RunningMongo,
+  startBinaryMongo,
+} from "./mongod-binary.ts"
 import { messageOf, type Output } from "./output.ts"
 import {
   policiesDiff,
@@ -40,7 +46,7 @@ const USAGE = `Usage: canopy <command> [options]
 
 Commands:
   init                   Add a canopy/ folder (config, starter policies, .env.example) to this project
-  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB in Docker
+  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too
   doctor                 Check MongoDB, change streams, policies and indexes
   policies lint          Validate and lint the policy directory
   policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB
@@ -95,7 +101,10 @@ Options:
   --infer-enums          gen types: turn low cardinality string fields into literal unions
   --sample <n>           gen types: documents sampled per collection (default 1000)
   --sources              config print: show where each value came from
-  --with-mongo           dev: start a single node replica set in Docker (persistent volume)
+  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),
+                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)
+  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs
+  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default ${DEFAULT_MONGO_VERSION})
   --port <n>             dev: the port to serve on (default: the config's server.port)
   --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)
   --mongo-image <image>  dev --with-mongo: the image (default ${DEFAULT_MONGO_IMAGE})
@@ -146,6 +155,7 @@ const BOOLEAN_FLAGS = new Set([
   "infer-enums",
   "sources",
   "with-mongo",
+  "mongo-binary",
   "yes",
   "dry-run",
   "fail-on-drift",
@@ -367,7 +377,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   },
   init: { flags: [], handler: { kind: "direct", run: runInit } },
   dev: {
-    flags: ["with-mongo", "port", "mongo-port", "mongo-image"],
+    flags: ["with-mongo", "mongo-binary", "mongo-version", "port", "mongo-port", "mongo-image"],
     handler: { kind: "direct", run: runDev },
   },
   "realtime enable-images": {
@@ -984,20 +994,37 @@ async function runDev(call: Invocation): Promise<number> {
   const mongoPort = port(text(flags, "mongo-port"), "mongo-port", out)
   if (serverPort === false || mongoPort === false) return 1
   let devEnv = env
+  let binary: RunningMongo | undefined
   if (flags.has("with-mongo")) {
     const configured = env["MONGODB_URI"]
     const database =
       text(flags, "database") ??
       env["CANOPY_DB"] ??
       (configured === undefined ? "" : databaseOf(configured))
+    const app = database === "" ? "app" : database
     try {
-      const uri = await startLocalMongo({
-        projectDir: cwd,
-        port: mongoPort ?? 27017,
-        database: database === "" ? "app" : database,
-        image: text(flags, "mongo-image") ?? env["CANOPY_MONGO_IMAGE"] ?? DEFAULT_MONGO_IMAGE,
-        log: (line) => out.log(line),
-      })
+      const useDocker = !flags.has("mongo-binary") && (await dockerAvailable())
+      let uri: string
+      if (useDocker) {
+        uri = await startLocalMongo({
+          projectDir: cwd,
+          port: mongoPort ?? 27017,
+          database: app,
+          image: text(flags, "mongo-image") ?? env["CANOPY_MONGO_IMAGE"] ?? DEFAULT_MONGO_IMAGE,
+          log: (line) => out.log(line),
+        })
+      } else {
+        if (!flags.has("mongo-binary")) out.log("Docker is not running: using the MongoDB binaries")
+        binary = await startBinaryMongo({
+          projectDir: cwd,
+          port: mongoPort ?? 27017,
+          database: app,
+          version: text(flags, "mongo-version") ?? DEFAULT_MONGO_VERSION,
+          cacheDir: mongoCacheDir(env),
+          log: (line) => out.log(line),
+        })
+        uri = binary.uri
+      }
       devEnv = { ...env, MONGODB_URI: uri }
       out.log(`MongoDB is ready at ${uri}`)
     } catch (error: unknown) {
@@ -1005,16 +1032,20 @@ async function runDev(call: Invocation): Promise<number> {
       return 1
     }
   }
-  return dev(
-    {
-      cwd,
-      env: devEnv,
-      ...(text(flags, "config") === undefined ? {} : { configFile: text(flags, "config") ?? "" }),
-      ...(serverPort === undefined ? {} : { port: serverPort }),
-    },
-    out,
-    signal,
-  )
+  try {
+    return await dev(
+      {
+        cwd,
+        env: devEnv,
+        ...(text(flags, "config") === undefined ? {} : { configFile: text(flags, "config") ?? "" }),
+        ...(serverPort === undefined ? {} : { port: serverPort }),
+      },
+      out,
+      signal,
+    )
+  } finally {
+    await binary?.stop()
+  }
 }
 
 const isMain =

@@ -118,6 +118,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - name: Let the canopy dev --with-mongo test run the same mongod
+        shell: bash
+        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
       - if: matrix.runtime == 'bun'
         run: bunx biome ci .
       - if: matrix.runtime == 'bun'

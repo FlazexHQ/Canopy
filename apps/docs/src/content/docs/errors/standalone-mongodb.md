@@ -18,5 +18,5 @@ A single node replica set is enough for development and small deployments:
 3. Add `replicaSet=rs0` to the connection string, for example
    `mongodb://localhost:27017/app?replicaSet=rs0`.
 
-`bun run db:up` in this repository and `canopy dev --with-mongo` start such a replica set in Docker. MongoDB
-Atlas clusters are replica sets already.
+`bun run db:up` in this repository starts such a replica set in Docker, and `canopy dev --with-mongo` starts one
+in Docker or, without Docker, from the official binaries. MongoDB Atlas clusters are replica sets already.

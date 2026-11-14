@@ -18,7 +18,7 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | Command                                  | What it does                                                                            |
 | ---------------------------------------- | --------------------------------------------------------------------------------------- |
 | `canopy init [--mongodb-uri <uri>]`      | Adds `canopy/` with the config, starter policies and `.env.example`; never overwrites   |
-| `canopy dev [--with-mongo] [--port <n>]` | Runs Canopy with hot reload; `--with-mongo` starts a replica set in Docker              |
+| `canopy dev [--with-mongo] [--port <n>]` | Runs Canopy with hot reload; `--with-mongo` starts a replica set (Docker, else binaries) |
 | `canopy doctor`                          | Checks MongoDB, change streams, policies and indexes; exits 1 on errors                 |
 | `canopy policies lint`                   | Validates and lints the policy directory                                                |
 | `canopy policies test`                   | Runs policy tests in memory and, with `--mongodb-uri`, against MongoDB                  |

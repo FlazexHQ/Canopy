@@ -31,6 +31,12 @@ const docker: DockerRunner = (args) =>
     })
   })
 
+/** Whether the `docker` command is installed and its daemon answers. */
+export async function dockerAvailable(run: DockerRunner = docker): Promise<boolean> {
+  const result = await run(["version", "--format", "{{.Server.Version}}"])
+  return result.code === 0 && result.stdout.trim() !== ""
+}
+
 /** The official MongoDB Community image `canopy dev --with-mongo` runs by default. */
 export const DEFAULT_MONGO_IMAGE = "mongodb/mongodb-community-server:8.0-ubi9"
 

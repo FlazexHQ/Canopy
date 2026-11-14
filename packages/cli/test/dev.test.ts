@@ -80,6 +80,10 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     const base = urls[0] ?? ""
     expect(lines).toContain(`  REST      ${base}/rest/v1`)
     expect(lines).toContain(`  Realtime  ${base.replace("http", "ws")}/realtime/v1`)
+    expect(lines).toContain(`  GraphQL   ${base}/graphql/v1`)
+    expect(lines).toContain(`  Studio    ${base}/studio`)
+    const claim = lines.find((line) => line.includes("claim it in Studio with the setup token"))
+    expect(claim?.split(" ").pop()?.length ?? 0).toBeGreaterThan(20)
     expect(lines.some((line) => line.startsWith("  Policies  1 collections, 1 policies"))).toBe(
       true,
     )

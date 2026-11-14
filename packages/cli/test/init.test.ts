@@ -92,7 +92,7 @@ describe("canopy init", () => {
     expect(findings.filter((finding) => finding.severity === "error")).toEqual([])
 
     expect(await readFile(join(root, ".gitignore"), "utf8")).toBe(
-      "dist\ncanopy/.env\ncanopy/.env.*\n!canopy/.env.example\n",
+      "dist\ncanopy/.env\ncanopy/.env.*\n!canopy/.env.example\n.canopy/\n",
     )
   })
 

@@ -45,8 +45,11 @@ redacted in `canopy config print`. Every setting is in the [configuration refere
 bunx canopy dev --with-mongo
 ```
 
-`dev` starts a single node replica set in Docker, loads `.env` files, hot reloads policies and generates
-development keys when none are configured.
+`dev --with-mongo` starts a single node replica set: in Docker when it runs, otherwise from the official MongoDB
+binaries, downloaded once into a per user cache, with the data in `.canopy/mongodb` (`--mongo-binary` picks the
+binaries even with Docker). It then loads `.env` files, hot reloads policies, generates development keys when
+none are configured, and prints the REST, realtime, GraphQL and Studio URLs. The first time, it also prints a
+one time setup token: open Studio and claim the project with it to become its owner.
 
 ## Run in production
 
