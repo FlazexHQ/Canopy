@@ -18,7 +18,7 @@ import { doctor, policiesLint, policiesTest } from "./commands.ts"
 import { isEnvironmentName, readEnvironment, readToken } from "./credentials.ts"
 import { dev } from "./dev.ts"
 import { policiesExplain } from "./explain.ts"
-import { genTypes } from "./gen-types.ts"
+import { genTypes, watchTypes } from "./gen-types.ts"
 import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
 import { keysCreate, keysList, keysRevoke, migrate } from "./keys.ts"
@@ -98,6 +98,8 @@ Options:
   --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)
   --out <file>           gen types: the file to write (default: the config's types.out, else src/canopy.gen.ts)
   --check                gen types: fail when the file is out of date instead of writing it
+  --watch                gen types: regenerate when policies or collections change, until Ctrl+C
+  --types                dev: regenerate the types file too (on by default once the file exists)
   --infer-enums          gen types: turn low cardinality string fields into literal unions
   --sample <n>           gen types: documents sampled per collection (default 1000)
   --sources              config print: show where each value came from
@@ -156,6 +158,8 @@ const BOOLEAN_FLAGS = new Set([
   "sources",
   "with-mongo",
   "mongo-binary",
+  "watch",
+  "types",
   "yes",
   "dry-run",
   "fail-on-drift",
@@ -361,7 +365,7 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
     },
   },
   "gen types": {
-    flags: ["out", "role", "check", "infer-enums", "sample"],
+    flags: ["out", "role", "check", "infer-enums", "sample", "watch"],
     handler: { kind: "app", load: "gen", run: runGenTypes },
   },
   "config print": {
@@ -377,7 +381,15 @@ const COMMANDS: Readonly<Record<string, CommandSpec>> = {
   },
   init: { flags: [], handler: { kind: "direct", run: runInit } },
   dev: {
-    flags: ["with-mongo", "mongo-binary", "mongo-version", "port", "mongo-port", "mongo-image"],
+    flags: [
+      "with-mongo",
+      "mongo-binary",
+      "mongo-version",
+      "port",
+      "mongo-port",
+      "mongo-image",
+      "types",
+    ],
     handler: { kind: "direct", run: runDev },
   },
   "realtime enable-images": {
@@ -827,18 +839,23 @@ function runGenTypes(call: Configured, app: AppTarget): number | Promise<number>
     call.out.error("--sample needs a positive integer")
     return 1
   }
-  return genTypes(
-    {
-      ...app,
-      out: text(flags, "out") ?? config.types.out,
-      check: flags.has("check"),
-      inferEnums: flags.has("infer-enums"),
-      ...(call.dirGiven ? { dir: call.dir } : {}),
-      ...(role === undefined ? {} : { role }),
-      ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
-    },
-    call.out,
-  )
+  const options = {
+    ...app,
+    out: text(flags, "out") ?? config.types.out,
+    check: flags.has("check"),
+    inferEnums: flags.has("infer-enums"),
+    ...(call.dirGiven ? { dir: call.dir } : {}),
+    ...(role === undefined ? {} : { role }),
+    ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
+  }
+  if (flags.has("watch")) {
+    if (flags.has("check")) {
+      call.out.error("--watch and --check do not go together")
+      return 1
+    }
+    return watchTypes(options, call.out, call.signal)
+  }
+  return genTypes(options, call.out)
 }
 
 function count(value: string | undefined, flag: string, out: Output): number | undefined | false {
@@ -1039,6 +1056,7 @@ async function runDev(call: Invocation): Promise<number> {
         env: devEnv,
         ...(text(flags, "config") === undefined ? {} : { configFile: text(flags, "config") ?? "" }),
         ...(serverPort === undefined ? {} : { port: serverPort }),
+        ...(flags.has("types") ? { types: true } : {}),
       },
       out,
       signal,

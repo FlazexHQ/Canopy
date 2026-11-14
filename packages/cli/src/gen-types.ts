@@ -1,6 +1,8 @@
+import { watch } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
-import { PolicyEngine, type PolicySet, type RequestContext, Role } from "@canopy/policy"
+import { PolicyEngine, type RequestContext, Role } from "@canopy/policy"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
 import { loadSchema } from "@canopy/rest"
 import { type CollectionSchema, generateTypes, restrictShape } from "@canopy/schema"
@@ -34,77 +36,161 @@ function contextFor(role: string): RequestContext {
   }
 }
 
+/** Generates the types once: the text and the number of collections it covers. */
+async function generate(
+  options: GenTypesOptions,
+  client: MongoClient,
+): Promise<{ readonly text: string; readonly count: number }> {
+  const set =
+    options.dir === undefined
+      ? undefined
+      : await directoryPolicies(options.dir)
+          .load()
+          .catch((error: unknown) => {
+            throw new CanopyError(
+              ErrorCode.ConfigInvalid,
+              `policies do not load: ${messageOf(error)}`,
+              { cause: error },
+            )
+          })
+  const db = client.db(options.database)
+  const exposed = [...(set?.collections.values() ?? [])].filter((def) => def.exposed)
+  const names =
+    exposed.length > 0
+      ? exposed.map((def) => def.collection)
+      : (await db.listCollections({}, { nameOnly: true }).toArray())
+          .map((info) => info.name)
+          .filter((name) => !name.startsWith("system."))
+  const engine = set === undefined ? undefined : new PolicyEngine(set)
+  const ctx = options.role === undefined ? undefined : contextFor(options.role)
+  const schemas: CollectionSchema[] = []
+  for (const name of names.sort()) {
+    const schema = await loadSchema(db, name, {
+      ...(options.sampleSize === undefined ? {} : { sampleSize: options.sampleSize }),
+      infer: { enums: options.inferEnums === true },
+    })
+    schemas.push(
+      engine === undefined || ctx === undefined
+        ? schema
+        : { ...schema, shape: restrictShape(schema.shape, engine.readable(name, ctx), "optional") },
+    )
+  }
+  const text = generateTypes(schemas, {
+    ...(options.role === undefined
+      ? {}
+      : { note: `Fields the ${options.role} role cannot read are optional.` }),
+  })
+  return { text, count: schemas.length }
+}
+
+async function current(path: string): Promise<string | undefined> {
+  try {
+    return (await readFile(path, "utf8")).replaceAll("\r\n", "\n")
+  } catch {
+    return undefined
+  }
+}
+
+/** Writes `text` to `path` unless it already holds it. Returns whether the file changed. */
+async function writeIfChanged(path: string, text: string): Promise<boolean> {
+  if ((await current(path)) === text) return false
+  await mkdir(dirname(path), { recursive: true })
+  await writeFile(path, text)
+  return true
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
  * `canopy gen types`: writes the `Database` interface from the collection schemas (validator, then
  * config, then inference). With `check`, exits 1 when the committed file is stale.
  */
 export async function genTypes(options: GenTypesOptions, out: Output): Promise<number> {
-  let set: PolicySet | undefined
-  if (options.dir !== undefined) {
-    try {
-      set = await directoryPolicies(options.dir).load()
-    } catch (error: unknown) {
-      out.error(
-        `error  policies do not load: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      return 1
-    }
-  }
   const client = new MongoClient(options.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
   try {
     await client.connect()
-    const db = client.db(options.database)
-    const exposed = [...(set?.collections.values() ?? [])].filter((def) => def.exposed)
-    const names =
-      exposed.length > 0
-        ? exposed.map((def) => def.collection)
-        : (await db.listCollections({}, { nameOnly: true }).toArray())
-            .map((info) => info.name)
-            .filter((name) => !name.startsWith("system."))
-    const engine = set === undefined ? undefined : new PolicyEngine(set)
-    const ctx = options.role === undefined ? undefined : contextFor(options.role)
-    const schemas: CollectionSchema[] = []
-    for (const name of names.sort()) {
-      const schema = await loadSchema(db, name, {
-        ...(options.sampleSize === undefined ? {} : { sampleSize: options.sampleSize }),
-        infer: { enums: options.inferEnums === true },
-      })
-      schemas.push(
-        engine === undefined || ctx === undefined
-          ? schema
-          : {
-              ...schema,
-              shape: restrictShape(schema.shape, engine.readable(name, ctx), "optional"),
-            },
-      )
-    }
-    const text = generateTypes(schemas, {
-      ...(options.role === undefined
-        ? {}
-        : { note: `Fields the ${options.role} role cannot read are optional.` }),
-    })
+    const { text, count } = await generate(options, client)
     if (options.check === true) {
-      let current: string | undefined
-      try {
-        current = await readFile(options.out, "utf8")
-      } catch {
-        current = undefined
-      }
-      if (current?.replaceAll("\r\n", "\n") === text) {
-        out.log(`${options.out} is up to date (${schemas.length} collections)`)
+      if ((await current(options.out)) === text) {
+        out.log(`${options.out} is up to date (${count} collections)`)
         return 0
       }
       out.error(`${options.out} is out of date; run canopy gen types`)
       return 1
     }
-    await mkdir(dirname(options.out), { recursive: true })
-    await writeFile(options.out, text)
-    out.log(`wrote ${options.out} (${schemas.length} collections)`)
+    await writeIfChanged(options.out, text)
+    out.log(`wrote ${options.out} (${count} collections)`)
     return 0
   } catch (error: unknown) {
-    out.error(`error  ${error instanceof Error ? error.message : String(error)}`)
+    out.error(`error  ${messageOf(error)}`)
     return 1
   } finally {
     await client.close()
   }
+}
+
+/** The change stream events after which the schemas may differ. */
+const SCHEMA_EVENTS = new Set(["create", "modify", "drop", "rename", "dropDatabase"])
+
+/**
+ * `canopy gen types --watch`: generates the types, then again whenever a policy file changes or the
+ * database's collections change (created, dropped, renamed, or a validator set with `collMod`), until
+ * `signal` aborts. The file is only rewritten when its text changes. A failed run is reported and the
+ * watch goes on.
+ */
+export async function watchTypes(
+  options: GenTypesOptions,
+  out: Output,
+  signal: AbortSignal,
+): Promise<number> {
+  const client = new MongoClient(options.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
+  try {
+    await client.connect()
+  } catch (error: unknown) {
+    out.error(`error  ${messageOf(error)}`)
+    await client.close()
+    return 1
+  }
+  let queue: Promise<void> = Promise.resolve()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const run = (reason: string): void => {
+    queue = queue.then(async () => {
+      if (signal.aborted) return
+      try {
+        const { text, count } = await generate(options, client)
+        if (await writeIfChanged(options.out, text))
+          out.log(`types  wrote ${options.out} (${count} collections, ${reason})`)
+      } catch (error: unknown) {
+        out.error(`types  not regenerated: ${messageOf(error)}`)
+      }
+    })
+  }
+  const soon = (reason: string): void => {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = setTimeout(() => run(reason), 200)
+  }
+  run("start")
+  const watcher =
+    options.dir === undefined
+      ? undefined
+      : watch(options.dir, { recursive: true }, () => soon("policies changed"))
+  const stream = client
+    .db(options.database)
+    .watch([{ $match: { operationType: { $in: [...SCHEMA_EVENTS] } } }], {
+      showExpandedEvents: true,
+    })
+  stream.on("change", (event) => soon(`${event.operationType} event`))
+  stream.on("error", (error: unknown) => out.error(`types  change stream: ${messageOf(error)}`))
+  await new Promise<void>((done) => {
+    if (signal.aborted) done()
+    else signal.addEventListener("abort", () => done(), { once: true })
+  })
+  if (timer !== undefined) clearTimeout(timer)
+  watcher?.close()
+  await stream.close().catch(() => undefined)
+  await queue
+  await client.close()
+  return 0
 }

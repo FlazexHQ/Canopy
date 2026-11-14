@@ -120,6 +120,72 @@ suite("canopy gen types", () => {
     expect((await gen(join(dir, "missing.gen.ts"), "--check")).code).toBe(1)
   })
 
+  it("regenerates with --watch when a collection appears or its validator changes, until stopped", async () => {
+    const out = join(dir, "watch.gen.ts")
+    const io = capture()
+    const stop = new AbortController()
+    const watching = run(
+      [
+        "gen",
+        "types",
+        "--mongodb-uri",
+        MONGODB_URI ?? "",
+        "--database",
+        database,
+        "--out",
+        out,
+        "--watch",
+      ],
+      {},
+      io.out,
+      undefined,
+      stop.signal,
+    )
+    const fileHas = async (needle: string): Promise<string> => {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const text = await readFile(out, "utf8").catch(() => "")
+        if (text.includes(needle)) return text
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      throw new Error(`${out} never contained ${needle}; errors: ${io.errors.join(" | ")}`)
+    }
+    try {
+      await fileHas("notes:")
+      const db = client.db(database)
+      await db.createCollection("labels", {
+        validator: {
+          $jsonSchema: {
+            bsonType: "object",
+            required: ["color"],
+            properties: { color: { bsonType: "string" } },
+          },
+        },
+      })
+      expect(await fileHas("labels:")).toMatch(/color: string/)
+      await db.command({
+        collMod: "labels",
+        validator: {
+          $jsonSchema: {
+            bsonType: "object",
+            required: ["color", "rank"],
+            properties: { color: { bsonType: "string" }, rank: { bsonType: "int" } },
+          },
+        },
+      })
+      expect(await fileHas("rank: number")).toMatch(/color: string/)
+      const writes = io.lines.filter((line) => line.startsWith("types  wrote"))
+      expect(writes.length).toBe(3)
+    } finally {
+      stop.abort()
+      expect(await watching).toBe(0)
+      await client.db(database).collection("labels").drop()
+    }
+  })
+
+  it("refuses --watch with --check", async () => {
+    expect((await gen(join(dir, "x.ts"), "--watch", "--check")).code).toBe(1)
+  })
+
   it("rejects bad options", async () => {
     expect((await gen(join(dir, "x.ts"), "--sample", "0")).code).toBe(1)
     const io = capture()

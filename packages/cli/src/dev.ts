@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { watch } from "node:fs"
+import { existsSync, watch } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { basename, dirname, relative } from "node:path"
@@ -8,6 +8,7 @@ import { loadConfig } from "@canopy/config/load"
 import { lintPolicies } from "@canopy/policy"
 import type { Logger } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "@canopy/server"
+import { watchTypes } from "./gen-types.ts"
 import { messageOf, type Output } from "./output.ts"
 
 /** Options of `canopy dev`. */
@@ -20,6 +21,8 @@ export interface DevOptions {
   readonly port?: number
   /** Called with the base URL each time the server (re)starts. */
   readonly onReady?: (url: string) => void
+  /** Regenerate `types.out` as schemas and policies change; on by default once the file exists. */
+  readonly types?: boolean
 }
 
 /** Development keys for a session without configured keys. */
@@ -119,6 +122,8 @@ function summary(
  * publishable and a secret key are generated for the session. Runs until `signal` aborts.
  */
 export async function dev(options: DevOptions, out: Output, signal: AbortSignal): Promise<number> {
+  const typesStop = new AbortController()
+  signal.addEventListener("abort", () => typesStop.abort(), { once: true })
   let session: { publishable: string; secret: string } | undefined
   let generated = false
   const load = async (env: Readonly<Record<string, string | undefined>>): Promise<ResolvedConfig> =>
@@ -188,6 +193,24 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   if (first === undefined) return 1
   let running = await start(first)
   if (running === undefined) return 1
+  const types =
+    options.types === true || existsSync(first.types.out)
+      ? watchTypes(
+          {
+            mongodbUri: first.mongodb.uri,
+            database: first.mongodb.database,
+            out: first.types.out,
+            ...("dir" in first.policies ? { dir: first.policies.dir } : {}),
+            ...(first.types.role === undefined ? {} : { role: first.types.role }),
+          },
+          out,
+          typesStop.signal,
+        )
+      : undefined
+  if (types !== undefined)
+    out.log(
+      `  Types     ${relative(options.cwd, first.types.out)}  (regenerated when schemas or policies change)`,
+    )
 
   const configFile = first.file
   const watched = configFile === undefined ? options.cwd : dirname(configFile)
@@ -221,6 +244,8 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   watcher.close()
   if (timer !== undefined) clearTimeout(timer)
   await queue
+  typesStop.abort()
+  await types
   await stop(running)
   return 0
 }

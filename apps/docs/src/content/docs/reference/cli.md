@@ -23,7 +23,7 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | `canopy policies lint`                   | Validates and lints the policy directory                                                |
 | `canopy policies test`                   | Runs policy tests in memory and, with `--mongodb-uri`, against MongoDB                  |
 | `canopy policies explain <collection>`   | Shows how policies decide an operation (`--as`, `--roles`, `--op`, `--filter`, `--ctx`) |
-| `canopy gen types [--check]`             | Generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`)         |
+| `canopy gen types [--check \| --watch]` | Generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`); `--watch` regenerates on policy and collection changes |
 | `canopy config print [--sources]`        | Prints the resolved config, secrets masked                                              |
 
 ## Database changes
