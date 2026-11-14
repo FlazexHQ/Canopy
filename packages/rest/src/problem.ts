@@ -10,6 +10,10 @@ export interface Problem {
   readonly instance: string
   readonly requestId: string
   readonly details?: Readonly<Record<string, unknown>>
+  /** What the caller can try next, for the common codes. */
+  readonly hint?: string
+  /** The docs page about the error, as a path on the documentation site such as `errors/forbidden`. */
+  readonly docs?: string
 }
 
 /** The media type of Problem Details responses. */
@@ -68,5 +72,7 @@ export function toProblem(
     instance,
     requestId,
     ...(!internal && error.details !== undefined ? { details: error.details } : {}),
+    ...(!internal && error.hint !== undefined ? { hint: error.hint } : {}),
+    ...(!internal && error.docs !== undefined ? { docs: `errors/${error.docs}` } : {}),
   }
 }

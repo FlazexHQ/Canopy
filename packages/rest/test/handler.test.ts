@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net"
 import { Authenticator } from "@canopy/auth"
 import { compileSort } from "@canopy/matcher"
 import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { ctToBigInt, ErrorCode, toCt } from "@canopy/protocol"
+import { CanopyError, ctToBigInt, ErrorCode, toCt } from "@canopy/protocol"
 import { MONGODB_URI } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
@@ -176,6 +176,12 @@ suite("REST read endpoints against MongoDB", () => {
     })
     expect(typeof body["detail"]).toBe("string")
     expect(body["requestId"]).toBe(response.headers.get("x-request-id"))
+    const help = new CanopyError(code as ErrorCode, "")
+    if (help.docs === undefined) expect(body["docs"]).toBeUndefined()
+    else {
+      expect(body["docs"]).toBe(`errors/${help.docs}`)
+      expect(body["hint"]).toBe(help.hint)
+    }
     return body
   }
 

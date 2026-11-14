@@ -75,7 +75,56 @@ export interface CanopyErrorOptions {
   readonly details?: Readonly<Record<string, unknown>>
   /** The underlying error, kept for logs and never serialized to clients. */
   readonly cause?: unknown
+  /** What the caller can try next. Defaults to the hint of the code, when it has one. */
+  readonly hint?: string
+  /** The slug of the docs page under `errors/`. Defaults to the page of the code, when it has one. */
+  readonly docs?: string
 }
+
+/** What to try next for the codes callers meet most, and the docs page under `errors/` about each. */
+const HELP: Readonly<Partial<Record<ErrorCode, { readonly hint: string; readonly docs: string }>>> =
+  {
+    CANOPY_UNAUTHORIZED: {
+      hint: "Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.",
+      docs: "unauthorized",
+    },
+    CANOPY_TOKEN_EXPIRED: {
+      hint: "Refresh the access token and retry; the SDK does this itself when it is given a token provider.",
+      docs: "token-expired",
+    },
+    CANOPY_FORBIDDEN: {
+      hint: "No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.",
+      docs: "forbidden",
+    },
+    CANOPY_NOT_FOUND: {
+      hint: "The document does not exist, or no read policy lets the caller see it.",
+      docs: "not-found",
+    },
+    CANOPY_POLICY_VIOLATION: {
+      hint: "The write failed a policy's where or check clause, or touched a field the caller may not write.",
+      docs: "policy-violation",
+    },
+    CANOPY_INVALID_QUERY: {
+      hint: "Check the operators, field paths and value types; operators Canopy does not support are refused.",
+      docs: "invalid-query",
+    },
+    CANOPY_CONFLICT: {
+      hint: "The document changed since it was read: read it again and retry the write.",
+      docs: "conflict",
+    },
+    CANOPY_VALIDATION_FAILED: {
+      hint: "The collection's validator refused the document: compare the document with its JSON Schema.",
+      docs: "validation-failed",
+    },
+    CANOPY_RATE_LIMITED: {
+      hint: "Wait for Retry-After (or details.retryAfterSeconds) before sending more.",
+      docs: "rate-limited",
+    },
+    CANOPY_SUBSCRIPTION_TOO_LARGE: {
+      hint: "Give the live query a limit, or narrow its filter.",
+      docs: "subscription-too-large",
+    },
+  }
 
 const BRAND: unique symbol = Symbol.for("canopy.error")
 
@@ -85,12 +134,18 @@ const BRAND: unique symbol = Symbol.for("canopy.error")
 export class CanopyError extends Error {
   readonly code: ErrorCode
   readonly details: Readonly<Record<string, unknown>> | undefined
+  /** What the caller can try next, for the common codes. */
+  readonly hint: string | undefined
+  /** The slug of the docs page about this error, under `errors/` on the documentation site. */
+  readonly docs: string | undefined
 
   constructor(code: ErrorCode, message: string, options: CanopyErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
     this.name = "CanopyError"
     this.code = code
     this.details = options.details
+    this.hint = options.hint ?? HELP[code]?.hint
+    this.docs = options.docs ?? HELP[code]?.docs
     Object.defineProperty(this, BRAND, { value: true })
   }
 

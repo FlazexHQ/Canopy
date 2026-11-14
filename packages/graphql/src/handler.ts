@@ -419,6 +419,8 @@ function maskError(error: unknown, onError: ((error: unknown) => void) | undefin
       extensions: {
         code: original.code,
         ...(original.details === undefined ? {} : { details: original.details }),
+        ...(original.hint === undefined ? {} : { hint: original.hint }),
+        ...(original.docs === undefined ? {} : { docs: `errors/${original.docs}` }),
         http: { status: original.status },
       },
     })

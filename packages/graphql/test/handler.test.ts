@@ -202,6 +202,8 @@ suite("GraphQL endpoint against MongoDB", () => {
       query: 'mutation { insertTodo(doc: { title: "sneaky", ownerId: "bob" }) { _id } }',
     })
     expect(denied.body.errors?.[0]?.extensions?.["code"]).toBe("CANOPY_POLICY_VIOLATION")
+    expect(denied.body.errors?.[0]?.extensions?.["docs"]).toBe("errors/policy-violation")
+    expect(denied.body.errors?.[0]?.extensions?.["hint"]).toMatch(/check clause/)
     expect(await db.collection("todos").countDocuments({ title: "sneaky" })).toBe(0)
 
     const created = await post({
