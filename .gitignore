@@ -153,3 +153,8 @@ apps/docs/.astro/
 
 # Local MongoDB data and generated keys of the quickstarts
 .canopy/
+
+# Mutation testing (Stryker)
+**/reports/mutation/
+**/reports/.stryker-tmp/
+stryker-setup-*.js

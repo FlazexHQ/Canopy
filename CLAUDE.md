@@ -97,6 +97,8 @@ Engineering standards from `docs/plan/11-engineering.md` §5:
 - Universal packages (`protocol`, `matcher`, `query`, `policy`) use Web standard APIs only, never `node:` imports,
   and have no runtime dependencies outside the workspace.
 - New dependencies must be MIT, Apache 2.0, BSD or ISC; server packages need a written justification.
+  Development tooling that nothing published installs may also pull in BlueOak 1.0.0 (decided 2026-11-18
+  for Stryker's minimatch).
 
 ## Commands
 
