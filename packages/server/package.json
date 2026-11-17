@@ -55,6 +55,7 @@
     "@opentelemetry/sdk-trace-base": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "catalog:",
+    "fast-check": "catalog:",
     "jose": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
