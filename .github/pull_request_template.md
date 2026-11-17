@@ -8,6 +8,7 @@
 - [ ] Tests cover the change, including failure paths, and can fail: nothing is asserted just because the code returns it, no error is swallowed, no assertion is skipped or weakened to get green
 - [ ] Docs are updated for any user visible change
 - [ ] A changeset is added (`bun run changeset`), or this change does not affect a published package
+- [ ] Changes to `api/*.api.md` (the public API, regenerated with `bun run api`) are intended, and a breaking one is a major changeset
 - [ ] `bun run check` passes locally (lint, type check, unused exports, documented exports, tests); the MongoDB suites ran against a replica set (`CANOPY_TEST_MONGODB_URI`)
 
 ## Repository rules

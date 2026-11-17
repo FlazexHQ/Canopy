@@ -108,7 +108,9 @@ bun run lint:exports                       # knip: exports and types nothing imp
 bun run lint:docs                          # every public export has TSDoc (also checked in CI)
 bun run lint:snippets                      # generated package READMEs are current; every ts/tsx snippet compiles
 bun run readmes                            # regenerate the package READMEs (packages/testing/scripts/readmes.ts)
-bun run check                              # lint, typecheck, lint:exports, lint:docs, lint:snippets and test:all
+bun run api                                # regenerate api/<package>.api.md, the public API of each package
+bun run lint:api                           # the committed api/ files match the code (also checked in CI)
+bun run check                              # lint, typecheck, lint:exports, lint:docs, lint:snippets, lint:api and test:all
 bun run format                             # biome format --write .
 bun run test:all                           # vitest run over packages/* and apps/* (Node); bun --bun vitest run for Bun
 bun run test                               # turbo run test (per package, cached)

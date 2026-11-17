@@ -38,6 +38,8 @@ jobs:
         run: bun run lint:docs
       - name: Package READMEs are up to date and every TypeScript snippet of the READMEs and docs compiles
         run: bun run lint:snippets
+      - name: The committed public API files match the code
+        run: bun run lint:api
       - run: bun --bun vitest run
 
   install:

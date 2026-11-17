@@ -12,6 +12,7 @@
       "!!**/*.tsbuildinfo",
       "!!docs",
       "!!plans",
+      "!!api",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
       "!!**/routeTree.gen.ts",
