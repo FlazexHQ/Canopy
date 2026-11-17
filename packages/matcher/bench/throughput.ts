@@ -5,6 +5,10 @@ import { compileFilter, compileSort, compileSortKeys } from "../src/index.ts"
  * In process matcher throughput: compiles representative filters once and evaluates them against an
  * in memory array of documents, the work realtime does for every change event and candidate observer.
  *
+ * Each filter also runs as a hand written predicate over the same documents. The matched counts must be
+ * equal, and the compiled ÷ hand written speed is the ratio `packages/testing/scripts/bench-gate.ts`
+ * compares with `bench/baseline.json`, so the gate does not depend on the speed of the runner.
+ *
  * Environment: `CANOPY_BENCH_DOCS` (default 1000000) and `CANOPY_BENCH_OUT`.
  */
 const DOCS = Number(process.env["CANOPY_BENCH_DOCS"] ?? "1000000")
@@ -25,31 +29,74 @@ const docs = Array.from({ length: DOCS }, (_, i) => ({
   ],
 }))
 
-const filters: Record<string, unknown> = {
-  "equality (DLS owner)": { ownerId: "u42" },
-  "range and $in": { amount: { $gte: 100, $lt: 500 }, status: { $in: ["open", "paid"] } },
-  "$or of 3 branches": { $or: [{ status: "open" }, { amount: { $gt: 900 } }, { tags: "k3" }] },
-  "dotted path": { "address.city": "Lisbon", "address.zip": { $regex: "^1" } },
-  $elemMatch: { items: { $elemMatch: { sku: "s7", qty: { $gte: 2 } } } },
-  "DLS and user filter": { $and: [{ tenantId: "t7" }, { status: "open", amount: { $lt: 250 } }] },
+type Doc = (typeof docs)[number]
+
+const filters: Record<
+  string,
+  { readonly filter: unknown; readonly native: (doc: Doc) => boolean }
+> = {
+  "equality (DLS owner)": { filter: { ownerId: "u42" }, native: (d) => d.ownerId === "u42" },
+  "range and $in": {
+    filter: { amount: { $gte: 100, $lt: 500 }, status: { $in: ["open", "paid"] } },
+    native: (d) =>
+      d.amount >= 100 && d.amount < 500 && (d.status === "open" || d.status === "paid"),
+  },
+  "$or of 3 branches": {
+    filter: { $or: [{ status: "open" }, { amount: { $gt: 900 } }, { tags: "k3" }] },
+    native: (d) => d.status === "open" || d.amount > 900 || d.tags.includes("k3"),
+  },
+  "dotted path": {
+    filter: { "address.city": "Lisbon", "address.zip": { $regex: "^1" } },
+    native: (d) => d.address.city === "Lisbon" && /^1/.test(d.address.zip),
+  },
+  $elemMatch: {
+    filter: { items: { $elemMatch: { sku: "s7", qty: { $gte: 2 } } } },
+    native: (d) => d.items.some((item) => item.sku === "s7" && item.qty >= 2),
+  },
+  "DLS and user filter": {
+    filter: { $and: [{ tenantId: "t8" }, { status: "open", amount: { $lt: 250 } }] },
+    native: (d) => d.tenantId === "t8" && d.status === "open" && d.amount < 250,
+  },
 }
 
-const results: { name: string; evalsPerSecond: number; nsPerEval: number; matched: number }[] = []
-for (const [name, filter] of Object.entries(filters)) {
-  const compiled = compileFilter(filter)
-  for (let i = 0; i < Math.min(DOCS, 100_000); i += 1) compiled.matches(docs[i])
+/** The best of three timed passes over every document, after a warm up pass. */
+function time(matches: (doc: Doc) => boolean): { ms: number; matched: number } {
+  for (const doc of docs.slice(0, 100_000)) matches(doc)
   let best = Number.POSITIVE_INFINITY
   let matched = 0
   for (let round = 0; round < 3; round += 1) {
     matched = 0
     const start = performance.now()
-    for (const doc of docs) if (compiled.matches(doc)) matched += 1
+    for (const doc of docs) if (matches(doc)) matched += 1
     best = Math.min(best, performance.now() - start)
   }
-  const evalsPerSecond = Math.round(DOCS / (best / 1000))
-  results.push({ name, evalsPerSecond, nsPerEval: (best * 1e6) / DOCS, matched })
+  return { ms: best, matched }
+}
+
+const results: {
+  name: string
+  evalsPerSecond: number
+  nsPerEval: number
+  matched: number
+  nativeMatched: number
+  ratio: number
+}[] = []
+for (const [name, { filter, native }] of Object.entries(filters)) {
+  const compiled = compileFilter(filter)
+  const measured = time((doc) => compiled.matches(doc))
+  const reference = time(native)
+  const evalsPerSecond = Math.round(DOCS / (measured.ms / 1000))
+  const ratio = reference.ms / measured.ms
+  results.push({
+    name,
+    evalsPerSecond,
+    nsPerEval: (measured.ms * 1e6) / DOCS,
+    matched: measured.matched,
+    nativeMatched: reference.matched,
+    ratio,
+  })
   process.stderr.write(
-    `${name.padEnd(28)} ${(evalsPerSecond / 1e6).toFixed(2)} M evals/s, ${matched} matched\n`,
+    `${name.padEnd(28)} ${(evalsPerSecond / 1e6).toFixed(2)} M evals/s, ${measured.matched} matched (hand written ${reference.matched}), ${(ratio * 100).toFixed(0)}% of hand written speed\n`,
   )
 }
 
@@ -73,7 +120,16 @@ const runtime =
   typeof (globalThis as { Bun?: unknown }).Bun === "object"
     ? `bun ${(globalThis as unknown as { Bun: { version: string } }).Bun.version}`
     : `node ${process.version}`
-const text = `${JSON.stringify({ runtime, docs: DOCS, results, compileMicros, sort: { docs: sortDocs.length, ms: sortMs, comparatorMs } }, null, 2)}\n`
+const gate = {
+  ratios: Object.fromEntries(results.map((result) => [`matcher ${result.name}`, result.ratio])),
+  required: Object.fromEntries(
+    results.map((result) => [
+      `matcher ${result.name} agrees with the hand written predicate`,
+      { value: result.matched === result.nativeMatched ? 1 : 0, min: 1 },
+    ]),
+  ),
+}
+const text = `${JSON.stringify({ runtime, docs: DOCS, results, compileMicros, sort: { docs: sortDocs.length, ms: sortMs, comparatorMs }, gate }, null, 2)}\n`
 process.stderr.write(
   `compile ${compileMicros.toFixed(2)} us per filter, sort ${sortDocs.length}: ${sortMs.toFixed(0)} ms with keys, ${comparatorMs.toFixed(0)} ms with a comparator\n`,
 )

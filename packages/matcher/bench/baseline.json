@@ -1,0 +1,11 @@
+{
+  "source": "node v26.12.1, lowest of 8 runs",
+  "ratios": {
+    "matcher equality (DLS owner)": 0.592,
+    "matcher range and $in": 0.077,
+    "matcher $or of 3 branches": 0.118,
+    "matcher dotted path": 0.238,
+    "matcher $elemMatch": 0.143,
+    "matcher DLS and user filter": 0.329
+  }
+}

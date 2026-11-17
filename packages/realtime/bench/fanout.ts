@@ -12,8 +12,13 @@ import { createRealtime, type Realtime, type RealtimeSocket } from "../src/index
  * so the numbers are the engine's), subscribes them, then drives writes from a separate process and
  * measures the time from each write to its delivery on every subscribed socket.
  *
+ * The `gate` section of the output, checked by `packages/testing/scripts/bench-gate.ts` against
+ * `bench/baseline.json`, requires every subscriber to end with the final state of every document it may
+ * read and compares the delivery latency with a plain change stream measured in the same run.
+ *
  * Environment: `CANOPY_BENCH_MONGODB_URI` (or `CANOPY_TEST_MONGODB_URI`), `CANOPY_BENCH_DOCS` (default
- * 1000000), `CANOPY_BENCH_SECONDS` (write phase per scenario, default 8) and `CANOPY_BENCH_OUT`.
+ * 1000000), `CANOPY_BENCH_SECONDS` (write phase per scenario, default 8), `CANOPY_BENCH_ONLY` (scenarios
+ * whose name contains one of these `|` separated parts) and `CANOPY_BENCH_OUT`.
  */
 const URI =
   process.env["CANOPY_BENCH_MONGODB_URI"] ??
@@ -64,6 +69,7 @@ function summary(values: number[]): {
 interface Frame {
   readonly t: string
   readonly m?: Frame[]
+  readonly id?: unknown
   readonly set?: Record<string, unknown>
   readonly d?: Record<string, unknown>
 }
@@ -72,20 +78,25 @@ interface Frame {
 function numeric(value: unknown): number | undefined {
   if (typeof value === "number") return value
   if (typeof value === "object" && value !== null) {
-    const wrapped = (value as Record<string, unknown>)["$numberDouble"]
+    const record = value as Record<string, unknown>
+    const wrapped = record["$numberDouble"] ?? record["$numberInt"] ?? record["$numberLong"]
     const n = Number(wrapped)
     return typeof wrapped === "string" && Number.isFinite(n) ? n : undefined
   }
   return undefined
 }
 
-/** One in process connection that records welcome, ready and the delivery time of stamped changes. */
+/**
+ * One in process connection that records welcome, ready, the delivery time of stamped changes and the
+ * last write counter (`n`) it holds for each document, to check that it converged.
+ */
 class BenchSocket implements RealtimeSocket {
   readonly bufferedAmount = 0
   welcomed: (() => void) | undefined
   readyAt: number | undefined
   onReady: (() => void) | undefined
   readonly deliveries: number[]
+  readonly counters = new Map<number, number>()
   docs = 0
   bytes = 0
   handler: ReturnType<Realtime["connect"]> | undefined
@@ -100,6 +111,9 @@ class BenchSocket implements RealtimeSocket {
     const raw = JSON.parse(text) as Frame
     const parts = raw.t === "batch" ? (raw.m ?? []) : [raw]
     for (const part of parts) {
+      const id = numeric(part.id)
+      const counter = numeric(part.set?.["n"] ?? part.d?.["n"])
+      if (id !== undefined && counter !== undefined) this.counters.set(id, counter)
       switch (part.t) {
         case "welcome":
           this.welcomed?.()
@@ -189,6 +203,12 @@ interface ScenarioResult extends Scenario {
   readonly snapshotDocs: number
   readonly writes: number
   readonly expectedDeliveries: number
+  /**
+   * Written documents a subscriber should see, counted once per subscriber, and how many of them it holds
+   * at their final write. Two quick writes to one document may reach a subscriber as one change (the post
+   * image is read after both), so deliveries can be fewer than writes; the final state may not differ.
+   */
+  readonly convergence: { readonly checked: number; readonly current: number }
   readonly delivery: ReturnType<typeof summary>
   /** Write start to arrival on a plain change stream in another process: the part Canopy does not add. */
   readonly stream: ProbeReport
@@ -253,6 +273,31 @@ function fanoutTotals(realtime: Realtime): { count: number; sum: number } {
     count: read("canopy_realtime_fanout_latency_seconds_count"),
     sum: read("canopy_realtime_fanout_latency_seconds_sum"),
   }
+}
+
+/** Compares what every subscriber holds with the final write counter of each document it can read. */
+async function converged(
+  client: MongoClient,
+  dbName: string,
+  scenario: Scenario,
+  sockets: readonly BenchSocket[],
+): Promise<ScenarioResult["convergence"]> {
+  const written = await client
+    .db(dbName)
+    .collection<{ _id: number; ownerId: string; hot: boolean; n: number }>("items")
+    .find({ n: { $gt: 0 } }, { projection: { ownerId: 1, hot: 1, n: 1 } })
+    .toArray()
+  let checked = 0
+  let current = 0
+  for (const [index, socket] of sockets.entries()) {
+    for (const doc of written) {
+      const visible = scenario.mode === "hot" ? doc.hot : doc.ownerId === `u${index}`
+      if (!visible) continue
+      checked += 1
+      if (socket.counters.get(doc._id) === doc.n) current += 1
+    }
+  }
+  return { checked, current }
 }
 
 async function runWriter(dbName: string, scenario: Scenario): Promise<WriterReport> {
@@ -348,11 +393,11 @@ async function main(): Promise<void> {
     },
     { name: "shared query, 5k connections, 20 writes/s", mode: "hot", connections: 5000, rate: 20 },
   ]
-  const only = process.env["CANOPY_BENCH_ONLY"]
+  const only = process.env["CANOPY_BENCH_ONLY"]?.split("|")
   const results: ScenarioResult[] = []
   try {
     for (const scenario of scenarios) {
-      if (only !== undefined && !scenario.name.includes(only)) continue
+      if (only !== undefined && !only.some((part) => scenario.name.includes(part))) continue
       log(`scenario: ${scenario.name}`)
       const deliveries: number[] = []
       const sockets: BenchSocket[] = []
@@ -424,6 +469,7 @@ async function main(): Promise<void> {
         scenario.mode === "hot" ? writer.issued * scenario.connections : writer.issued
       const delivered = deliveries.length
       const delivery = summary(deliveries)
+      const convergence = await converged(client, dbName, scenario, sockets)
       const result: ScenarioResult = {
         ...scenario,
         subscribeSeconds,
@@ -431,6 +477,7 @@ async function main(): Promise<void> {
         snapshotDocs,
         writes: writer.issued,
         expectedDeliveries: expected,
+        convergence,
         delivery,
         stream,
         ack: writer.ack,
@@ -445,7 +492,7 @@ async function main(): Promise<void> {
       }
       results.push(result)
       log(
-        `  writes ${writer.issued}, delivered ${delivered}/${expected}, p50 ${delivery.p50.toFixed(1)} ms, p99 ${delivery.p99.toFixed(1)} ms (plain change stream p50 ${Number(stream.p50).toFixed(1)}, p99 ${Number(stream.p99).toFixed(1)}; write ack p50 ${writer.ack.p50.toFixed(1)}; engine ${result.engineMs.toFixed(2)} ms per event), cpu ${result.cpuPercent}%, rss ${result.rssMB} MB`,
+        `  writes ${writer.issued}, delivered ${delivered}/${expected}, converged ${convergence.current}/${convergence.checked}, p50 ${delivery.p50.toFixed(1)} ms, p99 ${delivery.p99.toFixed(1)} ms (plain change stream p50 ${Number(stream.p50).toFixed(1)}, p99 ${Number(stream.p99).toFixed(1)}; write ack p50 ${writer.ack.p50.toFixed(1)}; engine ${result.engineMs.toFixed(2)} ms per event), cpu ${result.cpuPercent}%, rss ${result.rssMB} MB`,
       )
       for (const socket of sockets) socket.handler?.message(encodeMessage({ t: "bye" }))
       for (const socket of sockets) socket.close()
@@ -461,7 +508,24 @@ async function main(): Promise<void> {
     typeof (globalThis as { Bun?: unknown }).Bun === "object"
       ? `bun ${(globalThis as unknown as { Bun: { version: string } }).Bun.version}`
       : `node ${process.version}`
-  const text = `${JSON.stringify({ runtime, mongodb: String(buildInfo["version"]), docs: DOCS, owners: OWNERS, hot: HOT, seconds: SECONDS, results }, null, 2)}\n`
+  const gate = {
+    ratios: Object.fromEntries(
+      results.map((result) => [
+        `fanout ${result.name}: plain change stream p50 ÷ delivery p50`,
+        result.stream.p50 / result.delivery.p50,
+      ]),
+    ),
+    required: Object.fromEntries(
+      results.map((result) => [
+        `fanout ${result.name}: subscribers holding the final state of each written document`,
+        {
+          value: result.convergence.current / Math.max(1, result.convergence.checked),
+          min: 1,
+        },
+      ]),
+    ),
+  }
+  const text = `${JSON.stringify({ runtime, mongodb: String(buildInfo["version"]), docs: DOCS, owners: OWNERS, hot: HOT, seconds: SECONDS, results, gate }, null, 2)}\n`
   if (OUT === undefined) process.stdout.write(text)
   else await writeFile(OUT, text)
 }
