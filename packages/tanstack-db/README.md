@@ -22,7 +22,12 @@ import { canopyCollectionOptions } from "@canopy/tanstack-db"
 import { createCollection } from "@tanstack/db"
 
 const todos = createCollection(
-  canopyCollectionOptions({ client: canopy, collection: "todos", filter: { done: false }, limit: 500 }),
+  canopyCollectionOptions({
+    client: canopy,
+    collection: "todos",
+    filter: { done: false },
+    limit: 500,
+  }),
 )
 await todos.preload()
 todos.insert({ _id: crypto.randomUUID(), title: "Write docs", done: false })

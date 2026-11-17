@@ -22,7 +22,11 @@ bun add @canopy/client
 ```ts
 import { createClient } from "@canopy/client"
 
-const canopy = createClient({ url: "https://api.example.com", publishableKey: "pk_app", auth: { getToken } })
+const canopy = createClient({
+  url: "https://api.example.com",
+  publishableKey: "pk_app",
+  auth: { getToken },
+})
 
 const stop = canopy
   .from("todos")

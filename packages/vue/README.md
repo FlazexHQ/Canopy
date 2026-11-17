@@ -24,7 +24,11 @@ import { createApp, defineComponent, h } from "vue"
 const Todos = defineComponent(() => {
   const canopy = useCanopy<Database>()
   const { data } = useQuery(() => canopy.from("todos").find({ done: false }).limit(50))
-  return () => h("ul", data.value.map((todo) => h("li", { key: todo._id }, todo.title)))
+  return () =>
+    h(
+      "ul",
+      data.value.map((todo) => h("li", { key: todo._id }, todo.title)),
+    )
 })
 
 createApp(Todos).use(canopyPlugin(canopy)).mount("#app")

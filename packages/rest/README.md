@@ -36,7 +36,10 @@ const rest = createRestHandler({
   metaDatabase: "canopy",
   policies: new PolicyEngine(createPolicySet([todos])),
   authenticator: new Authenticator(
-    { jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json", issuer: "https://YOUR_TENANT.auth0.com/" },
+    {
+      jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json",
+      issuer: "https://YOUR_TENANT.auth0.com/",
+    },
     { publishable: ["pk_app"] },
   ),
 })

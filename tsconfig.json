@@ -67,6 +67,8 @@
     { "path": "examples/express-dropin/web" },
     { "path": "examples/auth-notes" },
     { "path": "examples/auth-notes/web" },
+    { "path": "examples/graphql-vue" },
+    { "path": "examples/graphql-vue/web" },
     { "path": "examples/todo-react" },
     { "path": "examples/todo-react/web" }
   ]
