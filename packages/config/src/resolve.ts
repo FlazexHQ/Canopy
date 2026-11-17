@@ -474,6 +474,63 @@ function quoted(values: readonly string[]): string {
     : `${parts.slice(0, -1).join(", ")} or ${parts.at(-1) ?? ""}`
 }
 
+/** Checks a resolved email transport; returns the problem as a string when it is not valid. */
+function emailTransport(raw: Record<string, unknown>): ResolvedEmailTransport | string {
+  const text = (name: string): string | undefined =>
+    typeof raw[name] === "string" ? String(raw[name]) : undefined
+  const missing = (names: string): string => `The ${String(raw["kind"])} transport needs ${names}.`
+  const optionalText = (name: string): Record<string, string> => {
+    const value = text(name)
+    return value === undefined ? {} : { [name]: value }
+  }
+  switch (raw["kind"]) {
+    case "log":
+      return { kind: "log" }
+    case "resend": {
+      const apiKey = text("apiKey")
+      return apiKey === undefined ? missing("an apiKey") : { kind: "resend", apiKey }
+    }
+    case "postmark": {
+      const serverToken = text("serverToken")
+      return serverToken === undefined
+        ? missing("a serverToken")
+        : { kind: "postmark", serverToken, ...optionalText("messageStream") }
+    }
+    case "ses": {
+      const region = text("region")
+      const accessKeyId = text("accessKeyId")
+      const secretAccessKey = text("secretAccessKey")
+      return region === undefined || accessKeyId === undefined || secretAccessKey === undefined
+        ? missing("region, accessKeyId and secretAccessKey")
+        : { kind: "ses", region, accessKeyId, secretAccessKey, ...optionalText("sessionToken") }
+    }
+    case "smtp": {
+      const host = text("host")
+      if (host === undefined) return missing("a host")
+      const port = raw["port"]
+      if (port !== undefined && (typeof port !== "number" || !Number.isInteger(port)))
+        return "The smtp port must be a whole number."
+      const flags: { secure?: boolean; requireTls?: boolean } = {}
+      for (const name of ["secure", "requireTls"] as const) {
+        const value = raw[name]
+        if (value === undefined) continue
+        if (typeof value !== "boolean") return `The smtp ${name} option must be true or false.`
+        flags[name] = value
+      }
+      return {
+        kind: "smtp",
+        host,
+        ...(typeof port === "number" ? { port } : {}),
+        ...flags,
+        ...optionalText("user"),
+        ...optionalText("pass"),
+      }
+    }
+    default:
+      return `Unknown email transport ${JSON.stringify(raw["kind"])}; use email.smtp(), email.resend(), email.postmark(), email.ses() or email.log().`
+  }
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false
   const prototype: unknown = Object.getPrototypeOf(value)
@@ -1026,6 +1083,11 @@ function normalize(
       if (parsed.protocol !== "https:" && !isLocalHost(parsed.hostname))
         resolver.problem("auth.jwksUrl", "The JWKS URL must use HTTPS outside localhost.")
     }
+    const keys = isPlainObject(jwks) ? jwks["keys"] : undefined
+    const jwkList =
+      Array.isArray(keys) && keys.every(isPlainObject) ? keys.filter(isPlainObject) : undefined
+    if (jwks !== undefined && jwkList === undefined)
+      resolver.problem("auth.jwks", "A key set needs a keys array of JSON Web Keys.", true)
     const algorithms = rawAuth["algorithms"]
     if (Array.isArray(algorithms)) {
       for (const algorithm of algorithms)
@@ -1040,7 +1102,7 @@ function normalize(
         issuer,
         audience,
         ...(typeof jwksUrl === "string" ? { jwksUrl } : {}),
-        ...(isPlainObject(jwks) ? { jwks: jwks as ResolvedExternalAuth["jwks"] & object } : {}),
+        ...(jwkList === undefined ? {} : { jwks: { keys: jwkList } }),
         ...(Array.isArray(algorithms) ? { algorithms: algorithms as string[] } : {}),
         ...(typeof rawAuth["rolesClaim"] === "string" ? { rolesClaim: rawAuth["rolesClaim"] } : {}),
         ...(rawAuth["allowServiceRoleFromJwt"] === true ? { allowServiceRoleFromJwt: true } : {}),
@@ -1432,10 +1494,15 @@ function normalizeBuiltin(
     } else {
       if (transport["kind"] === "log" && production)
         resolver.problem("auth.email.transport", "email.log() is refused in production.")
-      email = {
-        from: typeof rawEmail["from"] === "string" ? rawEmail["from"] : email.from,
-        transport: transport as unknown as ResolvedEmailTransport,
-      }
+      const resolved = emailTransport(transport)
+      if (typeof resolved === "string") {
+        if (!resolver.problems.some((problem) => problem.path.startsWith("auth.email.transport")))
+          resolver.problem("auth.email.transport", resolved, true)
+      } else
+        email = {
+          from: typeof rawEmail["from"] === "string" ? rawEmail["from"] : email.from,
+          transport: resolved,
+        }
     }
   } else if (production) {
     resolver.problem(

@@ -29,6 +29,8 @@ export {
   isAddressRule,
   resolveClientAddress,
 } from "./client-address.ts"
+export { parseImportedPasswordHash } from "./imported-hash.ts"
+export { parseJsonWebKeySet } from "./jwks.ts"
 export type {
   AccessTokenClaims,
   AuthProvider,

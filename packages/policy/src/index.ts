@@ -88,9 +88,11 @@ export {
 } from "./model.ts"
 export {
   CONTEXT_DOCUMENT_ID,
+  contextsFromStored,
   fromStored,
   hashCollection,
   hashPolicySet,
+  readStored,
   type StoredCollectionPolicies,
   type StoredPolicy,
   toStored,

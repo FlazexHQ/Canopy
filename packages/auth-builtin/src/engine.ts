@@ -2,7 +2,7 @@ import type { InternalAdapter, SecretConfig } from "@better-auth/core"
 import { runWithTransaction } from "@better-auth/core/context"
 import { mongodbAdapter } from "@better-auth/mongo-adapter"
 import { passkey } from "@better-auth/passkey"
-import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { CanopyError, ErrorCode, isDocument } from "@canopy/protocol"
 import { hashPassword, symmetricEncrypt, verifyPassword } from "better-auth/crypto"
 import { betterAuth } from "better-auth/minimal"
 import { admin } from "better-auth/plugins/admin"
@@ -448,6 +448,81 @@ export interface EngineApi {
   context(): Promise<EngineContext>
 }
 
+function malformed(what: string, field: string): CanopyError {
+  return new CanopyError(
+    ErrorCode.Internal,
+    `The auth engine returned a ${what} without a valid ${field}`,
+  )
+}
+
+function requiredString(value: Record<string, unknown>, field: string, what: string): string {
+  const item = value[field]
+  if (typeof item !== "string") throw malformed(what, field)
+  return item
+}
+
+function requiredDate(value: Record<string, unknown>, field: string, what: string): Date {
+  const item = value[field]
+  const date = item instanceof Date ? item : typeof item === "string" ? new Date(item) : undefined
+  if (date === undefined || Number.isNaN(date.getTime())) throw malformed(what, field)
+  return date
+}
+
+function optional<T>(
+  value: Record<string, unknown>,
+  field: string,
+  what: string,
+  accept: (item: unknown) => item is T,
+): T | null | undefined {
+  const item = value[field]
+  if (item === undefined || item === null) return item
+  if (!accept(item)) throw malformed(what, field)
+  return item
+}
+
+const isString = (item: unknown): item is string => typeof item === "string"
+const isBoolean = (item: unknown): item is boolean => typeof item === "boolean"
+const isDate = (item: unknown): item is Date => item instanceof Date
+
+/** Checks the session the engine returned against the fields Canopy relies on. */
+function engineSession(value: unknown): EngineSession {
+  const what = "session"
+  if (!isDocument(value)) throw malformed(what, "shape")
+  return {
+    id: requiredString(value, "id", what),
+    userId: requiredString(value, "userId", what),
+    createdAt: requiredDate(value, "createdAt", what),
+    updatedAt: requiredDate(value, "updatedAt", what),
+    expiresAt: requiredDate(value, "expiresAt", what),
+    aal: optional(value, "aal", what, isString),
+    ipAddress: optional(value, "ipAddress", what, isString),
+    userAgent: optional(value, "userAgent", what, isString),
+  }
+}
+
+/** Checks the user the engine returned against the fields Canopy relies on. */
+function engineUser(value: unknown): EngineUser {
+  const what = "user"
+  if (!isDocument(value)) throw malformed(what, "shape")
+  const emailVerified = value["emailVerified"]
+  if (typeof emailVerified !== "boolean") throw malformed(what, "emailVerified")
+  return {
+    id: requiredString(value, "id", what),
+    email: requiredString(value, "email", what),
+    emailVerified,
+    name: optional(value, "name", what, isString),
+    createdAt: requiredDate(value, "createdAt", what),
+    updatedAt: requiredDate(value, "updatedAt", what),
+    isAnonymous: optional(value, "isAnonymous", what, isBoolean),
+    roles: value["roles"],
+    appMetadata: value["appMetadata"],
+    userMetadata: value["userMetadata"],
+    banned: optional(value, "banned", what, isBoolean),
+    banReason: optional(value, "banReason", what, isString),
+    banExpires: optional(value, "banExpires", what, isDate),
+  }
+}
+
 /** The engine internals Canopy builds on: user and session storage, transactions and hashing. */
 interface EngineContext {
   readonly internalAdapter: InternalAdapter
@@ -474,8 +549,8 @@ export function createEngine(settings: EngineSettings, hooks: EngineHooks): Engi
           found === null
             ? null
             : {
-                session: found.session as EngineSession,
-                user: found.user as unknown as EngineUser,
+                session: engineSession(found.session),
+                user: engineUser(found.user),
               },
         headers: result.headers,
       }

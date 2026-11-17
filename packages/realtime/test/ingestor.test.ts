@@ -166,3 +166,79 @@ describe("Ingestor progress", () => {
     }
   })
 })
+
+/** A change stream that returns the queued values in order, then waits until it is closed. */
+class QueueStream {
+  readonly resumeToken = { _data: "queued" }
+  private readonly queue: unknown[]
+  private closed: () => void = () => {}
+  private readonly ended = new Promise<never>((_, reject) => {
+    this.closed = () => reject(new Error("closed"))
+  })
+
+  constructor(queue: unknown[]) {
+    this.queue = [...queue]
+    this.ended.catch(() => {})
+  }
+
+  async tryNext(): Promise<null> {
+    return null
+  }
+
+  async next(): Promise<unknown> {
+    return this.queue.length > 0 ? this.queue.shift() : this.ended
+  }
+
+  bufferedCount(): number {
+    return this.queue.length
+  }
+
+  async close(): Promise<void> {
+    this.closed()
+  }
+}
+
+describe("Ingestor input", () => {
+  it("resynchronizes instead of dropping a value that is not a change event document", async () => {
+    const insert = (id: number) => ({
+      _id: { _data: `event${id}` },
+      operationType: "insert",
+      clusterTime: new Timestamp({ t: 1_800_000_000, i: id }),
+      ns: { db: "app", coll: "todos" },
+      documentKey: { _id: id },
+      fullDocument: { _id: id },
+    })
+    const seen: string[] = []
+    const metrics = new RealtimeMetrics()
+    const db = {
+      watch: () => new QueueStream([insert(1), "not an event", insert(2)]),
+    } as unknown as Db
+    const subject = new Ingestor({
+      client: {} as MongoClient,
+      db,
+      mode: "auto",
+      collections: () => ["todos"],
+      checkpoints: { load: async () => undefined, save: async () => {} },
+      handlers: {
+        onEvents: async (events) => {
+          for (const event of events) seen.push(`event ${String(event.id)}`)
+        },
+        onControl: () => {},
+        onRestart: (reason) => seen.push(`restart ${reason}`),
+        onProgress: () => {},
+      },
+      logger: quiet,
+      metrics,
+      checkpointIntervalMs: 60_000,
+    })
+    await subject.start()
+    try {
+      for (let waited = 0; seen.length < 3 && waited < 2000; waited += 10)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(seen).toEqual(["event 1", "restart malformed_event", "event 2"])
+      expect(metrics.restarts.get({ reason: "malformed_event" })).toBe(1)
+    } finally {
+      await subject.stop()
+    }
+  })
+})

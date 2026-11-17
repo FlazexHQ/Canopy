@@ -177,12 +177,12 @@ export class Ingestor {
 
   private async waitOpen(stream: ChangeStream): Promise<void> {
     await stream.tryNext().then((first) => {
-      if (first !== null) this.pending.push(first as unknown as Record<string, unknown>)
+      if (first !== null) this.pending.push(first)
     })
     this.token = stream.resumeToken ?? this.token
   }
 
-  private pending: Record<string, unknown>[] = []
+  private pending: unknown[] = []
   private fragments: Record<string, unknown>[] = []
 
   private async run(): Promise<void> {
@@ -190,14 +190,11 @@ export class Ingestor {
       const stream = this.stream
       if (stream === undefined) return
       try {
-        const batch: Record<string, unknown>[] = this.pending
+        const batch: unknown[] = this.pending
         this.pending = []
-        if (batch.length === 0) {
-          const first = await stream.next()
-          batch.push(first as unknown as Record<string, unknown>)
-        }
+        if (batch.length === 0) batch.push(await stream.next())
         while (batch.length < (this.options.maxBatch ?? 1000) && stream.bufferedCount() > 0) {
-          batch.push((await stream.next()) as unknown as Record<string, unknown>)
+          batch.push(await stream.next())
         }
         await this.process(batch)
         this.token = stream.resumeToken
@@ -251,7 +248,7 @@ export class Ingestor {
     return true
   }
 
-  private async process(raw: Record<string, unknown>[]): Promise<void> {
+  private async process(raw: readonly unknown[]): Promise<void> {
     this.processing = true
     try {
       await this.deliver(raw)
@@ -262,14 +259,30 @@ export class Ingestor {
     await this.checkpoint(false)
   }
 
-  private async deliver(raw: Record<string, unknown>[]): Promise<void> {
+  /**
+   * Normalizes and hands on a batch in stream order. A value that is not a document cannot be read, so the
+   * events it stood for are unknown: subscribers are resynchronized instead of silently missing them.
+   */
+  private async deliver(raw: readonly unknown[]): Promise<void> {
     const events: NormalizedEvent[] = []
     const flush = async (): Promise<void> => {
       if (events.length === 0) return
       const chunk = events.splice(0, events.length)
       await this.options.handlers.onEvents(chunk)
     }
-    for (let change of raw) {
+    for (const item of raw) {
+      if (!isDocument(item)) {
+        await flush()
+        this.fragments = []
+        this.options.metrics.restarts.inc({ reason: "malformed_event" })
+        this.options.logger.error(
+          { type: typeof item },
+          "change stream returned an event that is not a document, resynchronizing",
+        )
+        this.options.handlers.onRestart("malformed_event")
+        continue
+      }
+      let change = item
       const split = change["splitEvent"]
       if (isDocument(split)) {
         this.fragments.push(change)

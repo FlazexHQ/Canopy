@@ -314,19 +314,26 @@ suite("createCanopy with built in auth", () => {
         },
         { email: "carol@example.com" },
         { email: "mal@example.com", passwordHash: { algorithm: "md5", hash: "x" } },
+        { email: "pat@example.com", passwordHash: { algorithm: "pbkdf2-sha256", hash: "x" } },
       ],
     })
     expect(imported.status).toBe(200)
     expect(await imported.json()).toEqual({
       created: 1,
       skipped: 1,
-      failed: [{ email: "mal@example.com", reason: 'Unknown password hash algorithm "md5"' }],
+      failed: [
+        { email: "mal@example.com", reason: 'Unknown password hash algorithm "md5"' },
+        {
+          email: "pat@example.com",
+          reason: "The pbkdf2-sha256 hash needs iterations as an integer",
+        },
+      ],
     })
     expect((await admin("POST", "/users/import", { users: [{ email: 7 }] })).status).toBe(422)
     const imports = (await (await admin("GET", "/audit?action=user.import")).json()) as {
       data: { details: unknown }[]
     }
-    expect(imports.data[0]?.details).toEqual({ created: 1, skipped: 1, failed: 1 })
+    expect(imports.data[0]?.details).toEqual({ created: 1, skipped: 1, failed: 2 })
 
     const { closed } = await socketFor(await carol.token())
     expect((await admin("POST", `/users/${carolId}/ban`, { reason: "abuse" })).status).toBe(200)

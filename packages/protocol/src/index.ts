@@ -18,6 +18,7 @@ export {
   ctToParts,
   isClusterTime,
   maxCt,
+  snapshotTimeOf,
   toCt,
   ZERO_CT,
 } from "./cluster-time.ts"

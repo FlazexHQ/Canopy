@@ -1,5 +1,5 @@
 import { withIdTieBreaker } from "@canopy/matcher"
-import { type ClusterTime, toBsonLibrary, toCt, ZERO_CT } from "@canopy/protocol"
+import { type ClusterTime, snapshotTimeOf, toBsonLibrary, toCt, ZERO_CT } from "@canopy/protocol"
 import { BSON, type Db, type Document, type MongoClient } from "mongodb"
 import { type Doc, docKey } from "./event.ts"
 import type { RealtimeMetrics } from "./metrics.ts"
@@ -85,8 +85,7 @@ export class MongoSnapshotReader implements SnapshotReader {
           .sort(withIdTieBreaker(query.sort ?? {}) as Record<string, 1 | -1>)
         if (query.limit !== undefined) cursor = cursor.limit(query.limit)
         const docs = (await cursor.toArray()) as Doc[]
-        const internal = session as unknown as { snapshotTime?: unknown }
-        const ct = toCt(internal.snapshotTime) ?? toCt(session.operationTime) ?? ZERO_CT
+        const ct = snapshotTimeOf(session) ?? toCt(session.operationTime) ?? ZERO_CT
         this.metrics?.snapshotSeconds.observe((performance.now() - started) / 1000)
         return { docs, ct }
       } finally {

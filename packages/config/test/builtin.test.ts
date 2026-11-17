@@ -219,6 +219,51 @@ describe("builtin()", () => {
     )
   })
 
+  it("resolves every email transport with only its own fields", () => {
+    const transportOf = (transport: unknown, variables: Record<string, string> = {}) => {
+      const auth = resolve(
+        { mongodb: { uri: URI }, auth: builtin({ email: { from: "a@b.c", transport } as never }) },
+        variables,
+      ).config.auth
+      return auth?.kind === "builtin" ? auth.email.transport : undefined
+    }
+    expect(
+      transportOf(
+        email.smtp({ host: "smtp.example", port: env("SMTP_PORT"), secure: true, pass: "p" }),
+        { SMTP_PORT: "465" },
+      ),
+    ).toEqual({ kind: "smtp", host: "smtp.example", port: 465, secure: true, pass: "p" })
+    expect(transportOf(email.postmark({ serverToken: "t" }))).toEqual({
+      kind: "postmark",
+      serverToken: "t",
+    })
+    expect(
+      transportOf(email.ses({ region: "eu-west-1", accessKeyId: "a", secretAccessKey: "s" })),
+    ).toEqual({ kind: "ses", region: "eu-west-1", accessKeyId: "a", secretAccessKey: "s" })
+    expect(transportOf(email.log())).toEqual({ kind: "log" })
+  })
+
+  it("reports a transport without its required fields", () => {
+    for (const transport of [
+      { kind: "resend" },
+      { kind: "postmark" },
+      { kind: "smtp" },
+      { kind: "ses", region: "eu-west-1", accessKeyId: "a" },
+    ]) {
+      const found = problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          auth: builtin({ email: { from: "a@b.c", transport } as never }),
+        }),
+      )
+      expect(
+        found.map((problem) => problem.path),
+        transport.kind,
+      ).toEqual(["auth.email.transport"])
+      expect(found[0]?.message, transport.kind).toContain(`The ${transport.kind} transport needs`)
+    }
+  })
+
   it("reports external only settings and variables, and unknown transports", () => {
     const found = problems(() =>
       resolve(

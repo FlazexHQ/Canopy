@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 import { createServer } from "node:http"
-import { RateLimits } from "@canopy/auth"
+import { parseJsonWebKeySet, RateLimits } from "@canopy/auth"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
 import { serveMetrics, tryPathname } from "@canopy/node-http"
-import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
 import { type Logger, redacting } from "../logger.ts"
@@ -49,7 +48,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
             issuer: auth.issuer,
             audience: auth.audience,
             ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
-            ...(auth.jwks === undefined ? {} : { jwks: auth.jwks as unknown as JSONWebKeySet }),
+            ...(auth.jwks === undefined ? {} : { jwks: parseJsonWebKeySet(auth.jwks) }),
             ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
             ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
             ...(auth.allowServiceRoleFromJwt === true ? { allowServiceRoleFromJwt: true } : {}),

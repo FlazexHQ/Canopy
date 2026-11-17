@@ -8,7 +8,7 @@ import {
   resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
-import { CanopyError, ErrorCode, UnauthorizedError } from "@canopy/protocol"
+import { CanopyError, ErrorCode, isDocument, UnauthorizedError } from "@canopy/protocol"
 import { type JSONWebKeySet, errors as joseErrors, jwtVerify } from "jose"
 import { type ChangeStream, MongoServerError } from "mongodb"
 import { type AuditDocument, AuditLog } from "./audit.ts"
@@ -622,8 +622,8 @@ class BetterAuthProvider implements BuiltinAuth {
   private emailOf(body: ArrayBuffer): string | undefined {
     try {
       const parsed: unknown = JSON.parse(new TextDecoder().decode(body))
-      if (typeof parsed !== "object" || parsed === null) return undefined
-      const email = (parsed as { email?: unknown }).email
+      if (!isDocument(parsed)) return undefined
+      const email = parsed["email"]
       return typeof email === "string" && email.length <= 320 ? email : undefined
     } catch {
       return undefined

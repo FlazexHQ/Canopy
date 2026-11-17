@@ -18,6 +18,7 @@ import {
   maxCt,
   PolicyViolationError,
   sha256Hex,
+  snapshotTimeOf,
   Timestamp,
   toCanopyError,
   toCt,
@@ -122,6 +123,16 @@ describe("cluster time", () => {
     expect(toCt(new bson.Timestamp({ t: 1_793_871_004, i: 3 }))).toBe(ctFromParts(1_793_871_004, 3))
     expect(toCt(new Timestamp(5, 6))).toBe(ctFromParts(5, 6))
     expect(toCt({ t: 5 })).toBeUndefined()
+  })
+
+  it("reads the snapshot time of a driver session only when it is a timestamp", () => {
+    expect(snapshotTimeOf({ snapshotTime: new bson.Timestamp({ t: 9, i: 2 }) })).toBe(
+      ctFromParts(9, 2),
+    )
+    expect(snapshotTimeOf({})).toBeUndefined()
+    expect(snapshotTimeOf({ snapshotTime: undefined })).toBeUndefined()
+    expect(snapshotTimeOf({ snapshotTime: "9" })).toBeUndefined()
+    expect(snapshotTimeOf({ snapshotTime: { t: 9, i: 2 } })).toBeUndefined()
   })
 })
 

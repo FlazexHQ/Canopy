@@ -9,6 +9,7 @@ import {
   type Compiled,
   canAccess,
   collection,
+  contextsFromStored,
   createPolicySet,
   deniesTextSearch,
   fieldAccess,
@@ -21,6 +22,7 @@ import {
   PolicyValidationError,
   projectReadable,
   type RequestContext,
+  readStored,
   restrict,
   shiftDate,
   toFilter,
@@ -434,6 +436,69 @@ describe("stored form", () => {
       ],
     }
     expect(() => createPolicySet([fromStored(where)])).toThrow(PolicyValidationError)
+  })
+
+  it("refuses stored documents of the wrong shape before they are compiled", () => {
+    const stored = { ...toStored(todos, { version: 1 }) }
+    const policy = { name: "x", kind: "permissive", ops: ["read"], roles: ["anon"] }
+    const malformed: [string, unknown][] = [
+      ["not a document", "todos"],
+      ["no _id", { ...stored, _id: undefined }],
+      ["policies not an array", { ...stored, policies: { 0: policy } }],
+      ["a policy that is a string", { ...stored, policies: ["read all"] }],
+      ["a numeric name", { ...stored, policies: [{ ...policy, name: 7 }] }],
+      ["an unknown kind", { ...stored, policies: [{ ...policy, kind: "allow" }] }],
+      ["an unknown operation", { ...stored, policies: [{ ...policy, ops: ["read", "drop"] }] }],
+      ["a role that is a number", { ...stored, policies: [{ ...policy, roles: ["anon", 1] }] }],
+      ["roles as a string", { ...stored, policies: [{ ...policy, roles: "anon" }] }],
+      ["a using clause that is an object", { ...stored, policies: [{ ...policy, using: {} }] }],
+      ["a field rule that is a string", { ...stored, fields: { read: { anon: "salary" } } }],
+      [
+        "a field rule with both lists",
+        { ...stored, fields: { read: { anon: { only: [], omit: [] } } } },
+      ],
+      ["an unknown field rule kind", { ...stored, fields: { delete: {} } }],
+      ["immutable paths that are numbers", { ...stored, immutable: [1] }],
+    ]
+    for (const [label, document] of malformed) {
+      expect(() => fromStored(document), label).toThrow(TypeError)
+      expect(() => readStored(document), label).toThrow(TypeError)
+    }
+  })
+
+  it("reads a stored document with its version, hash and author", () => {
+    const at = new Date("2026-11-01T00:00:00Z")
+    const stored = toStored(todos, { version: 3, updatedAt: at, updatedBy: "admin:alice" })
+    expect(readStored(parse(stringify(stored)))).toEqual(stored)
+    expect(() => readStored({ ...stored, version: "3" })).toThrow(TypeError)
+    expect(() => readStored({ ...stored, version: 1.5 })).toThrow(TypeError)
+    expect(() => readStored({ ...stored, hash: undefined })).toThrow(TypeError)
+    expect(() => readStored({ ...stored, updatedAt: "2026-11-01" })).toThrow(TypeError)
+    expect(() => readStored({ ...stored, updatedBy: 1 })).toThrow(TypeError)
+  })
+
+  it("checks the shape of stored context lookups", () => {
+    const lookup = {
+      from: "members",
+      where: { userId: { $auth: "sub" } },
+      select: "team",
+      max: 50,
+      ttl: "1m",
+    }
+    expect(contextsFromStored(undefined)).toEqual({})
+    expect(contextsFromStored(null)).toEqual({})
+    expect(contextsFromStored({ team: lookup })).toEqual({ team: lookup })
+    for (const bad of [
+      [],
+      "team",
+      { team: "members" },
+      { team: { ...lookup, from: 1 } },
+      { team: { ...lookup, where: "{}" } },
+      { team: { ...lookup, select: ["team"] } },
+      { team: { ...lookup, max: "50" } },
+      { team: { ...lookup, ttl: 60 } },
+    ])
+      expect(() => contextsFromStored(bad), JSON.stringify(bad)).toThrow(TypeError)
   })
 })
 

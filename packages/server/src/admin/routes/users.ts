@@ -1,4 +1,4 @@
-import type { ImportedPasswordHash } from "@canopy/auth"
+import { type ImportedPasswordHash, parseImportedPasswordHash } from "@canopy/auth"
 import type { ResolvedConfig } from "@canopy/config"
 import { NotFoundError, ValidationError } from "@canopy/protocol"
 import { array, boolean, document, integer, object, oneOf, optional, string } from "../../schema.ts"
@@ -228,8 +228,25 @@ export function registerUsers(route: RouteFn, deps: AdminDeps): void {
           { max: 1000 },
         ),
       }).parse(await context.body())
-      const result = await users.import(
-        body.users.map((user) => {
+      const refused: { email: string; reason: string }[] = []
+      const accepted: {
+        readonly user: (typeof body.users)[number]
+        readonly passwordHash: ImportedPasswordHash | undefined
+      }[] = []
+      for (const user of body.users) {
+        try {
+          const passwordHash =
+            user.passwordHash === undefined
+              ? undefined
+              : parseImportedPasswordHash(user.passwordHash)
+          accepted.push({ user, passwordHash })
+        } catch (error: unknown) {
+          if (!(error instanceof ValidationError)) throw error
+          refused.push({ email: user.email, reason: error.message })
+        }
+      }
+      const imported = await users.import(
+        accepted.map(({ user, passwordHash }) => {
           const createdAt = user.createdAt === undefined ? undefined : new Date(user.createdAt)
           if (createdAt !== undefined && Number.isNaN(createdAt.getTime()))
             throw new ValidationError(`createdAt of ${user.email} is not a date`)
@@ -242,13 +259,12 @@ export function registerUsers(route: RouteFn, deps: AdminDeps): void {
             ...(user.roles === undefined ? {} : { roles: user.roles }),
             ...(user.appMetadata === undefined ? {} : { appMetadata: user.appMetadata }),
             ...(user.userMetadata === undefined ? {} : { userMetadata: user.userMetadata }),
-            ...(user.passwordHash === undefined
-              ? {}
-              : { passwordHash: user.passwordHash as unknown as ImportedPasswordHash }),
+            ...(passwordHash === undefined ? {} : { passwordHash }),
             ...(user.identities === undefined ? {} : { identities: user.identities }),
           }
         }),
       )
+      const result = { ...imported, failed: [...imported.failed, ...refused] }
       await context.audit({
         action: "user.import",
         details: { created: result.created, skipped: result.skipped, failed: result.failed.length },

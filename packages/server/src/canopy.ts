@@ -4,6 +4,7 @@ import {
   Authenticator,
   addressAllowed,
   type JwtAuthOptions,
+  parseJsonWebKeySet,
   RateLimits,
   resolveClientAddress,
 } from "@canopy/auth"
@@ -56,7 +57,6 @@ import {
   WritePath,
 } from "@canopy/rest"
 import { createStudioHandler } from "@canopy/studio"
-import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
 import { type AdminApi, createAdminApi } from "./admin/api.ts"
@@ -196,7 +196,7 @@ function jwtOptions(config: ResolvedConfig): JwtAuthOptions | undefined {
     issuer: auth.issuer,
     audience: auth.audience,
     ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
-    ...(auth.jwks === undefined ? {} : { jwks: auth.jwks as unknown as JSONWebKeySet }),
+    ...(auth.jwks === undefined ? {} : { jwks: parseJsonWebKeySet(auth.jwks) }),
     ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
     ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
     ...(auth.allowServiceRoleFromJwt === true ? { allowServiceRoleFromJwt: true } : {}),

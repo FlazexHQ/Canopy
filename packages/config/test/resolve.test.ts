@@ -342,6 +342,25 @@ describe("resolveConfig", () => {
     ).toEqual(["auth.audience"])
   })
 
+  it("accepts an inline key set only with a keys array of objects", () => {
+    const key = { kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" }
+    const auth = resolve({
+      mongodb: { uri: URI },
+      auth: external({ jwks: { keys: [key] }, issuer: "i", audience: "a" }),
+    }).config.auth
+    expect(auth).toMatchObject({ jwks: { keys: [key] } })
+    for (const jwks of [{}, { keys: key }, { keys: [key, "k2"] }])
+      expect(
+        problems(() =>
+          resolve({
+            mongodb: { uri: URI },
+            auth: external({ jwks, issuer: "i", audience: "a" } as never),
+          }),
+        ).map((problem) => problem.path),
+        JSON.stringify(jwks),
+      ).toEqual(["auth.jwks"])
+  })
+
   it("enforces production rules", () => {
     const production = { CANOPY_ENV: "production" }
     expect(

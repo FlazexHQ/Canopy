@@ -167,7 +167,10 @@ const rest = createRestHandler({
   metaDatabase: "canopy",
   policies: new PolicyEngine(createPolicySet([todos])),
   authenticator: new Authenticator(
-    { jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json", issuer: "https://YOUR_TENANT.auth0.com/" },
+    {
+      jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json",
+      issuer: "https://YOUR_TENANT.auth0.com/",
+    },
     { publishable: ["pk_app"] },
   ),
 })
@@ -203,7 +206,11 @@ createServer(toNodeListener(createStudioHandler())).listen(3001)`,
       "Works in browsers, React Native, Node, Bun and Deno. Queries use MongoDB syntax and run both on the server and in the client, so optimistic writes show up at once.",
     snippet: `import { createClient } from "@canopy/client"
 
-const canopy = createClient({ url: "https://api.example.com", publishableKey: "pk_app", auth: { getToken } })
+const canopy = createClient({
+  url: "https://api.example.com",
+  publishableKey: "pk_app",
+  auth: { getToken },
+})
 
 const stop = canopy
   .from("todos")
@@ -254,7 +261,11 @@ import { createApp, defineComponent, h } from "vue"
 const Todos = defineComponent(() => {
   const canopy = useCanopy<Database>()
   const { data } = useQuery(() => canopy.from("todos").find({ done: false }).limit(50))
-  return () => h("ul", data.value.map((todo) => h("li", { key: todo._id }, todo.title)))
+  return () =>
+    h(
+      "ul",
+      data.value.map((todo) => h("li", { key: todo._id }, todo.title)),
+    )
 })
 
 createApp(Todos).use(canopyPlugin(canopy)).mount("#app")`,
@@ -297,7 +308,12 @@ export const App = () => (
 import { createCollection } from "@tanstack/db"
 
 const todos = createCollection(
-  canopyCollectionOptions({ client: canopy, collection: "todos", filter: { done: false }, limit: 500 }),
+  canopyCollectionOptions({
+    client: canopy,
+    collection: "todos",
+    filter: { done: false },
+    limit: 500,
+  }),
 )
 await todos.preload()
 todos.insert({ _id: crypto.randomUUID(), title: "Write docs", done: false })`,

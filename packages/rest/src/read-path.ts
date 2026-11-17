@@ -24,6 +24,7 @@ import {
   InvalidQueryError,
   isDocument,
   serverErrorCode,
+  snapshotTimeOf,
   toCt,
 } from "@canopy/protocol"
 import {
@@ -603,8 +604,7 @@ export class ReadPath {
       const session = this.client.startSession({ snapshot: true })
       try {
         const result = await read(session)
-        const internal = session as unknown as { snapshotTime?: unknown }
-        return { result, ct: toCt(internal.snapshotTime) ?? toCt(session.operationTime) }
+        return { result, ct: snapshotTimeOf(session) ?? toCt(session.operationTime) }
       } finally {
         await session.endSession()
       }
