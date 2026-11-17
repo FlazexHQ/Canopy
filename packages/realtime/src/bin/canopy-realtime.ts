@@ -9,7 +9,8 @@ import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
 import { type Logger, redacting } from "../logger.ts"
 import { readinessCheck } from "../readiness.ts"
-import { createRealtime, type RealtimeOptions } from "../realtime.ts"
+import { createRealtime } from "../realtime.ts"
+import type { RealtimeOptions } from "../realtime-types.ts"
 import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../transports.ts"
 
 /**

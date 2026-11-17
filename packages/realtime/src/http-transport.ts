@@ -1,5 +1,6 @@
 import { CloseCode, ErrorCode, httpStatusOf, isErrorCode } from "@canopy/protocol"
-import type { ConnectionHandler, Realtime } from "./realtime.ts"
+import type { Realtime } from "./realtime.ts"
+import type { ConnectionHandler } from "./realtime-types.ts"
 import type { RealtimeSocket } from "./session.ts"
 
 /** Options for {@link createHttpTransport}. */
