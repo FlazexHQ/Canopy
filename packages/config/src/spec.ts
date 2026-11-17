@@ -38,7 +38,7 @@ export const str: Spec = { t: "string" }
 const url: Spec = { t: "url" }
 const int: Spec = { t: "int" }
 export const bool: Spec = { t: "bool" }
-export const list: Spec = { t: "list" }
+const list: Spec = { t: "list" }
 const duration: Spec = { t: "duration" }
 export const oneOf = (...values: string[]): Spec => ({ t: "enum", values })
 const obj = (fields: Record<string, Spec>): Spec => ({ t: "object", fields })
