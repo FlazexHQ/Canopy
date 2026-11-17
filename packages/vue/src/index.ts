@@ -104,7 +104,9 @@ export function useQuery<T>(query: MaybeRefOrGetter<LiveQuery<T>>): QueryRefs<T>
 }
 
 /** The connection status as a ref: `connecting`, `live`, `fallback`, `reconnecting`, `offline` or `closed`. */
-export function useCanopyStatus(client: CanopyClient = useCanopy()): ShallowRef<ConnectionStatus> {
+export function useCanopyStatus<DB extends Schema<DB> = UntypedSchema>(
+  client: CanopyClient<DB> = useCanopy<DB>(),
+): ShallowRef<ConnectionStatus> {
   const status = shallowRef(client.connectionStatus)
   const stop = client.onStatus((next) => {
     status.value = next

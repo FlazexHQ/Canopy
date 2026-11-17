@@ -36,6 +36,8 @@ jobs:
         run: bun run lint:exports
       - name: Every public export is documented
         run: bun run lint:docs
+      - name: The TypeScript snippets of the README files and the docs compile
+        run: bun run lint:snippets
       - run: bun --bun vitest run
 
   install:

@@ -54,6 +54,8 @@ A connection over the anonymous address cap is refused at the handshake with an 
 ## Configuration
 
 ```ts
+import { defineConfig } from "@canopy/config"
+
 export default defineConfig({
   rateLimits: {
     requests: { perSecond: 100, burst: 400 },

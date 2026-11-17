@@ -81,16 +81,25 @@ port 9464.
 
 ## 5. Read live data
 
+<!-- snippet: declare function getAccessTokenSilently(): Promise<string> -->
+
 ```tsx
-import { createClient } from "@canopy/client"
+import { createClient, type DocumentSchema } from "@canopy/client"
 import { CanopyProvider, createReactDb } from "@canopy/react"
 
-const canopy = createClient({
+interface Order {
+  readonly _id: string
+  status: "open" | "paid" | "shipped"
+  total: number
+  createdAt: Date
+}
+
+const canopy = createClient<DocumentSchema<{ orders: Order }>>({
   url: "http://localhost:8080",
   publishableKey: "pk_shop_1",
   auth: { getToken: () => getAccessTokenSilently() },
 })
-const db = createReactDb<{ orders: Order }>(canopy)
+const db = createReactDb(canopy)
 
 function Orders() {
   const orders = db.orders.useQuery({ status: "open" }, { sort: { createdAt: -1 }, limit: 50 })

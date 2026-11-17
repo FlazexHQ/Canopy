@@ -38,6 +38,8 @@ Express, Fastify and Hono all run on a `node:http` server, so `attach()` works w
 
 `createCanopy()` builds the Data API, GraphQL, realtime, auth, the admin API and Studio from a resolved config:
 
+<!-- snippet: declare const app: import("node:http").RequestListener -->
+
 ```ts
 import { createServer } from "node:http"
 import { loadConfig } from "@canopy/config/load"
@@ -56,6 +58,8 @@ Requests Canopy does not serve go to `fallback`, so your own routes keep working
 WebSocket upgrades for `/realtime/v1` and for graphql-ws on `/graphql/v1`.
 
 On Bun:
+
+<!-- snippet: not checked -->
 
 ```ts
 Bun.serve({ port: config.server.port, ...canopy.bun() })

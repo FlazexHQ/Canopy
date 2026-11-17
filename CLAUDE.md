@@ -106,7 +106,8 @@ bun run typecheck                          # tsc -b: root config files plus ever
 bun run lint                               # biome check . (bunx biome ci . in CI)
 bun run lint:exports                       # knip: exports and types nothing imports
 bun run lint:docs                          # every public export has TSDoc (also checked in CI)
-bun run check                              # lint, typecheck, lint:exports, lint:docs and test:all in one go
+bun run lint:snippets                      # every ts/tsx snippet of the READMEs and docs compiles
+bun run check                              # lint, typecheck, lint:exports, lint:docs, lint:snippets and test:all
 bun run format                             # biome format --write .
 bun run test:all                           # vitest run over packages/* and apps/* (Node); bun --bun vitest run for Bun
 bun run test                               # turbo run test (per package, cached)

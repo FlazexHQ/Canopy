@@ -42,6 +42,8 @@ query Orders($after: String) {
 
 ## From TypeScript
 
+<!-- snippet: declare function handle(documents: unknown[]): void -->
+
 ```ts
 let after: string | undefined
 do {

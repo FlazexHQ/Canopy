@@ -1,8 +1,14 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
 import { loadVectors, runVector } from "@canopy/testing/vectors"
 import { createRoot, createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { CanopyContext, createCanopyStatus, createQuery, useCanopy } from "../src/index.ts"
+import {
+  CanopyContext,
+  CanopyProvider,
+  createCanopyStatus,
+  createQuery,
+  useCanopy,
+} from "../src/index.ts"
 
 class Socket implements WebSocketLike {
   static last: Socket | undefined
@@ -129,7 +135,33 @@ describe("Solid", () => {
       dispose()
     })
     expect(found).toBe(client)
-    expect(() => createRoot(() => useCanopy())).toThrow(/CanopyContext/)
+    expect(() => createRoot(() => useCanopy())).toThrow(/CanopyProvider/)
+    client.close()
+  })
+
+  it("provides a typed client through CanopyProvider", () => {
+    type Typed = DocumentSchema<{ todos: { readonly _id: string; title: string } }>
+    const client = new CanopyClient<Typed>({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: Socket,
+      lifecycle: false,
+    })
+    let found: CanopyClient<Typed> | undefined
+    let status: string | undefined
+    createRoot((dispose) => {
+      CanopyProvider({
+        client,
+        get children() {
+          found = useCanopy<Typed>()
+          status = createCanopyStatus<Typed>()()
+          return null
+        },
+      })
+      dispose()
+    })
+    expect(found).toBe(client)
+    expect(status).toBe(client.connectionStatus)
     client.close()
   })
 })

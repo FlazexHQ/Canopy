@@ -90,6 +90,8 @@ until they add one.
 
 ## 4. Move clients
 
+<!-- snippet: not checked -->
+
 ```ts
 // Parse
 const query = new Parse.Query("Post").equalTo("published", true).descending("_created_at").limit(20)

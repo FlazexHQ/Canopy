@@ -109,6 +109,16 @@ describe("client types", () => {
     >()
   })
 
+  it("types the id of an insert from the collection's documents", () => {
+    const note = () => canopy.insert("notes", { _id: "n1", body: "hi" }).id
+    const todo = () =>
+      canopy.from("todos").insert({ title: "t", done: false, createdAt: new Date() }).id
+    const loose = () => untyped.insert("anything", {}).id
+    expectTypeOf<ReturnType<typeof note>>().toEqualTypeOf<string>()
+    expectTypeOf<ReturnType<typeof todo>>().toEqualTypeOf<ObjectId>()
+    expectTypeOf<ReturnType<typeof loose>>().toEqualTypeOf<unknown>()
+  })
+
   it("narrows the document type by projection", () => {
     const included = () => canopy.from("todos").fields({ title: 1 }).getState().data[0]
     const withoutId = () => canopy.from("todos").fields({ title: 1, _id: 0 }).getState().data[0]

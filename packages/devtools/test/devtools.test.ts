@@ -1,4 +1,4 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { attachDevtools, watchMistakes } from "../src/index.ts"
 
@@ -69,6 +69,23 @@ const cells = (): string[] =>
   [...document.querySelectorAll("[data-canopy-devtools] td")].map((cell) => cell.textContent ?? "")
 
 describe("devtools panel", () => {
+  it("attaches to a client typed with a generated schema", () => {
+    const typed = new CanopyClient<
+      DocumentSchema<{ todos: { readonly _id: string; done: boolean } }>
+    >({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: Socket,
+      lifecycle: false,
+    })
+    const devtools = attachDevtools(typed, { open: true, warnings: false })
+    const stop = watchMistakes(typed, { warn: () => {} })
+    expect(document.querySelector("[data-canopy-devtools]")).not.toBeNull()
+    stop()
+    devtools.destroy()
+    typed.close()
+  })
+
   it("shows the connection, subscriptions and the protocol log", async () => {
     const { client, socket } = await connected()
     const devtools = attachDevtools(client, { open: true, warnings: false })

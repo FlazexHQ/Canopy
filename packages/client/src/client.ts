@@ -236,11 +236,11 @@ export interface MutationResult {
  * acknowledges it, and rejects with a typed error (`PolicyViolationError`, `ConflictError`,
  * `ForbiddenError`, `ValidationError`, `RateLimitError` or another `CanopyError`) when it is rolled back.
  */
-export interface MutationHandle extends Promise<MutationResult> {
+export interface MutationHandle<Id = unknown> extends Promise<MutationResult> {
   /** The mutation ID, which is also the idempotency key. */
   readonly mutationId: string
-  /** For inserts: the `_id` of the (first) document, usable right away. */
-  readonly id: unknown
+  /** For inserts: the `_id` of the (first) document, usable right away, typed from the collection's documents. */
+  readonly id: Id
 }
 
 /** Options of single document writes. */
@@ -593,7 +593,10 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 
   /** Inserts a document. The optimistic copy, with a client generated `_id`, is visible at once. */
-  insert<C extends CollectionName<DB>>(collection: C, doc: InsertOf<DB, C>): MutationHandle {
+  insert<C extends CollectionName<DB>>(
+    collection: C,
+    doc: InsertOf<DB, C>,
+  ): MutationHandle<IdOf<DocumentOf<DB, C>>> {
     const id = asDocument(doc)["_id"] ?? this.newId(collection)
     const full = { ...doc, _id: id }
     return this.mutate(
@@ -602,7 +605,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       { doc: full },
       [{ kind: "insert", coll: collection, id, doc: full }],
       [id],
-    )
+    ) as MutationHandle<IdOf<DocumentOf<DB, C>>>
   }
 
   /** Inserts several documents in one mutation. */
@@ -1378,8 +1381,10 @@ export class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = 
   }
 
   /** Inserts a document into this collection. */
-  insert(doc: Insert): MutationHandle {
-    return this.client.insert(this.collection, asDocument(doc as object))
+  insert(doc: Insert): MutationHandle<IdOf<Doc>> {
+    return this.client.insert(this.collection, asDocument(doc as object)) as MutationHandle<
+      IdOf<Doc>
+    >
   }
 
   /** Inserts several documents into this collection. */

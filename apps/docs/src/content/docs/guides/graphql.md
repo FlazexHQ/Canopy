@@ -65,10 +65,14 @@ write path as REST, `check` clauses included. A request with a single root mutat
 ## Relations
 
 ```ts
-collections: {
-  posts: { relations: { author: { to: "users", local: "authorId" } } },
-  users: { relations: { posts: { to: "posts", local: "_id", foreign: "authorId", many: true } } },
-}
+import { defineConfig } from "@canopy/config"
+
+export default defineConfig({
+  collections: {
+    posts: { relations: { author: { to: "users", local: "authorId" } } },
+    users: { relations: { posts: { to: "posts", local: "_id", foreign: "authorId", many: true } } },
+  },
+})
 ```
 
 `post { author { name } }` then resolves the author under the `users` policies. Lookups are batched per

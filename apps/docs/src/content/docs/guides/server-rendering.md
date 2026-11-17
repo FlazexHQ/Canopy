@@ -9,6 +9,8 @@ them into plain JSON for the page, and `client.hydrate()` seeds the browser's li
 with the same filter and options start with the server's documents (shown `stale`) instead of `loading`, and
 the socket takes over from that cluster time.
 
+<!-- snippet: declare const cookies: import("@canopy/client/server").CookieSource -->
+
 ```ts
 import { createServerClient, dehydrate } from "@canopy/client/server"
 
@@ -46,6 +48,8 @@ export default async function Page() {
 
 ## Nuxt
 
+<!-- snippet: not checked -->
+
 ```ts
 // plugins/canopy.ts
 export default defineNuxtPlugin((nuxt) => {
@@ -59,8 +63,12 @@ Read with `createServerClient()` in `useAsyncData` or a server route, put `dehyd
 
 ## SvelteKit
 
+<!-- snippet: not checked -->
+
 ```ts
 // src/routes/todos/+page.server.ts
+import { createServerClient, dehydrate } from "@canopy/client/server"
+
 export async function load({ cookies }) {
   const server = createServerClient({ url, publishableKey, cookies })
   return { canopy: dehydrate([await server.find("todos", { done: false })]) }

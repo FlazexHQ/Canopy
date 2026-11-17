@@ -34,6 +34,9 @@ messages are for people and may change.
 
 Codes without a class of their own arrive as `CanopyError`; check `error.code`.
 
+<!-- snippet: declare function showToast(text: string): void -->
+<!-- snippet: declare function retryLater(): void -->
+
 ```ts
 import { isCanopyError, PolicyViolationError } from "@canopy/client"
 

@@ -61,18 +61,32 @@ MONGODB_URI="mongodb://localhost:27017/app?replicaSet=rs0" CANOPY_POLICIES=./can
 or embed it in a Node server (Express, Fastify and Hono all run on one):
 
 ```ts
+import { createServer } from "node:http"
+import { attach, createRealtime } from "@canopy/realtime"
+import express from "express"
+import { MongoClient } from "mongodb"
+
+const server = createServer(express())
 const realtime = await createRealtime({
-  mongo,
+  mongo: new MongoClient(process.env.MONGODB_URI ?? ""),
   database: "app",
-  auth,
+  auth: {
+    jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json",
+    issuer: "https://YOUR_TENANT.auth0.com/",
+    audience: "https://api.example.com",
+  },
   policies: { dir: "./canopy/policies" },
 })
 await attach(realtime, server)
+server.listen(3000)
 ```
 
 and read live data in React:
 
 ```tsx
+import { createClient } from "@canopy/client"
+import { createReactDb } from "@canopy/react"
+
 const canopy = createClient({
   url: "https://api.example.com",
   publishableKey: "canopy_pk_dev",

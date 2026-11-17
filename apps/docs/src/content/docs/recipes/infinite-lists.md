@@ -7,6 +7,10 @@ A live query keeps every document of its result current. For a feed that grows a
 limit instead of fetching pages: the new query shares the cache with the old one, so documents already loaded
 stay on screen while the extra ones arrive.
 
+<!-- snippet: declare function Post(props: { post: object }): null -->
+<!-- snippet: declare function LoadMore(props: { onVisible: () => void }): null -->
+<!-- snippet: declare function Spinner(): null -->
+
 ```tsx
 import { useCanopy, useQuery } from "@canopy/react"
 import { useMemo, useState } from "react"

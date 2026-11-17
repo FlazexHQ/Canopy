@@ -8,6 +8,10 @@ Passkeys are bound to the host name of `publicUrl`, so set it to the address use
 
 ## Enrolling an authenticator app
 
+<!-- snippet: declare function showQrCode(uri: string): void -->
+<!-- snippet: declare function showOnce(codes: readonly string[]): void -->
+<!-- snippet: declare const codeFromTheApp: string -->
+
 ```ts
 const { totpURI, backupCodes } = await auth.enableTwoFactor({ password })
 showQrCode(totpURI)
@@ -56,6 +60,8 @@ does not enforce the second factor. To require it, compare the claim in a `check
 evaluates:
 
 ```ts
+import { auth, restrict } from "@canopy/policy"
+
 restrict.update("authenticated").check({ $expr: { $eq: [auth("aal"), "aal2"] } })
 ```
 

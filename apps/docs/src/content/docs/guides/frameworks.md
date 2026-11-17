@@ -53,6 +53,8 @@ bun add @canopy/client @canopy/vue
 
 ```ts
 import { canopyPlugin } from "@canopy/vue"
+import { createApp } from "vue"
+import App from "./App.vue"
 
 createApp(App).use(canopyPlugin(canopy)).mount("#app")
 ```
@@ -107,8 +109,13 @@ connection status.
 bun add @canopy/client @canopy/solid
 ```
 
+<!-- snippet: /** @jsxImportSource solid-js */ -->
+<!-- snippet: declare const root: HTMLElement -->
+
 ```tsx
-import { CanopyContext, createQuery, useCanopy } from "@canopy/solid"
+import { CanopyProvider, createQuery, useCanopy } from "@canopy/solid"
+import { createSignal, For } from "solid-js"
+import { render } from "solid-js/web"
 
 function Todos() {
   const canopy = useCanopy<Database>()
@@ -119,9 +126,9 @@ function Todos() {
 
 render(
   () => (
-    <CanopyContext.Provider value={canopy}>
+    <CanopyProvider client={canopy}>
       <Todos />
-    </CanopyContext.Provider>
+    </CanopyProvider>
   ),
   root,
 )

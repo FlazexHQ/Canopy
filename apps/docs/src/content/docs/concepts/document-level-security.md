@@ -74,10 +74,14 @@ export default context({
 ```
 
 ```ts
+import { allow, ctx } from "@canopy/policy"
+
 allow.read("authenticated").where({ projectId: { $in: ctx("projectIds") } })
 ```
 
 ## Field rules
+
+<!-- snippet: not checked -->
 
 ```ts
 fields: {

@@ -1,4 +1,4 @@
-import type { CanopyClient, StaleMutation } from "@canopy/client"
+import type { CanopyClient, Schema, StaleMutation } from "@canopy/client"
 import { type Frame, framesOf, type WarningOptions, watchMistakes } from "./warnings.ts"
 
 /** One entry of the protocol log. */
@@ -96,7 +96,11 @@ function json(value: unknown): string {
  * Development warnings are printed to the console. Built from DOM APIs only, so it works under a strict
  * CSP and with any framework.
  */
-export function attachDevtools(client: CanopyClient, options: DevtoolsOptions = {}): Devtools {
+export function attachDevtools<DB extends Schema<DB>>(
+  typed: CanopyClient<DB>,
+  options: DevtoolsOptions = {},
+): Devtools {
+  const client = typed as unknown as CanopyClient
   const parent = options.parent ?? document.body
   const logSize = options.logSize ?? 200
   const log: LogEntry[] = []

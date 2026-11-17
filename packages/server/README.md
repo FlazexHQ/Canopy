@@ -173,6 +173,8 @@ orchestrator a stop timeout longer than the drain window (the compose file uses 
 
 ## Embedding
 
+<!-- snippet: declare const app: import("node:http").RequestListener -->
+
 ```ts
 import { createServer } from "node:http"
 import { createCanopy } from "@canopy/server"
