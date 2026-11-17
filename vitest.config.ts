@@ -1,9 +1,11 @@
 import { existsSync, readdirSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 
+/** Every folder under `packages`, `apps` and `examples` with a Vitest config of its own. */
 const projects = ["packages", "apps", "examples"]
-  .filter((dir) => existsSync(dir) && readdirSync(dir).length > 0)
-  .map((dir) => `${dir}/*`)
+  .filter((dir) => existsSync(dir))
+  .flatMap((dir) => readdirSync(dir).map((name) => `${dir}/${name}`))
+  .filter((dir) => existsSync(`${dir}/vitest.config.ts`))
 
 /**
  * Coverage floors, a little under what the whole suite reaches against a replica set on Node, so a drop

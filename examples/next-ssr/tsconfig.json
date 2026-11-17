@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.web.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "outDir": "node_modules/.cache/app-types",
+    "tsBuildInfoFile": "node_modules/.cache/app-types/.tsbuildinfo",
+    "types": ["node"],
+    "allowJs": true,
+    "plugins": [{ "name": "next" }]
+  },
+  "include": ["app", "next-env.d.ts", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
+  "exclude": ["node_modules"],
+  "references": [{ "path": "../../packages/client" }, { "path": "../../packages/react" }]
+}

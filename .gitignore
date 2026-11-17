@@ -150,3 +150,6 @@ lefthook-local.yml
 # Docs site: the API reference is generated from TSDoc, and Astro keeps its own cache
 apps/docs/src/content/docs/reference/api/
 apps/docs/.astro/
+
+# Local MongoDB data and generated keys of the quickstarts
+.canopy/

@@ -14,7 +14,11 @@
       "!!plans",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
-      "!!**/routeTree.gen.ts"
+      "!!**/routeTree.gen.ts",
+      "!!deploy/helm/*/templates",
+      "!!**/.next",
+      "!!**/next-env.d.ts",
+      "!!.canopy"
     ]
   },
   "formatter": {

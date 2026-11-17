@@ -204,7 +204,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   e2e:
-    name: Browser end to end tests (todo-react, auth-notes and graphql-vue, Playwright)
+    name: Browser end to end tests (todo-react, auth-notes, graphql-vue and next-ssr, Playwright)
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -233,6 +233,13 @@ jobs:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       - name: GraphQL queries, mutations and live Vue updates (graphql-vue)
         working-directory: examples/graphql-vue
+        run: node node_modules/@playwright/test/cli.js test
+        env:
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      - name: Build the packages Next.js consumes
+        run: bun run build
+      - name: Server rendering and hydration with Next.js (next-ssr)
+        working-directory: examples/next-ssr
         run: node node_modules/@playwright/test/cli.js test
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
