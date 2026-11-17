@@ -229,7 +229,7 @@ describe("builtin()", () => {
     }
     expect(
       transportOf(
-        email.smtp({ host: "smtp.example", port: env("SMTP_PORT"), secure: true, pass: "p" }),
+        email.smtp({ host: "smtp.example", port: env.int("SMTP_PORT"), secure: true, pass: "p" }),
         { SMTP_PORT: "465" },
       ),
     ).toEqual({ kind: "smtp", host: "smtp.example", port: 465, secure: true, pass: "p" })
