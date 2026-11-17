@@ -1,8 +1,15 @@
 import { CanopyClient, type WebSocketLike } from "@canopy/client"
 import { loadVectors, runVector } from "@canopy/testing/vectors"
 import { describe, expect, it } from "vitest"
-import { createApp, effectScope, h, nextTick, shallowRef } from "vue"
-import { canopyPlugin, useCanopy, useCanopyStatus, useMutation, useQuery } from "../src/index.ts"
+import { createApp, defineComponent, effectScope, h, nextTick, shallowRef } from "vue"
+import {
+  canopyPlugin,
+  provideCanopy,
+  useCanopy,
+  useCanopyStatus,
+  useMutation,
+  useQuery,
+} from "../src/index.ts"
 
 class Socket implements WebSocketLike {
   static last: Socket | undefined
@@ -146,6 +153,69 @@ describe("Vue composables", () => {
     expect(insert?.error.value?.message).toBe("denied")
     scope.stop()
     client.close()
+  })
+
+  it("keeps only the latest call's outcome and its result", async () => {
+    const { client, socket } = await welcomed()
+    const scope = effectScope()
+    const insert = scope.run(() => useMutation((id: number) => client.insert("todos", { _id: id })))
+    const first = insert?.mutate(1)
+    const second = insert?.mutate(2)
+    await flush()
+    const [firstMut, secondMut] = frames(socket, "mut")
+    socket.push({
+      t: "ack",
+      seq: 1,
+      m: firstMut?.["id"],
+      ok: false,
+      err: { code: "CANOPY_POLICY_VIOLATION", msg: "stale failure" },
+    })
+    await expect(first).rejects.toMatchObject({ code: "CANOPY_POLICY_VIOLATION" })
+    await flush()
+    expect(insert?.pending.value).toBe(true)
+    expect(insert?.error.value).toBeUndefined()
+    socket.push({
+      t: "ack",
+      seq: 2,
+      m: secondMut?.["id"],
+      ok: true,
+      ct: "3",
+      echo: false,
+      res: { matched: 0, modified: 0, docs: [{ _id: 2 }] },
+    })
+    await expect(second).resolves.toMatchObject({ echo: false })
+    await flush()
+    expect(insert?.pending.value).toBe(false)
+    expect(insert?.error.value).toBeUndefined()
+    expect(insert?.result.value).toMatchObject({ echo: false })
+    scope.stop()
+    client.close()
+  })
+
+  it("provides a client to child components and follows its status", async () => {
+    const client = newClient()
+    let status: { readonly value: string } | undefined
+    const Child = defineComponent({
+      setup() {
+        status = useCanopyStatus()
+        return () => h("span")
+      },
+    })
+    const app = createApp({
+      setup() {
+        provideCanopy(client)
+        return () => h(Child)
+      },
+    })
+    app.mount(document.createElement("div"))
+    expect(status?.value).toBe("connecting")
+    await flush()
+    ;(Socket.last as Socket).push(WELCOME)
+    await flush()
+    expect(status?.value).toBe("live")
+    client.close()
+    expect(status?.value).toBe("closed")
+    app.unmount()
   })
 
   it("provides a hydrated client to the app", () => {

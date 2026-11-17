@@ -1,5 +1,10 @@
 import { type Binary, type Decimal128, type Long, ObjectId } from "@canopy/protocol"
-import { buildSchema as buildGraphqlSchema, GraphQLError, parse } from "graphql"
+import {
+  buildSchema as buildGraphqlSchema,
+  GraphQLError,
+  parse,
+  parseValue as parseLiteralText,
+} from "graphql"
 import { BSON } from "mongodb"
 import { describe, expect, it } from "vitest"
 import {
@@ -114,6 +119,84 @@ describe("scalars", () => {
     expect((parsed as { at: Date }).at.getTime()).toBe(Date.UTC(2026, 0, 1))
     expect(JsonScalar.serialize({ id: new BSON.ObjectId(hex) })).toEqual({ id: { $oid: hex } })
     expect(() => JsonScalar.parseValue({ $oid: "bad" })).toThrow(GraphQLError)
+  })
+})
+
+describe("scalar literals and refusals", () => {
+  const hex = "64a1b2c3d4e5f6a7b8c9d0e1"
+  const literal = (text: string) => parseLiteralText(text)
+
+  it("parses inline literals of every scalar", () => {
+    expect((ObjectIdScalar.parseLiteral(literal(`"${hex}"`)) as ObjectId).hex).toBe(hex)
+    expect((DateTimeScalar.parseLiteral(literal("86400000")) as Date).toISOString()).toBe(
+      "1970-01-02T00:00:00.000Z",
+    )
+    expect((DateTimeScalar.parseLiteral(literal('"2026-03-04T05:06:07Z"')) as Date).getTime()).toBe(
+      Date.UTC(2026, 2, 4, 5, 6, 7),
+    )
+    expect((LongScalar.parseLiteral(literal("42")) as Long).value).toBe(42n)
+    expect((LongScalar.parseLiteral(literal('"-7"')) as Long).value).toBe(-7n)
+    expect((DecimalScalar.parseLiteral(literal("2.50")) as Decimal128).value).toBe("2.50")
+    expect((DecimalScalar.parseLiteral(literal("3")) as Decimal128).value).toBe("3")
+    expect((DecimalScalar.parseLiteral(literal('"-Infinity"')) as Decimal128).value).toBe(
+      "-Infinity",
+    )
+    expect([...(BinaryScalar.parseLiteral(literal('"AQI="')) as Binary).bytes]).toEqual([1, 2])
+  })
+
+  it("refuses literals of the wrong kind", () => {
+    expect(() => ObjectIdScalar.parseLiteral(literal("12"))).toThrow("ObjectId must be a string")
+    expect(() => DateTimeScalar.parseLiteral(literal("true"))).toThrow("DateTime must be a string")
+    expect(() => LongScalar.parseLiteral(literal("1.5"))).toThrow("Long must be a string")
+    expect(() => DecimalScalar.parseLiteral(literal("[1]"))).toThrow("Decimal must be a string")
+    expect(() => BinaryScalar.parseLiteral(literal("{a: 1}"))).toThrow("Binary must be a string")
+  })
+
+  it("refuses values a scalar cannot represent", () => {
+    for (const [scalar, value] of [
+      [DateTimeScalar, "2026-01-01"],
+      [DateTimeScalar, new Date(Number.NaN)],
+      [LongScalar, "12"],
+      [LongScalar, 1.5],
+      [DecimalScalar, 1.5],
+      [BinaryScalar, "AQI="],
+    ] as const)
+      expect(() => scalar.serialize(value), `${scalar.name} ${String(value)}`).toThrow(
+        `${scalar.name} cannot represent`,
+      )
+    expect(() => DateTimeScalar.parseValue(true)).toThrow(GraphQLError)
+    expect(() => ObjectIdScalar.parseValue({ $oid: 7 })).toThrow(GraphQLError)
+    expect(() => ObjectIdScalar.parseValue(null)).toThrow(GraphQLError)
+    expect(() => LongScalar.parseValue(2 ** 53)).toThrow(GraphQLError)
+    expect(() => DecimalScalar.parseValue(true)).toThrow(GraphQLError)
+    expect(() => BinaryScalar.parseValue("AQI")).toThrow(GraphQLError)
+    expect(() => BinaryScalar.parseValue(12)).toThrow(GraphQLError)
+  })
+
+  it("serializes plain and big integers as Long strings", () => {
+    expect(LongScalar.serialize(12)).toBe("12")
+    expect(LongScalar.serialize(2n ** 62n)).toBe("4611686018427387904")
+    expect((LongScalar.parseValue(-3) as Long).value).toBe(-3n)
+    expect((DecimalScalar.parseValue(0.25) as Decimal128).value).toBe("0.25")
+  })
+
+  it("reads JSON literals of every kind, with variables, as Extended JSON", () => {
+    const parsed = JsonScalar.parseLiteral(
+      literal(
+        '{ id: $id, n: 1, f: 1.5, ok: true, none: null, mode: FAST, list: ["a", $tag], at: $at }',
+      ),
+      { id: { $oid: hex }, tag: "b", at: { $date: "2026-01-01T00:00:00Z" } },
+    ) as Record<string, unknown>
+    expect(parsed["id"]).toEqual(new ObjectId(hex))
+    expect(parsed).toMatchObject({ n: 1, f: 1.5, ok: true, none: null, mode: "FAST" })
+    expect(parsed["list"]).toEqual(["a", "b"])
+    expect((parsed["at"] as Date).getTime()).toBe(Date.UTC(2026, 0, 1))
+    expect(() => JsonScalar.parseLiteral(literal("$missing"), null)).toThrow(
+      "Unsupported JSON value",
+    )
+    expect(() =>
+      JsonScalar.parseLiteral(literal("{ at: $at }"), { at: { $date: "never" } }),
+    ).toThrow("JSON is not valid Extended JSON")
   })
 })
 

@@ -20,11 +20,14 @@ const floors = {
   "packages/realtime/src/**": { lines: 81, branches: 69 },
   "packages/rest/src/**": { lines: 94, branches: 84 },
   "packages/server/src/**": { lines: 82, branches: 71 },
-  "packages/client/src/**": { lines: 89, branches: 73 },
+  "packages/client/src/**": { lines: 91, branches: 75 },
   "packages/auth/src/**": { lines: 97, branches: 93 },
   "packages/auth-builtin/src/**": { lines: 88, branches: 78 },
-  "packages/graphql/src/**": { lines: 91, branches: 75 },
+  "packages/graphql/src/**": { lines: 94, branches: 79 },
   "packages/protocol/src/**": { lines: 96, branches: 85 },
+  "packages/vue/src/**": { lines: 98, branches: 70 },
+  "packages/svelte/src/**": { lines: 98, branches: 98 },
+  "packages/solid/src/**": { lines: 98, branches: 98 },
 }
 
 export default defineConfig({

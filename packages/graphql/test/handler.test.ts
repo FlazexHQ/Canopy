@@ -243,6 +243,51 @@ suite("GraphQL endpoint against MongoDB", () => {
     expect(two.body.errors?.[0]?.extensions?.["code"]).toBe("CANOPY_INVALID_QUERY")
   })
 
+  it("runs an operation in process as a given caller, with the same policies", async () => {
+    const as = (subject: string) => ({
+      subject,
+      context: {
+        roles: new Set(["authenticated"]),
+        claims: { sub: subject },
+        now: new Date(),
+      },
+    })
+    const query = "query Count($status: String) { todosCount(filter: { status: { eq: $status } }) }"
+    expect(await graphql.run(as("alice"), { query, variables: { status: "active" } })).toEqual({
+      operation: "query",
+      data: { todosCount: 2 },
+    })
+    expect(await graphql.run(as("bob"), { query, operationName: "Count" })).toEqual({
+      operation: "query",
+      data: { todosCount: 2 },
+    })
+    const invalid = await graphql.run(as("alice"), { query: "{ nope }" })
+    expect(invalid.operation).toBe("query")
+    expect(invalid.data).toBeUndefined()
+    expect(invalid.errors?.[0]?.message).toContain('Cannot query field "nope"')
+    const unparsable = await graphql.run(as("alice"), { query: "{" })
+    expect(unparsable.operation).toBeUndefined()
+    expect(unparsable.errors).toHaveLength(1)
+    const live = await graphql.run(as("alice"), {
+      query: "subscription { todoChanges { kind } }",
+    })
+    expect(live).toMatchObject({ operation: "subscription" })
+    expect(live.errors?.[0]?.extensions["code"]).toBe("CANOPY_INVALID_QUERY")
+    const insert = 'mutation { insertTodo(doc: { title: "run", ownerId: "alice" }) { title } }'
+    const refused = await graphql.run(as("alice"), { query: insert }, { mutations: false })
+    expect(refused).toMatchObject({ operation: "mutation" })
+    expect(refused.errors?.[0]?.extensions["code"]).toBe("CANOPY_FORBIDDEN")
+    expect(await db.collection("todos").countDocuments({ title: "run" })).toBe(0)
+    const denied = await graphql.run(as("bob"), {
+      query: 'mutation { insertTodo(doc: { title: "run", ownerId: "alice" }) { title } }',
+    })
+    expect(denied.errors?.[0]?.extensions["code"]).toBe("CANOPY_POLICY_VIOLATION")
+    expect(await db.collection("todos").countDocuments({ title: "run" })).toBe(0)
+    const inserted = await graphql.run(as("alice"), { query: insert })
+    expect(inserted).toEqual({ operation: "mutation", data: { insertTodo: { title: "run" } } })
+    await db.collection("todos").deleteMany({ title: "run" })
+  })
+
   it("refuses requests without credentials and introspection for anon", async () => {
     const none = await post({ query: "{ __typename }" }, "none")
     expect(none.body.errors?.[0]?.extensions?.["code"]).toBe("CANOPY_UNAUTHORIZED")

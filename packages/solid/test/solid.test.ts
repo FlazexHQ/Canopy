@@ -121,6 +121,44 @@ describe("Solid", () => {
     client.close()
   })
 
+  it("shows a refused subscription through the error accessor", async () => {
+    const client = newClient()
+    await flush()
+    const socket = Socket.last as Socket
+    socket.push({
+      t: "welcome",
+      seq: 0,
+      sid: "s",
+      v: 1,
+      resumed: false,
+      hb: 25000,
+      pv: "p",
+      ct: "1",
+      caps: [],
+      limits: {},
+    })
+    await flush()
+    const { query, dispose } = createRoot((dispose) => ({
+      query: createQuery(client.live("secrets", {})),
+      dispose,
+    }))
+    await flush()
+    expect(query.error()).toBeUndefined()
+    const sub = socket.sent.find((m) => m["t"] === "sub")?.["id"]
+    socket.push({
+      t: "nosub",
+      seq: 1,
+      s: sub,
+      err: { code: "CANOPY_FORBIDDEN", msg: "Not allowed to read secrets" },
+    })
+    await flush()
+    expect(query.status()).toBe("error")
+    expect(query.error()?.message).toBe("Not allowed to read secrets")
+    expect(query.state().error).toBe(query.error())
+    dispose()
+    client.close()
+  })
+
   it("reads the client from context", () => {
     const client = newClient()
     let found: unknown
