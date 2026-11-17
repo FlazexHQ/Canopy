@@ -36,7 +36,7 @@ jobs:
         run: bun run lint:exports
       - name: Every public export is documented
         run: bun run lint:docs
-      - name: The TypeScript snippets of the README files and the docs compile
+      - name: Package READMEs are up to date and every TypeScript snippet of the READMEs and docs compiles
         run: bun run lint:snippets
       - run: bun --bun vitest run
 
