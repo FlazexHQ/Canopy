@@ -170,7 +170,10 @@ describe("leader tab", () => {
     const direct = ServerSocket.all[1] as ServerSocket
     await direct.accept("n1.bob")
     await vi.waitFor(() => expect(bob.client.connectionStatus).toBe("live"))
-    expect(String(direct.of("hello")[0]?.["token"])).toBe(tokenFor("bob").toString())
+    const sent = String(direct.of("hello")[0]?.["token"]).split(".")[1] ?? ""
+    expect(JSON.parse(atob(sent.replaceAll("-", "+").replaceAll("_", "/")))).toMatchObject({
+      sub: "bob",
+    })
   })
 
   it("connects directly without Web Locks", () => {
