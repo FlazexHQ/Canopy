@@ -5,9 +5,10 @@ description: No policy grants this operation to the caller.
 
 **Code:** `CANOPY_FORBIDDEN` (HTTP 403)
 
-Document level security is closed by default. A collection that is not `exposed`, or an operation (`read`,
-`insert`, `update`, `delete`) without an `allow` rule for one of the caller's roles, is refused with this code
-before any document is looked at. Revoked keys and banned users get it too.
+Document level security is closed by default. A collection that is not `exposed`, or a write (`insert`,
+`update`, `delete`) without an `allow` rule for one of the caller's roles, is refused with this code before any
+document is looked at. Revoked keys and banned users get it too. Reads are different: a read without a
+matching rule is not an error, it returns no documents.
 
 ## Fix
 

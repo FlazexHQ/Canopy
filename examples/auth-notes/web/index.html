@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="canopy-key" content="%PUBLISHABLE_KEY%" />
+    <title>Canopy notes</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Notes</h1>
+      <section id="signed-out" hidden>
+        <form id="auth-form">
+          <label>Email <input name="email" type="email" autocomplete="username" required /></label>
+          <label
+            >Password
+            <input name="password" type="password" autocomplete="current-password" minlength="10" required
+          /></label>
+          <div class="actions">
+            <button type="submit" name="action" value="sign-in">Sign in</button>
+            <button type="submit" name="action" value="sign-up">Create account</button>
+          </div>
+        </form>
+      </section>
+      <section id="signed-in" hidden>
+        <p>Signed in as <strong id="user-email"></strong> <button id="sign-out" type="button">Sign out</button></p>
+        <form id="note-form">
+          <label>New note <input name="text" required maxlength="500" /></label>
+          <button type="submit">Add</button>
+        </form>
+        <p id="status" role="status"></p>
+        <ul id="notes"></ul>
+      </section>
+      <p id="error" role="alert"></p>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

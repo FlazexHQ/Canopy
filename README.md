@@ -7,8 +7,9 @@ Security (rules in the style of Postgres Row Level Security), auth, generated RE
 dashboard. It works with an existing MongoDB deployment without changing its schema.
 
 **Status: Phases 1 to 4 are implemented** (DLS core and realtime, Data API and optimistic SDK, auth, server and
-Studio, GraphQL and the framework bindings). Phase 5 (scale and edge) has not started. Nothing is published to
-npm yet, so every quickstart starts from a clone of this repository.
+Studio, GraphQL and the framework bindings), and the repository is working through the audit plan in
+[`plans/README.md`](plans/README.md) before Phase 5 (scale and edge). Nothing is published to npm yet and no
+license has been chosen, so every quickstart starts from a clone of this repository.
 
 | Package                | Contents                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -36,91 +37,86 @@ npm yet, so every quickstart starts from a clone of this repository.
 | `@canopy/cli`          | The `canopy` command: init, dev, doctor, policies, type generation, indexes and realtime images            |
 | `@canopy/testing`      | Private test support: a MongoDB replica set harness and value generators                                   |
 
-## Canopy Realtime in two minutes
+## Quickstart: sign up and see a live query in five minutes
 
-Policies are code. A collection is only reachable when it is exposed, and only through its policies:
-
-```ts
-// canopy/policies/todos.ts
-import { allow, auth, collection } from "@canopy/policy"
-
-export default collection("todos", {
-  exposed: true,
-  realtime: true,
-  policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
-  fields: { read: { default: { omit: ["internalNotes"] } } },
-})
-```
-
-Run it as a sidecar next to an existing app (the app database is never modified):
+You need [Bun](https://bun.com) 1.4 or newer, Node.js 24 or newer, and a MongoDB replica set: `bun run db:up`
+starts one in Docker on `localhost:27017`; without Docker, `bun packages/testing/scripts/mongod.ts --version
+8.0.34 --dir .canopy/mongo` downloads the official binaries and starts one there.
 
 ```bash
-MONGODB_URI="mongodb://localhost:27017/app?replicaSet=rs0" CANOPY_POLICIES=./canopy/policies CANOPY_JWT_JWKS_URL="https://YOUR_TENANT.auth0.com/.well-known/jwks.json" CANOPY_JWT_ISSUER="https://YOUR_TENANT.auth0.com/" CANOPY_JWT_AUDIENCE="https://api.example.com" CANOPY_PUBLISHABLE_KEYS=canopy_pk_dev bun packages/realtime/dist/bin/canopy-realtime.js
+git clone https://github.com/FlazexHQ/Canopy.git
+cd Canopy
+bun install
+bun run build
+bun run db:up
+node examples/auth-notes/src/server.ts
 ```
 
-or embed it in a Node server (Express, Fastify and Hono all run on one):
+Open <http://localhost:3000/>, create an account with an email address and a password, and add a note. Open
+the page in a second tab: the note is already there, and notes you add or delete in one tab show up in the
+other at once, because the list is a live query. Open a private window and create a second account: it sees
+none of the first account's notes. That is a document level security policy, enforced by the server:
 
 ```ts
-import { createServer } from "node:http"
-import { attach, createRealtime } from "@canopy/realtime"
-import express from "express"
-import { MongoClient } from "mongodb"
+// examples/auth-notes/src/policies.ts (shortened)
+import { allow, auth, collection } from "@canopy/policy"
 
-const server = createServer(express())
-const realtime = await createRealtime({
-  mongo: new MongoClient(process.env.MONGODB_URI ?? ""),
-  database: "app",
-  auth: {
-    jwksUrl: "https://YOUR_TENANT.auth0.com/.well-known/jwks.json",
-    issuer: "https://YOUR_TENANT.auth0.com/",
-    audience: "https://api.example.com",
-  },
-  policies: { dir: "./canopy/policies" },
+export const notes = collection("notes", {
+  exposed: true,
+  realtime: true,
+  policies: [
+    allow.read("authenticated").where({ ownerId: auth("sub") }),
+    allow.insert("authenticated").check({ ownerId: auth("sub") }),
+  ],
 })
-await attach(realtime, server)
-server.listen(3000)
 ```
 
-and read live data in React:
+and the page reads the list with the client SDK:
 
-```tsx
+<!-- snippet: declare const userId: string -->
+
+```ts
 import { createClient } from "@canopy/client"
-import { createReactDb } from "@canopy/react"
+import { createAuth } from "@canopy/client/auth"
 
-const canopy = createClient({
-  url: "https://api.example.com",
-  publishableKey: "canopy_pk_dev",
-  auth: { getToken },
-})
-const db = createReactDb(canopy)
-const { data, status } = db.todos.useQuery({ done: false }, { sort: { createdAt: -1 }, limit: 50 })
+const auth = createAuth({ url: location.origin })
+const canopy = createClient({ url: location.origin, publishableKey: "pk_notes_local", auth })
+
+canopy
+  .from("notes")
+  .find({ ownerId: userId })
+  .sort({ createdAt: -1 })
+  .limit(100)
+  .subscribe(({ data, status }) => render(data, status))
 ```
 
-Check a deployment and test policies with `canopy doctor` and `canopy policies test --mongodb-uri ...`. To run the
-whole platform (REST, GraphQL, realtime, auth and Studio) from one config, see
-[`packages/server/README.md`](packages/server/README.md) and `canopy dev` in
-[`packages/cli/README.md`](packages/cli/README.md).
+The [built in auth quickstart](apps/docs/src/content/docs/start/built-in-auth.md) walks through the same app
+step by step, and [`examples/auth-notes`](examples/auth-notes) has its browser tests.
 
-The full walkthrough is the [sidecar quickstart](packages/realtime/README.md#sidecar-quickstart-about-10-minutes),
-and [`examples/express-dropin`](examples/express-dropin) turns an Express, Mongoose and Auth0 helpdesk into a live
-dashboard with no server code changes.
+## Other ways in
+
+- **Next to an existing app.** The `canopy-realtime` sidecar adds live queries to a MongoDB app without
+  changing its server, with tokens from your identity provider (Auth0, Clerk, Cognito, Keycloak and any
+  JWKS issuer): the [sidecar quickstart](packages/realtime/README.md#sidecar-quickstart-about-10-minutes), and
+  [`examples/express-dropin`](examples/express-dropin), which turns an Express, Mongoose and Auth0 helpdesk
+  into a live dashboard with no server code changes.
+- **The whole platform from one config.** `canopy init` and `canopy dev --with-mongo` run REST, GraphQL,
+  realtime, auth and Studio together: [`packages/cli/README.md`](packages/cli/README.md) and
+  [`packages/server/README.md`](packages/server/README.md).
+- **Optimistic and offline.** [`examples/todo-react`](examples/todo-react) shows optimistic writes, conflicts,
+  an offline queue and the fallback transports.
+
+Check a deployment and test policies with `canopy doctor` and `canopy policies test --mongodb-uri ...`.
 
 ## Requirements
 
 - [Bun](https://bun.com) 1.4 or newer (primary runtime and the repository's package manager)
 - Node.js 24 or newer (fully supported secondary runtime)
-- Docker, for the local MongoDB replica set
+- A MongoDB replica set: Docker for `bun run db:up`, or the official binaries through
+  `packages/testing/scripts/mongod.ts`
 
-## Getting started
-
-```bash
-bun install
-bun run db:up      # single node MongoDB replica set on localhost:27017
-bun run db:smoke   # checks change streams and transactions against it
-```
-
-Connect with `mongodb://localhost:27017/?replicaSet=rs0`. Change streams and transactions need a replica set;
-they do not work on a standalone server.
+Change streams and transactions need a replica set; they do not work on a standalone server. `bun run db:smoke`
+checks both against `mongodb://localhost:27017/?replicaSet=rs0`.
 
 ## Common tasks
 

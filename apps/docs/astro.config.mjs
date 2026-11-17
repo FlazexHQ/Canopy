@@ -12,7 +12,13 @@ export default defineConfig({
       sidebar: [
         {
           label: "Start here",
-          items: ["start/introduction", "start/sidecar", "start/embedded", "start/platform"],
+          items: [
+            "start/introduction",
+            "start/built-in-auth",
+            "start/sidecar",
+            "start/embedded",
+            "start/platform",
+          ],
         },
         {
           label: "Concepts",

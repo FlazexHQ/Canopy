@@ -65,6 +65,8 @@
     { "path": "apps/docs" },
     { "path": "examples/express-dropin" },
     { "path": "examples/express-dropin/web" },
+    { "path": "examples/auth-notes" },
+    { "path": "examples/auth-notes/web" },
     { "path": "examples/todo-react" },
     { "path": "examples/todo-react/web" }
   ]
