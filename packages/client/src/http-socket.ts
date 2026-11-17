@@ -1,4 +1,4 @@
-import type { WebSocketLike } from "./client.ts"
+import type { WebSocketLike } from "./client-types.ts"
 
 /** A decoded JSON frame. */
 export type Frame = Record<string, unknown> & { t?: unknown; seq?: unknown }

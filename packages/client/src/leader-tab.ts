@@ -7,7 +7,7 @@ import {
   unbatch,
   type WelcomeMessage,
 } from "@canopy/protocol"
-import type { SharedConnection, WebSocketConstructor, WebSocketLike } from "./client.ts"
+import type { SharedConnection, WebSocketConstructor, WebSocketLike } from "./client-types.ts"
 
 /** The part of the Web Locks API leader election uses (`navigator.locks`). */
 export interface LockManagerLike {

@@ -9,7 +9,7 @@ import {
   type SubQuery,
   toCanonical,
 } from "@canopy/protocol"
-import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client.ts"
+import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client-types.ts"
 import type { CollectionName, DocumentOf, Filter, Schema, UntypedSchema } from "./types.ts"
 
 /** Where a server request gets the user's access token. */

@@ -1,4 +1,4 @@
-import type { FallbackTransport } from "./client.ts"
+import type { FallbackTransport } from "./client-types.ts"
 import { type Frame, HttpSocket } from "./http-socket.ts"
 
 interface PolledQuery {

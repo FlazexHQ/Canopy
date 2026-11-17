@@ -1,5 +1,5 @@
 import { type CanopyError, errorFromWire, isErrorCode } from "@canopy/protocol"
-import type { Persister, TokenSource } from "./client.ts"
+import type { Persister, TokenSource } from "./client-types.ts"
 
 /** A refusal from `/auth/v1` with an engine code such as `INVALID_EMAIL_OR_PASSWORD` or `EMAIL_NOT_VERIFIED`. */
 export class AuthError extends Error {

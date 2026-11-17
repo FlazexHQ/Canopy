@@ -1,4 +1,4 @@
-import type { FallbackTransport } from "./client.ts"
+import type { FallbackTransport } from "./client-types.ts"
 import { type Frame, HttpSocket } from "./http-socket.ts"
 
 /** SSE with POST, or long-polling, against the realtime HTTP endpoints. */
