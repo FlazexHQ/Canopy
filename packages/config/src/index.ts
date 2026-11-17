@@ -7,20 +7,16 @@ export {
   isEnvMarker,
   parseDuration,
 } from "./env.ts"
+export { databaseFromUri, joinPath } from "./normalize.ts"
 export {
   ConfigError,
   type ConfigProblem,
-  databaseFromUri,
-  formatConfig,
-  isResolvedConfig,
-  joinPath,
   type Resolution,
   type ResolveOptions,
-  redactUri,
-  resolveConfig,
   type Source,
-  suggest,
-} from "./resolve.ts"
+} from "./resolution.ts"
+export { formatConfig, isResolvedConfig, redactUri, resolveConfig } from "./resolve.ts"
+export { suggest } from "./resolver.ts"
 export {
   type Auth0Input,
   type AuthInput,
