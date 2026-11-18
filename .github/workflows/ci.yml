@@ -122,6 +122,28 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run $SUITES
         env:
           CANOPY_TEST_ENGINE: wasm
+      - name: The standalone server embeds the addon and runs the native engine without node_modules
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --only server --require-native --out "$RUNNER_TEMP/native-binary"
+          exe=""
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
+          mkdir native-smoke && cd native-smoke
+          mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          MONGODB_URI="$CANOPY_TEST_MONGODB_URI" CANOPY_DB=native_binary CANOPY_POLICIES=policies \
+            CANOPY_SECRET_KEYS=sk_ci PORT=18091 METRICS_PORT=19491 CANOPY_ENGINE=native \
+            "$RUNNER_TEMP/native-binary/canopy-server$exe" > server.log 2>&1 &
+          server=$!
+          for attempt in $(seq 60); do
+            if curl -fsS 127.0.0.1:18091/readyz; then break; fi
+            sleep 1
+          done
+          grep -q '"engine":"native"' server.log || { cat server.log; exit 1; }
+          curl -fsS -X POST 127.0.0.1:18091/rest/v1/notes -H "apikey: sk_ci" \
+            -H "content-type: application/json" -d '{"ownerId":"user_1"}' || { cat server.log; exit 1; }
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18091/realtime/v1 sk_ci || { cat server.log; exit 1; }
+          kill "$server"
       - if: failure() && runner.os != 'Linux'
         shell: bash
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
