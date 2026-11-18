@@ -13,6 +13,7 @@ import {
   CardTitle,
 } from "../../components/ui/card.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import {
   Select,
   SelectContent,
@@ -22,7 +23,6 @@ import {
 } from "../../components/ui/select.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
-import { NativeSelect } from "../realtime/native-select.tsx"
 import { GraphqlExplorer } from "./graphql.tsx"
 import { KeysTab } from "./keys.tsx"
 import {

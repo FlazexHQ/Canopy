@@ -7,6 +7,7 @@ import { Badge } from "../../components/ui/badge.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import {
   Table,
   TableBody,
@@ -18,7 +19,6 @@ import {
 } from "../../components/ui/table.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { formatDateTime, formatNumber, formatPercent, formatRelative, t } from "../../i18n/index.ts"
-import { NativeSelect } from "../realtime/native-select.tsx"
 import { groupDenials, STATUS_FILTERS, type StatusFilter, summarize } from "./denials.ts"
 
 const TABS = ["requests", "audit", "denials"] as const

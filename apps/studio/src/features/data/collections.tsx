@@ -77,7 +77,7 @@ export function CollectionsPage() {
         <EmptyState icon={<DatabaseIcon />}>{t("data.collections.empty")}</EmptyState>
       ) : (
         <Table>
-          <TableCaption>{t("data.collections.caption")}</TableCaption>
+          <TableCaption className="sr-only">{t("data.collections.caption")}</TableCaption>
           <TableHeader>
             <TableRow>
               <TableHead scope="col">{t("data.collections.name")}</TableHead>
@@ -97,16 +97,21 @@ export function CollectionsPage() {
                   <Link
                     to="/data/$collection"
                     params={{ collection: collection.name }}
-                    className="font-medium text-primary underline-offset-4 hover:underline"
+                    className="font-medium underline-offset-4 hover:underline"
                     aria-label={t("data.collections.browse", { name: collection.name })}
                   >
                     {collection.name}
                   </Link>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">
-                  {collection.estimatedCount === undefined
-                    ? t("common.unknown")
-                    : formatNumber(collection.estimatedCount)}
+                  {collection.estimatedCount === undefined ? (
+                    <span className="text-muted-foreground">
+                      <span aria-hidden="true">-</span>
+                      <span className="sr-only">{t("common.unknown")}</span>
+                    </span>
+                  ) : (
+                    formatNumber(collection.estimatedCount)
+                  )}
                 </TableCell>
                 <TableCell>
                   <Switch
@@ -125,7 +130,11 @@ export function CollectionsPage() {
                   />
                 </TableCell>
                 <TableCell>
-                  <Link to="/policies/$collection" params={{ collection: collection.name }}>
+                  <Link
+                    to="/policies/$collection"
+                    params={{ collection: collection.name }}
+                    className="inline-flex rounded-full hover:ring-2 hover:ring-active"
+                  >
                     <span className="sr-only">
                       {t("data.collections.editPolicies", { name: collection.name })}:{" "}
                     </span>
@@ -142,9 +151,13 @@ export function CollectionsPage() {
                   </Link>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={collection.images === "on" ? "success" : "outline"}>
-                    {t(IMAGE_LABEL[collection.images ?? "unknown"])}
-                  </Badge>
+                  {collection.images === "on" ? (
+                    <Badge variant="success">{t(IMAGE_LABEL.on)}</Badge>
+                  ) : (
+                    <span className="text-muted-foreground">
+                      {t(IMAGE_LABEL[collection.images ?? "unknown"])}
+                    </span>
+                  )}
                 </TableCell>
               </TableRow>
             ))}

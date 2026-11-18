@@ -10,8 +10,8 @@ import { EmptyState, ErrorState, LoadingState } from "../../components/states.ts
 import { Button } from "../../components/ui/button.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import { t } from "../../i18n/index.ts"
-import { NativeSelect } from "../realtime/native-select.tsx"
 import {
   initialOperation,
   type RootField,

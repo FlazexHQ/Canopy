@@ -4,10 +4,13 @@ import {
   Tabs as TabsPrimitive,
   TabsTab,
 } from "@ui-sdk/react/tabs"
-import type { ComponentProps, ReactNode } from "react"
+import { type ComponentProps, createContext, type ReactNode, useContext } from "react"
 import { cn } from "../../lib/utils.ts"
 
 type WithClass<T> = Omit<T, "className"> & { readonly className?: string }
+
+type Variant = "underline" | "segmented"
+const VariantContext = createContext<Variant>("underline")
 
 /** Switches between views that share one place, controlled or uncontrolled. */
 export function Tabs({
@@ -37,24 +40,44 @@ export function Tabs({
   )
 }
 
-/** The row of tabs: underline tabs on a full width rule. */
+/**
+ * The row of tabs. `underline` tabs sit on a full width rule and switch the areas of a page; `segmented`
+ * tabs are a small track that switches how one block is shown.
+ */
 export function TabsList({
   className,
+  variant = "underline",
   ...props
-}: WithClass<ComponentProps<typeof TabsListPrimitive>>) {
+}: WithClass<ComponentProps<typeof TabsListPrimitive>> & { readonly variant?: Variant }) {
   return (
-    <TabsListPrimitive
-      className={cn(
-        "flex w-full items-end gap-5 overflow-x-auto border-b [scrollbar-width:none]",
-        className,
-      )}
-      {...props}
-    />
+    <VariantContext.Provider value={variant}>
+      <TabsListPrimitive
+        className={cn(
+          variant === "underline"
+            ? "flex w-full items-end gap-5 overflow-x-auto border-b [scrollbar-width:none]"
+            : "inline-flex w-fit items-center gap-0.5 rounded-md bg-muted p-0.5",
+          className,
+        )}
+        {...props}
+      />
+    </VariantContext.Provider>
   )
 }
 
-/** One tab. Its selected state is a 2px leaf green underline. */
+/** One tab. Underlined: a 2px leaf green line when selected; segmented: a raised white pill. */
 export function TabsTrigger({ className, ...props }: WithClass<ComponentProps<typeof TabsTab>>) {
+  const variant = useContext(VariantContext)
+  if (variant === "segmented") {
+    return (
+      <TabsTab
+        className={cn(
+          "inline-flex h-7 cursor-default items-center gap-1.5 rounded-[5px] px-2.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground data-disabled:opacity-50 data-selected:bg-background data-selected:font-medium data-selected:text-foreground data-selected:shadow-xs [&_svg]:size-3.5",
+          className,
+        )}
+        {...props}
+      />
+    )
+  }
   return (
     <TabsTab
       className={cn(

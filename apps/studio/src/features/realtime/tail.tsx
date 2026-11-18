@@ -4,6 +4,7 @@ import { EmptyState } from "../../components/states.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import {
   Table,
   TableBody,
@@ -15,7 +16,6 @@ import {
 } from "../../components/ui/table.tsx"
 import { formatDateTime, t } from "../../i18n/index.ts"
 import { displayValue } from "../../lib/ejson.ts"
-import { NativeSelect } from "./native-select.tsx"
 import type { Tail } from "./use-tail.ts"
 
 const ALL = "__all"

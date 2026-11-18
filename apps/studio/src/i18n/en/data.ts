@@ -37,6 +37,7 @@ export const data = {
     empty: "No documents match this filter.",
     hiddenByPolicy: "hidden by policy",
     masked: "Hidden",
+    missing: "Not set",
     actions: "Actions",
     editDocument: "Edit document {id}",
     deleteDocument: "Delete document {id}",

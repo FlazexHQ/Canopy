@@ -79,7 +79,7 @@ export function FilterPanel({ fields, onApply }: FilterPanelProps) {
   }
 
   return (
-    <section aria-labelledby={`${fieldListId}-title`} className="rounded-lg border p-3">
+    <section aria-labelledby={`${fieldListId}-title`} className="rounded-lg bg-raised p-4">
       <form
         onSubmit={(event) => {
           event.preventDefault()
@@ -92,11 +92,11 @@ export function FilterPanel({ fields, onApply }: FilterPanelProps) {
           ))}
         </datalist>
         <Tabs value={tab} onValueChange={setTab}>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <h2 id={`${fieldListId}-title`} className="text-sm font-medium">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <h2 id={`${fieldListId}-title`} className="text-sm font-semibold">
               {t("data.filter.title")}
             </h2>
-            <TabsList>
+            <TabsList variant="segmented">
               <TabsTrigger value="builder">{t("data.filter.builder")}</TabsTrigger>
               <TabsTrigger value="json">{t("data.filter.json")}</TabsTrigger>
             </TabsList>
@@ -202,7 +202,7 @@ export function FilterPanel({ fields, onApply }: FilterPanelProps) {
             {error}
           </p>
         )}
-        <div className="mt-3 flex gap-2">
+        <div className="mt-4 flex gap-2">
           <Button type="submit" size="sm">
             {t("data.filter.apply")}
           </Button>
