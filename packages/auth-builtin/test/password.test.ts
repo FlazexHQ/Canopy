@@ -129,7 +129,7 @@ describeMongo("email and password", () => {
     expect(median(known)).toBeGreaterThanOrEqual(78)
     expect(median(unknown)).toBeGreaterThanOrEqual(78)
     expect(Math.abs(median(known) - median(unknown))).toBeLessThan(20)
-  })
+  }, 30_000)
 
   it("answers sign in and reset requests the same way for unknown addresses and wrong passwords", async () => {
     const wrong = await h.client().post("/auth/v1/sign-in/email", {

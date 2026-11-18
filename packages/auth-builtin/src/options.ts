@@ -106,7 +106,7 @@ export interface BuiltinAuthOptions {
   }
   /**
    * The least response time of routes whose timing could reveal whether an email exists. Their answers also
-   * wait for the slowest recent answer on the same route, up to one second, so a fast and a slow path take
+   * wait as long as the third slowest of the last 64 answers on the same route, up to one second, so a fast and a slow path take
    * the same time where the slow one outlasts this floor. @default 80
    */
   readonly responseFloorMs?: number
