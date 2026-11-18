@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url"
  * finds next to `wasi.cjs`. `--target <triple>` builds the addon for another target instead of the host.
  * `--pack` also packs the npm packages a release publishes into `packs/`: one per built native target (`os`,
  * `cpu` and `libc` set so package managers install only the matching one), the WebAssembly package and the
- * root package whose `optionalDependencies` name them. Run with Bun: `bun scripts/build.ts [options]`.
+ * root package whose `optionalDependencies` name the packages packed with it, and lists them in
+ * `packs/packs.json`, the root package first. Run with Bun: `bun scripts/build.ts [options]`.
  */
 const root = fileURLToPath(new URL("..", import.meta.url))
 const args = process.argv.slice(2)
@@ -175,5 +176,29 @@ if (pack) {
       ["wasi.cjs", wasm],
     )
   }
-  process.stdout.write(`packed ${Object.keys(optional).join(", ")} into ${packs}\n`)
+  run(process.execPath, ["run", "build"])
+  const manifest = join(root, "package.json")
+  const original = readFileSync(manifest, "utf8")
+  writeFileSync(
+    manifest,
+    `${JSON.stringify({ ...source, optionalDependencies: optional }, null, 2)}\n`,
+  )
+  try {
+    run(process.execPath, ["pm", "pack", "--destination", packs, "--quiet"])
+  } finally {
+    writeFileSync(manifest, original)
+  }
+  rmSync(staging, { recursive: true, force: true })
+  const packed = [source.name, ...Object.keys(optional)].map((name) => ({
+    name,
+    file: `${name.replace("@", "").replace("/", "-")}-${source.version}.tgz`,
+  }))
+  const missing = packed.filter(({ file: tarball }) => !existsSync(join(packs, tarball)))
+  if (missing.length > 0) {
+    throw new Error(
+      `bun pm pack wrote no ${missing.map(({ file: tarball }) => tarball).join(", ")}`,
+    )
+  }
+  writeFileSync(join(packs, "packs.json"), `${JSON.stringify(packed, null, 2)}\n`)
+  process.stdout.write(`packed ${packed.map(({ name }) => name).join(", ")} into ${packs}\n`)
 }
