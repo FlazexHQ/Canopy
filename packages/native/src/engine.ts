@@ -78,10 +78,16 @@ export interface NativeCompiledFilter extends CompiledFilter {
   matchConcatenated(documents: Uint8Array): Uint8Array
 }
 
-function compiledFilter(filter: BindingFilter): NativeCompiledFilter {
+function compiledFilter(binding: Binding, filter: BindingFilter): NativeCompiledFilter {
+  const handle = filter.handle()
   return {
     matches: (doc) => call(() => filter.matchesEjson(exactText(doc))),
-    matchesBson: (document) => call(() => filter.matches(document)),
+    matchesBson: (document) => {
+      const decided = binding.matchBson(handle, document)
+      if (decided === 1) return true
+      if (decided === 0) return false
+      return call(() => filter.matches(document))
+    },
     matchMany: (documents) => call(() => filter.matchMany(documents)),
     matchConcatenated: (documents) => call(() => filter.matchConcatenated(documents)),
   }
@@ -307,7 +313,10 @@ export function loadNativeEngine(kind: BindingKind = "auto"): NativeEngine {
   return {
     kind: binding.engine(),
     compileFilter: (filter) =>
-      compiledFilter(call(() => binding.Filter.fromEjson(exactText(filter)))),
+      compiledFilter(
+        binding,
+        call(() => binding.Filter.fromEjson(exactText(filter))),
+      ),
     createPolicyEngine: (set, hooks = {}) => new RustPolicyEngine(set, hooks, binding),
     canonicalQuery: (parts) => call(() => binding.canonicalQuery(queryKey(parts))),
     queryHash: (parts) => call(() => binding.queryHash(queryKey(parts))),

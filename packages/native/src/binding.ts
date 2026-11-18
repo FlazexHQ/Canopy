@@ -4,10 +4,16 @@ import { hostTarget } from "./targets.ts"
 
 /** A filter compiled by the Rust matcher. */
 export interface BindingFilter {
+  handle(): BindingFilterHandle
   matches(document: Uint8Array): boolean
   matchesEjson(document: string): boolean
   matchMany(documents: readonly Uint8Array[]): Uint8Array
   matchConcatenated(documents: Uint8Array): Uint8Array
+}
+
+/** A compiled filter as an opaque handle, for the `matchBson` function. */
+interface BindingFilterHandle {
+  readonly __filter: unique symbol
 }
 
 /** Several filters compiled by the Rust matcher. */
@@ -76,6 +82,7 @@ export interface Binding {
   canonicalEjson(text: string): string
   canonicalQuery(key: BindingQueryKey): string
   queryHash(key: BindingQueryKey): string
+  matchBson(filter: BindingFilterHandle, document: Uint8Array): number
   readonly Filter: {
     fromEjson(text: string): BindingFilter
     fromBson(bytes: Uint8Array): BindingFilter

@@ -4,7 +4,7 @@ use canopy_matcher::{CompiledFilter, compile_filter};
 use canopy_protocol::bson::decode_document;
 use canopy_protocol::{CanopyError, ErrorCode, RawDocument, Value};
 use napi::Error;
-use napi::bindgen_prelude::{Uint8Array, Uint8ArraySlice};
+use napi::bindgen_prelude::{External, Uint8Array, Uint8ArraySlice};
 use napi_derive::napi;
 
 use crate::codec::value_of;
@@ -82,6 +82,12 @@ impl Filter {
         self.compiled.matches_raw(raw).map_err(|error| thrown(&error))
     }
 
+    /// The compiled filter as a handle for `matchBson`, which matches without the dispatch cost of a method.
+    #[napi]
+    pub fn handle(&self) -> External<CompiledFilter> {
+        External::new(self.compiled.clone())
+    }
+
     /// Matches one document given as EJSON text. Throws when the text is not a document or when the matcher
     /// cannot decide.
     #[napi(js_name = "matchesEjson", catch_unwind)]
@@ -139,4 +145,12 @@ impl FilterSet {
                 .collect(),
         ))
     }
+}
+
+/// Matches one BSON document against the filter of a `Filter.handle()`. Returns 0 for no match, 1 for a match
+/// and 2 when the decision is unknown (malformed BSON, or an input the matcher refuses to evaluate), which
+/// callers must treat as a refusal. A free function, since a call to one costs less than a method call.
+#[napi(js_name = "matchBson", catch_unwind)]
+pub fn match_bson(filter: &External<CompiledFilter>, document: &[u8]) -> u32 {
+    u32::from(decide(filter, document))
 }

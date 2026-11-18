@@ -19,13 +19,12 @@ impl<'a> RawDocument<'a> {
     /// Checks a buffer that must hold exactly one well formed BSON document: lengths, terminators, UTF-8 in
     /// names and strings, known element types and nesting depth.
     pub fn new(bytes: &'a [u8]) -> Result<RawDocument<'a>, CanopyError> {
-        let end = validate_document(bytes, 0, 0)?;
+        let end = validate_document(bytes, 0, 0).map_err(malformed)?;
         if end != bytes.len() {
             return Err(malformed("trailing bytes after the document"));
         }
         Ok(RawDocument { bytes })
     }
-
     /// The bytes of the document.
     pub fn as_bytes(&self) -> &'a [u8] {
         self.bytes
@@ -52,52 +51,62 @@ fn read_i32(bytes: &[u8], at: usize) -> Option<i32> {
     Some(i32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
 
-fn read_len(bytes: &[u8], at: usize) -> Result<usize, CanopyError> {
-    let value = read_i32(bytes, at).ok_or_else(|| malformed("unexpected end of input"))?;
-    usize::try_from(value).map_err(|_| malformed("negative length"))
+/// Why a buffer is not well formed BSON. Kept to a static reason while validating, so the checks pass a
+/// register sized result and build a [`CanopyError`] only on failure.
+type Check<T> = Result<T, &'static str>;
+
+const END: &str = "unexpected end of input";
+
+fn read_len(bytes: &[u8], at: usize) -> Check<usize> {
+    let value = read_i32(bytes, at).ok_or(END)?;
+    usize::try_from(value).map_err(|_| "negative length")
 }
 
-fn validate_cstring(bytes: &[u8], at: usize) -> Result<usize, CanopyError> {
-    let rest = bytes.get(at..).ok_or_else(|| malformed("unexpected end of input"))?;
-    let end = rest.iter().position(|byte| *byte == 0).ok_or_else(|| malformed("unterminated name"))?;
-    std::str::from_utf8(&rest[..end]).map_err(|_| malformed("invalid UTF-8"))?;
+fn utf8(bytes: &[u8]) -> Check<()> {
+    if bytes.is_ascii() || std::str::from_utf8(bytes).is_ok() { Ok(()) } else { Err("invalid UTF-8") }
+}
+
+fn validate_cstring(bytes: &[u8], at: usize) -> Check<usize> {
+    let rest = bytes.get(at..).ok_or(END)?;
+    let end = rest.iter().position(|byte| *byte == 0).ok_or("unterminated name")?;
+    utf8(&rest[..end])?;
     Ok(at + end + 1)
 }
 
-fn validate_string(bytes: &[u8], at: usize) -> Result<usize, CanopyError> {
+fn validate_string(bytes: &[u8], at: usize) -> Check<usize> {
     let length = read_len(bytes, at)?;
     if length == 0 {
-        return Err(malformed("string length 0"));
+        return Err("string length 0");
     }
     let start = at + 4;
-    let end = start.checked_add(length).ok_or_else(|| malformed("length overflow"))?;
-    let body = bytes.get(start..end).ok_or_else(|| malformed("unexpected end of input"))?;
+    let end = start.checked_add(length).ok_or("length overflow")?;
+    let body = bytes.get(start..end).ok_or(END)?;
     if body[length - 1] != 0 {
-        return Err(malformed("string without terminator"));
+        return Err("string without terminator");
     }
-    std::str::from_utf8(&body[..length - 1]).map_err(|_| malformed("invalid UTF-8"))?;
+    utf8(&body[..length - 1])?;
     Ok(end)
 }
 
-fn fixed(bytes: &[u8], at: usize, size: usize) -> Result<usize, CanopyError> {
-    let end = at + size;
+fn fixed(bytes: &[u8], at: usize, size: usize) -> Check<usize> {
+    let end = at.checked_add(size).ok_or("length overflow")?;
     if end > bytes.len() {
-        return Err(malformed("unexpected end of input"));
+        return Err(END);
     }
     Ok(end)
 }
 
-fn validate_document(bytes: &[u8], at: usize, depth: usize) -> Result<usize, CanopyError> {
+fn validate_document(bytes: &[u8], at: usize, depth: usize) -> Check<usize> {
     if depth >= MAX_BSON_DEPTH {
-        return Err(malformed("nesting too deep"));
+        return Err("nesting too deep");
     }
     let length = read_len(bytes, at)?;
     if length < 5 {
-        return Err(malformed("document shorter than 5 bytes"));
+        return Err("document shorter than 5 bytes");
     }
-    let end = at.checked_add(length).ok_or_else(|| malformed("length overflow"))?;
+    let end = at.checked_add(length).ok_or("length overflow")?;
     if end > bytes.len() || bytes[end - 1] != 0 {
-        return Err(malformed("document without terminator"));
+        return Err("document without terminator");
     }
     let scope = &bytes[..end];
     let mut position = at + 4;
@@ -107,26 +116,26 @@ fn validate_document(bytes: &[u8], at: usize, depth: usize) -> Result<usize, Can
         position = validate_value(scope, kind, position, depth)?;
     }
     if position != end - 1 {
-        return Err(malformed("document length does not match its content"));
+        return Err("document length does not match its content");
     }
     Ok(end)
 }
 
-fn validate_value(bytes: &[u8], kind: u8, at: usize, depth: usize) -> Result<usize, CanopyError> {
+fn validate_value(bytes: &[u8], kind: u8, at: usize, depth: usize) -> Check<usize> {
     match kind {
         0x01 | 0x09 | 0x11 | 0x12 => fixed(bytes, at, 8),
         0x02 | 0x0d | 0x0e => validate_string(bytes, at),
         0x03 | 0x04 => validate_document(bytes, at, depth + 1),
         0x05 => {
             let length = read_len(bytes, at)?;
-            fixed(bytes, at, 5 + length)
+            fixed(bytes, at, length.checked_add(5).ok_or("length overflow")?)
         }
         0x06 | 0x0a | 0xff | 0x7f => Ok(at),
         0x07 => fixed(bytes, at, 12),
         0x08 => match bytes.get(at) {
             Some(0 | 1) => Ok(at + 1),
-            Some(_) => Err(malformed("boolean other than 0 or 1")),
-            None => Err(malformed("unexpected end of input")),
+            Some(_) => Err("boolean other than 0 or 1"),
+            None => Err(END),
         },
         0x0b => {
             let after = validate_cstring(bytes, at)?;
@@ -141,13 +150,13 @@ fn validate_value(bytes: &[u8], kind: u8, at: usize, depth: usize) -> Result<usi
             let after = validate_string(bytes, at + 4)?;
             let end = validate_document(bytes, after, depth + 1)?;
             if end - at != length {
-                return Err(malformed("code with scope length does not match its content"));
+                return Err("code with scope length does not match its content");
             }
             Ok(end)
         }
         0x10 => fixed(bytes, at, 4),
         0x13 => fixed(bytes, at, 16),
-        other => Err(malformed(&format!("unknown element type 0x{other:02x}"))),
+        _ => Err("unknown element type"),
     }
 }
 

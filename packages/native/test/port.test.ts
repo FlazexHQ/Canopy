@@ -134,6 +134,15 @@ describe.each(engines.map((engine) => [engine.kind, engine] as const))(
       const broken = good.slice(0, good.length - 1)
       expect([...filter.matchMany([good, broken])]).toEqual([1, 2])
       expect(() => filter.matchesBson(broken)).toThrow(InvalidQueryError)
+      const later = engine.ejsonToBson('{"a": 1, "s": "ab", "n": {"t": true}}')
+      const utf8 = later.slice()
+      utf8[later.indexOf(0x61, 12)] = 0xff
+      const kind = later.slice()
+      kind[later.lastIndexOf(0x74) - 1] = 0x42
+      for (const bytes of [utf8, kind]) {
+        expect(() => filter.matchesBson(bytes)).toThrow(/Malformed BSON/)
+        expect([...filter.matchMany([bytes, later])]).toEqual([2, 1])
+      }
       expect(() => filter.matchConcatenated(new Uint8Array([3, 0, 0, 0]))).toThrow(/Malformed BSON/)
     })
 

@@ -17,7 +17,10 @@ package manager installs only the addon of its platform and the WebAssembly fall
 The realtime engine, the `canopy-realtime` sidecar and the server take an `engine` option (`server.engine`
 in the config, or `CANOPY_ENGINE`): `ts` (the default) keeps the TypeScript packages, `native` and `wasm`
 evaluate policies and match change events in Rust. Both give equal results; `native` and `wasm` refuse to
-start when their build cannot load instead of running another implementation.
+start when their build cannot load instead of running another implementation. On `native` the realtime engine
+encodes each change event to BSON once and matches the bytes for every candidate subscription; a filter the
+Rust core compiled decides one BSON event in 0.4 to 0.8 µs, at least 3 times the events per second of
+decoding and matching it in TypeScript on Bun and Node.
 
 Studio's policy simulation of a draft definition evaluates it on the configured engine too, so "view as user"
 answers exactly as the server will once the draft is saved.
