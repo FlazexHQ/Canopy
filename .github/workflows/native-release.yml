@@ -1,0 +1,150 @@
+name: Native release builds
+
+# Builds every platform package of @canopy/native on its own runner, assembles the release (the nine platform
+# packages and the root package naming them all), checks it, installs it with every package manager and loads
+# each addon where the hardware exists. It ends with the checked tarballs as the native-release artifact;
+# nothing is published.
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "packages/native/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "packages/testing/scripts/install-test.ts"
+      - "packages/testing/scripts/licenses.ts"
+      - ".github/workflows/native-release.yml"
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  BUN_VERSION: 1.4.4
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One x64 Linux runner cross builds the four Linux addons through cargo-zigbuild (glibc ones against
+          # glibc 2.17) and builds the WebAssembly package once for every platform.
+          - name: linux
+            os: ubuntu-24.04
+            targets: x86_64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-gnu aarch64-unknown-linux-musl
+            rustup: wasm32-wasip1-threads
+            flags: --cross
+          - name: windows
+            os: windows-2025
+            targets: x86_64-pc-windows-msvc aarch64-pc-windows-msvc
+            flags: --native-only
+          - name: macos
+            os: macos-15
+            targets: x86_64-apple-darwin aarch64-apple-darwin
+            flags: --native-only
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain pinned in rust-toolchain.toml with the targets of this runner
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add ${{ matrix.targets }} ${{ matrix.rustup }}
+      - if: matrix.name == 'linux'
+        name: Install Zig and cargo-zigbuild from PyPI, pinned by hash
+        run: |
+          cat > "$RUNNER_TEMP/zigbuild.txt" <<'EOF'
+          cargo-zigbuild==0.24.1 --hash=sha256:238a1ab54a95053a4eadc34775c81f795a8ad75f80bfed63f3f445f518102375
+          ziglang==0.17.0.post0 --hash=sha256:c9528d6a2cdf56a701bb8cafbc9967f59d88ecc8bb42b87ec2f9693418f69ce3
+          EOF
+          python3 -m venv "$RUNNER_TEMP/zigbuild"
+          "$RUNNER_TEMP/zigbuild/bin/pip" install --quiet --only-binary :all: --require-hashes -r "$RUNNER_TEMP/zigbuild.txt"
+          echo "$RUNNER_TEMP/zigbuild/bin" >> "$GITHUB_PATH"
+      - if: matrix.name == 'linux'
+        run: cargo zigbuild --version && python3 -m ziglang version
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Build, pack and check the packages of this runner
+        shell: bash
+        run: |
+          args=()
+          for target in ${{ matrix.targets }}; do args+=(--target "$target"); done
+          bun packages/native/scripts/build.ts "${args[@]}" ${{ matrix.flags }} --pack
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-packs-${{ matrix.name }}
+          path: packages/native/packs
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    name: Assemble, check licenses and install with every package manager
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: native-packs-*
+          path: ${{ runner.temp }}/native-packs
+      - name: Assemble the release from all nine platform packages and check every tarball
+        run: bun packages/native/scripts/build.ts --assemble "$RUNNER_TEMP/native-packs"
+      - name: Licenses of what the published packages install, the WebAssembly package included
+        run: bun packages/testing/scripts/licenses.ts
+      - name: Install with Bun, npm, pnpm and Yarn; only the linux-x64-gnu addon and WebAssembly are installed, both load
+        run: bun packages/testing/scripts/install-test.ts --build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-release
+          path: packages/native/packs
+          if-no-files-found: error
+
+  smoke:
+    name: Load the released addon (${{ matrix.name }})
+    needs: assemble
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64-gnu and linux-x64-musl, os: ubuntu-24.04, alpine: true }
+          - { name: linux-arm64-gnu and linux-arm64-musl, os: ubuntu-24.04-arm, alpine: true }
+          - { name: win32-x64-msvc, os: windows-2025, alpine: false }
+          - { name: darwin-arm64, os: macos-15, alpine: false }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-release
+          path: packages/native/packs
+      - name: Load the addon of this runner from its tarball
+        run: node packages/native/scripts/smoke.ts packages/native/packs
+      - if: matrix.alpine
+        name: Load the musl addon on Alpine Linux
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo node:24-alpine
+          node packages/native/scripts/smoke.ts packages/native/packs
