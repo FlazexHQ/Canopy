@@ -266,12 +266,13 @@ fn is_js_whitespace(c: char) -> bool {
     )
 }
 
-fn js_trim(text: &str) -> &str {
+/// Trims the characters JavaScript's `String.prototype.trim` removes.
+pub fn js_trim(text: &str) -> &str {
     text.trim_matches(is_js_whitespace)
 }
 
 /// Converts a string to a number as JavaScript's `Number(text)` does, returning `None` where it gives NaN.
-fn js_string_to_number(text: &str) -> Option<f64> {
+pub fn js_string_to_number(text: &str) -> Option<f64> {
     let trimmed = js_trim(text);
     if trimmed.is_empty() {
         return Some(0.0);
