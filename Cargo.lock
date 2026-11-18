@@ -10,6 +10,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-policy"
+version = "0.0.0"
+dependencies = [
+ "canopy-matcher",
+ "canopy-protocol",
+ "canopy-query",
+]
+
+[[package]]
 name = "canopy-protocol"
 version = "0.0.0"
 
