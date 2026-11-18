@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { Transformer } from "@napi-rs/image"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
@@ -74,14 +74,14 @@ suite("storage in the server", () => {
           },
         },
       }),
-      { env: {}, policies: createPolicySet([notes, objects]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes, objects]), onSetupToken: false },
     )
     plain = await createCanopy(
       defineConfig({
         ...base,
         mongodb: { uri: MONGODB_URI ?? "", database: `${dbName}_p`, metaDatabase: `${dbName}_pm` },
       }),
-      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes]), onSetupToken: false },
     )
   })
 

@@ -1,5 +1,5 @@
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -55,7 +55,7 @@ suite("audit of data plane writes", () => {
             realtime: { checkpoints: "off", drainWindow: "1s" },
             audit: { dataWrites },
           }),
-          { env: {}, policies: createPolicySet([todos]), onSetupToken: false },
+          { env: TEST_ENV, policies: createPolicySet([todos]), onSetupToken: false },
         ),
       )
   })

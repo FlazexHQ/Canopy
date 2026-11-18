@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { decodeJwt, decodeProtectedHeader } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -175,7 +175,7 @@ suite("createCanopy with built in auth", () => {
         realtime: { checkpoints: "off" },
       }),
       {
-        env: {},
+        env: TEST_ENV,
         logger,
         policies: createPolicySet([notes]),
         onSetupToken: (value) => (setupToken = value),

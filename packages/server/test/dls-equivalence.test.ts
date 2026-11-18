@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
-import { DIFF_RUNS, MONGODB_URI } from "@canopy/testing"
+import { DIFF_RUNS, MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import fc from "fast-check"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -142,7 +142,7 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
         realtime: { checkpoints: "off", drainWindow: "1s" },
         rateLimits: false,
       }),
-      { env: {}, policies: createPolicySet([items]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([items]), onSetupToken: false },
     )
     server = createServer(canopy.node())
     await canopy.attach(server)

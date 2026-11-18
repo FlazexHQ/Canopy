@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { base32Decode, totp } from "../src/admin/totp.ts"
@@ -84,7 +84,7 @@ suite("admin API tokens", () => {
         keys: { publishable: ["pk_tokens_test"] },
         realtime: false,
       }),
-      { env: {}, onSetupToken: (value) => (setupToken = value) },
+      { env: TEST_ENV, onSetupToken: (value) => (setupToken = value) },
     )
     server = createServer(canopy.node())
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))

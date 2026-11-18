@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { RateLimitsInput } from "@canopy/config"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -65,7 +65,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
         server: { trustedProxies: proxies },
         ...(rateLimits === undefined ? {} : { rateLimits }),
       }),
-      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes]), onSetupToken: false },
     )
     const server = createServer(canopy.node())
     await canopy.attach(server)

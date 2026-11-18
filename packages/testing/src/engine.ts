@@ -25,3 +25,7 @@ export function testCore(): CoreEngine {
 export function testPolicyEngine(set: PolicySet, hooks?: EngineHooks): PolicyEngine {
   return testCore().createPolicyEngine(set, hooks)
 }
+
+/** The environment a server under test resolves its config from, selecting {@link TEST_ENGINE} through `CANOPY_ENGINE`. */
+export const TEST_ENV: Readonly<Record<string, string>> =
+  TEST_ENGINE === "ts" ? {} : { CANOPY_ENGINE: TEST_ENGINE }

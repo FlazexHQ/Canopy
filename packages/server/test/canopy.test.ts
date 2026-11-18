@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, context, createPolicySet, ctx } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -73,7 +73,7 @@ suite("createCanopy against MongoDB", () => {
         .setExpirationTime("10m")
         .sign(pair.privateKey)
     canopy = await createCanopy(config(), {
-      env: {},
+      env: TEST_ENV,
       policies: createPolicySet([notes, tasks], lookups),
       onSetupToken: false,
     })
@@ -283,7 +283,7 @@ suite("createCanopy against MongoDB", () => {
   it("leaves out the sections the config turns off and keeps a shared client open", async () => {
     const restOnly = await createCanopy(
       { ...config(), realtime: false },
-      { env: {}, mongo, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, mongo, policies: createPolicySet([notes]), onSetupToken: false },
     )
     expect(restOnly.realtime).toBeUndefined()
     await db.collection<Doc>("notes").insertOne({ _id: "r", ownerId: "alice" })
@@ -305,7 +305,7 @@ suite("createCanopy against MongoDB", () => {
 
     const realtimeOnly = await createCanopy(
       { ...config(), rest: false },
-      { env: {}, mongo, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, mongo, policies: createPolicySet([notes]), onSetupToken: false },
     )
     expect(realtimeOnly.rest).toBeUndefined()
     expect(realtimeOnly.graphql).toBeUndefined()
@@ -317,7 +317,7 @@ suite("createCanopy against MongoDB", () => {
 
   it("reports not ready while the change stream is down, and draining once closing", async () => {
     const instance = await createCanopy(config(), {
-      env: {},
+      env: TEST_ENV,
       mongo,
       policies: createPolicySet([notes]),
       onSetupToken: false,

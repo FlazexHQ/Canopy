@@ -4,7 +4,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -34,7 +34,7 @@ interface Running {
 function start(args: readonly string[], env: Record<string, string>, cwd?: string): Running {
   const child = spawn(process.execPath, ["--conditions=@canopy/source", BIN, ...args], {
     cwd: cwd ?? process.cwd(),
-    env: { ...CLEAN_ENV, ...env },
+    env: { ...CLEAN_ENV, ...TEST_ENV, ...env },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   })
   let output = ""

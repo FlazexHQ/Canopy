@@ -1,7 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { createCanopy, defineConfig } from "../src/index.ts"
@@ -29,7 +29,7 @@ describe("startup diagnostics", () => {
         mongodb: { uri: "mongodb://127.0.0.1:9/?serverSelectionTimeoutMS=300", database: "app" },
         keys: { publishable: ["pk"] },
       }),
-      { env: {}, logger },
+      { env: TEST_ENV, logger },
     ).catch((error: unknown) => error)
     expect(failure).toMatchObject({ name: "DiagnosticError", code: "CANOPY_UNAVAILABLE" })
     const message = lines.find((line) => line.level === "error")?.message ?? ""
@@ -79,7 +79,7 @@ suite("variable issue logging", () => {
           ...(environment === "production" ? { masterKey: "m".repeat(44) } : {}),
           realtime: realtime ? { checkpoints: "off" } : false,
         }),
-        { env: {}, logger, policies: createPolicySet([notes]), onSetupToken: () => {} },
+        { env: TEST_ENV, logger, policies: createPolicySet([notes]), onSetupToken: () => {} },
       )
       const server: Server = createServer(canopy.node())
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -125,7 +125,7 @@ suite("setup token announcement", () => {
         realtime: false,
       }),
       {
-        env: {},
+        env: TEST_ENV,
         mongo,
         policies: createPolicySet([notes]),
         ...(onSetupToken === undefined ? {} : { onSetupToken }),

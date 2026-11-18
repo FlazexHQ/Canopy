@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net"
 import { resolveConfig } from "@canopy/config"
 import { verifyWebhook } from "@canopy/protocol"
 import { silentLogger } from "@canopy/realtime"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { BSON, type Db, MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { base32Decode, totp } from "../src/admin/totp.ts"
@@ -422,10 +422,10 @@ suite("triggers and schedules in a server", () => {
     await receiver.start()
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
-    canopy = await createCanopy(config(), { env: {}, onSetupToken: false })
+    canopy = await createCanopy(config(), { env: TEST_ENV, onSetupToken: false })
     second = await startWebhooks({
       config: resolveConfig(config(), {
-        env: { CANOPY_NODE_ID: "n2" },
+        env: { ...TEST_ENV, CANOPY_NODE_ID: "n2" },
         baseDir: ".",
         cwd: ".",
         command: "start",

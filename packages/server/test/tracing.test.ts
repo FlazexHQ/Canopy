@@ -1,5 +1,5 @@
 import { allow, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { context, propagation, SpanKind, trace } from "@opentelemetry/api"
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks"
 import { W3CTraceContextPropagator } from "@opentelemetry/core"
@@ -47,7 +47,7 @@ suite("OpenTelemetry tracing", () => {
         realtime: { checkpoints: "off", drainWindow: "1s" },
         telemetry: { tracing },
       }),
-      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes]), onSetupToken: false },
     )
 
   beforeAll(async () => {
