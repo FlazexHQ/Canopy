@@ -1,4 +1,4 @@
-import { Binary, isDocument, ObjectId } from "@canopy/protocol"
+import { Binary, InvalidQueryError, isDocument, ObjectId } from "@canopy/protocol"
 import { isVariable } from "@canopy/query"
 import type { RequestContext } from "./model.ts"
 
@@ -193,13 +193,16 @@ export type ResolvedClause =
 
 /**
  * Substitutes the variables of a clause for one request context. A variable that is missing, `null`, of the
- * wrong shape or fails its coercion makes the whole clause unresolvable, so its policy does not match
- *. There are no defaults.
+ * wrong shape or fails its coercion makes the whole clause unresolvable, so its policy does not match. There
+ * are no defaults. A clause that is itself a variable, such as `{ $auth: "sub" }`, is not a filter and throws
+ * an {@link InvalidQueryError}.
  */
 export function resolveClause(
   clause: Readonly<Record<string, unknown>>,
   ctx: RequestContext,
 ): ResolvedClause {
+  if (isVariable(clause))
+    throw new InvalidQueryError("A policy clause must be a filter document, not a variable")
   try {
     return { ok: true, filter: substitute(clause, false, ctx) as Record<string, unknown> }
   } catch (error: unknown) {

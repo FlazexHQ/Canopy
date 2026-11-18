@@ -23,6 +23,7 @@ import {
   projectReadable,
   type RequestContext,
   readStored,
+  resolveClause,
   restrict,
   shiftDate,
   toFilter,
@@ -249,6 +250,18 @@ describe("variables fail closed", () => {
       { kind: "coercion", variable: "$now", collection: "stories", policy: "recent" },
     ])
     expect(Number.isNaN(shiftDate(NOW, "P300000Y").getTime())).toBe(true)
+  })
+
+  it("refuses to resolve a clause that is itself a variable instead of returning a value as a filter", () => {
+    const ctx = user({ sub: "u1" })
+    expect(() => resolveClause({ $auth: "sub" }, ctx)).toThrow(InvalidQueryError)
+    expect(() => resolveClause({ $now: {} }, ctx)).toThrow(
+      "A policy clause must be a filter document",
+    )
+    expect(resolveClause({ ownerId: { $auth: "sub" } }, ctx)).toEqual({
+      ok: true,
+      filter: { ownerId: "u1" },
+    })
   })
 
   it("forces DENY when evaluation throws", () => {
