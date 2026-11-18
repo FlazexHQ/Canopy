@@ -88,7 +88,7 @@ export function parseLimit(input: unknown, limits: QueryLimits = DEFAULT_LIMITS)
     fail("limit must be a non negative integer")
   }
   if (input > limits.maxLimit) fail(`limit may not exceed ${limits.maxLimit}`)
-  return input
+  return input === 0 ? 0 : input
 }
 
 /** A validated live query (the `q` of a `sub` message). */

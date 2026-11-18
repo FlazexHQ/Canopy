@@ -239,6 +239,15 @@ describe("canonical queries", () => {
     expect(queryHash(a)).toMatch(/^sha256:[0-9a-f]{64}$/)
   })
 
+  it("gives a limit of negative zero the key of a limit of zero", () => {
+    const zero = parseQuery({ limit: 0 })
+    const negative = parseQuery({ limit: -0 })
+    expect(Object.is(negative.limit, 0)).toBe(true)
+    expect(queryHash({ collection: "t", filter: {}, limit: negative.limit })).toBe(
+      queryHash({ collection: "t", filter: {}, limit: zero.limit }),
+    )
+  })
+
   it("keeps meaningful differences apart", () => {
     const base = { collection: "todos", filter: { a: { x: 1, y: 2 } } }
     expect(canonicalQuery(base)).not.toBe(
