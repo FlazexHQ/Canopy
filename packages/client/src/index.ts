@@ -47,6 +47,16 @@ export type {
 } from "./client-types.ts"
 export { QueryBuilder } from "./query-builder.ts"
 export {
+  type BucketApi,
+  createStorage,
+  type ResumableUploadOptions,
+  type StorageApi,
+  type StorageClientOptions,
+  type StorageList,
+  type StorageObject,
+  type UploadFileOptions,
+} from "./storage.ts"
+export {
   type CachedDocument,
   cacheKey,
   type Layer,

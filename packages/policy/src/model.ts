@@ -74,3 +74,10 @@ export interface RequestContext {
   /** Request time, or for realtime the time the event is processed. */
   readonly now: Date
 }
+
+/**
+ * The reserved policy collection of storage: its policies apply to the metadata documents of stored files
+ * (`bucket`, `path`, `owner`, `size`, `contentType`, `metadata`), never to an app collection, so the Data
+ * API, GraphQL and realtime do not serve it.
+ */
+export const STORAGE_COLLECTION = "storage.objects"

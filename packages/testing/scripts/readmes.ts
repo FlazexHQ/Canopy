@@ -177,6 +177,40 @@ const rest = createRestHandler({
 createServer(toNodeListener(rest)).listen(8080)`,
     guides: [["guides/rest", "Data API"]],
   },
+  storage: {
+    with: ["@canopy/auth", "@canopy/policy", "@canopy/rest", "mongodb"],
+    about:
+      "Most apps get it through `@canopy/server` and the `storage` config section. Storage policies are ordinary policies on the reserved collection `storage.objects`, applied to the metadata document of every file.",
+    snippet: `import { Authenticator } from "@canopy/auth"
+import { allow, auth, ContextResolver, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { createStorageHandler, gridfsBackend, Storage, UrlSigner } from "@canopy/storage"
+import { MongoClient } from "mongodb"
+
+const objects = collection("storage.objects", {
+  exposed: true,
+  policies: [
+    allow.read("authenticated").where({ owner: auth("sub") }),
+    allow.insert("authenticated").check({ bucket: "avatars", owner: auth("sub") }),
+  ],
+})
+const policies = new PolicyEngine(createPolicySet([objects]))
+const client = new MongoClient("mongodb://localhost:27017/?replicaSet=rs0")
+const storage = new Storage({
+  client,
+  metaDatabase: "canopy",
+  policies: () => policies,
+  backend: gridfsBackend(client.db("canopy")),
+  buckets: { avatars: { public: true, maxFileSize: 1_000_000, allowedTypes: ["image/*"] } },
+  signer: new UrlSigner(process.env["CANOPY_MASTER_KEY"]),
+})
+export const handler = createStorageHandler({
+  storage,
+  authenticator: new Authenticator(undefined, { publishable: ["pk_app"], secret: [] }),
+  policies: () => policies,
+  contexts: new ContextResolver({ reader: async () => [] }),
+})`,
+    guides: [["guides/storage", "Storage"]],
+  },
   graphql: {
     with: ["@canopy/server"],
     about:

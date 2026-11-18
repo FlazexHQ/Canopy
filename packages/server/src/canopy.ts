@@ -56,6 +56,14 @@ import {
   type WriteEvent,
   WritePath,
 } from "@canopy/rest"
+import {
+  createStorageHandler,
+  gridfsBackend,
+  Storage,
+  type StorageHandler,
+  s3Backend,
+  UrlSigner,
+} from "@canopy/storage"
 import { createStudioHandler } from "@canopy/studio"
 import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
@@ -163,6 +171,8 @@ export interface Canopy extends AsyncDisposable {
   readonly admin: AdminSurface
   /** Database triggers and schedules, when the config has any. */
   readonly webhooks: Webhooks | undefined
+  /** File storage at `/storage/v1`, when the config has buckets. */
+  readonly storage: Storage | undefined
   /**
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
@@ -586,6 +596,7 @@ async function buildData(
     }
   }
   const engineRealtime = realtime
+  const storage = buildStorage(config, connection, auth, engine, contexts, rateLimits, logger)
   const graphql =
     rest === undefined || config.graphql === false
       ? undefined
@@ -620,6 +631,7 @@ async function buildData(
     contexts,
     rest,
     graphql,
+    storage,
     realtime: engineRealtime,
     engine,
     /** The data plane limits, when they are on. */
@@ -636,10 +648,71 @@ async function buildData(
       })
     },
     close(): void {
+      storage?.stop()
       graphql?.close()
       contexts.close()
     },
   }
+}
+
+/** How often unfinished resumable uploads past their expiry are dropped. */
+const STORAGE_SWEEP_MS = 3_600_000
+
+/** File storage at `/storage/v1` when the config has buckets, and the hourly sweep of abandoned uploads. */
+function buildStorage(
+  config: ResolvedConfig,
+  connection: Connection,
+  auth: Auth,
+  engine: () => PolicyEngine,
+  contexts: ContextResolver,
+  rateLimits: RateLimits | undefined,
+  logger: Logger,
+): { readonly storage: Storage; readonly handler: StorageHandler; stop(): void } | undefined {
+  const settings = config.storage
+  if (settings === false) return undefined
+  const backend =
+    settings.backend.kind === "s3"
+      ? s3Backend({
+          endpoint: settings.backend.endpoint,
+          region: settings.backend.region,
+          bucket: settings.backend.bucket,
+          accessKeyId: settings.backend.accessKeyId,
+          secretAccessKey: settings.backend.secretAccessKey,
+          ...(settings.backend.sessionToken === undefined
+            ? {}
+            : { sessionToken: settings.backend.sessionToken }),
+          forcePathStyle: settings.backend.forcePathStyle,
+          prefix: settings.backend.prefix,
+        })
+      : gridfsBackend(connection.meta)
+  const storage = new Storage({
+    client: connection.mongo,
+    metaDatabase: config.mongodb.metaDatabase,
+    policies: engine,
+    backend,
+    buckets: settings.buckets,
+    signer: new UrlSigner(config.masterKey),
+    maxUploadSize: settings.maxUploadSize,
+  })
+  const handler = createStorageHandler({
+    storage,
+    authenticator: auth.authenticator,
+    policies: engine,
+    contexts,
+    ...(config.cors === undefined ? {} : { cors: config.cors }),
+    ...(rateLimits === undefined ? {} : { rateLimits }),
+    onError: (error) => logger.error({ err: error }, "storage request failed"),
+  })
+  const timer = setInterval(() => {
+    storage.sweep().then(
+      (dropped) => {
+        if (dropped > 0) logger.info({ uploads: dropped }, "dropped expired resumable uploads")
+      },
+      (error: unknown) => logger.warn({ err: error }, "could not sweep expired uploads"),
+    )
+  }, STORAGE_SWEEP_MS)
+  timer.unref?.()
+  return { storage, handler, stop: () => clearInterval(timer) }
 }
 
 /** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
@@ -981,6 +1054,8 @@ export async function createCanopy(
     )
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
+  const isStorage = (path: string): boolean =>
+    data.storage !== undefined && (path === "/storage/v1" || path.startsWith("/storage/v1/"))
   const isGraphql = (path: string): boolean =>
     graphql !== undefined && (path === graphql.path || path === `${graphql.path}/`)
   const isAuth = (path: string): boolean =>
@@ -1001,6 +1076,8 @@ export async function createCanopy(
     if (isAuth(path)) return authFetch(request, info)
     if (rest !== undefined && isRest(path)) return rest.fetch(request, info)
     if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request, info)
+    if (data.storage !== undefined && isStorage(path))
+      return data.storage.handler.fetch(request, info)
     if (http?.matches(request) === true) return http.fetch(request, info)
     return (
       (await health(path)) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
@@ -1036,6 +1113,7 @@ ${webhooks.metrics.render()}`
     keys: auth.apiKeys,
     admin: admin.surface,
     webhooks,
+    storage: data.storage?.storage,
     get policies() {
       return data.engine()
     },
@@ -1043,6 +1121,8 @@ ${webhooks.metrics.render()}`
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
       const graphqlListener = graphql === undefined ? undefined : serveOnNode(graphql.fetch)
+      const storageListener =
+        data.storage === undefined ? undefined : serveOnNode(data.storage.handler.fetch)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
       const adminListener = serveOnNode(admin.fetch)
       const authListener = serveOnNode(authFetch)
@@ -1064,6 +1144,8 @@ ${webhooks.metrics.render()}`
         if (restListener !== undefined && isRest(path)) return restListener(request, response)
         if (graphqlListener !== undefined && isGraphql(path))
           return graphqlListener(request, response)
+        if (storageListener !== undefined && isStorage(path))
+          return storageListener(request, response)
         const notRealtime = (): void => {
           const answer = health(path)
           if (answer !== undefined) {
@@ -1120,7 +1202,7 @@ ${webhooks.metrics.render()}`
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
           const path = new URL(request.url).pathname
-          if (isAdmin(path) || isAuth(path) || isGraphql(path))
+          if (isAdmin(path) || isAuth(path) || isGraphql(path) || isStorage(path))
             return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) {
             const started = performance.now()

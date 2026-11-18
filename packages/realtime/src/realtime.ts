@@ -252,7 +252,7 @@ export class Realtime {
   private realtimeCollections(): string[] {
     const names = new Set(
       [...this.engine.set.collections.values()]
-        .filter((def) => def.exposed && def.realtime)
+        .filter((def) => this.engine.isRealtime(def.collection))
         .map((def) => def.collection),
     )
     for (const lookup of Object.values(this.engine.set.contexts)) names.add(lookup.from)

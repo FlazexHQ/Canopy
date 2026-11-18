@@ -32,6 +32,7 @@ import type {
 import { LiveQueries } from "./live-queries.ts"
 import { Outbox } from "./outbox.ts"
 import { type AnyClient, QueryBuilder } from "./query-builder.ts"
+import { createStorage, type StorageApi } from "./storage.ts"
 import { type Layer, Store } from "./store.ts"
 import { TokenRefresher } from "./token-refresh.ts"
 import { TransportLadder } from "./transport-ladder.ts"
@@ -65,6 +66,8 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
    * created; update layers made before it arrives show once it has.
    */
   readonly updateEngine: Promise<void>
+  /** File storage at `/storage/v1`, as the signed in user: `client.storage.from("avatars")`. */
+  readonly storage: StorageApi
   private readonly options: ClientOptions
   private readonly socketUrl: string
   private readonly httpUrl: string
@@ -97,6 +100,12 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       base.protocol === "https:" ? "wss:" : base.protocol === "http:" ? "ws:" : base.protocol
     base.pathname = `${base.pathname.replace(/\/$/, "")}/realtime/v1`
     this.socketUrl = base.toString()
+    this.storage = createStorage({
+      url: options.url,
+      publishableKey: options.publishableKey,
+      ...(options.auth === undefined ? {} : { auth: options.auth }),
+      ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+    })
     this.store.onRefetch = (coll) => this.queries.refetch(coll)
     this.updateEngine = import("@canopy/matcher/update").then(
       (engine) => this.store.useUpdater((doc, update) => engine.applyUpdate(doc, update)),

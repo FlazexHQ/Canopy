@@ -1,22 +1,16 @@
 import { createHash } from "node:crypto"
-import {
-  type Authenticator,
-  credentialsFromHeaders,
-  type RateLimits,
-  rateLimitError,
-} from "@canopy/auth"
+import type { Authenticator, RateLimits } from "@canopy/auth"
 import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
   ErrorCode,
-  ForbiddenError,
   InvalidQueryError,
   isDocument,
-  RateLimitError,
   toCanopyError,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
 import type { MongoClient } from "mongodb"
+import { type CallerOptions, requestCaller } from "./caller.ts"
 import { mongoContextReader } from "./context-reader.ts"
 import { explainRoute } from "./explain-route.ts"
 import {
@@ -157,6 +151,13 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   const contexts =
     options.contexts ??
     new ContextResolver({ reader: mongoContextReader(options.client.db(options.database)) })
+  const callers: CallerOptions = {
+    authenticator: options.authenticator,
+    policies: engine,
+    contexts,
+    ...(options.rateLimits === undefined ? {} : { rateLimits: options.rateLimits }),
+    ...(options.onRateLimited === undefined ? {} : { onRateLimited: options.onRateLimited }),
+  }
   const schemaCache = options.schemas ?? new SchemaCache(options.client.db(options.database))
   const documents = new Map<string, Record<string, unknown>>()
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
@@ -401,48 +402,14 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
         response.headers.set("allow", allow.join(", "))
         return response
       }
-      const credentials = credentialsFromHeaders(request.headers)
-      const limits = options.rateLimits
-      const address = limits?.addressOf(request.headers, peer)
-      const authenticate = () =>
-        options.authenticator.authenticate(credentials.key, credentials.token)
-      const principal =
-        limits === undefined || address === undefined
-          ? await authenticate()
-          : await limits.guardAuthentication(address, authenticate).catch((error: unknown) => {
-              if (error instanceof RateLimitError) options.onRateLimited?.()
-              throw error
-            })
-      if (principal.readOnly === true)
-        throw new ForbiddenError("A view token only follows data over realtime")
-      if (limits !== undefined && address !== undefined) {
-        const wait = limits.request({
-          key: principal.keyId ?? credentials.key,
-          subject: principal.subject,
-          roles: principal.context.roles,
-          address,
-        })
-        if (wait > 0) {
-          options.onRateLimited?.()
-          throw rateLimitError(wait)
-        }
-      }
-      const current = engine()
-      const names = current.contextNames(lookupScope(segments), principal.context.roles)
-      const context =
-        names.length === 0
-          ? principal.context
-          : {
-              ...principal.context,
-              ctx: (await contexts.resolve(current.set.contexts, names, principal.context)).ctx,
-            }
+      const caller = await requestCaller(callers, request, peer, lookupScope(segments))
       return await route({
         request,
         url,
         segments,
         encoding,
         prefer: preferencesOf(request.headers),
-        caller: { context, subject: principal.subject },
+        caller,
         requestId,
       })
     } catch (error: unknown) {

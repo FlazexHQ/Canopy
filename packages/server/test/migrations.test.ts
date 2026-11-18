@@ -44,6 +44,8 @@ suite("meta migrations", () => {
       "request_log",
       "revocations",
       "settings",
+      "storage_objects",
+      "storage_uploads",
       "webhook_dead_letters",
       "webhook_deliveries",
       "webhook_schedules",

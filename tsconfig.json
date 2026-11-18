@@ -14,6 +14,8 @@
   "references": [
     { "path": "packages/testing" },
     { "path": "packages/node-http" },
+    { "path": "packages/storage" },
+    { "path": "packages/storage/test" },
     { "path": "packages/node-http/test" },
     { "path": "packages/protocol" },
     { "path": "packages/protocol/test" },

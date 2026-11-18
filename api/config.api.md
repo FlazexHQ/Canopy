@@ -94,6 +94,7 @@ export interface CanopyConfigInput {
         readonly dataWrites?: Value<boolean>;
     };
     readonly webhooks?: WebhooksInput;
+    readonly storage?: StorageInput;
     readonly telemetry?: {
         readonly tracing?: Value<boolean>;
     };
@@ -280,6 +281,12 @@ export interface ResolveOptions {
     readonly command: Command;
 }
 
+export interface ResolvedBucket {
+    readonly public: boolean;
+    readonly maxFileSize: number;
+    readonly allowedTypes: readonly string[];
+}
+
 export interface ResolvedBuiltinAuth {
     readonly kind: "builtin";
     readonly appName: string;
@@ -416,6 +423,11 @@ export interface ResolvedConfig {
     readonly telemetry: {
         readonly tracing: boolean;
     };
+    readonly storage: false | {
+        readonly backend: ResolvedStorageBackend;
+        readonly maxUploadSize: number;
+        readonly buckets: Readonly<Record<string, ResolvedBucket>>;
+    };
     readonly server: {
         readonly port: number;
         readonly metricsPort: number;
@@ -489,6 +501,20 @@ export interface ResolvedSchedule {
     readonly body: Readonly<Record<string, unknown>> | undefined;
 }
 
+export type ResolvedStorageBackend = {
+    readonly kind: "gridfs";
+} | {
+    readonly kind: "s3";
+    readonly endpoint: string;
+    readonly region: string;
+    readonly bucket: string;
+    readonly accessKeyId: string;
+    readonly secretAccessKey: string;
+    readonly sessionToken: string | undefined;
+    readonly forcePathStyle: boolean;
+    readonly prefix: string;
+};
+
 export interface ResolvedTrigger {
     readonly collection: string;
     readonly operations: readonly TriggerOperation[];
@@ -518,6 +544,33 @@ export type Source = {
     readonly name: string;
     readonly envFile: string | undefined;
 };
+
+export type StorageBackendInput = {
+    readonly kind: "gridfs";
+} | {
+    readonly kind: "s3";
+    readonly endpoint: Value<string>;
+    readonly region: Value<string>;
+    readonly bucket: Value<string>;
+    readonly accessKeyId: Value<string>;
+    readonly secretAccessKey: Value<string>;
+    readonly sessionToken?: Value<string>;
+    readonly forcePathStyle?: Value<boolean>;
+    readonly prefix?: Value<string>;
+};
+
+export interface StorageBucketInput {
+    readonly public?: Value<boolean>;
+    readonly maxFileSize?: Value<number>;
+    readonly allowedTypes?: Value<readonly string[]>;
+}
+
+export interface StorageInput {
+    readonly backend?: StorageBackendInput;
+    readonly maxFileSize?: Value<number>;
+    readonly maxUploadSize?: Value<number>;
+    readonly buckets?: Readonly<Record<string, StorageBucketInput>>;
+}
 
 export interface SupabaseInput {
     readonly kind: "supabase";

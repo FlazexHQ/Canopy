@@ -37,6 +37,7 @@
     "@canopy/protocol": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@canopy/storage": "workspace:*",
     "@canopy/studio": "workspace:*",
     "mongodb": "catalog:"
   },

@@ -22,6 +22,28 @@ class Binary {
   get buffer(): Uint8Array<ArrayBufferLike>
 }
 
+export interface BucketApi {
+    upload(path: string, body: Blob | Uint8Array | string, options?: UploadFileOptions): Promise<StorageObject>;
+    uploadResumable(path: string, body: Blob | Uint8Array, options?: ResumableUploadOptions): Promise<StorageObject>;
+    download(path: string, options?: {
+        readonly range?: readonly [
+            number,
+            number
+        ];
+        readonly signal?: AbortSignal;
+    }): Promise<Blob>;
+    remove(path: string): Promise<void>;
+    list(options?: {
+        readonly prefix?: string;
+        readonly limit?: number;
+        readonly after?: string;
+    }): Promise<StorageList>;
+    createSignedUrl(path: string, expiresIn: number): Promise<string>;
+    publicUrl(path: string, options?: {
+        readonly download?: boolean | string;
+    }): string;
+}
+
 export interface CachedDocument {
     readonly id: unknown;
     readonly doc: Document;
@@ -31,6 +53,7 @@ export interface CachedDocument {
 class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   readonly store: Store
   readonly updateEngine: Promise<void>
+  readonly storage: StorageApi
   constructor<in out DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
   get auth(): TokenSource | undefined
   get staleMutations(): readonly StaleMutation[]
@@ -389,6 +412,13 @@ export interface ReplaceOptions<Doc = Document> extends WriteOptions<Doc> {
     readonly upsert?: boolean;
 }
 
+export interface ResumableUploadOptions extends UploadFileOptions {
+    readonly onProgress?: (sent: number, total: number) => void;
+    readonly onStart?: (id: string) => void;
+    readonly resume?: string;
+    readonly retries?: number;
+}
+
 export interface RootOperators<T> {
     readonly $and?: readonly Filter<T>[];
     readonly $or?: readonly Filter<T>[];
@@ -423,6 +453,34 @@ export interface StaleMutation {
     readonly createdAt: number;
     retry(): MutationHandle;
     discard(): void;
+}
+
+export interface StorageApi {
+    from(bucket: string): BucketApi;
+}
+
+export interface StorageClientOptions {
+    readonly url: string;
+    readonly publishableKey: string;
+    readonly auth?: TokenSource;
+    readonly fetch?: typeof fetch;
+}
+
+export interface StorageList {
+    readonly data: readonly StorageObject[];
+    readonly next?: string;
+}
+
+export interface StorageObject {
+    readonly bucket: string;
+    readonly path: string;
+    readonly size: number;
+    readonly contentType: string;
+    readonly etag: string;
+    readonly owner: string | null;
+    readonly metadata: Readonly<Record<string, unknown>>;
+    readonly createdAt: string;
+    readonly updatedAt: string;
 }
 
 class Store {
@@ -531,6 +589,13 @@ export interface UpdateFilter<T> {
 
 export type Updater = (doc: Document, update: Document) => Document;
 
+export interface UploadFileOptions {
+    readonly contentType?: string;
+    readonly upsert?: boolean;
+    readonly metadata?: Readonly<Record<string, unknown>>;
+    readonly signal?: AbortSignal;
+}
+
 class ValidationError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): ValidationError
 }
@@ -568,6 +633,8 @@ export interface WriteOptions<Doc = Document> {
 function cacheKey(coll: string, id: unknown): string
 
 function createClient<DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
+
+function createStorage(options: StorageClientOptions): StorageApi
 
 function isCanopyError<C extends ErrorCode = ErrorCode>(error: unknown, code?: C): error is CanopyError & { readonly code: C; }
 ```

@@ -41,6 +41,7 @@ export default defineConfig({
             "guides/multi-tab",
             "guides/rate-limits",
             "guides/webhooks",
+            "guides/storage",
             "guides/devtools",
             "guides/tanstack-db",
             "guides/two-factor-and-passkeys",

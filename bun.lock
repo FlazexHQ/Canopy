@@ -520,6 +520,7 @@
         "@canopy/protocol": "workspace:*",
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",
+        "@canopy/storage": "workspace:*",
         "@canopy/studio": "workspace:*",
         "mongodb": "catalog:",
       },
@@ -561,6 +562,25 @@
       },
       "peerDependencies": {
         "solid-js": "^1.8.0",
+      },
+    },
+    "packages/storage": {
+      "name": "@canopy/storage",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/auth": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/protocol": "workspace:*",
+        "@canopy/rest": "workspace:*",
+        "mongodb": "catalog:",
+      },
+      "devDependencies": {
+        "@canopy/client": "workspace:*",
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "jose": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/studio": {
@@ -921,6 +941,8 @@
     "@canopy/server": ["@canopy/server@workspace:packages/server"],
 
     "@canopy/solid": ["@canopy/solid@workspace:packages/solid"],
+
+    "@canopy/storage": ["@canopy/storage@workspace:packages/storage"],
 
     "@canopy/studio": ["@canopy/studio@workspace:packages/studio"],
 

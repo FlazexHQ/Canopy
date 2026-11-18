@@ -454,6 +454,8 @@ export interface Resolves<T> {
 
 const Role: { readonly Anon: "anon"; readonly Authenticated: "authenticated"; readonly Public: "public"; readonly Service: "service"; }
 
+const STORAGE_COLLECTION: "storage.objects"
+
 export interface SecurePipelineOptions {
     readonly search?: boolean;
     readonly maxSearchResults?: number;

@@ -187,7 +187,12 @@ function allowedOrigin(cors: CorsOptions, origin: string | null): string | undef
 }
 
 /** Answers a CORS preflight. */
-export function preflight(cors: CorsOptions, request: Request, methods: string): Response {
+export function preflight(
+  cors: CorsOptions,
+  request: Request,
+  methods: string,
+  allowHeaders: string = ALLOWED_HEADERS,
+): Response {
   const origin = allowedOrigin(cors, request.headers.get("origin"))
   if (origin === undefined) return new Response(null, { status: 204, headers: { vary: "Origin" } })
   return new Response(null, {
@@ -195,7 +200,7 @@ export function preflight(cors: CorsOptions, request: Request, methods: string):
     headers: {
       "access-control-allow-origin": origin,
       "access-control-allow-methods": methods,
-      "access-control-allow-headers": ALLOWED_HEADERS,
+      "access-control-allow-headers": allowHeaders,
       "access-control-max-age": String(cors.maxAgeSeconds ?? 600),
       vary: "Origin",
     },
@@ -207,12 +212,13 @@ export function withCors(
   response: Response,
   cors: CorsOptions | undefined,
   origin: string | null,
+  exposeHeaders: string = EXPOSED_HEADERS,
 ): Response {
   if (cors === undefined) return response
   const allowed = allowedOrigin(cors, origin)
   response.headers.append("vary", "Origin")
   if (allowed === undefined) return response
   response.headers.set("access-control-allow-origin", allowed)
-  response.headers.set("access-control-expose-headers", EXPOSED_HEADERS)
+  response.headers.set("access-control-expose-headers", exposeHeaders)
   return response
 }

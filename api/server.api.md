@@ -298,6 +298,7 @@ export interface Canopy extends AsyncDisposable {
     readonly keys: ApiKeys;
     readonly admin: AdminSurface;
     readonly webhooks: Webhooks | undefined;
+    readonly storage: Storage | undefined;
     fetch(request: Request, fallback?: FetchHandler, info?: {
         readonly ip?: string;
     }): Promise<Response>;
@@ -345,6 +346,7 @@ export interface CanopyConfigInput {
         readonly dataWrites?: Value<boolean>;
     };
     readonly webhooks?: WebhooksInput;
+    readonly storage?: StorageInput;
     readonly telemetry?: {
         readonly tracing?: Value<boolean>;
     };
@@ -598,7 +600,7 @@ export interface RequestOrigin {
     readonly requestId?: string;
 }
 
-export type RequestSurface = "rest" | "graphql" | "auth" | "admin" | "realtime";
+export type RequestSurface = "rest" | "graphql" | "auth" | "admin" | "realtime" | "storage";
 
 export interface ResolvedConfig {
     readonly file: string | undefined;
@@ -680,6 +682,11 @@ export interface ResolvedConfig {
     };
     readonly telemetry: {
         readonly tracing: boolean;
+    };
+    readonly storage: false | {
+        readonly backend: ResolvedStorageBackend;
+        readonly maxUploadSize: number;
+        readonly buckets: Readonly<Record<string, ResolvedBucket>>;
     };
     readonly server: {
         readonly port: number;

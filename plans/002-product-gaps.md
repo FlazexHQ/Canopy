@@ -171,7 +171,7 @@ the commit.
 
 | Route | Policy |
 |---|---|
-| `POST /object/:bucket/*path` (upload, `x-upsert: true` to replace) | `CHECK(insert)`, or `USING(update)` and `CHECK(update)` |
+| `POST /object/:bucket/*path` (upload, `x-upsert: true` or `PUT` to replace) | `CHECK(insert)`, or `USING(update)` and `CHECK(update)` |
 | `GET /object/:bucket/*path` (download, `Range` supported) | `USING(read)` |
 | `HEAD /object/:bucket/*path` | `USING(read)` |
 | `DELETE /object/:bucket/*path` | `USING(delete)` |
@@ -179,7 +179,7 @@ the commit.
 | `POST /sign/:bucket/*path` with `{ expiresIn }` | `USING(read)`; returns a signed URL |
 | `GET /signed/:bucket/*path?token=` | the token (HMAC, expiry at most 7 days) |
 | `GET /public/:bucket/*path` | only for buckets with `public: true` |
-| `POST /upload/:bucket/*path`, `PUT /upload/:id/:part`, `GET /upload/:id`, `POST /upload/:id/complete`, `DELETE /upload/:id` | resumable upload: `CHECK` at creation and again at completion |
+| `POST /upload/:bucket/*path`, `PUT /uploads/:id/:part`, `GET /uploads/:id`, `POST /uploads/:id/complete`, `DELETE /uploads/:id` | resumable upload: `CHECK` at creation and again at completion |
 
 A file that the caller may not read answers `404`, as for documents. Bucket limits (`allowedTypes`,
 `maxFileSize`) are checked before anything is stored.

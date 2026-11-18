@@ -18,6 +18,14 @@ export interface Caller {
     readonly subject: string;
 }
 
+export interface CallerOptions {
+    readonly authenticator: Authenticator;
+    readonly policies: () => PolicyEngine;
+    readonly contexts: ContextResolver;
+    readonly rateLimits?: RateLimits;
+    readonly onRateLimited?: () => void;
+}
+
 export interface CollectionInfo {
     readonly name: string;
     readonly operations: readonly Operation[];
@@ -352,9 +360,17 @@ function positionOf(doc: Record<string, unknown>, keys: readonly CursorKey[]): u
 
 function preferencesOf(headers: Headers): Preferences
 
+function preflight(cors: CorsOptions, request: Request, methods: string, allowHeaders?: string): Response
+
+function problemResponse(problem: Problem, retryAfterSeconds?: number): Response
+
 function problemSlug(code: ErrorCode): string
 
 function readBody(request: Request, maxBytes: number, accepted?: ReadonlySet<string>): Promise<{ readonly value: unknown; readonly mediaType: string; } | undefined>
+
+function requestCaller(options: CallerOptions, request: Request, peer: string | undefined, collections: readonly string[] | undefined): Promise<Caller>
+
+function requestIdOf(headers: Headers): string
 
 function segmentsOf(pathname: string, basePath: string): string[] | undefined
 
@@ -369,4 +385,6 @@ function toNodeListener(handler: RestHandler): NodeListener
 function toProblem(error: CanopyError, instance: string, requestId: string, typeBase?: string): Problem
 
 function typedValue(text: string): unknown
+
+function withCors(response: Response, cors: CorsOptions | undefined, origin: string | null, exposeHeaders?: string): Response
 ```

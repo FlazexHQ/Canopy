@@ -1,4 +1,5 @@
 export { immutableViolations } from "@canopy/policy"
+export { type CallerOptions, requestCaller } from "./caller.ts"
 export { mongoContextReader } from "./context-reader.ts"
 export {
   type CursorKey,
@@ -23,7 +24,11 @@ export {
   negotiate,
   type Preferences,
   preferencesOf,
+  preflight,
+  problemResponse,
   readBody,
+  requestIdOf,
+  withCors,
 } from "./http.ts"
 export { type IdType, parseId } from "./ids.ts"
 export { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"

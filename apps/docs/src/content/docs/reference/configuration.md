@@ -116,6 +116,17 @@ cluster time and the mutation ID as details. Documents are never copied into the
 the commit, one insert into the meta database per write; a failed insert is logged and does not fail the
 write. Studio shows them on the Audit page, and the audit retention setting expires them like other entries.
 
+## `storage`
+
+| Setting         | Variable                       | Default              | Description                                          |
+| --------------- | ------------------------------ | -------------------- | ---------------------------------------------------- |
+| `backend`       |                                | `{ kind: "gridfs" }` | GridFS in the meta database, or `{ kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken?, forcePathStyle?, prefix? }` |
+| `maxFileSize`   | `CANOPY_STORAGE_MAX_FILE_SIZE` | `52428800`           | The largest file sent in one request, in bytes        |
+| `maxUploadSize` |                                | `5368709120`         | The largest resumable upload, in bytes               |
+| `buckets`       |                                | `{}`                 | `{ <name>: { public?, maxFileSize?, allowedTypes? } }`; storage is on with at least one |
+
+See [storage](/guides/storage/).
+
 ## `webhooks`
 
 | Setting       | Variable                | Default | Description                                                         |

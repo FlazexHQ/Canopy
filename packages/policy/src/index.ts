@@ -90,6 +90,7 @@ export {
   type PolicyKind,
   type RequestContext,
   Role,
+  STORAGE_COLLECTION,
 } from "./model.ts"
 export {
   CONTEXT_DOCUMENT_ID,

@@ -171,7 +171,8 @@ export function buildOpenApi(options: OpenApiOptions): Json {
   const base = (options.basePath ?? "/rest/v1").replace(/\/+$/, "")
   const service = ctx.roles.has(Role.Service)
   const names = new Set<string>()
-  for (const def of engine.set.collections.values()) if (def.exposed) names.add(def.collection)
+  for (const def of engine.set.collections.values())
+    if (engine.isExposed(def.collection)) names.add(def.collection)
   if (service) for (const name of options.collections ?? []) names.add(name)
   const paths: Record<string, Json> = {}
   const schemas: Record<string, Json> = { ...EJSON_COMPONENTS, Problem: PROBLEM }

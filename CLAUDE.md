@@ -15,7 +15,9 @@ generation), `auth` (API keys, JWKS tokens and the `AuthProvider` contract), `au
 auth on Better Auth, loaded only by `server`, never by the sidecar), `config`, `node-http` (the `node:http`
 bridge of every fetch handler), `rest` (the Data API endpoints: find, count, distinct, aggregate, batch,
 insert, patch, replace and delete, over the transactional write path), `graphql` (the GraphQL API),
-`realtime` (engine plus the `canopy-realtime` sidecar), `server` (composes everything from one config),
+`realtime` (engine plus the `canopy-realtime` sidecar), `storage` (file storage with policies on the reserved
+`storage.objects` collection, GridFS or S3, signed URLs and resumable uploads), `server` (composes everything
+from one config),
 `studio` (serves the built Studio assets), `client`, `react`, `vue`, `svelte`, `solid`, `tanstack-db`,
 `devtools`, `cli` and the private `testing` harness. Applications (`apps/`): `studio` (the admin dashboard,
 built into `packages/studio`) and `docs` (the Astro Starlight documentation site). Examples live in

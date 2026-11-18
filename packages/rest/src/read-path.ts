@@ -262,7 +262,7 @@ export class ReadPath {
     const ctx = caller.context
     const names = new Set<string>()
     for (const def of engine.set.collections.values()) {
-      if (def.exposed) names.add(def.collection)
+      if (engine.isExposed(def.collection)) names.add(def.collection)
     }
     if (ctx.roles.has(Role.Service)) {
       try {

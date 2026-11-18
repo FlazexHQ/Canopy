@@ -25,6 +25,7 @@ license has been chosen, so every quickstart starts from a clone of this reposit
 | `@canopy/rest`         | The Data API: DLS enforced REST endpoints and the transactional write path shared with realtime mutations  |
 | `@canopy/graphql`      | The GraphQL API: a schema generated per role set from policies and schemas, with subscriptions and limits  |
 | `@canopy/realtime`     | The realtime engine and the `canopy-realtime` sidecar                                                      |
+| `@canopy/storage`      | File storage with DLS policies on file metadata, on GridFS or S3 compatible stores, signed URLs, resumable |
 | `@canopy/server`       | The server: REST, GraphQL, realtime, auth and policies composed from one config with `createCanopy`        |
 | `@canopy/studio`       | The built Studio assets and a fetch style handler that serves them at `/studio`                            |
 | `@canopy/client`       | The client SDK: document cache, live queries, optimistic mutations, offline queue, reconnect and resume    |

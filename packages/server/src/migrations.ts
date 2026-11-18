@@ -171,6 +171,19 @@ export const META_MIGRATIONS: readonly MetaMigration[] = [
       await createCollection(meta, "webhook_schedules")
     },
   },
+  {
+    version: 5,
+    name: "create-storage",
+    async up(meta) {
+      await createCollection(meta, "storage_objects")
+      await createIndexes(meta, "storage_objects", [
+        { key: { bucket: 1, path: 1 }, name: "bucket_path", unique: true },
+        { key: { owner: 1 }, name: "owner" },
+      ])
+      await createCollection(meta, "storage_uploads")
+      await createIndexes(meta, "storage_uploads", [{ key: { expiresAt: 1 }, name: "expires" }])
+    },
+  },
 ]
 
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {

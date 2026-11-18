@@ -1,0 +1,41 @@
+{
+  "name": "@canopy/storage",
+  "version": "0.0.0",
+  "description": "File storage with DLS policies on file metadata, on GridFS or any S3 compatible object store, with signed URLs and resumable uploads.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/auth": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/rest": "workspace:*",
+    "mongodb": "catalog:"
+  },
+  "devDependencies": {
+    "@canopy/client": "workspace:*",
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "jose": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -404,6 +404,48 @@ export interface WebhooksInput {
   readonly schedules?: Readonly<Record<string, ScheduleInput>>
 }
 
+/** Where stored files live: GridFS in the meta database, or an S3 compatible object store. */
+export type StorageBackendInput =
+  | { readonly kind: "gridfs" }
+  | {
+      readonly kind: "s3"
+      /** Such as `https://s3.eu-west-1.amazonaws.com`, or `http://localhost:9000` for MinIO. */
+      readonly endpoint: Value<string>
+      readonly region: Value<string>
+      readonly bucket: Value<string>
+      readonly accessKeyId: Value<string>
+      readonly secretAccessKey: Value<string>
+      readonly sessionToken?: Value<string>
+      /** Addresses the bucket in the path rather than the host name. @default true */
+      readonly forcePathStyle?: Value<boolean>
+      /** A key prefix inside the bucket. @default "" */
+      readonly prefix?: Value<string>
+    }
+
+/** The settings of one storage bucket. */
+export interface StorageBucketInput {
+  /** Anyone may read its files at `/storage/v1/public/<bucket>/<path>`, without a policy. @default false */
+  readonly public?: Value<boolean>
+  /** The largest file in bytes. @default the `maxFileSize` of the storage section */
+  readonly maxFileSize?: Value<number>
+  /** Accepted media types such as `image/png` or `image/*`. @default any */
+  readonly allowedTypes?: Value<readonly string[]>
+}
+
+/**
+ * File storage at `/storage/v1`, with the policies of the reserved collection `storage.objects` applied to
+ * the metadata document of every file. On when at least one bucket is configured.
+ */
+export interface StorageInput {
+  /** @default { kind: "gridfs" } */
+  readonly backend?: StorageBackendInput
+  /** The largest file sent in one request, in bytes. @default 52428800 (50 MiB) */
+  readonly maxFileSize?: Value<number>
+  /** The largest resumable upload, in bytes. @default 5368709120 (5 GiB) */
+  readonly maxUploadSize?: Value<number>
+  readonly buckets?: Readonly<Record<string, StorageBucketInput>>
+}
+
 /** The input of {@link defineConfig}. Every setting may also be an {@link env} marker. */
 export interface CanopyConfigInput {
   readonly mongodb?: {
@@ -452,6 +494,8 @@ export interface CanopyConfigInput {
   }
   /** Database triggers and scheduled jobs that call webhooks. */
   readonly webhooks?: WebhooksInput
+  /** File storage with policies on file metadata. */
+  readonly storage?: StorageInput
   readonly telemetry?: {
     /**
      * Records OpenTelemetry spans: each HTTP request (continuing an incoming `traceparent`), each MongoDB
@@ -579,6 +623,28 @@ export interface ResolvedBuiltinAuth {
   readonly session: { readonly expiresInSeconds: number; readonly updateAgeSeconds: number }
 }
 
+/** A resolved storage backend. */
+export type ResolvedStorageBackend =
+  | { readonly kind: "gridfs" }
+  | {
+      readonly kind: "s3"
+      readonly endpoint: string
+      readonly region: string
+      readonly bucket: string
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly sessionToken: string | undefined
+      readonly forcePathStyle: boolean
+      readonly prefix: string
+    }
+
+/** A resolved storage bucket. */
+export interface ResolvedBucket {
+  readonly public: boolean
+  readonly maxFileSize: number
+  readonly allowedTypes: readonly string[]
+}
+
 /** A resolved trigger. */
 export interface ResolvedTrigger {
   readonly collection: string
@@ -660,6 +726,14 @@ export interface ResolvedConfig {
     readonly schedules: Readonly<Record<string, ResolvedSchedule>>
   }
   readonly telemetry: { readonly tracing: boolean }
+  /** `false` without buckets. */
+  readonly storage:
+    | false
+    | {
+        readonly backend: ResolvedStorageBackend
+        readonly maxUploadSize: number
+        readonly buckets: Readonly<Record<string, ResolvedBucket>>
+      }
   readonly server: {
     readonly port: number
     readonly metricsPort: number

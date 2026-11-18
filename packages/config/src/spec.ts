@@ -246,6 +246,32 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
   },
   cors: obj({ origins: { t: "origins" } }),
   audit: obj({ dataWrites: withDefault(bool, false) }),
+  storage: obj({
+    backend: {
+      t: "tagged",
+      kinds: {
+        gridfs: { kind: str },
+        s3: {
+          kind: str,
+          endpoint: url,
+          region: str,
+          bucket: str,
+          accessKeyId: str,
+          secretAccessKey: str,
+          sessionToken: str,
+          forcePathStyle: bool,
+          prefix: str,
+        },
+      },
+      hint: 'Use { kind: "gridfs" } or { kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey }.',
+    },
+    maxFileSize: withDefault(int, 50 * 1024 * 1024, POSITIVE),
+    maxUploadSize: withDefault(int, 5 * 1024 * 1024 * 1024, POSITIVE),
+    buckets: {
+      t: "record",
+      of: obj({ public: bool, maxFileSize: int, allowedTypes: list }),
+    },
+  }),
   webhooks: obj({
     secret: str,
     maxAttempts: withDefault(int, 8, { min: 1, max: 50, message: () => "Use 1 to 50." }),
@@ -313,6 +339,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RATE_LIMIT_EXEMPT_SERVICE", "rateLimits.exemptService", bool],
   ["CANOPY_AUDIT_DATA_WRITES", "audit.dataWrites", bool],
   ["CANOPY_WEBHOOK_SECRET", "webhooks.secret", str],
+  ["CANOPY_STORAGE_MAX_FILE_SIZE", "storage.maxFileSize", int],
   ["CANOPY_TRACING", "telemetry.tracing", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
@@ -333,6 +360,8 @@ export const SECRET_PATHS = new Set([
   "keys.secret",
   "server.metricsToken",
   "webhooks.secret",
+  "storage.backend.secretAccessKey",
+  "storage.backend.sessionToken",
 ])
 
 /** The sections each command needs. Unset variables elsewhere are not reported. */

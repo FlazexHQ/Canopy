@@ -9,12 +9,14 @@ import type {
   GraphqlIntrospection,
   IdType,
   LogLevel,
+  ResolvedBucket,
   ResolvedBuiltinAuth,
   ResolvedCollection,
   ResolvedConfig,
   ResolvedExternalAuth,
   ResolvedRelation,
   ResolvedSchedule,
+  ResolvedStorageBackend,
   ResolvedTrigger,
   Transport,
   TriggerOperation,
@@ -40,6 +42,59 @@ function usableSecret(secret: string): boolean {
   if (!secret.startsWith("whsec_")) return secret.length >= 16
   const encoded = secret.slice("whsec_".length)
   return /^[A-Za-z0-9+/]+={0,2}$/.test(encoded) && Math.floor((encoded.length * 3) / 4) >= 16
+}
+
+/** Resolves the `storage` section: off without buckets, GridFS unless an S3 store is given. */
+function normalizeStorage(
+  resolver: Resolver,
+  tree: Record<string, unknown>,
+): ResolvedConfig["storage"] {
+  const rawBuckets = get(tree, "storage.buckets")
+  if (!isPlainObject(rawBuckets) || Object.keys(rawBuckets).length === 0) return false
+  const maxFileSize = get(tree, "storage.maxFileSize") as number
+  const buckets: Record<string, ResolvedBucket> = {}
+  for (const [name, value] of Object.entries(rawBuckets)) {
+    if (!/^[a-z0-9][a-z0-9_-]{0,62}$/.test(name)) {
+      resolver.problem(
+        `storage.buckets.${name}`,
+        "Use a bucket name of lower case letters, digits, underscores and hyphens (at most 63 characters).",
+      )
+      continue
+    }
+    const entry = isPlainObject(value) ? value : {}
+    const size = entry["maxFileSize"]
+    if (typeof size === "number" && size < 1) {
+      resolver.problem(`storage.buckets.${name}.maxFileSize`, "Use a size of at least 1 byte.")
+      continue
+    }
+    const types = entry["allowedTypes"]
+    buckets[name] = {
+      public: entry["public"] === true,
+      maxFileSize: typeof size === "number" ? size : maxFileSize,
+      allowedTypes: Array.isArray(types) ? (types as string[]) : [],
+    }
+  }
+  const raw = get(tree, "storage.backend")
+  let backend: ResolvedStorageBackend = { kind: "gridfs" }
+  if (isPlainObject(raw) && raw["kind"] === "s3") {
+    const missing = ["endpoint", "region", "bucket", "accessKeyId", "secretAccessKey"].filter(
+      (field) => typeof raw[field] !== "string",
+    )
+    for (const field of missing)
+      resolver.problem(`storage.backend.${field}`, `The S3 backend needs ${field}.`, true)
+    backend = {
+      kind: "s3",
+      endpoint: String(raw["endpoint"] ?? ""),
+      region: String(raw["region"] ?? ""),
+      bucket: String(raw["bucket"] ?? ""),
+      accessKeyId: String(raw["accessKeyId"] ?? ""),
+      secretAccessKey: String(raw["secretAccessKey"] ?? ""),
+      sessionToken: typeof raw["sessionToken"] === "string" ? raw["sessionToken"] : undefined,
+      forcePathStyle: raw["forcePathStyle"] !== false,
+      prefix: typeof raw["prefix"] === "string" ? raw["prefix"] : "",
+    }
+  }
+  return { backend, maxUploadSize: get(tree, "storage.maxUploadSize") as number, buckets }
 }
 
 /** Resolves the `webhooks` section: names, collections, URLs and cron expressions. */
@@ -449,6 +504,7 @@ export function normalize(
     cors,
     audit: { dataWrites: at<boolean>("audit.dataWrites") },
     webhooks: normalizeWebhooks(resolver, tree),
+    storage: normalizeStorage(resolver, tree),
     telemetry: { tracing: at<boolean>("telemetry.tracing") },
     server: {
       port: at<number>("server.port"),

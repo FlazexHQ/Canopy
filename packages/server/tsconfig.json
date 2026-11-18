@@ -18,6 +18,7 @@
     { "path": "../protocol" },
     { "path": "../realtime" },
     { "path": "../rest" },
+    { "path": "../storage" },
     { "path": "../studio" }
   ]
 }

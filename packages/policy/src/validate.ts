@@ -7,6 +7,7 @@ import {
   OPERATIONS,
   type Operation,
   Role,
+  STORAGE_COLLECTION,
 } from "./model.ts"
 
 /** Policy size limits: policies per collection, bytes per clause and clause nesting depth. */
@@ -55,6 +56,8 @@ export function validateCollectionPolicies(
   if (!COLLECTION.test(def.collection) || def.collection.startsWith("system.")) {
     fail("the collection name is not valid")
   }
+  if (def.collection === STORAGE_COLLECTION && def.realtime)
+    fail("storage.objects holds storage policies and cannot be followed in realtime")
   if (def.policies.length > POLICY_LIMITS.maxPolicies)
     fail(`at most ${POLICY_LIMITS.maxPolicies} policies are allowed`)
   const names = new Set<string>()
