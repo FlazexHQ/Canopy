@@ -25,7 +25,7 @@ export interface AccessCell {
 }
 
 /** One row of an {@link AccessMap}: the roles a request carries and what each operation reaches. */
-export interface AccessRow {
+interface AccessRow {
   readonly role: string
   readonly roles: readonly string[]
   readonly cells: Readonly<Record<SimulatedOperation, AccessCell>>
