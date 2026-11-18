@@ -9,20 +9,28 @@
  * The packages must be built (`bun run build`); `--build` runs that first. Tarballs come from `bun pm pack`,
  * which turns `workspace:` and `catalog:` ranges into real versions. A package manager that is not on the
  * PATH runs through `bun x` instead, so the script needs nothing installed globally. The packages depend on
- * each other with exact versions that are not published, so the scratch project maps every `@canopy/*`
- * dependency to its tarball with the override field of each package manager. Imports run under Node.
+ * each other with exact versions that are not published, so the test serves the tarballs from a registry on
+ * localhost and points the `@canopy` scope of each package manager at it (`.npmrc`, or `.yarnrc.yml` for
+ * Yarn); every other package comes from the default registry. Imports run under Node.
  *
  * A package with prebuilt Node-API addons (a `napi` field) is installed from what its `build:native --pack`
- * wrote to its `packs/` folder: the root package, whose `optionalDependencies` name the addon of this platform
- * and the WebAssembly fallback, reaches them through the optional dependency path of each package manager.
- * The test checks the addon loads, then removes it and checks the package falls back to WebAssembly.
+ * or `build:native --assemble` wrote to its `packs/` folder: the root package, whose `optionalDependencies`
+ * name the addon of this platform, possibly the addons of other platforms, and the WebAssembly fallback,
+ * reaches them through the optional dependency path of each package manager. The test checks that exactly the
+ * addon of this platform and the WebAssembly package are installed (the others are skipped by their `os`,
+ * `cpu` and `libc` fields) and that the addon loads, then removes it and checks the package falls back to
+ * WebAssembly.
  */
 import { spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
-import { copyFile, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { readTarball } from "../../native/scripts/verify.ts"
+import { hostTarget, WASM_TARGET } from "../../native/src/targets.ts"
 
 const root = resolve(fileURLToPath(new URL("../../..", import.meta.url)))
 
@@ -53,10 +61,12 @@ interface Packed {
   readonly file: string
 }
 
-/** A package with prebuilt addons and the name of its addon package for this platform. */
+/** A package with prebuilt addons, the name of its addon package for this platform and all its platform packages. */
 interface Addon {
   readonly name: string
   readonly native: string
+  readonly wasm: string
+  readonly platform: readonly string[]
 }
 
 interface Tarballs {
@@ -155,10 +165,17 @@ function run(
 const bunPath = (): string =>
   "Bun" in globalThis ? process.execPath : (find("bun") ?? usage("bun is not on the PATH"))
 
-function managerCommand(manager: Manager): { program: string; prefix: readonly string[] } {
+/** How to run a package manager; Yarn 1 (preinstalled on CI images) is replaced by the current Yarn. */
+async function managerCommand(
+  manager: Manager,
+): Promise<{ program: string; prefix: readonly string[] }> {
   if (manager === "bun") return { program: bunPath(), prefix: [] }
   const installed = find(manager)
-  if (installed !== undefined) return { program: installed, prefix: [] }
+  const classic =
+    manager === "yarn" &&
+    installed !== undefined &&
+    (await run(installed, ["--version"], root)).output.trim().startsWith("1.")
+  if (installed !== undefined && !classic) return { program: installed, prefix: [] }
   return { program: bunPath(), prefix: ["x", ...FALLBACK[manager]] }
 }
 
@@ -218,10 +235,23 @@ for (const bin of bins) {
   if (!existsSync(file)) failures.push("bin " + bin.name + " points at " + bin.file + ", which is not installed")
   else if (!readFileSync(file, "utf8").startsWith("#!")) failures.push("bin " + bin.name + " has no shebang line")
 }
-const addons = ${JSON.stringify(addons.map((addon) => addon.name))}
+const addons = ${JSON.stringify(addons)}
 const decides = (engine) =>
   engine.compileFilter({ a: { $gt: 1 } }).matches({ a: 2 }) && !engine.compileFilter({ a: 1 }).matches({ a: 2 })
-for (const name of addons) {
+for (const { name, native, wasm, platform } of addons) {
+  const own = createRequire(require.resolve(name + "/package.json"))
+  const installed = platform.filter((other) => {
+    try {
+      own.resolve(other + "/package.json")
+      return true
+    } catch {
+      return false
+    }
+  })
+  for (const other of installed)
+    if (other !== native && other !== wasm) failures.push(other + " is installed on a platform it does not match")
+  for (const wanted of [native, wasm])
+    if (!installed.includes(wanted)) failures.push(wanted + " is not installed")
   try {
     const { loadNativeEngine } = await import(name)
     const native = loadNativeEngine()
@@ -252,7 +282,7 @@ function fallbackScript(addons: readonly Addon[]): string {
 import { createRequire } from "node:module"
 import { dirname } from "node:path"
 const require = createRequire(import.meta.url)
-const addons = ${JSON.stringify(addons)}
+const addons = ${JSON.stringify(addons.map(({ name, native }) => ({ name, native })))}
 const failures = []
 for (const addon of addons) {
   const own = createRequire(require.resolve(addon.name + "/package.json"))
@@ -298,9 +328,18 @@ async function pack(packages: readonly Workspace[], into: string): Promise<Tarba
         await copyFile(join(dir, "packs", file), join(into, file))
       if (own !== undefined) files.set(own.name, own.file)
       for (const { name, file } of rest) optional.set(name, file)
-      const native = rest.find(({ name }) => !name.endsWith("-wasm32-wasi"))
-      if (native === undefined) usage(`${json.name} was packed without the addon of this platform`)
-      addons.push({ name: json.name, native: native.name })
+      const host = hostTarget()
+      const native = rest.find(({ name }) => name === `${json.name}-${host?.suffix ?? ""}`)
+      const wasm = rest.find(({ name }) => name === `${json.name}-${WASM_TARGET.suffix}`)
+      if (host === undefined || native === undefined)
+        usage(`${json.name} was packed without the addon of this platform`)
+      if (wasm === undefined) usage(`${json.name} was packed without its WebAssembly package`)
+      addons.push({
+        name: json.name,
+        native: native.name,
+        wasm: wasm.name,
+        platform: rest.map(({ name }) => name),
+      })
       continue
     }
     const target = join(into, "raw", json.name.replace("/", "_"))
@@ -324,39 +363,141 @@ function peers(packages: readonly Workspace[]): Record<string, string> {
   return out
 }
 
+/** The scope every published package is under, served by the local registry. */
+const SCOPE = "canopy"
+
+/** A local npm registry serving the packed tarballs of the scope. */
+interface Registry {
+  readonly url: string
+  close(): Promise<void>
+}
+
+interface Served {
+  readonly manifest: { readonly name: string; readonly version: string }
+  readonly file: string
+  readonly integrity: string
+  readonly shasum: string
+}
+
+/**
+ * Serves each tarball the way a registry publishes it: a document per package name with the manifest packed in
+ * the tarball, so package managers see `os`, `cpu` and `libc` before they download anything, exactly as they
+ * would from npm. Only the scope is pointed at it; every other package comes from the default registry.
+ */
+async function serve(dir: string, tarballs: Iterable<[string, string]>): Promise<Registry> {
+  const documents = new Map<string, Served>()
+  const files = new Map<string, Buffer>()
+  for (const [name, file] of tarballs) {
+    const bytes = await readFile(join(dir, file))
+    const json = readTarball(join(dir, file)).get("package/package.json")
+    if (json === undefined) throw new Error(`${file} has no package.json`)
+    const manifest = JSON.parse(json.toString("utf8")) as Served["manifest"]
+    if (manifest.name !== name) throw new Error(`${file} holds ${manifest.name}, not ${name}`)
+    files.set(file, bytes)
+    documents.set(name, {
+      manifest,
+      file,
+      integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+      shasum: createHash("sha1").update(bytes).digest("hex"),
+    })
+  }
+  let url = ""
+  const published = new Date().toISOString()
+  const server = createServer((request, response) => {
+    const path = decodeURIComponent(new URL(request.url ?? "/", "http://registry").pathname)
+    const tarball = path.startsWith("/-/") ? files.get(path.slice(3)) : undefined
+    const entry = documents.get(path.slice(1))
+    if (tarball !== undefined) {
+      response.writeHead(200, { "content-type": "application/octet-stream" })
+      response.end(tarball)
+    } else if (entry !== undefined) {
+      const { manifest } = entry
+      const dist = {
+        tarball: `${url}-/${entry.file}`,
+        integrity: entry.integrity,
+        shasum: entry.shasum,
+      }
+      response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+      response.end(
+        JSON.stringify({
+          name: manifest.name,
+          "dist-tags": { latest: manifest.version },
+          time: { [manifest.version]: published },
+          versions: { [manifest.version]: { ...manifest, dist } },
+        }),
+      )
+    } else {
+      response.writeHead(404, { "content-type": "application/json" })
+      response.end(JSON.stringify({ error: "not found" }))
+    }
+  })
+  await new Promise<void>((listening, failed) => {
+    server.once("error", failed)
+    server.listen(0, "127.0.0.1", listening)
+  })
+  const address = server.address()
+  if (address === null || typeof address === "string") throw new Error("The registry has no port")
+  url = `http://127.0.0.1:${address.port}/`
+  return {
+    url,
+    close: () =>
+      new Promise((closed) => {
+        server.closeAllConnections()
+        server.close(() => closed())
+      }),
+  }
+}
+
 async function scratchProject(
   manager: Manager,
   directory: string,
+  registry: string,
   tarballs: Tarballs,
   packages: readonly Workspace[],
 ): Promise<void> {
   await mkdir(directory, { recursive: true })
-  await mkdir(join(directory, "tarballs"))
   const dependencies: Record<string, string> = { ...peers(packages) }
-  const own: Record<string, string> = {}
-  for (const [name, file] of [...tarballs.files, ...tarballs.optional]) {
-    await copyFile(join(tarballsDir, file), join(directory, "tarballs", file))
-    own[name] = `file:./tarballs/${file}`
-    if (tarballs.files.has(name)) dependencies[name] = own[name]
-  }
-  const manifest: Record<string, unknown> = {
+  for (const { json } of packages) dependencies[json.name] = json.version
+  const manifest = {
     name: `canopy-install-test-${manager}`,
     version: "0.0.0",
     private: true,
     type: "module",
     dependencies,
-    ...(manager === "npm" || manager === "bun" ? { overrides: own } : {}),
-    ...(manager === "pnpm" ? { pnpm: { overrides: own } } : {}),
-    ...(manager === "yarn" || manager === "bun" ? { resolutions: own } : {}),
   }
   await writeFile(join(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
   if (manager === "yarn")
     await writeFile(
       join(directory, ".yarnrc.yml"),
-      "nodeLinker: node-modules\nenableImmutableInstalls: false\nenableTelemetry: false\n",
+      [
+        "nodeLinker: node-modules",
+        "enableImmutableInstalls: false",
+        "enableTelemetry: false",
+        "npmPreapprovedPackages:",
+        `  - "@${SCOPE}/*"`,
+        "unsafeHttpWhitelist:",
+        '  - "127.0.0.1"',
+        "npmScopes:",
+        `  ${SCOPE}:`,
+        `    npmRegistryServer: "${registry.replace(/\/$/, "")}"`,
+        "",
+      ].join("\n"),
     )
+  else await writeFile(join(directory, ".npmrc"), `@${SCOPE}:registry=${registry}\n`)
   await writeFile(join(directory, "check.mjs"), checkScript(packages, tarballs.addons))
   await writeFile(join(directory, "fallback.mjs"), fallbackScript(tarballs.addons))
+}
+
+/**
+ * Caches kept for one run: every run publishes the same versions with new content on a new port, and Bun
+ * and Yarn would reuse what they cached from an earlier run (Yarn its registry documents, whose tarball URLs
+ * name a port nothing listens on any more).
+ */
+const CACHE: Readonly<Record<Manager, (scratch: string) => Record<string, string>>> = {
+  bun: (scratch) => ({ BUN_INSTALL_CACHE_DIR: join(scratch, "bun-cache") }),
+  npm: () => ({}),
+  pnpm: () => ({}),
+  yarn: (scratch) => ({ YARN_GLOBAL_FOLDER: join(scratch, "yarn-global") }),
 }
 
 const INSTALL: Readonly<Record<Manager, readonly string[]>> = {
@@ -365,8 +506,6 @@ const INSTALL: Readonly<Record<Manager, readonly string[]>> = {
   pnpm: ["install", "--ignore-scripts"],
   yarn: ["install"],
 }
-
-let tarballsDir = ""
 
 async function main(): Promise<void> {
   const options = parse(process.argv.slice(2))
@@ -383,20 +522,27 @@ async function main(): Promise<void> {
   if (missing.length > 0)
     usage(`Not built (run bun run build or pass --build):\n${missing.join("\n")}`)
 
+  const outside = packages.filter(({ json }) => !json.name.startsWith(`@${SCOPE}/`))
+  if (outside.length > 0)
+    usage(`Published outside @${SCOPE}: ${outside.map(({ json }) => json.name).join(", ")}`)
+
   const scratch = await mkdtemp(join(tmpdir(), "canopy-install-"))
-  tarballsDir = join(scratch, "tarballs")
   const failures: string[] = []
+  let registry: Registry | undefined
   try {
+    const tarballsDir = join(scratch, "tarballs")
     const tarballs = await pack(packages, tarballsDir)
     process.stdout.write(
       `Packed ${tarballs.files.size} packages and ${tarballs.optional.size} optional ones\n`,
     )
+    registry = await serve(tarballsDir, [...tarballs.files, ...tarballs.optional])
     for (const manager of options.managers) {
       const directory = join(scratch, manager)
-      await scratchProject(manager, directory, tarballs, packages)
-      const { program, prefix } = managerCommand(manager)
+      await scratchProject(manager, directory, registry.url, tarballs, packages)
+      const { program, prefix } = await managerCommand(manager)
       process.stdout.write(`${manager}: installing\n`)
-      const installed = await run(program, [...prefix, ...INSTALL[manager]], directory)
+      const env = { ...process.env, ...CACHE[manager](scratch) }
+      const installed = await run(program, [...prefix, ...INSTALL[manager]], directory, env)
       if (installed.code !== 0) {
         failures.push(`${manager}: install failed\n${installed.output.trim()}`)
         continue
@@ -414,6 +560,7 @@ async function main(): Promise<void> {
       if (fallback.code !== 0) failures.push(`${manager}: ${fallback.output.trim()}`)
     }
   } finally {
+    await registry?.close()
     if (options.keep) process.stdout.write(`Kept ${scratch}\n`)
     else await rm(scratch, { recursive: true, force: true })
   }
