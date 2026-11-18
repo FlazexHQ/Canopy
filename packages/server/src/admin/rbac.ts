@@ -42,6 +42,10 @@ export type Permission =
   | "users.read"
   /** Creating, changing, banning and deleting app users, and ending their sessions. */
   | "users.manage"
+  /** Triggers, schedules and dead letters, whose payloads hold documents. */
+  | "webhooks.read"
+  /** Retrying and deleting dead letters, and running schedules. */
+  | "webhooks.manage"
 
 const DEVELOPER: ReadonlySet<Permission> = new Set<Permission>([
   "session",
@@ -60,6 +64,7 @@ const DEVELOPER: ReadonlySet<Permission> = new Set<Permission>([
   "realtime.inspect",
   "ops.doctor",
   "users.read",
+  "webhooks.read",
 ])
 
 /** What developers lose when `CANOPY_ENV=production`: publishing and data edits. */

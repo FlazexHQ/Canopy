@@ -116,6 +116,18 @@ cluster time and the mutation ID as details. Documents are never copied into the
 the commit, one insert into the meta database per write; a failed insert is logged and does not fail the
 write. Studio shows them on the Audit page, and the audit retention setting expires them like other entries.
 
+## `webhooks`
+
+| Setting       | Variable                | Default | Description                                                         |
+| ------------- | ----------------------- | ------- | ------------------------------------------------------------------- |
+| `secret`      | `CANOPY_WEBHOOK_SECRET` |         | Signs every delivery; `whsec_` and base64, or 16 characters or more  |
+| `maxAttempts` |                         | `8`     | Attempts before a delivery becomes a dead letter                     |
+| `timeout`     |                         | `"10s"` | How long one attempt may take                                        |
+| `triggers`    |                         | `{}`    | `{ <name>: { collection, operations?, filter?, url } }`              |
+| `schedules`   |                         | `{}`    | `{ <name>: { cron, url, body? } }`, cron in UTC                      |
+
+See [triggers and scheduled jobs](/guides/webhooks/).
+
 ## `telemetry`
 
 | Setting   | Variable         | Default | Description                                                              |

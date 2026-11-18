@@ -40,6 +40,7 @@ export default defineConfig({
             "guides/react-native",
             "guides/multi-tab",
             "guides/rate-limits",
+            "guides/webhooks",
             "guides/devtools",
             "guides/tanstack-db",
             "guides/two-factor-and-passkeys",

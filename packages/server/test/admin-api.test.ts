@@ -300,6 +300,8 @@ suite("admin API", () => {
       ["GET", "/realtime/stats", undefined, { admin: 200, developer: 200, viewer: 200 }],
       ["GET", "/realtime/connections", undefined, { admin: 200, developer: 200, viewer: 403 }],
       ["GET", "/doctor", undefined, { admin: 200, developer: 200, viewer: 200 }],
+      ["GET", "/webhooks", undefined, { admin: 404, developer: 404, viewer: 403 }],
+      ["POST", "/webhooks/nightly/run", undefined, { admin: 404, developer: 403, viewer: 403 }],
       [
         "POST",
         "/api-keys",

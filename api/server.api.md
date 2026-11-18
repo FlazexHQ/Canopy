@@ -82,6 +82,7 @@ export interface AdminApiOptions {
     readonly logger: Logger;
     readonly origins?: readonly string[];
     readonly auth?: AdminAuth;
+    readonly webhooks?: Webhooks;
     readonly emailTemplates?: {
         readonly store: EmailTemplateStore;
         readonly appName: string;
@@ -296,6 +297,7 @@ export interface Canopy extends AsyncDisposable {
     readonly policies: PolicyEngine;
     readonly keys: ApiKeys;
     readonly admin: AdminSurface;
+    readonly webhooks: Webhooks | undefined;
     fetch(request: Request, fallback?: FetchHandler, info?: {
         readonly ip?: string;
     }): Promise<Response>;
@@ -342,6 +344,7 @@ export interface CanopyConfigInput {
     readonly audit?: {
         readonly dataWrites?: Value<boolean>;
     };
+    readonly webhooks?: WebhooksInput;
     readonly telemetry?: {
         readonly tracing?: Value<boolean>;
     };
@@ -404,7 +407,33 @@ export interface CreatedAdminToken {
     readonly info: AdminTokenInfo;
 }
 
+export interface DeadLetter {
+    readonly _id: string;
+    readonly hook: string;
+    readonly kind: HookKind;
+    readonly body: string;
+    readonly attempts: number;
+    readonly createdAt: Date;
+    readonly failedAt: Date;
+    readonly lastError: string;
+    readonly lastStatus?: number;
+}
+
 export type FetchHandler = (request: Request) => Response | Promise<Response>;
+
+export interface HookInfo {
+    readonly name: string;
+    readonly kind: "trigger" | "schedule";
+    readonly endpoint: string;
+    readonly collection?: string;
+    readonly operations?: readonly string[];
+    readonly cron?: string;
+    readonly nextFire?: Date;
+    readonly pending: number;
+    readonly deadLetters: number;
+}
+
+export type HookKind = "trigger" | "schedule";
 
 export interface LagPoint {
     readonly t: number;
@@ -465,7 +494,7 @@ export interface MigrationStatus {
     readonly appliedAt: Date | undefined;
 }
 
-export type Permission = "session" | "collections.read" | "collections.write" | "documents.read" | "documents.write" | "documents.viewAs" | "documents.writeAs" | "policies.read" | "policies.simulate" | "policies.publish" | "keys.read" | "keys.publishable" | "keys.secret" | "realtime.stats" | "realtime.inspect" | "ops.doctor" | "ops.audit" | "settings.read" | "settings.write" | "admins.read" | "admins.manage" | "admins.manageOwners" | "users.read" | "users.manage";
+export type Permission = "session" | "collections.read" | "collections.write" | "documents.read" | "documents.write" | "documents.viewAs" | "documents.writeAs" | "policies.read" | "policies.simulate" | "policies.publish" | "keys.read" | "keys.publishable" | "keys.secret" | "realtime.stats" | "realtime.inspect" | "ops.doctor" | "ops.audit" | "settings.read" | "settings.write" | "admins.read" | "admins.manage" | "admins.manageOwners" | "users.read" | "users.manage" | "webhooks.read" | "webhooks.manage";
 
 export interface PolicyCheck {
     readonly set: PolicySet;
@@ -642,6 +671,13 @@ export interface ResolvedConfig {
     readonly audit: {
         readonly dataWrites: boolean;
     };
+    readonly webhooks: {
+        readonly secret: string | undefined;
+        readonly maxAttempts: number;
+        readonly timeoutMs: number;
+        readonly triggers: Readonly<Record<string, ResolvedTrigger>>;
+        readonly schedules: Readonly<Record<string, ResolvedSchedule>>;
+    };
     readonly telemetry: {
         readonly tracing: boolean;
     };
@@ -705,6 +741,21 @@ export interface StoredContextLookups {
 export interface TotpEnrollment {
     readonly secret: string;
     readonly uri: string;
+}
+
+export interface Webhooks {
+    readonly queue: DeliveryQueue;
+    readonly metrics: WebhookMetrics;
+    readonly streaming: boolean;
+    hooks(): Promise<HookInfo[]>;
+    deadLetters(options?: {
+        readonly hook?: string;
+        readonly limit?: number;
+    }): Promise<DeadLetter[]>;
+    retry(id: string): Promise<boolean>;
+    discard(id: string): Promise<boolean>;
+    run(name: string): Promise<string | undefined>;
+    stop(): Promise<void>;
 }
 
 function builtin(options?: Omit<BuiltinAuthInput<ClaimsHook>, "kind">): BuiltinAuthInput<ClaimsHook>

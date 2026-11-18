@@ -1,7 +1,8 @@
 import { normalizeBuiltin } from "./builtin.ts"
+import { parseCron } from "./cron.ts"
 import type { ResolveOptions } from "./resolution.ts"
 import { get, isLocalHost, isPlainObject, quoted, type Resolver } from "./resolver.ts"
-import { isDevelopmentKey, ROOT_FIELDS } from "./spec.ts"
+import { isDevelopmentKey, ROOT_FIELDS, TRIGGER_OPERATIONS } from "./spec.ts"
 import type {
   Environment,
   FullDocumentMode,
@@ -13,7 +14,10 @@ import type {
   ResolvedConfig,
   ResolvedExternalAuth,
   ResolvedRelation,
+  ResolvedSchedule,
+  ResolvedTrigger,
   Transport,
+  TriggerOperation,
 } from "./types.ts"
 
 /** The database in the path of a MongoDB connection string, if there is one. */
@@ -27,6 +31,123 @@ export function databaseFromUri(uri: string): string | undefined {
 }
 
 const FORBIDDEN_ALGORITHMS = new Set(["none", "HS256", "HS384", "HS512"])
+
+/** Names of triggers and schedules: they appear in delivery ids, the admin API and metrics. */
+const HOOK_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/
+
+/** Whether a webhook signing secret is usable: `whsec_` and base64 of 16 bytes or more, or 16 characters. */
+function usableSecret(secret: string): boolean {
+  if (!secret.startsWith("whsec_")) return secret.length >= 16
+  const encoded = secret.slice("whsec_".length)
+  return /^[A-Za-z0-9+/]+={0,2}$/.test(encoded) && Math.floor((encoded.length * 3) / 4) >= 16
+}
+
+/** Resolves the `webhooks` section: names, collections, URLs and cron expressions. */
+function normalizeWebhooks(
+  resolver: Resolver,
+  tree: Record<string, unknown>,
+): ResolvedConfig["webhooks"] {
+  const triggers: Record<string, ResolvedTrigger> = {}
+  const schedules: Record<string, ResolvedSchedule> = {}
+  const httpUrl = (path: string, value: unknown): string | undefined => {
+    if (typeof value !== "string") {
+      resolver.problem(path, "The endpoint URL is required.", true)
+      return undefined
+    }
+    if (!/^https?:$/.test(new URL(value).protocol)) {
+      resolver.problem(path, "The endpoint must be an http or https URL.")
+      return undefined
+    }
+    return value
+  }
+  const named = (kind: string, name: string): boolean => {
+    if (HOOK_NAME.test(name)) return true
+    resolver.problem(
+      `webhooks.${kind}.${name}`,
+      "Use a name that starts with a letter and holds only letters, digits, underscores and hyphens (at most 64 characters).",
+    )
+    return false
+  }
+  const rawTriggers = get(tree, "webhooks.triggers")
+  if (isPlainObject(rawTriggers))
+    for (const [name, value] of Object.entries(rawTriggers)) {
+      if (!named("triggers", name) || !isPlainObject(value)) continue
+      const path = `webhooks.triggers.${name}`
+      const collection = value["collection"]
+      if (
+        typeof collection !== "string" ||
+        !/^[A-Za-z_][\w.-]{0,119}$/.test(collection) ||
+        collection.startsWith("system.")
+      ) {
+        resolver.problem(
+          `${path}.collection`,
+          "A trigger needs the name of an app collection.",
+          true,
+        )
+        continue
+      }
+      const url = httpUrl(`${path}.url`, value["url"])
+      if (url === undefined) continue
+      const operations = value["operations"]
+      const filter = value["filter"]
+      triggers[name] = {
+        collection,
+        operations: Array.isArray(operations)
+          ? (operations as TriggerOperation[])
+          : [...TRIGGER_OPERATIONS],
+        filter: isPlainObject(filter) ? filter : undefined,
+        url,
+      }
+    }
+  const rawSchedules = get(tree, "webhooks.schedules")
+  if (isPlainObject(rawSchedules))
+    for (const [name, value] of Object.entries(rawSchedules)) {
+      if (!named("schedules", name) || !isPlainObject(value)) continue
+      const path = `webhooks.schedules.${name}`
+      if (Object.hasOwn(triggers, name)) {
+        resolver.problem(
+          path,
+          `A trigger is also named ${name}; triggers and schedules share names.`,
+        )
+        continue
+      }
+      const cron = value["cron"]
+      if (typeof cron !== "string") {
+        resolver.problem(`${path}.cron`, "A schedule needs a cron expression.", true)
+        continue
+      }
+      try {
+        parseCron(cron)
+      } catch (error: unknown) {
+        resolver.problem(`${path}.cron`, error instanceof Error ? error.message : String(error))
+        continue
+      }
+      const url = httpUrl(`${path}.url`, value["url"])
+      if (url === undefined) continue
+      const body = value["body"]
+      schedules[name] = { cron, url, body: isPlainObject(body) ? body : undefined }
+    }
+  const secret = get(tree, "webhooks.secret") as string | undefined
+  const hooks = Object.keys(triggers).length + Object.keys(schedules).length
+  if (secret === undefined && hooks > 0)
+    resolver.problem(
+      "webhooks.secret",
+      "Webhooks need a signing secret.\nSet CANOPY_WEBHOOK_SECRET or webhooks.secret.",
+      true,
+    )
+  else if (secret !== undefined && !usableSecret(secret))
+    resolver.problem(
+      "webhooks.secret",
+      "Use whsec_ followed by base64 of at least 16 bytes, or a secret of at least 16 characters.",
+    )
+  return {
+    secret,
+    maxAttempts: get(tree, "webhooks.maxAttempts") as number,
+    timeoutMs: get(tree, "webhooks.timeout") as number,
+    triggers,
+    schedules,
+  }
+}
 
 /** Turns a resolved tree into the {@link ResolvedConfig}, checking the rules that span settings. */
 export function normalize(
@@ -326,6 +447,7 @@ export function normalize(
     collections,
     cors,
     audit: { dataWrites: at<boolean>("audit.dataWrites") },
+    webhooks: normalizeWebhooks(resolver, tree),
     telemetry: { tracing: at<boolean>("telemetry.tracing") },
     server: {
       port: at<number>("server.port"),

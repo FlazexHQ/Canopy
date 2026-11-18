@@ -604,3 +604,110 @@ describe("rateLimits", () => {
     ).toBe("rateLimits.requests.perSecond")
   })
 })
+
+describe("webhooks", () => {
+  const SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+
+  it("defaults to no hooks, eight attempts and a ten second timeout", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.webhooks).toEqual({
+      secret: undefined,
+      maxAttempts: 8,
+      timeoutMs: 10_000,
+      triggers: {},
+      schedules: {},
+    })
+  })
+
+  it("resolves triggers and schedules, with every operation by default and the secret from the environment", () => {
+    const resolution = resolve(
+      {
+        mongodb: { uri: URI },
+        webhooks: {
+          timeout: "3s",
+          triggers: {
+            placed: { collection: "orders", filter: { status: "placed" }, url: env("HOOK_URL") },
+          },
+          schedules: {
+            nightly: { cron: "@daily", url: "https://fn.example.com/n", body: { a: 1 } },
+          },
+        },
+      },
+      { CANOPY_WEBHOOK_SECRET: SECRET, HOOK_URL: "https://hooks.example.com/placed" },
+    )
+    expect(resolution.config.webhooks).toEqual({
+      secret: SECRET,
+      maxAttempts: 8,
+      timeoutMs: 3000,
+      triggers: {
+        placed: {
+          collection: "orders",
+          operations: ["insert", "update", "replace", "delete"],
+          filter: { status: "placed" },
+          url: "https://hooks.example.com/placed",
+        },
+      },
+      schedules: { nightly: { cron: "@daily", url: "https://fn.example.com/n", body: { a: 1 } } },
+    })
+    expect(formatConfig(resolution)).not.toContain(SECRET)
+  })
+
+  it("reports missing secrets, bad names, cron expressions, URLs and shared names together", () => {
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          webhooks: {
+            maxAttempts: 0,
+            triggers: {
+              "1bad": { collection: "orders", url: "https://a.example.com" },
+              noCollection: { collection: "system.views", url: "https://a.example.com" },
+              ftp: { collection: "orders", url: "ftp://a.example.com" },
+              shared: {
+                collection: "orders",
+                operations: ["insert"],
+                url: "https://a.example.com",
+              },
+            },
+            schedules: {
+              never: { cron: "0 0 30 2 *", url: "https://a.example.com" },
+              shared: { cron: "@hourly", url: "https://a.example.com" },
+              typo: { cron: "61 * * * *", url: "https://a.example.com" },
+            },
+          },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual([
+      "webhooks.maxAttempts",
+      "webhooks.triggers.1bad",
+      "webhooks.triggers.noCollection.collection",
+      "webhooks.triggers.ftp.url",
+      "webhooks.schedules.never.cron",
+      "webhooks.schedules.shared",
+      "webhooks.schedules.typo.cron",
+      "webhooks.secret",
+    ])
+  })
+
+  it("refuses a short secret and an operation that is not a change", () => {
+    const found = problems(() =>
+      resolve({
+        mongodb: { uri: URI },
+        webhooks: {
+          secret: "short",
+          triggers: {
+            a: {
+              collection: "orders",
+              operations: ["insert", "drop" as never],
+              url: "https://a.example.com",
+            },
+          },
+        },
+      }),
+    )
+    expect(found.map((problem) => problem.path)).toEqual([
+      "webhooks.triggers.a.operations",
+      "webhooks.secret",
+    ])
+    expect(found[1]?.message).toMatch(/at least 16/)
+  })
+})

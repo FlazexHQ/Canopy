@@ -1,4 +1,5 @@
 export { builtin, email, external } from "./auth.ts"
+export { type CronSchedule, parseCron } from "./cron.ts"
 export {
   type EnvKind,
   type EnvMarker,
@@ -51,8 +52,14 @@ export {
   type ResolvedEmailTransport,
   type ResolvedExternalAuth,
   type ResolvedRelation,
+  type ResolvedSchedule,
+  type ResolvedTrigger,
   type RestInput,
+  type ScheduleInput,
   type SupabaseInput,
   type Transport,
+  type TriggerInput,
+  type TriggerOperation,
   type Value,
+  type WebhooksInput,
 } from "./types.ts"

@@ -354,6 +354,49 @@ export interface RateLimitsInput {
   readonly exemptService?: Value<boolean>
 }
 
+/** The change events a trigger can react to. */
+export type TriggerOperation = "insert" | "update" | "replace" | "delete"
+
+/** A change in the app database that calls a webhook. */
+export interface TriggerInput {
+  /** The collection whose changes are watched. */
+  readonly collection: string
+  /** @default ["insert", "update", "replace", "delete"] */
+  readonly operations?: readonly TriggerOperation[]
+  /**
+   * A query filter the document must match: the document after the change, or before it for deletes. An
+   * event whose document is not available (a delete without pre images) does not match a filter.
+   */
+  readonly filter?: Readonly<Record<string, unknown>>
+  /** The endpoint that receives one POST per matching change. */
+  readonly url: Value<string>
+}
+
+/** A webhook called on a cron schedule, in UTC. */
+export interface ScheduleInput {
+  /** Five fields (minute, hour, day of month, month, day of week) or a macro such as `@hourly`. */
+  readonly cron: string
+  /** The endpoint that receives one POST per fire. */
+  readonly url: Value<string>
+  /** A JSON object sent as `body` in every payload. */
+  readonly body?: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Database triggers and scheduled jobs, delivered as signed HTTP POSTs (Standard Webhooks) at least once,
+ * with retries and a dead letter collection in the meta database.
+ */
+export interface WebhooksInput {
+  /** Signs every delivery (`CANOPY_WEBHOOK_SECRET`): `whsec_` and base64, or any text of 16 characters or more. */
+  readonly secret?: Value<string>
+  /** Attempts before a delivery is dead lettered. @default 8 */
+  readonly maxAttempts?: Value<number>
+  /** How long one attempt may take. @default "10s" */
+  readonly timeout?: Value<number | string>
+  readonly triggers?: Readonly<Record<string, TriggerInput>>
+  readonly schedules?: Readonly<Record<string, ScheduleInput>>
+}
+
 /** The input of {@link defineConfig}. Every setting may also be an {@link env} marker. */
 export interface CanopyConfigInput {
   readonly mongodb?: {
@@ -400,6 +443,8 @@ export interface CanopyConfigInput {
      */
     readonly dataWrites?: Value<boolean>
   }
+  /** Database triggers and scheduled jobs that call webhooks. */
+  readonly webhooks?: WebhooksInput
   readonly telemetry?: {
     /**
      * Records OpenTelemetry spans: each HTTP request (continuing an incoming `traceparent`), each MongoDB
@@ -527,6 +572,21 @@ export interface ResolvedBuiltinAuth {
   readonly session: { readonly expiresInSeconds: number; readonly updateAgeSeconds: number }
 }
 
+/** A resolved trigger. */
+export interface ResolvedTrigger {
+  readonly collection: string
+  readonly operations: readonly TriggerOperation[]
+  readonly filter: Readonly<Record<string, unknown>> | undefined
+  readonly url: string
+}
+
+/** A resolved schedule. */
+export interface ResolvedSchedule {
+  readonly cron: string
+  readonly url: string
+  readonly body: Readonly<Record<string, unknown>> | undefined
+}
+
 /** A validated config with every default applied. */
 export interface ResolvedConfig {
   /** The config file, or `undefined` in zero config mode. */
@@ -585,6 +645,13 @@ export interface ResolvedConfig {
   readonly collections: Readonly<Record<string, ResolvedCollection>>
   readonly cors: { readonly origins: readonly string[] | "*" } | undefined
   readonly audit: { readonly dataWrites: boolean }
+  readonly webhooks: {
+    readonly secret: string | undefined
+    readonly maxAttempts: number
+    readonly timeoutMs: number
+    readonly triggers: Readonly<Record<string, ResolvedTrigger>>
+    readonly schedules: Readonly<Record<string, ResolvedSchedule>>
+  }
   readonly telemetry: { readonly tracing: boolean }
   readonly server: {
     readonly port: number

@@ -74,6 +74,8 @@ const FULL_DOCUMENT = ["auto", "updateLookup", "images"] as const
 const TRANSPORTS = ["websocket", "sse", "long-poll"] as const
 const ID_TYPES = ["auto", "objectId", "string", "uuid", "number"] as const
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const
+/** The change events a trigger can react to. */
+export const TRIGGER_OPERATIONS = ["insert", "update", "replace", "delete"] as const
 
 const OAUTH_CLIENT = { clientId: str, clientSecret: str }
 
@@ -243,6 +245,21 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
   },
   cors: obj({ origins: { t: "origins" } }),
   audit: obj({ dataWrites: withDefault(bool, false) }),
+  webhooks: obj({
+    secret: str,
+    maxAttempts: withDefault(int, 8, { min: 1, max: 50, message: () => "Use 1 to 50." }),
+    timeout: withDefault(duration, 10_000),
+    triggers: {
+      t: "record",
+      of: obj({
+        collection: str,
+        operations: { t: "enums", values: TRIGGER_OPERATIONS },
+        filter: { t: "raw" },
+        url,
+      }),
+    },
+    schedules: { t: "record", of: obj({ cron: str, url, body: { t: "raw" } }) },
+  }),
   telemetry: obj({ tracing: withDefault(bool, false) }),
   server: obj({
     port: withDefault(int, 8080, PORT),
@@ -294,6 +311,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RATE_LIMIT_FAILED_AUTH_BURST", "rateLimits.failedAuthentications.burst", int],
   ["CANOPY_RATE_LIMIT_EXEMPT_SERVICE", "rateLimits.exemptService", bool],
   ["CANOPY_AUDIT_DATA_WRITES", "audit.dataWrites", bool],
+  ["CANOPY_WEBHOOK_SECRET", "webhooks.secret", str],
   ["CANOPY_TRACING", "telemetry.tracing", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],
@@ -313,6 +331,7 @@ export const SECRET_PATHS = new Set([
   "previousMasterKeys",
   "keys.secret",
   "server.metricsToken",
+  "webhooks.secret",
 ])
 
 /** The sections each command needs. Unset variables elsewhere are not reported. */

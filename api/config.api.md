@@ -93,6 +93,7 @@ export interface CanopyConfigInput {
     readonly audit?: {
         readonly dataWrites?: Value<boolean>;
     };
+    readonly webhooks?: WebhooksInput;
     readonly telemetry?: {
         readonly tracing?: Value<boolean>;
     };
@@ -150,6 +151,12 @@ export interface ConfigProblem {
     readonly path: string;
     readonly message: string;
     readonly missing: boolean;
+}
+
+export interface CronSchedule {
+    readonly expression: string;
+    next(after: Date): Date;
+    previous(at: Date): Date;
 }
 
 export type EmailTransportInput = SmtpTransportInput | ResendTransportInput | PostmarkTransportInput | SesTransportInput | LogTransportInput;
@@ -397,6 +404,13 @@ export interface ResolvedConfig {
     readonly audit: {
         readonly dataWrites: boolean;
     };
+    readonly webhooks: {
+        readonly secret: string | undefined;
+        readonly maxAttempts: number;
+        readonly timeoutMs: number;
+        readonly triggers: Readonly<Record<string, ResolvedTrigger>>;
+        readonly schedules: Readonly<Record<string, ResolvedSchedule>>;
+    };
     readonly telemetry: {
         readonly tracing: boolean;
     };
@@ -467,11 +481,30 @@ export interface ResolvedRelation {
     readonly many: boolean;
 }
 
+export interface ResolvedSchedule {
+    readonly cron: string;
+    readonly url: string;
+    readonly body: Readonly<Record<string, unknown>> | undefined;
+}
+
+export interface ResolvedTrigger {
+    readonly collection: string;
+    readonly operations: readonly TriggerOperation[];
+    readonly filter: Readonly<Record<string, unknown>> | undefined;
+    readonly url: string;
+}
+
 export interface RestInput {
     readonly defaultLimit?: Value<number>;
     readonly maxLimit?: Value<number>;
     readonly maxBodyBytes?: Value<number>;
     readonly mutationTtl?: Value<number | string>;
+}
+
+export interface ScheduleInput {
+    readonly cron: string;
+    readonly url: Value<string>;
+    readonly body?: Readonly<Record<string, unknown>>;
 }
 
 export type Source = {
@@ -492,7 +525,24 @@ export interface SupabaseInput {
 
 export type Transport = "websocket" | "sse" | "long-poll";
 
+export interface TriggerInput {
+    readonly collection: string;
+    readonly operations?: readonly TriggerOperation[];
+    readonly filter?: Readonly<Record<string, unknown>>;
+    readonly url: Value<string>;
+}
+
+export type TriggerOperation = "insert" | "update" | "replace" | "delete";
+
 export type Value<T> = T | EnvMarker<T> | EnvMarker<T | undefined>;
+
+export interface WebhooksInput {
+    readonly secret?: Value<string>;
+    readonly maxAttempts?: Value<number>;
+    readonly timeout?: Value<number | string>;
+    readonly triggers?: Readonly<Record<string, TriggerInput>>;
+    readonly schedules?: Readonly<Record<string, ScheduleInput>>;
+}
 
 function builtin<Hook extends ClaimsHookFunction = ClaimsHookFunction>(options?: Without<BuiltinAuthInput<Hook>>): BuiltinAuthInput<Hook>
 
@@ -515,6 +565,8 @@ function isEnvMarker(value: unknown): value is EnvMarker<unknown>
 function isResolvedConfig(value: unknown): value is ResolvedConfig
 
 function joinPath(base: string, path: string): string
+
+function parseCron(expression: string): CronSchedule
 
 function parseDuration(text: string): number | undefined
 

@@ -18,6 +18,7 @@ import type { Actor, AuditLog, RequestOrigin } from "../audit.ts"
 import type { PolicyStore } from "../policy-store.ts"
 import type { RequestLog } from "../request-log.ts"
 import type { ViewTokens } from "../view-tokens.ts"
+import type { Webhooks } from "../webhooks/webhooks.ts"
 import { type AdminAccounts, type AdminSession, actorOf, csrfHash } from "./accounts.ts"
 import type { EmailTemplateStore } from "./email-templates.ts"
 import {
@@ -41,6 +42,7 @@ import { registerPolicies } from "./routes/policies.ts"
 import { registerRealtime } from "./routes/realtime.ts"
 import { registerSession } from "./routes/session.ts"
 import { registerUsers } from "./routes/users.ts"
+import { registerWebhooks } from "./routes/webhooks.ts"
 import type { SettingsStore } from "./settings.ts"
 import { AdminTokens } from "./tokens.ts"
 
@@ -76,6 +78,8 @@ export interface AdminApiOptions {
   readonly origins?: readonly string[]
   /** Built in auth, when the config chooses it: serves `/admin/v1/users` and `/admin/v1/auth/keys`. */
   readonly auth?: AdminAuth
+  /** Triggers and schedules: serves `/admin/v1/webhooks`. */
+  readonly webhooks?: Webhooks
   /** Email templates of built in auth edited in Studio: serves `/admin/v1/auth/templates`. */
   readonly emailTemplates?: {
     readonly store: EmailTemplateStore
@@ -130,6 +134,7 @@ export function createAdminApi(options: AdminApiOptions): AdminApi {
     registerUsers,
     registerRealtime,
     registerOps,
+    registerWebhooks,
   ])
     register(route, deps)
 

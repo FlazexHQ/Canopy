@@ -370,10 +370,21 @@ class ValidationError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): ValidationError
 }
 
+export interface VerifyWebhookOptions {
+    readonly toleranceSeconds?: number;
+    readonly now?: number;
+}
+
 export interface WatermarkMessage {
     readonly t: "wm";
     readonly seq: number;
     readonly ct: ClusterTime;
+}
+
+export interface WebhookHeaders {
+    readonly "webhook-id": string;
+    readonly "webhook-timestamp": string;
+    readonly "webhook-signature": string;
 }
 
 export interface WelcomeLimits {
@@ -471,6 +482,8 @@ function serverErrorCode(error: unknown): number | undefined
 
 function sha256Hex(input: string | Uint8Array): string
 
+function signWebhook(secret: string, id: string, timestampSeconds: number, body: string): Promise<string>
+
 function snapshotTimeOf(session: object): ClusterTime | undefined
 
 function stringify(value: unknown): string
@@ -488,6 +501,10 @@ function toCt(value: unknown): ClusterTime | undefined
 function unbatch(message: ServerMessage): readonly (SequencedMessage | PongMessage)[]
 
 function uuidv7(nowMs?: number): string
+
+function verifyWebhook(secret: string, headers: Headers | WebhookHeaders | Readonly<Record<string, string | readonly string[] | undefined>>, body: string, options?: VerifyWebhookOptions): Promise<boolean>
+
+function webhookHeaders(secret: string, id: string, body: string, now?: number): Promise<WebhookHeaders>
 
 function wrappedNumber(value: unknown): number | undefined
 ```

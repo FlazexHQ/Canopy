@@ -152,6 +152,25 @@ export const META_MIGRATIONS: readonly MetaMigration[] = [
       ])
     },
   },
+  {
+    version: 4,
+    name: "create-webhooks",
+    async up(meta) {
+      await createCollection(meta, "webhook_deliveries")
+      await createIndexes(meta, "webhook_deliveries", [
+        { key: { status: 1, nextAt: 1 }, name: "status_next" },
+        { key: { status: 1, lockedUntil: 1 }, name: "status_locked" },
+        { key: { hook: 1, status: 1 }, name: "hook_status" },
+        { key: { expiresAt: 1 }, name: "ttl_expires", expireAfterSeconds: 0 },
+      ])
+      await createCollection(meta, "webhook_dead_letters")
+      await createIndexes(meta, "webhook_dead_letters", [
+        { key: { failedAt: -1 }, name: "failed" },
+        { key: { hook: 1, failedAt: -1 }, name: "hook_failed" },
+      ])
+      await createCollection(meta, "webhook_schedules")
+    },
+  },
 ]
 
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {

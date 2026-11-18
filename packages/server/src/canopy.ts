@@ -74,6 +74,8 @@ import { PolicyStore } from "./policy-store.ts"
 import { RequestLog, surfaceOf } from "./request-log.ts"
 import { loadTracing, type Tracing } from "./tracing.ts"
 import { ViewTokens } from "./view-tokens.ts"
+import { compileTriggers } from "./webhooks/triggers.ts"
+import { startWebhooks, type Webhooks } from "./webhooks/webhooks.ts"
 
 /** How often each node rereads the runtime settings (the admin allowlist, request log sampling). */
 const SETTINGS_REFRESH_MS = 10_000
@@ -159,6 +161,8 @@ export interface Canopy extends AsyncDisposable {
   readonly keys: ApiKeys
   /** The admin API, Studio and the stores behind them. */
   readonly admin: AdminSurface
+  /** Database triggers and schedules, when the config has any. */
+  readonly webhooks: Webhooks | undefined
   /**
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
@@ -742,6 +746,7 @@ async function buildAdmin(
   stores: Stores,
   auth: Auth,
   data: Data,
+  webhooks: Webhooks | undefined,
   options: CreateCanopyOptions,
   logger: Logger,
 ) {
@@ -799,6 +804,7 @@ async function buildAdmin(
           realtime,
           ...(data.graphql === undefined ? {} : { graphql: data.graphql }),
           viewTokens: auth.viewTokens,
+          ...(webhooks === undefined ? {} : { webhooks }),
           ...(lag === undefined ? {} : { lag }),
           logger,
           ...(builtin === undefined ? {} : { auth: builtin }),
@@ -936,6 +942,7 @@ export async function createCanopy(
   options: CreateCanopyOptions = {},
 ): Promise<Canopy> {
   const config = resolveInput(input, options)
+  compileTriggers(config.webhooks.triggers)
   const logger = options.logger ?? silentLogger
   const tracing = config.telemetry.tracing ? await loadTracing() : undefined
   const connection = await connect(config, options, logger, tracing)
@@ -943,7 +950,10 @@ export async function createCanopy(
   const auth = await buildAuth(config, connection, stores, logger)
   const data = await buildData(config, connection, auth, stores, options, logger, tracing)
   closeRevokedConnections(auth, data.realtime, logger)
-  const admin = await buildAdmin(config, connection, stores, auth, data, options, logger)
+  const webhooks = await connection.diagnosed(() =>
+    startWebhooks({ config, client: connection.mongo, logger }),
+  )
+  const admin = await buildAdmin(config, connection, stores, auth, data, webhooks, options, logger)
   const transports = buildTransports(config, data.realtime)
   const { rest, realtime, graphql } = data
   const { http } = transports
@@ -952,7 +962,11 @@ export async function createCanopy(
   let closing = false
   const readiness = readinessCheck({
     mongo: connection.mongo,
-    ...(realtime === undefined ? {} : { changeStream: () => realtime.changeStreamOpen }),
+    ...(realtime === undefined && webhooks === undefined
+      ? {}
+      : {
+          changeStream: () => (realtime?.changeStreamOpen ?? true) && (webhooks?.streaming ?? true),
+        }),
   })
 
   const health = (path: string): Promise<Response> | undefined => {
@@ -1009,10 +1023,16 @@ export async function createCanopy(
     graphql,
     realtime,
     renderMetrics: () => `${data.httpRateLimited.render()}
-${realtime?.renderMetrics() ?? ""}`,
+${realtime?.renderMetrics() ?? ""}${
+  webhooks === undefined
+    ? ""
+    : `
+${webhooks.metrics.render()}`
+}`,
     auth: builtin,
     keys: auth.apiKeys,
     admin: admin.surface,
+    webhooks,
     get policies() {
       return data.engine()
     },
@@ -1127,6 +1147,7 @@ ${realtime?.renderMetrics() ?? ""}`,
       data.stopReloading()
       stores.stop()
       await admin.close()
+      await webhooks?.stop()
       await data.drain(closeOptions.drainMs)
       await transports.close()
       data.close()

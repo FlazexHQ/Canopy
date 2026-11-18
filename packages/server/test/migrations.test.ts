@@ -44,8 +44,13 @@ suite("meta migrations", () => {
       "request_log",
       "revocations",
       "settings",
+      "webhook_dead_letters",
+      "webhook_deliveries",
+      "webhook_schedules",
     ])
       expect(names).toContain(collection)
+    const deliveries = await meta.collection("webhook_deliveries").indexes()
+    expect(deliveries.find((index) => index.name === "ttl_expires")?.expireAfterSeconds).toBe(0)
 
     const sessions = await meta.collection("admin_sessions").indexes()
     expect(sessions.find((index) => index.name === "ttl_expires")?.expireAfterSeconds).toBe(0)
