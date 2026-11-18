@@ -41,10 +41,10 @@ export function DialogContent({
 }: WithClass<ComponentProps<typeof DialogContentPrimitive>>) {
   return (
     <>
-      <DialogBackdrop className="backdrop-motion fixed inset-0 bg-black/40 dark:bg-black/60" />
+      <DialogBackdrop className="backdrop-motion modal-exit fixed inset-0 bg-black/40 dark:bg-black/60" />
       <DialogContentPrimitive
         className={cn(
-          "popup-motion fixed inset-0 m-auto grid h-fit max-h-[min(90vh,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-lg gap-4 overflow-y-auto rounded-xl border bg-popover p-6 text-popover-foreground shadow-xl outline-none",
+          "popup-motion modal-exit fixed inset-0 m-auto grid h-fit max-h-[min(90vh,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-lg gap-4 overflow-y-auto rounded-xl border bg-popover p-6 text-popover-foreground shadow-xl outline-none",
           className,
         )}
         {...props}

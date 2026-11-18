@@ -97,7 +97,9 @@ test("publishes a policy change with a comment and lists it in the history", asy
   await dialog.getByRole("button", { name: "Publish" }).click()
   await expect(page.getByText("Published version 2", { exact: true })).toBeVisible()
   await expect(page.getByTestId("draft-status")).toContainText("Matches published version 2")
-  await expect(page.getByText("Public read for the e2e run")).toBeVisible()
+  await expect(
+    page.getByTestId("policy-history").getByText("Public read for the e2e run"),
+  ).toBeVisible()
 })
 
 test("simulates the draft as a user and as anonymous against the real documents", async ({

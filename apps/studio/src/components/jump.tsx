@@ -62,8 +62,8 @@ export function JumpTo({ destinations }: { readonly destinations: readonly Desti
         <span className="flex-1 truncate text-left">{t("shell.jump.open")}</span>
         <DialogShortcut className="rounded border border-border px-1.5 font-mono text-[11px] leading-5" />
       </DialogTrigger>
-      <DialogBackdrop className="backdrop-motion fixed inset-0 bg-black/30 dark:bg-black/60" />
-      <DialogContent className="popup-motion fixed inset-x-0 top-[12vh] mx-auto w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-2xl outline-none">
+      <DialogBackdrop className="backdrop-motion modal-exit fixed inset-0 bg-black/30 dark:bg-black/60" />
+      <DialogContent className="popup-motion modal-exit fixed inset-x-0 top-[12vh] mx-auto w-[calc(100%-2rem)] max-w-xl overflow-hidden rounded-xl border bg-popover text-popover-foreground shadow-2xl outline-none">
         <DialogTitle className="sr-only">{t("shell.jump.label")}</DialogTitle>
         <Command onAction={go} autoHighlight>
           <div className="flex items-center gap-2 border-b px-3">
