@@ -13,6 +13,7 @@
       "!!docs",
       "!!plans",
       "!!api",
+      "!!crates/*/tests/vectors",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
       "!!**/routeTree.gen.ts",

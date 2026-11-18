@@ -100,6 +100,7 @@
     "lint:api": "bun packages/testing/scripts/api-surface.ts --check",
     "readmes": "bun packages/testing/scripts/readmes.ts",
     "api": "bun packages/testing/scripts/api-surface.ts",
+    "vectors:matcher": "bun packages/testing/scripts/matcher-vectors.ts",
     "format": "biome format --write .",
     "test": "turbo run test",
     "test:all": "vitest run",
