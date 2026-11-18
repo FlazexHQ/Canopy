@@ -60,6 +60,11 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.targets }} ${{ matrix.rustup }}
+      - name: Restore the Cargo registry and build output (saved from master only)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: release-${{ matrix.name }}
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - if: matrix.name == 'linux'
         name: Install Zig and cargo-zigbuild from PyPI, pinned by hash
         run: |

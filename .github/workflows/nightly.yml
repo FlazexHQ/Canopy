@@ -43,6 +43,11 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1-threads
+      - name: Restore the Cargo registry and build output (saved from master only)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: native
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
       - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
@@ -154,6 +159,11 @@ jobs:
           node-version: "24"
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: rustup toolchain install
+      - name: Restore the Cargo registry and build output (saved from master only)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: native
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
       - name: Build the addon (release), so the benchmarks also measure the Rust core
@@ -305,6 +315,11 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1-threads
+      - name: Restore the Cargo registry and build output (saved from master only)
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: native
+          save-if: ${{ github.ref == 'refs/heads/master' }}
       - run: bun install --frozen-lockfile
       - name: Build the packages, the addon of this platform and the WebAssembly fallback
         shell: bash
