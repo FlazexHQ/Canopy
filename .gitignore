@@ -158,3 +158,13 @@ apps/docs/.astro/
 **/reports/mutation/
 **/reports/.stryker-tmp/
 stryker-setup-*.js
+
+# Rust build output
+/target/
+
+# Agent skills, installed locally
+.agents/
+.claude/skills/
+.taste-skill/
+**/skills/
+skills-lock.json
