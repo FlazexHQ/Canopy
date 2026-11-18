@@ -65,8 +65,10 @@ describe("serveMetrics", () => {
     const server = await serveMetrics({ port: 0, host: "127.0.0.1", render: () => "" })
     servers.push(server)
     const port = (server.address() as AddressInfo).port
-    await expect(serveMetrics({ port, host: "127.0.0.1", render: () => "" })).rejects.toThrow(
-      /EADDRINUSE/,
+    await expect(serveMetrics({ port, host: "127.0.0.1", render: () => "" })).rejects.toMatchObject(
+      {
+        code: "EADDRINUSE",
+      },
     )
   })
 })
