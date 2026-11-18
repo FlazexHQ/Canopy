@@ -1,6 +1,6 @@
 ---
 title: Storage
-description: Store files with the same policies as documents, on GridFS or any S3 compatible store.
+description: Store files with the same policies as documents, on local disk, Cloudflare R2 or AWS S3, and resize images on request.
 ---
 
 Canopy stores files in **buckets** and serves them at `/storage/v1`. Every file has a metadata document, and
@@ -20,9 +20,55 @@ export default defineConfig({
 })
 ```
 
-Without a `backend`, contents go to GridFS in the meta database (`canopy.storage.files` and
-`canopy.storage.chunks`), which suits small deployments. For anything larger, use an S3 compatible store (AWS
-S3, MinIO, Cloudflare R2 and others); Canopy signs its requests itself, with no SDK:
+## Backends
+
+Contents go to one of three backends. Metadata always stays in MongoDB, so policies, listing and signed URLs
+work the same on each.
+
+| Kind | Where files live | Use it for |
+| --- | --- | --- |
+| `local` (default) | A folder on disk, `storage` next to the config file unless `root` says otherwise | One server, or several that share one volume |
+| `r2` | A Cloudflare R2 bucket | No egress fees, and the Cloudflare edge |
+| `s3` | An AWS S3 bucket, or any S3 compatible store given by `endpoint` (MinIO and others) | AWS deployments and self hosted object stores |
+
+```ts
+import { defineConfig } from "@canopy/server"
+
+export default defineConfig({
+  storage: {
+    backend: { kind: "local", root: "/var/lib/canopy/storage" },
+    buckets: { documents: {} },
+  },
+})
+```
+
+The local backend writes each file to a temporary name and renames it into place, so a reader never sees half
+a file. Keep the folder out of any web server's document root: files are only served through `/storage/v1`,
+where the policies apply. To run several Canopy servers, give them one shared volume or use R2 or S3.
+
+For R2, create an R2 API token with object read and write access to the bucket and pass its key pair. A bucket
+created in a jurisdiction also needs `jurisdiction`, such as `"eu"`:
+
+```ts
+import { defineConfig, env } from "@canopy/server"
+
+export default defineConfig({
+  storage: {
+    backend: {
+      kind: "r2",
+      accountId: env("CLOUDFLARE_ACCOUNT_ID"),
+      bucket: env("R2_BUCKET"),
+      accessKeyId: env("R2_ACCESS_KEY_ID"),
+      secretAccessKey: env.secret("R2_SECRET_ACCESS_KEY"),
+    },
+    buckets: { documents: {} },
+  },
+})
+```
+
+For AWS S3, give the region and bucket; requests go to `https://<bucket>.s3.<region>.amazonaws.com`. Add
+`endpoint` for another S3 compatible store, which then uses path style addressing unless `forcePathStyle` is
+`false`. Canopy signs its requests itself, with no SDK:
 
 ```ts
 import { defineConfig, env } from "@canopy/server"
@@ -31,11 +77,10 @@ export default defineConfig({
   storage: {
     backend: {
       kind: "s3",
-      endpoint: env("S3_ENDPOINT"),
-      region: env("S3_REGION"),
+      region: env("AWS_REGION"),
       bucket: env("S3_BUCKET"),
-      accessKeyId: env("S3_ACCESS_KEY_ID"),
-      secretAccessKey: env.secret("S3_SECRET_ACCESS_KEY"),
+      accessKeyId: env("AWS_ACCESS_KEY_ID"),
+      secretAccessKey: env.secret("AWS_SECRET_ACCESS_KEY"),
     },
     buckets: { documents: {} },
   },
@@ -94,6 +139,33 @@ await documents.remove("reports/q3.pdf")
 
 `createStorage` from `@canopy/client` gives the same API without a realtime client.
 
+## Image transformations
+
+JPEG, PNG, WebP, AVIF, GIF and BMP files can be resized and converted when they are read, on every backend:
+
+```ts
+import { createStorage } from "@canopy/client"
+
+const avatars = createStorage({ url: "https://api.example.com", publishableKey: "pk_app" }).from("avatars")
+
+const thumbnail = await avatars.download("alice.png", { transform: { width: 128, height: 128 } })
+const url = avatars.publicUrl("alice.png", { transform: { width: 64, format: "webp", quality: 70 } })
+const signed = await avatars.createSignedUrl("alice.png", 3600, { transform: { height: 400 } })
+```
+
+| Parameter | Values | Default |
+| --- | --- | --- |
+| `width`, `height` | 1 to `images.maxDimension` pixels; give one to keep the aspect ratio | the size of the image |
+| `resize` | `cover` crops to fill the box, `contain` fits inside it, `fill` stretches | `cover` |
+| `quality` | 20 to 100, for JPEG, WebP and AVIF | 80 |
+| `format` | `origin`, `webp`, `avif`, `jpeg` or `png` (`origin` keeps JPEG, PNG, WebP and AVIF, and turns GIF and BMP into PNG) | `origin` |
+
+A transformation needs the same right to read as the file itself. Each variant is rendered once, stored in the
+backend next to its source and served from there afterwards; replacing or deleting the file deletes its
+variants. Sources over `images.maxSourceSize` (25 MiB) or 50 megapixels are refused before they are decoded,
+and a server renders at most two images at once. Set `images: { enabled: false }` (or
+`CANOPY_STORAGE_IMAGES=false`) to turn the routes off.
+
 ## Large files
 
 `uploadResumable` sends a file in numbered parts (8 MiB each, the last one smaller) that the server joins at the
@@ -118,7 +190,8 @@ await documents.uploadResumable("talks/keynote.mp4", video, {
 ```
 
 The policies are checked when the upload starts and again when it completes. Unfinished uploads expire after 24
-hours and their parts are dropped. With S3, also add a lifecycle rule that aborts incomplete multipart uploads.
+hours and their parts are dropped. With R2 or S3, also add a lifecycle rule that aborts incomplete multipart
+uploads.
 
 ## HTTP
 
@@ -132,6 +205,9 @@ hours and their parts are dropped. With S3, also add a lifecycle rule that abort
 | `POST /storage/v1/sign/<bucket>/<path>`        | `{ "expiresIn": 3600 }` returns a signed URL (at most 7 days)    |
 | `GET /storage/v1/signed/<bucket>/<path>?token=` | Download with a signed URL, no credentials                     |
 | `GET /storage/v1/public/<bucket>/<path>`       | Download from a public bucket, no credentials                    |
+| `GET /storage/v1/render/image/object/<bucket>/<path>?width=&height=&resize=&quality=&format=` | A transformed image the caller may read |
+| `GET /storage/v1/render/image/public/<bucket>/<path>?...` | A transformed image of a public bucket |
+| `GET /storage/v1/render/image/signed/<bucket>/<path>?...&token=` | A transformed image with a signed URL token |
 | `POST /storage/v1/upload/<bucket>/<path>`      | Start a resumable upload: `{ size, contentType, upsert, metadata }` |
 | `PUT /storage/v1/uploads/<id>/<part>`          | Store a part                                                    |
 | `GET /storage/v1/uploads/<id>`                 | The parts stored so far                                         |

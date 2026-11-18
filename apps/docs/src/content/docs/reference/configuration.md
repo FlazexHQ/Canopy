@@ -120,9 +120,12 @@ write. Studio shows them on the Audit page, and the audit retention setting expi
 
 | Setting         | Variable                       | Default              | Description                                          |
 | --------------- | ------------------------------ | -------------------- | ---------------------------------------------------- |
-| `backend`       |                                | `{ kind: "gridfs" }` | GridFS in the meta database, or `{ kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken?, forcePathStyle?, prefix? }` |
+| `backend`       |                                | `{ kind: "local", root: "storage" }` | `{ kind: "local", root? }` (relative to the config file), `{ kind: "r2", accountId, bucket, accessKeyId, secretAccessKey, jurisdiction?, prefix? }` or `{ kind: "s3", region, bucket, accessKeyId, secretAccessKey, endpoint?, sessionToken?, forcePathStyle?, prefix? }` |
 | `maxFileSize`   | `CANOPY_STORAGE_MAX_FILE_SIZE` | `52428800`           | The largest file sent in one request, in bytes        |
 | `maxUploadSize` |                                | `5368709120`         | The largest resumable upload, in bytes               |
+| `images.enabled` | `CANOPY_STORAGE_IMAGES`       | `true`               | Serve image transformations at `/storage/v1/render/image` |
+| `images.maxDimension` |                          | `2500`               | The largest width or height a transformation may ask for, in pixels |
+| `images.maxSourceSize` |                         | `26214400`           | The largest image transformed, in bytes              |
 | `buckets`       |                                | `{}`                 | `{ <name>: { public?, maxFileSize?, allowedTypes? } }`; storage is on with at least one |
 
 See [storage](/guides/storage/).
