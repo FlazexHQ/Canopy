@@ -2,7 +2,6 @@
   "$schema": "https://turborepo.com/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
       "inputs": ["src/**", "tsconfig.json", "package.json"],
       "outputs": ["dist/**", "*.tsbuildinfo"]
     },
@@ -20,7 +19,6 @@
       "outputs": ["*.node", "*.wasm"]
     },
     "test": {
-      "dependsOn": ["^build"],
       "inputs": ["src/**", "test/**", "vectors/**", "vitest.config.ts", "package.json"],
       "outputs": []
     }
