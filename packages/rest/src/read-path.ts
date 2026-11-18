@@ -641,7 +641,7 @@ export class ReadPath {
       const session = this.client.startSession({ snapshot: true })
       try {
         const result = await read(session)
-        return { result, ct: snapshotTimeOf(session) ?? toCt(session.operationTime) }
+        return { result, ct: snapshotTimeOf(session) }
       } finally {
         await session.endSession()
       }

@@ -1,5 +1,12 @@
 import { withIdTieBreaker } from "@canopy/matcher"
-import { type ClusterTime, snapshotTimeOf, toBsonLibrary, toCt, ZERO_CT } from "@canopy/protocol"
+import {
+  CanopyError,
+  type ClusterTime,
+  ErrorCode,
+  snapshotTimeOf,
+  toBsonLibrary,
+  toCt,
+} from "@canopy/protocol"
 import { BSON, type Db, type Document, type MongoClient } from "mongodb"
 import { type Doc, docKey } from "./event.ts"
 import type { RealtimeMetrics } from "./metrics.ts"
@@ -36,13 +43,23 @@ export class Semaphore {
   }
 }
 
+/** The query a snapshot read runs. */
+interface SnapshotQuery {
+  readonly coll: string
+  readonly filter: Record<string, unknown>
+  readonly sort: Readonly<Record<string, 1 | -1>> | undefined
+  readonly limit: number | undefined
+}
+
 /** Read options that keep every BSON type exact, so in-process matching agrees with MongoDB. */
 export const EXACT_BSON = { promoteValues: false, bsonRegExp: true } as const
 
 /**
- * Reads query results in a snapshot session and reports the snapshot's cluster time. Every write with
- * `ct <= T` is in the result, so change events with `ct <= T` are already included (the session's
- * `snapshotTime`, with `operationTime` as the fallback).
+ * Reads query results in a snapshot session and reports the snapshot's cluster time T. Every write with
+ * `ct <= T` is in the result, so change events with `ct <= T` are already included. T is the session's
+ * `snapshotTime`, never its `operationTime`, which can be later than the snapshot and would make the events
+ * in between look delivered. A read of a collection that does not exist yet has no snapshot time: then a
+ * cluster time is taken first and the read repeated, so T is never later than what the result reflects.
  */
 export class MongoSnapshotReader implements SnapshotReader {
   private readonly client: MongoClient
@@ -65,33 +82,56 @@ export class MongoSnapshotReader implements SnapshotReader {
     )
   }
 
-  async read(query: {
-    readonly coll: string
-    readonly filter: Record<string, unknown>
-    readonly sort: Readonly<Record<string, 1 | -1>> | undefined
-    readonly limit: number | undefined
-  }): Promise<{ docs: Doc[]; ct: ClusterTime }> {
+  async read(query: SnapshotQuery): Promise<{ docs: Doc[]; ct: ClusterTime }> {
     return this.queue.run(async () => {
       const started = performance.now()
-      const session = this.client.startSession({ snapshot: true })
-      try {
-        let cursor = this.db
-          .collection(query.coll)
-          .find(toBsonLibrary(query.filter, BSON) as Document, {
-            session,
-            ...EXACT_BSON,
-            maxTimeMS: this.maxTimeMS,
-          })
-          .sort(withIdTieBreaker(query.sort ?? {}) as Record<string, 1 | -1>)
-        if (query.limit !== undefined) cursor = cursor.limit(query.limit)
-        const docs = (await cursor.toArray()) as Doc[]
-        const ct = snapshotTimeOf(session) ?? toCt(session.operationTime) ?? ZERO_CT
-        this.metrics?.snapshotSeconds.observe((performance.now() - started) / 1000)
-        return { docs, ct }
-      } finally {
-        await session.endSession()
+      const first = await this.readOnce(query)
+      let result: { docs: Doc[]; ct: ClusterTime }
+      if (first.ct !== undefined) {
+        result = { docs: first.docs, ct: first.ct }
+      } else {
+        const before = await this.currentClusterTime()
+        const second = await this.readOnce(query)
+        const ct = second.ct ?? before
+        if (ct === undefined) {
+          throw new CanopyError(ErrorCode.Internal, "The snapshot read has no cluster time")
+        }
+        result = { docs: second.docs, ct }
       }
+      this.metrics?.snapshotSeconds.observe((performance.now() - started) / 1000)
+      return result
     })
+  }
+
+  private async readOnce(
+    query: SnapshotQuery,
+  ): Promise<{ docs: Doc[]; ct: ClusterTime | undefined }> {
+    const session = this.client.startSession({ snapshot: true })
+    try {
+      let cursor = this.db
+        .collection(query.coll)
+        .find(toBsonLibrary(query.filter, BSON) as Document, {
+          session,
+          ...EXACT_BSON,
+          maxTimeMS: this.maxTimeMS,
+        })
+        .sort(withIdTieBreaker(query.sort ?? {}) as Record<string, 1 | -1>)
+      if (query.limit !== undefined) cursor = cursor.limit(query.limit)
+      const docs = (await cursor.toArray()) as Doc[]
+      return { docs, ct: snapshotTimeOf(session) }
+    } finally {
+      await session.endSession()
+    }
+  }
+
+  private async currentClusterTime(): Promise<ClusterTime | undefined> {
+    const session = this.client.startSession()
+    try {
+      await this.db.command({ ping: 1 }, { session })
+      return toCt(session.operationTime)
+    } finally {
+      await session.endSession()
+    }
   }
 
   /** Fetches current documents by `_id`, for the lazy post image resolver. */
