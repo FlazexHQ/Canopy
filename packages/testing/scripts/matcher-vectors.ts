@@ -7,13 +7,15 @@ import { BSON, type Document, MongoClient } from "mongodb"
 import { arbitraries } from "../src/index.ts"
 
 /**
- * Records filter vectors from MongoDB itself for the Rust matcher (`crates/canopy-matcher/tests`), so
- * `cargo test` checks the Rust matcher against MongoDB without a database. It inserts generated documents,
- * runs each generated filter with `find`, and writes the documents and filters as raw BSON (exactly the
- * bytes MongoDB stored and received, field order included) with MongoDB's answer: a bit per document that
- * matched, or the error MongoDB refused the filter with.
+ * Records matcher vectors from MongoDB itself for the Rust matcher (`crates/canopy-matcher/tests`), so
+ * `cargo test` checks the Rust matcher against MongoDB without a database. It inserts generated documents
+ * and writes them as raw BSON (exactly the bytes MongoDB stored, field order included) with three files of
+ * cases, each with MongoDB's answer or the error MongoDB refused the case with. `filters.json` runs each
+ * generated filter with `find` and keeps a bit per matching document. `sorts.json` runs each generated sort
+ * with `find().sort()` and the `_id` tie breaker and keeps the order of the documents. `projections.json`
+ * runs each generated projection with `find()` and keeps the projected documents as raw BSON.
  *
- *   bun packages/testing/scripts/matcher-vectors.ts [--runs 2000] [--seed 20261106] [--out <file>]
+ *   bun packages/testing/scripts/matcher-vectors.ts [--runs 2000] [--seed 20261106] [--dir <folder>]
  *
  * It needs a MongoDB server in `CANOPY_TEST_MONGODB_URI` (a standalone server is enough) and uses a
  * scratch database it drops afterwards.
@@ -24,10 +26,7 @@ const { values } = parseArgs({
   options: {
     runs: { type: "string", default: "2000" },
     seed: { type: "string", default: "20261106" },
-    out: {
-      type: "string",
-      default: resolve(root, "crates/canopy-matcher/tests/vectors/filters.json"),
-    },
+    dir: { type: "string", default: resolve(root, "crates/canopy-matcher/tests/vectors") },
   },
 })
 const runs = Number(values.runs)
@@ -47,6 +46,30 @@ function bitmask(ids: readonly number[]): string {
   for (const id of ids) bits[id >> 3] = (bits[id >> 3] ?? 0) | (1 << (id & 7))
   return Buffer.from(bits).toString("hex")
 }
+
+const SORT_PATHS = ["a", "b", "c", "a.b", "a.c", "b.a", "a.0", "a.b.c", "a.0.b", "_id"] as const
+const sortSpec = fc
+  .uniqueArray(fc.tuple(fc.constantFrom(...SORT_PATHS), fc.constantFrom(1, -1)), {
+    minLength: 1,
+    maxLength: 3,
+    selector: ([key]) => key,
+  })
+  .map((entries) => Object.fromEntries(entries) as Record<string, 1 | -1>)
+
+const PROJECTION_PATHS = ["a", "b", "c", "a.b", "a.c", "b.a", "a.b.c", "a.0", "_id.x"] as const
+const projectionSpec = fc
+  .uniqueArray(fc.constantFrom(...PROJECTION_PATHS), { minLength: 1, maxLength: 3 })
+  .chain((paths) =>
+    fc
+      .tuple(fc.constantFrom(0, 1, true, false), fc.constantFrom(undefined, 0, 1))
+      .map(([flag, id]) => {
+        const spec: Record<string, number | boolean> = Object.fromEntries(
+          paths.map((p) => [p, flag]),
+        )
+        if (id !== undefined) spec["_id"] = id
+        return spec
+      }),
+  )
 
 const client = new MongoClient(uri)
 const db = client.db(`canopy_vectors_${process.pid}`)
@@ -69,15 +92,48 @@ try {
     }
   }
 
-  const out = {
-    source: `MongoDB ${version}, seed ${seed}, ${DOCS} documents, ${runs} filters`,
-    documents,
-    cases,
+  const sorts: Record<string, unknown>[] = []
+  for (const spec of fc.sample(sortSpec, { numRuns: Math.max(50, runs / 10), seed })) {
+    const bytes = base64(BSON.serialize(spec))
+    try {
+      const found = await coll
+        .find({}, { projection: { _id: 1 } })
+        .sort("_id" in spec ? spec : { ...spec, _id: 1 })
+        .toArray()
+      sorts.push({ sort: bytes, order: found.map((doc) => Number(doc["_id"])) })
+    } catch (error: unknown) {
+      sorts.push({ sort: bytes, error: error instanceof Error ? error.message : String(error) })
+    }
   }
-  await mkdir(dirname(values.out), { recursive: true })
-  await writeFile(values.out, `${JSON.stringify(out, null, 1)}\n`)
-  const refused = cases.filter((entry) => "error" in entry).length
-  process.stdout.write(`${out.source}: ${cases.length - refused} answered, ${refused} refused\n`)
+
+  const projections: Record<string, unknown>[] = []
+  for (const spec of fc.sample(projectionSpec, { numRuns: Math.max(50, runs / 10), seed })) {
+    const bytes = base64(BSON.serialize(spec))
+    try {
+      const found = await coll.find({}, { projection: spec, raw: true, sort: { _id: 1 } }).toArray()
+      projections.push({
+        projection: bytes,
+        documents: found.map((doc) => base64(doc as unknown as Uint8Array)),
+      })
+    } catch (error: unknown) {
+      projections.push({
+        projection: bytes,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  await mkdir(values.dir, { recursive: true })
+  const write = async (name: string, kind: string, entries: Record<string, unknown>[]) => {
+    const source = `MongoDB ${version}, seed ${seed}, ${DOCS} documents, ${entries.length} ${kind}`
+    const out = { source, documents, cases: entries }
+    await writeFile(resolve(values.dir, name), `${JSON.stringify(out, null, 1)}\n`)
+    const refused = entries.filter((entry) => "error" in entry).length
+    process.stdout.write(`${source}: ${entries.length - refused} answered, ${refused} refused\n`)
+  }
+  await write("filters.json", "filters", cases)
+  await write("sorts.json", "sorts", sorts)
+  await write("projections.json", "projections", projections)
 } finally {
   await db.dropDatabase().catch(() => undefined)
   await client.close()

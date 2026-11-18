@@ -343,8 +343,8 @@ impl<'a> DocRef<'a> {
 /// An array, owned or raw.
 #[derive(Debug, Clone, Copy)]
 pub enum ArrayRef<'a> {
-    /// An owned array.
-    Owned(&'a [Value]),
+    /// An owned array, borrowed as its vector so that two distinct empty arrays keep distinct addresses.
+    Owned(&'a Vec<Value>),
     /// A raw array: a document whose names are the positions.
     Raw(RawDocument<'a>),
 }

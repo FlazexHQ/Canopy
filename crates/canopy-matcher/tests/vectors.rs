@@ -1,15 +1,15 @@
-//! Replays filter vectors recorded from MongoDB (`packages/testing/scripts/matcher-vectors.ts`): every filter
+//! Replays matcher vectors recorded from MongoDB (`packages/testing/scripts/matcher-vectors.ts`). Every filter
 //! MongoDB answered must match exactly the same documents here, and every filter MongoDB refused must be
 //! refused here too, both on decoded documents and on the raw BSON MongoDB stored. Filters the matcher reports as unsupported are routed to MongoDB in production, so they
 //! are counted, not compared.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-use canopy_matcher::{compile_filter, is_unsupported};
+use canopy_matcher::{compile_filter, compile_projection, compile_sort, is_unsupported};
 use canopy_protocol::bson::decode_document;
 use canopy_protocol::ejson::forgiving_base64_decode;
 use canopy_protocol::json::{Json, parse_json};
-use canopy_protocol::{Document, RawDocument, Value};
+use canopy_protocol::{DocRef, Document, RawDocument, Value};
 
 fn text(json: &Json) -> &str {
     match json {
@@ -111,4 +111,158 @@ fn filters_agree_with_mongodb() {
         mismatches.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
     );
     assert!(compared > cases.len() / 2, "too few filters compared: {compared} of {}", cases.len());
+}
+
+struct Recorded {
+    source: String,
+    documents: Vec<Document>,
+    cases: Vec<Json>,
+}
+
+fn recorded(source: &str) -> Recorded {
+    let vectors = parse_json(source).expect("vector file");
+    let Some(Json::Array(documents)) = vectors.get("documents") else { panic!("documents") };
+    let Some(Json::Array(cases)) = vectors.get("cases") else { panic!("cases") };
+    Recorded {
+        source: vectors.get("source").map(|json| text(json).to_owned()).unwrap_or_default(),
+        documents: documents.iter().map(document).collect(),
+        cases: cases.clone(),
+    }
+}
+
+fn shown(value: Document) -> String {
+    canopy_protocol::ejson::stringify(&Value::Document(value)).unwrap_or_default()
+}
+
+#[test]
+fn sorts_agree_with_mongodb() {
+    let vectors = recorded(include_str!("vectors/sorts.json"));
+    let mut mismatches = Vec::new();
+    let (mut ordered, mut refused) = (0, 0);
+    for case in &vectors.cases {
+        let spec = document(case.get("sort").expect("sort"));
+        let label = shown(spec.clone());
+        let mut documents = vectors.documents.clone();
+        let outcome = compile_sort(&Value::Document(spec)).and_then(|sort| sort.sort(&mut documents));
+        match (outcome, case.get("order")) {
+            (Ok(()), Some(Json::Array(order))) => {
+                ordered += 1;
+                let expected: Vec<String> = order.iter().map(|id| format!("{id:?}")).collect();
+                let actual: Vec<String> = documents
+                    .iter()
+                    .map(|doc| match doc.get("_id") {
+                        Some(Value::Int32(id)) => format!("{:?}", Json::Number(f64::from(*id))),
+                        other => format!("{other:?}"),
+                    })
+                    .collect();
+                if expected != actual {
+                    mismatches
+                        .push(format!("{label}: MongoDB and the matcher order the documents differently"));
+                }
+            }
+            (Err(_), None) => refused += 1,
+            (Err(error), Some(_)) => {
+                mismatches
+                    .push(format!("{label}: MongoDB sorted, the matcher refused ({})", error.message()));
+            }
+            (Ok(()), _) => mismatches.push(format!("{label}: MongoDB refused, the matcher sorted")),
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatches against {}:\n{}",
+        mismatches.len(),
+        vectors.source,
+        mismatches.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
+    );
+    assert!(ordered > vectors.cases.len() / 3, "too few sorts compared: {ordered}");
+    assert!(refused > 0, "no parallel array refusal compared");
+}
+
+#[test]
+fn sorts_on_raw_documents_order_like_decoded_ones() {
+    let vectors = recorded(include_str!("vectors/sorts.json"));
+    let raw: Vec<Vec<u8>> = vectors
+        .documents
+        .iter()
+        .map(|doc| canopy_protocol::bson::encode_document(doc).expect("BSON"))
+        .collect();
+    for case in &vectors.cases {
+        let spec = document(case.get("sort").expect("sort"));
+        let sort = compile_sort(&Value::Document(spec.clone())).expect("compiles");
+        for (left, (a, a_raw)) in vectors.documents.iter().zip(&raw).enumerate().step_by(7) {
+            for (b, b_raw) in vectors.documents.iter().zip(&raw).skip(left % 5).step_by(11) {
+                let decoded = sort.compare(DocRef::Owned(a), DocRef::Owned(b));
+                let in_place = sort.compare(
+                    DocRef::Raw(RawDocument::new(a_raw).expect("raw")),
+                    DocRef::Raw(RawDocument::new(b_raw).expect("raw")),
+                );
+                assert_eq!(
+                    decoded,
+                    in_place,
+                    "{} on {} and {}",
+                    shown(spec.clone()),
+                    shown(a.clone()),
+                    shown(b.clone())
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn projections_agree_with_mongodb() {
+    let vectors = recorded(include_str!("vectors/projections.json"));
+    let mut mismatches = Vec::new();
+    let (mut projected, mut unsupported) = (0, 0);
+    for case in &vectors.cases {
+        let spec = document(case.get("projection").expect("projection"));
+        let label = shown(spec.clone());
+        let compiled = compile_projection(&Value::Document(spec));
+        match (compiled, case.get("documents")) {
+            (Err(error), _) if is_unsupported(&error) => unsupported += 1,
+            (Err(_), None) => {}
+            (Err(error), Some(_)) => {
+                mismatches
+                    .push(format!("{label}: MongoDB projected, the matcher refused ({})", error.message()));
+            }
+            (Ok(_), None) => mismatches.push(format!("{label}: MongoDB refused, the matcher projected")),
+            (Ok(projection), Some(Json::Array(expected))) => {
+                projected += 1;
+                for (doc, want) in vectors.documents.iter().zip(expected) {
+                    let want = document(want);
+                    for (form, got) in [
+                        ("decoded", projection.apply(DocRef::Owned(doc))),
+                        (
+                            "raw",
+                            projection.apply(DocRef::Raw(
+                                RawDocument::new(&canopy_protocol::bson::encode_document(doc).expect("BSON"))
+                                    .expect("raw"),
+                            )),
+                        ),
+                    ] {
+                        let bytes = canopy_protocol::bson::encode_document(&got).expect("BSON");
+                        if bytes != canopy_protocol::bson::encode_document(&want).expect("BSON") {
+                            mismatches.push(format!(
+                                "{label} on {} ({form}): MongoDB {}, matcher {}",
+                                shown(doc.clone()),
+                                shown(want.clone()),
+                                shown(got)
+                            ));
+                        }
+                    }
+                }
+            }
+            (Ok(_), Some(other)) => panic!("unexpected documents: {other:?}"),
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatches against {}:\n{}",
+        mismatches.len(),
+        vectors.source,
+        mismatches.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
+    );
+    assert_eq!(unsupported, 0);
+    assert!(projected > vectors.cases.len() / 3, "too few projections compared: {projected}");
 }
