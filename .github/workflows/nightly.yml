@@ -38,14 +38,24 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - name: Install the toolchain pinned in rust-toolchain.toml
-        run: rustup toolchain install
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        shell: bash
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
-      - name: Build the addon, so the differential suites also compare the Rust core
-        run: bun --filter @canopy/native build:native --native-only
+      - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
+        run: bun --filter @canopy/native build:native
       - name: Differential suites (about 1M filter cases, each decided by MongoDB, TypeScript and Rust)
         run: bun --bun vitest run --project matcher --project policy
+        env:
+          CANOPY_TEST_ENGINE: native
+      - name: The same against the WebAssembly build of the Rust core (500 filters)
+        run: bun --bun vitest run --project matcher --project policy
+        env:
+          CANOPY_TEST_ENGINE: wasm
+          CANOPY_DIFF_RUNS: "500"
       - name: Realtime simulation (10k seeds)
         run: bun --bun vitest run --project realtime -t "seeded simulation" --testTimeout 14400000
       - name: Echo correlation between writes and change events (100k mutations)
