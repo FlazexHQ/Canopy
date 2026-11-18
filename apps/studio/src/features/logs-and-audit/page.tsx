@@ -295,7 +295,7 @@ function DenialsView() {
   const groups = query.data
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted-foreground">{t("logs.denials.intro")}</p>
+      <p className="max-w-3xl text-sm text-muted-foreground">{t("logs.denials.intro")}</p>
       {groups.length === 0 ? (
         <EmptyState>{t("logs.denials.empty")}</EmptyState>
       ) : (

@@ -55,5 +55,7 @@ export function TableCell({ className, ...props }: ComponentProps<"td">) {
 
 /** A caption under a {@link Table}. */
 export function TableCaption({ className, ...props }: ComponentProps<"caption">) {
-  return <caption className={cn("mt-4 text-sm text-muted-foreground", className)} {...props} />
+  return (
+    <caption className={cn("mt-3 text-left text-xs text-muted-foreground", className)} {...props} />
+  )
 }

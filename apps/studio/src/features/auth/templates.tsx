@@ -382,7 +382,7 @@ export function TemplatesTab() {
   if (templates.length === 0) return <EmptyState>{t("auth.features.templates")}</EmptyState>
   return (
     <div className="grid gap-6">
-      <p className="text-sm text-muted-foreground">
+      <p className="max-w-3xl text-sm text-muted-foreground">
         {t("auth.templates.intro")} {t("auth.templates.version", { version })}
       </p>
       {conflict === undefined ? null : (

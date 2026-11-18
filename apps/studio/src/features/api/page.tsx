@@ -192,7 +192,7 @@ export function ApiPage() {
     <>
       <PageHeader title={t("api.title")} description={t("api.description")} />
       <Tabs value={tab} onValueChange={setTab} className="gap-4">
-        <TabsList className="flex-wrap">
+        <TabsList>
           <TabsTrigger value="keys">{t("api.tabs.keys")}</TabsTrigger>
           <TabsTrigger value="reference">{t("api.tabs.reference")}</TabsTrigger>
           <TabsTrigger value="graphql">{t("api.tabs.graphql")}</TabsTrigger>

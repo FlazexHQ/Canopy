@@ -168,6 +168,19 @@
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-ring;
   }
+  summary:not(.list-none) {
+    @apply inline-flex cursor-pointer list-none items-center gap-1.5 select-none;
+  }
+  summary:not(.list-none)::-webkit-details-marker {
+    display: none;
+  }
+  summary:not(.list-none)::before {
+    content: "";
+    @apply size-1.5 -rotate-45 border-r-[1.5px] border-b-[1.5px] border-current opacity-60 transition-transform;
+  }
+  details[open] > summary:not(.list-none)::before {
+    @apply rotate-45;
+  }
   table,
   [data-numeric] {
     font-variant-numeric: tabular-nums;
@@ -202,5 +215,9 @@
   .backdrop-motion[data-starting-style],
   .backdrop-motion[data-ending-style] {
     opacity: 0;
+  }
+  /* A closing modal keeps the page inert until its exit ends, so modals close at once and the next click lands. */
+  .modal-exit[data-ending-style] {
+    transition-duration: 0ms;
   }
 }

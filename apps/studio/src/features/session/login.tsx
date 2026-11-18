@@ -58,13 +58,13 @@ export function LoginPage() {
   const showError = error !== null
   return (
     <main id="main" className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="mb-2 size-8" />
-          <h1 className="font-semibold leading-none">{t("session.title")}</h1>
+      <Card className="w-full max-w-sm gap-6 py-7 shadow-[0_1px_2px_rgb(0_0_0/0.04),0_8px_24px_-12px_rgb(0_0_0/0.12)]">
+        <CardHeader className="gap-1.5 px-7">
+          <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="mb-3 size-9" />
+          <h1 className="text-xl font-semibold tracking-tight">{t("session.title")}</h1>
           <CardDescription>{t("session.description")}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-7">
           <form
             className="grid gap-4"
             aria-describedby={showError ? errorId : undefined}

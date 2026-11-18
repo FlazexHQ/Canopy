@@ -113,8 +113,9 @@ export function KpiStrip({
           <dt className="truncate text-[13px] text-muted-foreground">{item.label}</dt>
           <dd
             className={cn(
-              "truncate text-kpi tabular-nums",
-              item.missing === true && "pt-1.5 text-sm text-muted-foreground",
+              item.missing === true
+                ? "line-clamp-2 pt-1.5 text-sm text-muted-foreground"
+                : "truncate text-kpi tabular-nums",
               item.tone === "negative" && "text-destructive",
               item.tone === "warning" && "text-warning",
             )}
@@ -122,7 +123,7 @@ export function KpiStrip({
             {item.value}
           </dd>
           {item.note === undefined ? null : (
-            <dd className="truncate text-xs text-muted-foreground">{item.note}</dd>
+            <dd className="line-clamp-2 text-xs text-muted-foreground">{item.note}</dd>
           )}
         </div>
       ))}

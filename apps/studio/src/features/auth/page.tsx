@@ -160,7 +160,7 @@ function KeysTab() {
           : "secondary"
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted-foreground">{t("auth.keys.intro")}</p>
+      <p className="max-w-3xl text-sm text-muted-foreground">{t("auth.keys.intro")}</p>
       {permissions.manageSettings ? (
         <div>
           <Button onClick={() => setRotating(true)}>{t("auth.keys.rotate")}</Button>
