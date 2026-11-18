@@ -17,3 +17,6 @@ start when their build cannot load instead of running another implementation.
 
 Studio's policy simulation of a draft definition evaluates it on the configured engine too, so "view as user"
 answers exactly as the server will once the draft is saved.
+
+The `canopy-server` startup log names the engine, and the standalone executables embed the addon of their
+target when it is built, so `engine: "native"` works without `node_modules`.

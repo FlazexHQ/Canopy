@@ -126,6 +126,7 @@ async function main(): Promise<void> {
       realtime: realtime !== false,
       config: config.file ?? "environment",
       runtime,
+      engine: config.server.engine,
     },
     "canopy listening",
   )

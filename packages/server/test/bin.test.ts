@@ -4,7 +4,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -215,6 +215,7 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
     const { run, base, metrics } = await boot()
     try {
       expect(run.output()).toContain('"msg":"canopy listening"')
+      expect(run.output()).toContain(`"engine":"${TEST_ENGINE}"`)
       const healthz = await fetch(`${base}/healthz`)
       expect(healthz.status).toBe(200)
       expect(await healthz.text()).toBe("ok")
