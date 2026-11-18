@@ -25,6 +25,11 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  NATIVE_TARGETS,
+  type NativeTarget,
+  hostTarget as nativeHostTarget,
+} from "../../packages/native/src/targets.ts"
 
 interface Program {
   readonly name: string
@@ -45,17 +50,16 @@ const PROGRAMS: Readonly<Record<string, Program>> = {
     packages: ["@canopy/config", "@canopy/policy"],
   },
 }
-/** Each Bun target and the platform suffix of the `@canopy/native` addon built for it. */
-const ADDONS: Readonly<Record<string, string>> = {
-  "linux-x64": "linux-x64-gnu",
-  "linux-arm64": "linux-arm64-gnu",
-  "linux-x64-musl": "linux-x64-musl",
-  "linux-arm64-musl": "linux-arm64-musl",
-  "darwin-x64": "darwin-x64",
-  "darwin-arm64": "darwin-arm64",
-  "windows-x64": "win32-x64-msvc",
-  "windows-arm64": "win32-arm64-msvc",
+/** The Bun target name of a platform with a prebuilt addon, as `--target=bun-<name>` takes it. */
+function bunTarget(target: NativeTarget): string {
+  const os = target.os === "win32" ? "windows" : target.os
+  return `${os}-${target.cpu}${target.libc === "musl" ? "-musl" : ""}`
 }
+
+/** Each Bun target and the platform suffix of the `@canopy/native` addon built for it. */
+const ADDONS: Readonly<Record<string, string>> = Object.fromEntries(
+  NATIVE_TARGETS.map((target) => [bunTarget(target), target.suffix]),
+)
 const TARGETS = Object.keys(ADDONS)
 const NATIVE = join(ROOT, "packages/native")
 
@@ -101,12 +105,8 @@ function parse(argv: readonly string[]) {
 
 /** The Bun target of this machine, in the names of {@link TARGETS}. */
 function hostTarget(): string {
-  const report = process.report?.getReport() as
-    | { header?: { glibcVersionRuntime?: string } }
-    | undefined
-  const os = process.platform === "win32" ? "windows" : process.platform
-  const musl = process.platform === "linux" && report?.header?.glibcVersionRuntime === undefined
-  return `${os}-${process.arch}${musl ? "-musl" : ""}`
+  const host = nativeHostTarget()
+  return host === undefined ? `${process.platform}-${process.arch}` : bunTarget(host)
 }
 
 /** The built addon of `@canopy/native` for a Bun target, when there is one. */
