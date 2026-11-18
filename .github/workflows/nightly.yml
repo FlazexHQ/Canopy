@@ -252,7 +252,21 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
       - run: bun install --frozen-lockfile
+      - name: Build the packages, the addon of this platform and the WebAssembly fallback
+        shell: bash
+        run: |
+          bun run build
+          bun --filter @canopy/native build:native
+      - name: Without --allow-ffi the loader takes WebAssembly without asking, with it the addon
+        shell: bash
+        run: |
+          deno run --no-prompt --allow-read --allow-env --allow-sys --node-modules-dir=manual packages/native/scripts/deno-smoke.ts wasm
+          deno run --no-prompt --allow-read --allow-env --allow-sys --allow-ffi --node-modules-dir=manual packages/native/scripts/deno-smoke.ts native
       - if: runner.os == 'Linux'
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - if: runner.os != 'Linux'
