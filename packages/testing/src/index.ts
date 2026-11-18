@@ -8,4 +8,11 @@ export {
   testPolicyEngine,
 } from "./engine.ts"
 export * as hostile from "./hostile.ts"
-export { DIFF_RUNS, describeWithMongo, MONGODB_URI, type MongoTestDb } from "./mongo.ts"
+export {
+  DIFF_DOCS,
+  DIFF_OPERATOR_CASES,
+  DIFF_RUNS,
+  describeWithMongo,
+  MONGODB_URI,
+  type MongoTestDb,
+} from "./mongo.ts"

@@ -47,10 +47,13 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
         run: bun --filter @canopy/native build:native
-      - name: Differential suites (about 1M filter cases, each decided by MongoDB, TypeScript and Rust)
+      - name: Differential suites (6000 filters on 12000 documents, at least 1M cases per operator, each decided by MongoDB, TypeScript and Rust)
         run: bun --bun vitest run --project matcher --project policy
         env:
           CANOPY_TEST_ENGINE: native
+          CANOPY_DIFF_RUNS: "6000"
+          CANOPY_DIFF_DOCS: "12000"
+          CANOPY_DIFF_OPERATOR_CASES: "1000000"
       - name: The same against the WebAssembly build of the Rust core (500 filters)
         run: bun --bun vitest run --project matcher --project policy
         env:

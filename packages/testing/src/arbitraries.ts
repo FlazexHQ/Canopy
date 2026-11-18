@@ -264,3 +264,81 @@ export function filter(depth: number): fc.Arbitrary<Record<string, unknown>> {
     .map(([op, branches]) => ({ [op]: branches }))
   return fc.oneof({ weight: 3, arbitrary: fields }, { weight: 1, arbitrary: logical })
 }
+
+/**
+ * Every operator {@link filter} generates, plus `equality` for an implicit `{ path: value }` condition. The
+ * differential suites count their cases per operator over this list.
+ */
+export const FILTER_OPERATORS: readonly string[] = [
+  "equality",
+  "$eq",
+  "$ne",
+  "$gt",
+  "$gte",
+  "$lt",
+  "$lte",
+  "$in",
+  "$nin",
+  "$exists",
+  "$type",
+  "$size",
+  "$mod",
+  "$all",
+  "$regex",
+  "$options",
+  "$not",
+  "$elemMatch",
+  "$and",
+  "$or",
+  "$nor",
+]
+
+function isOperatorDocument(value: unknown): value is Record<string, unknown> {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Object.getPrototypeOf(value) !== Object.prototype
+  )
+    return false
+  return Object.keys(value)[0]?.startsWith("$") === true
+}
+
+function conditionOperators(condition: unknown, found: Set<string>): void {
+  if (!isOperatorDocument(condition)) {
+    found.add("equality")
+    return
+  }
+  for (const [operator, operand] of Object.entries(condition)) {
+    found.add(operator)
+    if (operator === "$not" && isOperatorDocument(operand)) conditionOperators(operand, found)
+    else if (operator === "$elemMatch" && typeof operand === "object" && operand !== null) {
+      if (
+        isOperatorDocument(operand) &&
+        !["$and", "$or", "$nor"].includes(Object.keys(operand)[0] ?? "")
+      )
+        conditionOperators(operand, found)
+      else filterOperatorsInto(operand as Record<string, unknown>, found)
+    } else if (operator === "$all" && Array.isArray(operand)) {
+      for (const item of operand) if (isOperatorDocument(item)) conditionOperators(item, found)
+    }
+  }
+}
+
+function filterOperatorsInto(query: Record<string, unknown>, found: Set<string>): void {
+  for (const [key, value] of Object.entries(query)) {
+    if (key === "$and" || key === "$or" || key === "$nor") {
+      found.add(key)
+      if (Array.isArray(value))
+        for (const branch of value)
+          if (typeof branch === "object" && branch !== null)
+            filterOperatorsInto(branch as Record<string, unknown>, found)
+    } else conditionOperators(value, found)
+  }
+}
+
+/** The operators of {@link FILTER_OPERATORS} a filter uses, at any depth. */
+export function filterOperators(query: Record<string, unknown>): Set<string> {
+  const found = new Set<string>()
+  filterOperatorsInto(query, found)
+  return found
+}

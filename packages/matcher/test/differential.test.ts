@@ -1,6 +1,8 @@
 import { stringify } from "@canopy/protocol"
 import {
   arbitraries,
+  DIFF_DOCS,
+  DIFF_OPERATOR_CASES,
   DIFF_RUNS,
   describeWithMongo,
   RUST_SKIPPED,
@@ -19,7 +21,9 @@ import {
 } from "../src/index.ts"
 
 const SEED = Number(process.env["CANOPY_DIFF_SEED"] ?? "20261106")
-const DOCS = 300
+const DOCS = DIFF_DOCS
+/** Room for about 20 µs per case on top of 10 minutes, so a nightly volume run is not cut short. */
+const TIMEOUT = 600_000 + Math.ceil((DIFF_RUNS * DOCS) / 50)
 
 type Outcome<T> =
   | { ok: true; value: T }
@@ -105,47 +109,53 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
     concatenated = concatenate(raw)
   })
 
-  it(`filters agree with find() on ${DOCS} documents per filter (seed ${SEED})`, async () => {
-    const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
-    const mismatches: string[] = []
-    let cases = 0
-    let unsupported = 0
-    for (const query of filters) {
-      const expected = await mongoOutcome(async () =>
-        (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
-          Number(doc["_id"]),
-        ),
+  it(
+    `filters agree with find() on ${DOCS} documents per filter (seed ${SEED})`,
+    async () => {
+      const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
+      const mismatches: string[] = []
+      let cases = 0
+      let unsupported = 0
+      for (const query of filters) {
+        const expected = await mongoOutcome(async () =>
+          (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
+            Number(doc["_id"]),
+          ),
+        )
+        const compiled = localOutcome(() => compileFilter(query))
+        if (!compiled.ok && compiled.unsupported) {
+          unsupported += 1
+          continue
+        }
+        if (!expected.ok || !compiled.ok) {
+          cases += 1
+          if (expected.ok !== compiled.ok) {
+            mismatches.push(
+              `filter ${stringify(query)}: MongoDB ${expected.ok ? "accepted it" : `rejected it (${expected.message})`}, matcher ${compiled.ok ? "accepted it" : `rejected it (${compiled.message})`}`,
+            )
+          }
+          continue
+        }
+        const want = new Set(expected.value)
+        for (const doc of docs) {
+          cases += 1
+          const got = localOutcome(() => compiled.value.matches(doc))
+          const id = Number(doc["_id"])
+          if (!got.ok || got.value !== want.has(id)) {
+            mismatches.push(
+              `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${want.has(id)}, matcher ${got.ok ? got.value : got.message}`,
+            )
+          }
+        }
+        if (mismatches.length > 20) break
+      }
+      expect(mismatches.slice(0, 20), `${mismatches.length} mismatches in ${cases} cases`).toEqual(
+        [],
       )
-      const compiled = localOutcome(() => compileFilter(query))
-      if (!compiled.ok && compiled.unsupported) {
-        unsupported += 1
-        continue
-      }
-      if (!expected.ok || !compiled.ok) {
-        cases += 1
-        if (expected.ok !== compiled.ok) {
-          mismatches.push(
-            `filter ${stringify(query)}: MongoDB ${expected.ok ? "accepted it" : `rejected it (${expected.message})`}, matcher ${compiled.ok ? "accepted it" : `rejected it (${compiled.message})`}`,
-          )
-        }
-        continue
-      }
-      const want = new Set(expected.value)
-      for (const doc of docs) {
-        cases += 1
-        const got = localOutcome(() => compiled.value.matches(doc))
-        const id = Number(doc["_id"])
-        if (!got.ok || got.value !== want.has(id)) {
-          mismatches.push(
-            `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${want.has(id)}, matcher ${got.ok ? got.value : got.message}`,
-          )
-        }
-      }
-      if (mismatches.length > 20) break
-    }
-    expect(mismatches.slice(0, 20), `${mismatches.length} mismatches in ${cases} cases`).toEqual([])
-    expect(unsupported).toBeLessThan(filters.length / 4)
-  }, 600_000)
+      expect(unsupported).toBeLessThan(filters.length / 4)
+    },
+    TIMEOUT,
+  )
 
   it.skipIf(rust === undefined)(
     rust === undefined
@@ -156,6 +166,7 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
       expect(raw.length).toBe(docs.length)
       const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
       const mismatches: string[] = []
+      const perOperator = new Map<string, number>()
       let cases = 0
       let unsupported = 0
       for (const query of filters) {
@@ -190,6 +201,8 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
           )
           continue
         }
+        for (const operator of arbitraries.filterOperators(query))
+          perOperator.set(operator, (perOperator.get(operator) ?? 0) + docs.length)
         const want = new Set(expected.value)
         const many = localOutcome(() => native.value.matchMany(raw))
         const batch = localOutcome(() => native.value.matchConcatenated(concatenated))
@@ -216,8 +229,20 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
         `${mismatches.length} disagreements in ${cases} cases`,
       ).toEqual([])
       expect(unsupported).toBeLessThan(filters.length / 4)
+      const counted = arbitraries.FILTER_OPERATORS.map(
+        (operator) => [operator, perOperator.get(operator) ?? 0] as const,
+      )
+      process.stdout.write(
+        `cases per operator (${rust.kind}): ${counted.map(([operator, count]) => `${operator} ${count}`).join(", ")}
+`,
+      )
+      if (DIFF_OPERATOR_CASES > 0)
+        expect(
+          counted.filter(([, count]) => count < DIFF_OPERATOR_CASES),
+          `operators below ${DIFF_OPERATOR_CASES} cases`,
+        ).toEqual([])
     },
-    600_000,
+    TIMEOUT,
   )
 
   it("sort order agrees with find().sort()", async () => {
