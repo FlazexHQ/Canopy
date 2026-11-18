@@ -1,30 +1,32 @@
 //! Dotted path traversal with MongoDB's implicit array semantics.
 
-use canopy_protocol::{CanopyError, Document, Value};
+use canopy_protocol::{ArrayRef, CanopyError, DocRef, ValueRef};
 
 /// The result of testing a value: a match decision, or an error (such as a regular expression input too large
 /// to match in process) that must reach the caller rather than being read as "no match".
 pub type Outcome = Result<bool, CanopyError>;
 
 /// A test of the value found at the end of a path. `None` stands for a missing value.
-pub type LeafFn<'f> = dyn Fn(Option<&Value>) -> Outcome + 'f;
+pub type LeafFn<'f> = dyn Fn(Option<ValueRef<'_>>) -> Outcome + 'f;
 
 /// A node reached while walking a path: a document, an array read as a document of its positions (the
 /// `$elemMatch` object form), or any value.
 #[derive(Debug, Clone, Copy)]
 pub enum Item<'a> {
     /// A document.
-    Document(&'a Document),
+    Document(DocRef<'a>),
     /// An array whose elements are addressed by their decimal positions.
-    Positions(&'a [Value]),
+    Positions(ArrayRef<'a>),
     /// Any value.
-    Value(&'a Value),
+    Value(ValueRef<'a>),
 }
 
 impl<'a> Item<'a> {
-    fn field(self, name: &str) -> Option<&'a Value> {
+    fn field(self, name: &str) -> Option<ValueRef<'a>> {
         match self {
-            Item::Document(document) | Item::Value(Value::Document(document)) => present(document.get(name)?),
+            Item::Document(document) | Item::Value(ValueRef::Document(document)) => {
+                present(document.get(name)?)
+            }
             Item::Positions(items) => {
                 if !is_array_index(name) {
                     return None;
@@ -36,13 +38,13 @@ impl<'a> Item<'a> {
     }
 
     fn is_document(self) -> bool {
-        matches!(self, Item::Document(_) | Item::Positions(_) | Item::Value(Value::Document(_)))
+        matches!(self, Item::Document(_) | Item::Positions(_) | Item::Value(ValueRef::Document(_)))
     }
 }
 
 /// Returns `None` for the deprecated `undefined`, which the matcher treats as a missing value.
-pub fn present(value: &Value) -> Option<&Value> {
-    if matches!(value, Value::Undefined) { None } else { Some(value) }
+pub fn present(value: ValueRef<'_>) -> Option<ValueRef<'_>> {
+    if matches!(value, ValueRef::Undefined) { None } else { Some(value) }
 }
 
 /// Returns true when a path segment can address an array position.
@@ -71,8 +73,8 @@ fn walk(
     let Some(part) = parts.get(index) else {
         return match item {
             Some(Item::Value(value)) => {
-                if let (true, Value::Array(items)) = (expand_last, value) {
-                    for element in items {
+                if let (true, ValueRef::Array(items)) = (expand_last, value) {
+                    for element in items.iter() {
                         if leaf(present(element))? {
                             return Ok(true);
                         }
@@ -85,7 +87,7 @@ fn walk(
         };
     };
     match item {
-        Some(Item::Value(Value::Array(items))) => {
+        Some(Item::Value(ValueRef::Array(items))) => {
             if is_array_index(part) {
                 let last = index + 1 == parts.len();
                 if let Some(element) = part.parse::<usize>().ok().and_then(|position| items.get(position)) {
@@ -101,8 +103,8 @@ fn walk(
                     }
                 }
             }
-            for element in items {
-                if matches!(element, Value::Document(_))
+            for element in items.iter() {
+                if matches!(element, ValueRef::Document(_))
                     && walk(
                         Item::Value(element).field(part).map(Item::Value),
                         parts,

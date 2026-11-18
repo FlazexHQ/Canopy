@@ -4,16 +4,16 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use canopy_protocol::json::js_number_string;
-use canopy_protocol::{CanopyError, Document, Regex, Value};
+use canopy_protocol::{CanopyError, DocRef, Document, RawDocument, Regex, Value, ValueRef};
 
-use crate::compare::{Bracket, BsonType, bracket_of, bson_type_of, compare_values};
+use crate::compare::{Bracket, BsonType, bracket, bracket_of, bson_type, compare, compare_options};
 use crate::equality::{KeySet, equality_key};
 use crate::errors::{is_unsupported, unsupported_query};
 use crate::numeric::{Numeric, is_nan, read_numeric, to_double};
-use crate::path::{Item, Outcome, any_path_value, split_path};
+use crate::path::{Item, Outcome, any_path_value, present, split_path};
 use crate::regex::{LinearRegex, compile_regex};
 
-type Leaf = Arc<dyn Fn(Option<&Value>) -> Outcome + Send + Sync>;
+type Leaf = Arc<dyn Fn(Option<ValueRef<'_>>) -> Outcome + Send + Sync>;
 type DocTest = Arc<dyn for<'a> Fn(Item<'a>) -> Outcome + Send + Sync>;
 
 /// A filter compiled for in process evaluation.
@@ -33,12 +33,17 @@ impl CompiledFilter {
     /// process) means the decision is unknown; callers must treat it as a refusal, never as "no match" under
     /// a negation.
     pub fn matches(&self, document: &Document) -> Outcome {
-        (self.test)(Item::Document(document))
+        (self.test)(Item::Document(DocRef::Owned(document)))
+    }
+
+    /// Like [`CompiledFilter::matches`] for a document in raw BSON, read in place without decoding it.
+    pub fn matches_raw(&self, document: RawDocument<'_>) -> Outcome {
+        (self.test)(Item::Document(DocRef::Raw(document)))
     }
 
     /// Like [`CompiledFilter::matches`] for a value that holds the document.
     pub fn matches_value(&self, document: &Value) -> Outcome {
-        (self.test)(Item::Value(document))
+        (self.test)(Item::Value(document.view()))
     }
 }
 
@@ -295,7 +300,7 @@ fn compile_operator(parts: &Arc<Vec<String>>, op: &str, operand: &Value) -> Resu
             reach(
                 parts,
                 Arc::new(move |value| {
-                    Ok(matches!(value, Some(Value::Array(items)) if items.len() as f64 == size))
+                    Ok(matches!(value, Some(ValueRef::Array(items)) if items.len() as f64 == size))
                 }),
             )
         }
@@ -314,15 +319,15 @@ fn truthy(value: &Value) -> bool {
     match value {
         Value::Bool(flag) => *flag,
         Value::Null | Value::Undefined => false,
-        _ => read_numeric(value).is_none_or(|numeric| to_double(numeric) != 0.0),
+        _ => read_numeric(value.view()).is_none_or(|numeric| to_double(numeric) != 0.0),
     }
 }
 
-fn is_nullish(value: Option<&Value>) -> bool {
-    matches!(value, None | Some(Value::Null | Value::Undefined))
+fn is_nullish(value: Option<ValueRef<'_>>) -> bool {
+    matches!(value, None | Some(ValueRef::Null | ValueRef::Undefined))
 }
 
-fn is_nan_value(value: &Value) -> bool {
+fn is_nan_value(value: ValueRef<'_>) -> bool {
     read_numeric(value).is_some_and(is_nan)
 }
 
@@ -330,17 +335,17 @@ fn eq_leaf(operand: &Value) -> Leaf {
     if matches!(operand, Value::Null) {
         return Arc::new(|value| Ok(is_nullish(value)));
     }
-    if is_nan_value(operand) {
+    if is_nan_value(operand.view()) {
         return Arc::new(|value| Ok(value.is_some_and(is_nan_value)));
     }
     let operand = operand.clone();
-    let bracket = bracket_of(&operand);
-    if bracket != Bracket::Number && equality_key(&operand).is_some() {
-        return Arc::new(move |value| Ok(value.and_then(equality_key) == equality_key(&operand)));
+    let expected = bracket_of(&operand);
+    if expected != Bracket::Number && equality_key(operand.view()).is_some() {
+        return Arc::new(move |value| Ok(value.and_then(equality_key) == equality_key(operand.view())));
     }
     Arc::new(move |value| {
         Ok(value.is_some_and(|value| {
-            bracket_of(value) == bracket && compare_values(value, &operand) == Ordering::Equal
+            bracket(value) == expected && compare(value, operand.view()) == Ordering::Equal
         }))
     })
 }
@@ -360,22 +365,22 @@ fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
         return Ok(if inclusive { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
     }
     let operand = operand.clone();
-    let bracket = bracket_of(&operand);
-    if matches!(bracket, Bracket::MinKey | Bracket::MaxKey) {
+    let expected = bracket_of(&operand);
+    if matches!(expected, Bracket::MinKey | Bracket::MaxKey) {
         return Ok(Arc::new(move |value| {
-            Ok(accept(compare_values(value.unwrap_or(&Value::Null), &operand)))
+            Ok(accept(compare(value.unwrap_or(ValueRef::Null), operand.view())))
         }));
     }
-    let operand_nan = is_nan_value(&operand);
+    let operand_nan = is_nan_value(operand.view());
     Ok(Arc::new(move |value| {
-        let Some(value) = value.filter(|value| bracket_of(value) == bracket) else { return Ok(false) };
-        if bracket == Bracket::Number {
+        let Some(value) = value.filter(|value| bracket(*value) == expected) else { return Ok(false) };
+        if expected == Bracket::Number {
             let value_nan = is_nan_value(value);
             if value_nan || operand_nan {
                 return Ok(inclusive && value_nan && operand_nan);
             }
         }
-        Ok(accept(compare_values(value, &operand)))
+        Ok(accept(compare(value, operand.view())))
     }))
 }
 
@@ -398,7 +403,7 @@ fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
             matches_null = true;
             continue;
         }
-        match equality_key(item) {
+        match equality_key(item.view()) {
             None => others.push(eq_leaf(item)),
             Some(key) => {
                 keyed.insert(key);
@@ -420,7 +425,7 @@ fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
                         return Ok(true);
                     }
                 }
-                None if bracket_of(present) == Bracket::Number => {
+                None if bracket(present) == Bracket::Number => {
                     for test in &keyed_numbers {
                         if test(value)? {
                             return Ok(true);
@@ -455,19 +460,19 @@ fn type_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
             wanted.extend_from_slice(types);
             continue;
         }
-        let numeric =
-            read_numeric(spec).ok_or_else(|| invalid("type must be represented as a number or a string"))?;
+        let numeric = read_numeric(spec.view())
+            .ok_or_else(|| invalid("type must be represented as a number or a string"))?;
         let code = to_double(numeric);
         let code_text = js_number_string(code);
         wanted.push(
             type_code(code).ok_or_else(|| invalid(format!("Invalid numerical type code: {code_text}")))?,
         );
     }
-    Ok(Arc::new(move |value| Ok(value.is_some_and(|value| wanted.contains(&bson_type_of(value))))))
+    Ok(Arc::new(move |value| Ok(value.is_some_and(|value| wanted.contains(&bson_type(value))))))
 }
 
 fn size_operand(operand: &Value) -> Result<f64, CanopyError> {
-    let numeric = read_numeric(operand).ok_or_else(|| invalid("$size needs a number"))?;
+    let numeric = read_numeric(operand.view()).ok_or_else(|| invalid("$size needs a number"))?;
     let size = to_double(numeric);
     if !size.is_finite() || size.fract() != 0.0 {
         return Err(invalid("$size must be a whole number"));
@@ -494,7 +499,8 @@ fn mod_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
     let malformed = || invalid("malformed mod, needs to be an array of [divisor, remainder]");
     let Value::Array(items) = operand else { return Err(malformed()) };
     let [divisor, remainder] = items.as_slice() else { return Err(malformed()) };
-    let (Some(divisor), Some(remainder)) = (read_numeric(divisor), read_numeric(remainder)) else {
+    let (Some(divisor), Some(remainder)) = (read_numeric(divisor.view()), read_numeric(remainder.view()))
+    else {
         return Err(invalid("malformed mod, divisor and remainder must be numbers"));
     };
     let (divisor, remainder) = (to_double(divisor), to_double(remainder));
@@ -543,9 +549,9 @@ fn regex_leaf(regex: &Regex) -> Result<Leaf, CanopyError> {
     let compiled: Arc<LinearRegex> = Arc::new(compile_regex(&regex.pattern, &regex.options)?);
     let expected = regex.clone();
     Ok(Arc::new(move |candidate| match candidate {
-        Some(Value::String(text) | Value::Symbol(text)) => compiled.test(text),
-        Some(Value::Regex(other)) => {
-            Ok(other.pattern == expected.pattern && other.options == expected.options)
+        Some(ValueRef::String(text) | ValueRef::Symbol(text)) => compiled.test(text),
+        Some(ValueRef::Regex { pattern, options }) => {
+            Ok(pattern == expected.pattern && compare_options(options, &expected.options) == Ordering::Equal)
         }
         _ => Ok(false),
     }))
@@ -611,17 +617,17 @@ fn compile_elem_match(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTe
     } else {
         let test = compile_document(operand)?;
         Arc::new(move |value| match value {
-            Some(Value::Document(document)) => test(Item::Document(document)),
-            Some(Value::Array(items)) => test(Item::Positions(items)),
+            Some(ValueRef::Document(document)) => test(Item::Document(document)),
+            Some(ValueRef::Array(items)) => test(Item::Positions(items)),
             _ => Ok(false),
         })
     };
     Ok(reach(
         parts,
         Arc::new(move |value| {
-            let Some(Value::Array(items)) = value else { return Ok(false) };
-            for item in items {
-                if element(crate::path::present(item))? {
+            let Some(ValueRef::Array(items)) = value else { return Ok(false) };
+            for item in items.iter() {
+                if element(present(item))? {
                     return Ok(true);
                 }
             }
@@ -650,7 +656,7 @@ fn value_operator_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
         "$size" => {
             let size = size_operand(operand)?;
             Arc::new(move |value| {
-                Ok(matches!(value, Some(Value::Array(items)) if items.len() as f64 == size))
+                Ok(matches!(value, Some(ValueRef::Array(items)) if items.len() as f64 == size))
             })
         }
         "$mod" => mod_leaf(operand)?,
@@ -667,7 +673,7 @@ fn value_operator_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
 fn doc_test_as_leaf(test: DocTest) -> Leaf {
     Arc::new(move |value| match value {
         Some(value) => test(Item::Value(value)),
-        None => test(Item::Value(&Value::Undefined)),
+        None => test(Item::Value(ValueRef::Undefined)),
     })
 }
 

@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use canopy_protocol::Value;
+use canopy_protocol::ValueRef;
 
 /// The key of a number: integral values that fit a 64 bit integer share one form whatever their BSON type,
 /// other doubles are keyed by their bits (with NaN folded to one key).
@@ -48,16 +48,16 @@ fn double_key(value: f64) -> NumberKey {
 }
 
 /// Returns the equality key of a value, when it has one.
-pub fn equality_key(value: &Value) -> Option<EqualityKey<'_>> {
+pub fn equality_key(value: ValueRef<'_>) -> Option<EqualityKey<'_>> {
     Some(match value {
-        Value::String(text) | Value::Symbol(text) => EqualityKey::String(text),
-        Value::Int32(n) => EqualityKey::Number(NumberKey::Integer(i64::from(*n))),
-        Value::Int64(n) => EqualityKey::Number(NumberKey::Integer(*n)),
-        Value::Double(n) => EqualityKey::Number(double_key(*n)),
-        Value::Bool(flag) => EqualityKey::Bool(*flag),
-        Value::Null => EqualityKey::Null,
-        Value::DateTime(ms) => EqualityKey::Date(*ms),
-        Value::ObjectId(id) => EqualityKey::ObjectId(*id),
+        ValueRef::String(text) | ValueRef::Symbol(text) => EqualityKey::String(text),
+        ValueRef::Int32(n) => EqualityKey::Number(NumberKey::Integer(i64::from(n))),
+        ValueRef::Int64(n) => EqualityKey::Number(NumberKey::Integer(n)),
+        ValueRef::Double(n) => EqualityKey::Number(double_key(n)),
+        ValueRef::Bool(flag) => EqualityKey::Bool(flag),
+        ValueRef::Null => EqualityKey::Null,
+        ValueRef::DateTime(ms) => EqualityKey::Date(ms),
+        ValueRef::ObjectId(id) => EqualityKey::ObjectId(id),
         _ => return None,
     })
 }
@@ -115,23 +115,25 @@ impl KeySet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use canopy_protocol::Value;
+
+    fn key(value: &Value) -> Option<EqualityKey<'_>> {
+        equality_key(value.view())
+    }
 
     #[test]
     fn equal_numbers_share_a_key_across_types() {
-        assert_eq!(equality_key(&Value::Int32(5)), equality_key(&Value::Double(5.0)));
-        assert_eq!(equality_key(&Value::Int64(5)), equality_key(&Value::Double(5.0)));
-        assert_eq!(equality_key(&Value::Double(-0.0)), equality_key(&Value::Int32(0)));
-        assert_ne!(
-            equality_key(&Value::Int64(9_007_199_254_740_993)),
-            equality_key(&Value::Double(9_007_199_254_740_992.0))
-        );
-        assert_eq!(equality_key(&Value::Double(f64::NAN)), equality_key(&Value::Double(-f64::NAN)));
-        assert_eq!(equality_key(&Value::Decimal128("1".to_owned())), None);
+        assert_eq!(key(&Value::Int32(5)), key(&Value::Double(5.0)));
+        assert_eq!(key(&Value::Int64(5)), key(&Value::Double(5.0)));
+        assert_eq!(key(&Value::Double(-0.0)), key(&Value::Int32(0)));
+        assert_ne!(key(&Value::Int64(9_007_199_254_740_993)), key(&Value::Double(9_007_199_254_740_992.0)));
+        assert_eq!(key(&Value::Double(f64::NAN)), key(&Value::Double(-f64::NAN)));
+        assert_eq!(key(&Value::Decimal128("1".to_owned())), None);
     }
 
     #[test]
     fn symbols_share_keys_with_strings() {
-        assert_eq!(equality_key(&Value::Symbol("a".into())), equality_key(&Value::String("a".into())));
+        assert_eq!(key(&Value::Symbol("a".into())), key(&Value::String("a".into())));
     }
 
     #[test]
@@ -140,7 +142,7 @@ mod tests {
         set.insert(EqualityKey::String("x"));
         set.insert(EqualityKey::Number(NumberKey::Integer(3)));
         assert!(set.contains(EqualityKey::String("x")));
-        assert!(set.contains(equality_key(&Value::Double(3.0)).unwrap()));
+        assert!(set.contains(key(&Value::Double(3.0)).unwrap()));
         assert!(!set.contains(EqualityKey::Bool(true)));
     }
 }

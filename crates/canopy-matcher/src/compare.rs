@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use canopy_protocol::{Document, Value};
+use canopy_protocol::{ArrayRef, DocRef, Value, ValueRef};
 
 use crate::numeric::{compare_numeric, read_numeric};
 
@@ -52,29 +52,34 @@ pub enum BsonType {
 }
 
 /// Returns the BSON type of a value.
-pub fn bson_type_of(value: &Value) -> BsonType {
+pub fn bson_type(value: ValueRef<'_>) -> BsonType {
     match value {
-        Value::Double(_) => BsonType::Double,
-        Value::String(_) => BsonType::String,
-        Value::Document(_) => BsonType::Object,
-        Value::Array(_) => BsonType::Array,
-        Value::Binary(_) => BsonType::BinData,
-        Value::Undefined => BsonType::Undefined,
-        Value::ObjectId(_) => BsonType::ObjectId,
-        Value::Bool(_) => BsonType::Bool,
-        Value::DateTime(_) => BsonType::Date,
-        Value::Null => BsonType::Null,
-        Value::Regex(_) => BsonType::Regex,
-        Value::DbPointer { .. } => BsonType::DbPointer,
-        Value::JavaScript { .. } => BsonType::JavaScript,
-        Value::Symbol(_) => BsonType::Symbol,
-        Value::Int32(_) => BsonType::Int,
-        Value::Timestamp { .. } => BsonType::Timestamp,
-        Value::Int64(_) => BsonType::Long,
-        Value::Decimal128(_) => BsonType::Decimal,
-        Value::MinKey => BsonType::MinKey,
-        Value::MaxKey => BsonType::MaxKey,
+        ValueRef::Double(_) => BsonType::Double,
+        ValueRef::String(_) => BsonType::String,
+        ValueRef::Document(_) => BsonType::Object,
+        ValueRef::Array(_) => BsonType::Array,
+        ValueRef::Binary { .. } => BsonType::BinData,
+        ValueRef::Undefined => BsonType::Undefined,
+        ValueRef::ObjectId(_) => BsonType::ObjectId,
+        ValueRef::Bool(_) => BsonType::Bool,
+        ValueRef::DateTime(_) => BsonType::Date,
+        ValueRef::Null => BsonType::Null,
+        ValueRef::Regex { .. } => BsonType::Regex,
+        ValueRef::DbPointer { .. } => BsonType::DbPointer,
+        ValueRef::JavaScript { .. } => BsonType::JavaScript,
+        ValueRef::Symbol(_) => BsonType::Symbol,
+        ValueRef::Int32(_) => BsonType::Int,
+        ValueRef::Timestamp { .. } => BsonType::Timestamp,
+        ValueRef::Int64(_) => BsonType::Long,
+        ValueRef::Decimal128(_) => BsonType::Decimal,
+        ValueRef::MinKey => BsonType::MinKey,
+        ValueRef::MaxKey => BsonType::MaxKey,
     }
+}
+
+/// Returns the BSON type of an owned value.
+pub fn bson_type_of(value: &Value) -> BsonType {
+    bson_type(value.view())
 }
 
 /// Canonical type brackets in MongoDB's comparison order (`canonicalizeBSONType`). Values in different
@@ -116,8 +121,8 @@ pub enum Bracket {
 }
 
 /// Returns the comparison bracket of a value.
-pub fn bracket_of(value: &Value) -> Bracket {
-    match bson_type_of(value) {
+pub fn bracket(value: ValueRef<'_>) -> Bracket {
+    match bson_type(value) {
         BsonType::MinKey => Bracket::MinKey,
         BsonType::Undefined => Bracket::Missing,
         BsonType::Null => Bracket::Null,
@@ -137,19 +142,26 @@ pub fn bracket_of(value: &Value) -> Bracket {
     }
 }
 
-fn compare_documents(a: &Document, b: &Document) -> Ordering {
-    let mut left = a.iter().filter(|(_, value)| !matches!(value, Value::Undefined));
-    let mut right = b.iter().filter(|(_, value)| !matches!(value, Value::Undefined));
+/// Returns the comparison bracket of an owned value.
+pub fn bracket_of(value: &Value) -> Bracket {
+    bracket(value.view())
+}
+
+fn not_undefined<'a>(entry: &(&'a str, ValueRef<'a>)) -> bool {
+    !matches!(entry.1, ValueRef::Undefined)
+}
+
+fn compare_documents(a: DocRef<'_>, b: DocRef<'_>) -> Ordering {
+    let mut left = a.iter().filter(not_undefined);
+    let mut right = b.iter().filter(not_undefined);
     loop {
         match (left.next(), right.next()) {
             (None, None) => return Ordering::Equal,
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
             (Some((ka, va)), Some((kb, vb))) => {
-                let order = bracket_of(va)
-                    .cmp(&bracket_of(vb))
-                    .then_with(|| ka.cmp(kb))
-                    .then_with(|| compare_values(va, vb));
+                let order =
+                    bracket(va).cmp(&bracket(vb)).then_with(|| ka.cmp(kb)).then_with(|| compare(va, vb));
                 if order != Ordering::Equal {
                     return order;
                 }
@@ -158,32 +170,52 @@ fn compare_documents(a: &Document, b: &Document) -> Ordering {
     }
 }
 
-fn array_element(value: &Value) -> &Value {
-    if matches!(value, Value::Undefined) { &Value::Null } else { value }
+fn array_element(value: ValueRef<'_>) -> ValueRef<'_> {
+    if matches!(value, ValueRef::Undefined) { ValueRef::Null } else { value }
 }
 
-fn compare_arrays(a: &[Value], b: &[Value]) -> Ordering {
-    for (x, y) in a.iter().zip(b) {
-        let (x, y) = (array_element(x), array_element(y));
-        let order = bracket_of(x).cmp(&bracket_of(y)).then_with(|| compare_values(x, y));
-        if order != Ordering::Equal {
-            return order;
+fn compare_arrays(a: ArrayRef<'_>, b: ArrayRef<'_>) -> Ordering {
+    let mut left = a.iter();
+    let mut right = b.iter();
+    loop {
+        match (left.next(), right.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some(x), Some(y)) => {
+                let (x, y) = (array_element(x), array_element(y));
+                let order = bracket(x).cmp(&bracket(y)).then_with(|| compare(x, y));
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
         }
     }
-    a.len().cmp(&b.len())
 }
 
-fn string_of(value: &Value) -> &str {
+fn string_of(value: ValueRef<'_>) -> &str {
     match value {
-        Value::String(text) | Value::Symbol(text) | Value::JavaScript { code: text, .. } => text,
+        ValueRef::String(text) | ValueRef::Symbol(text) | ValueRef::JavaScript { code: text, .. } => text,
         _ => "",
     }
 }
 
+/// Compares option letters as sorted sets of letters, since raw BSON may store them unsorted.
+pub fn compare_options(a: &str, b: &str) -> Ordering {
+    if a == b {
+        return Ordering::Equal;
+    }
+    let mut x: Vec<char> = a.chars().collect();
+    let mut y: Vec<char> = b.chars().collect();
+    x.sort_unstable();
+    y.sort_unstable();
+    x.cmp(&y)
+}
+
 /// Compares two values in MongoDB's total order (simple collation): first by type bracket, then by value.
 /// Strings compare by code point, which equals the UTF-8 byte order MongoDB uses.
-pub fn compare_values(a: &Value, b: &Value) -> Ordering {
-    let (ba, bb) = (bracket_of(a), bracket_of(b));
+pub fn compare(a: ValueRef<'_>, b: ValueRef<'_>) -> Ordering {
+    let (ba, bb) = (bracket(a), bracket(b));
     if ba != bb {
         return ba.cmp(&bb);
     }
@@ -196,26 +228,30 @@ pub fn compare_values(a: &Value, b: &Value) -> Ordering {
             _ => Ordering::Equal,
         },
         _ if matches!(ba, Bracket::String | Bracket::Code) => string_of(a).cmp(string_of(b)),
-        (Value::Document(x), Value::Document(y)) => compare_documents(x, y),
-        (Value::Array(x), Value::Array(y)) => compare_arrays(x, y),
-        (Value::Binary(x), Value::Binary(y)) => x
-            .bytes
-            .len()
-            .cmp(&y.bytes.len())
-            .then(x.subtype.cmp(&y.subtype))
-            .then_with(|| x.bytes.cmp(&y.bytes)),
-        (Value::ObjectId(x), Value::ObjectId(y)) => x.cmp(y),
-        (Value::Bool(x), Value::Bool(y)) => x.cmp(y),
-        (Value::DateTime(x), Value::DateTime(y)) => x.cmp(y),
-        (Value::Timestamp { t: xt, i: xi }, Value::Timestamp { t: yt, i: yi }) => xt.cmp(yt).then(xi.cmp(yi)),
-        (Value::Regex(x), Value::Regex(y)) => {
-            x.pattern.cmp(&y.pattern).then_with(|| x.options.cmp(&y.options))
+        (ValueRef::Document(x), ValueRef::Document(y)) => compare_documents(x, y),
+        (ValueRef::Array(x), ValueRef::Array(y)) => compare_arrays(x, y),
+        (ValueRef::Binary { subtype: xs, bytes: xb }, ValueRef::Binary { subtype: ys, bytes: yb }) => {
+            xb.len().cmp(&yb.len()).then(xs.cmp(&ys)).then_with(|| xb.cmp(yb))
         }
-        (Value::DbPointer { namespace: xn, id: xi }, Value::DbPointer { namespace: yn, id: yi }) => {
-            xn.len().cmp(&yn.len()).then_with(|| xn.cmp(yn)).then_with(|| xi.cmp(yi))
+        (ValueRef::ObjectId(x), ValueRef::ObjectId(y)) => x.cmp(&y),
+        (ValueRef::Bool(x), ValueRef::Bool(y)) => x.cmp(&y),
+        (ValueRef::DateTime(x), ValueRef::DateTime(y)) => x.cmp(&y),
+        (ValueRef::Timestamp { t: xt, i: xi }, ValueRef::Timestamp { t: yt, i: yi }) => {
+            xt.cmp(&yt).then(xi.cmp(&yi))
+        }
+        (ValueRef::Regex { pattern: xp, options: xo }, ValueRef::Regex { pattern: yp, options: yo }) => {
+            xp.cmp(yp).then_with(|| compare_options(xo, yo))
+        }
+        (ValueRef::DbPointer { namespace: xn, id: xi }, ValueRef::DbPointer { namespace: yn, id: yi }) => {
+            xn.len().cmp(&yn.len()).then_with(|| xn.cmp(yn)).then_with(|| xi.cmp(&yi))
         }
         _ => Ordering::Equal,
     }
+}
+
+/// Compares two owned values; see [`compare`].
+pub fn compare_values(a: &Value, b: &Value) -> Ordering {
+    compare(a.view(), b.view())
 }
 
 /// Returns true when two values are equal under BSON comparison (same bracket, equal value).
@@ -226,7 +262,7 @@ pub fn values_equal(a: &Value, b: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use canopy_protocol::{Binary, Regex};
+    use canopy_protocol::{Binary, JavaScript, Regex};
 
     fn doc(fields: &[(&str, Value)]) -> Value {
         Value::Document(fields.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect())
@@ -241,13 +277,13 @@ mod tests {
             Value::String("a".to_owned()),
             doc(&[]),
             Value::Array(vec![]),
-            Value::Binary(Binary { subtype: 0, bytes: vec![] }),
+            Value::Binary(Box::new(Binary { subtype: 0, bytes: vec![] })),
             Value::ObjectId([0; 12]),
             Value::Bool(false),
             Value::DateTime(0),
             Value::Timestamp { t: 0, i: 0 },
-            Value::Regex(Regex::new("a", "")),
-            Value::JavaScript { code: String::new(), scope: None },
+            Value::Regex(Box::new(Regex::new("a", ""))),
+            Value::JavaScript(Box::new(JavaScript { code: String::new(), scope: None })),
             Value::MaxKey,
         ];
         for pair in ascending.windows(2) {
@@ -279,10 +315,10 @@ mod tests {
 
     #[test]
     fn binary_compares_length_then_subtype_then_bytes() {
-        let short = Value::Binary(Binary { subtype: 9, bytes: vec![9] });
-        let long = Value::Binary(Binary { subtype: 0, bytes: vec![0, 0] });
+        let short = Value::Binary(Box::new(Binary { subtype: 9, bytes: vec![9] }));
+        let long = Value::Binary(Box::new(Binary { subtype: 0, bytes: vec![0, 0] }));
         assert_eq!(compare_values(&short, &long), Ordering::Less);
-        let low = Value::Binary(Binary { subtype: 0, bytes: vec![9] });
+        let low = Value::Binary(Box::new(Binary { subtype: 0, bytes: vec![9] }));
         assert_eq!(compare_values(&low, &short), Ordering::Less);
     }
 

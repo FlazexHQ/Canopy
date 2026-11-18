@@ -1,6 +1,6 @@
 //! Replays filter vectors recorded from MongoDB (`packages/testing/scripts/matcher-vectors.ts`): every filter
 //! MongoDB answered must match exactly the same documents here, and every filter MongoDB refused must be
-//! refused here too. Filters the matcher reports as unsupported are routed to MongoDB in production, so they
+//! refused here too, both on decoded documents and on the raw BSON MongoDB stored. Filters the matcher reports as unsupported are routed to MongoDB in production, so they
 //! are counted, not compared.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -9,7 +9,7 @@ use canopy_matcher::{compile_filter, is_unsupported};
 use canopy_protocol::bson::decode_document;
 use canopy_protocol::ejson::forgiving_base64_decode;
 use canopy_protocol::json::{Json, parse_json};
-use canopy_protocol::{Document, Value};
+use canopy_protocol::{Document, RawDocument, Value};
 
 fn text(json: &Json) -> &str {
     match json {
@@ -40,6 +40,8 @@ fn filters_agree_with_mongodb() {
     let vectors = parse_json(source).expect("vector file");
     let Some(Json::Array(documents)) = vectors.get("documents") else { panic!("documents") };
     let Some(Json::Array(cases)) = vectors.get("cases") else { panic!("cases") };
+    let raw: Vec<Vec<u8>> =
+        documents.iter().map(|json| forgiving_base64_decode(text(json)).expect("base64")).collect();
     let documents: Vec<Document> = documents.iter().map(document).collect();
 
     let mut mismatches = Vec::new();
@@ -75,16 +77,26 @@ fn filters_agree_with_mongodb() {
         let Ok(compiled) = compiled else { continue };
         compared += 1;
         let mask = hex_bytes(text(case.get("matches").expect("matches")));
-        for (index, doc) in documents.iter().enumerate() {
+        for (index, (doc, bytes)) in documents.iter().zip(&raw).enumerate() {
             let expected = bit(&mask, index);
-            match compiled.matches(doc) {
-                Ok(actual) if actual == expected => {}
-                Ok(actual) => {
-                    let shown_doc =
-                        canopy_protocol::ejson::stringify(&Value::Document(doc.clone())).unwrap_or_default();
-                    mismatches.push(format!("{shown} on {shown_doc}: MongoDB {expected}, matcher {actual}"));
+            let raw_doc = RawDocument::new(bytes).expect("raw BSON");
+            for (form, outcome) in
+                [("decoded", compiled.matches(doc)), ("raw", compiled.matches_raw(raw_doc))]
+            {
+                match outcome {
+                    Ok(actual) if actual == expected => {}
+                    Ok(actual) => {
+                        let shown_doc = canopy_protocol::ejson::stringify(&Value::Document(doc.clone()))
+                            .unwrap_or_default();
+                        mismatches.push(format!(
+                            "{shown} on {shown_doc} ({form}): MongoDB {expected}, matcher {actual}"
+                        ));
+                    }
+                    Err(error) => {
+                        mismatches
+                            .push(format!("{shown} ({form}): the matcher failed ({})", error.message()));
+                    }
                 }
-                Err(error) => mismatches.push(format!("{shown}: the matcher failed ({})", error.message())),
             }
         }
     }

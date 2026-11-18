@@ -1,4 +1,5 @@
-/// A BSON value. Documents keep their field order, as MongoDB does.
+/// A BSON value. Documents keep their field order, as MongoDB does. Rare or large types are boxed so a value
+/// takes 32 bytes.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// BSON double.
@@ -10,7 +11,7 @@ pub enum Value {
     /// Array.
     Array(Vec<Value>),
     /// Binary data with its subtype.
-    Binary(Binary),
+    Binary(Box<Binary>),
     /// The deprecated BSON `undefined`.
     Undefined,
     /// A 12 byte ObjectId.
@@ -22,21 +23,11 @@ pub enum Value {
     /// BSON null.
     Null,
     /// Regular expression with sorted option letters.
-    Regex(Regex),
+    Regex(Box<Regex>),
     /// The deprecated DBPointer.
-    DbPointer {
-        /// The namespace.
-        namespace: String,
-        /// The ObjectId.
-        id: [u8; 12],
-    },
+    DbPointer(Box<DbPointer>),
     /// JavaScript code, with its scope when the BSON type was code with scope.
-    JavaScript {
-        /// The code.
-        code: String,
-        /// The scope document.
-        scope: Option<Document>,
-    },
+    JavaScript(Box<JavaScript>),
     /// The deprecated symbol type.
     Symbol(String),
     /// 32 bit integer.
@@ -56,6 +47,24 @@ pub enum Value {
     MinKey,
     /// MaxKey, which sorts after every other value.
     MaxKey,
+}
+
+/// The deprecated DBPointer: a namespace and an ObjectId.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DbPointer {
+    /// The namespace.
+    pub namespace: String,
+    /// The ObjectId.
+    pub id: [u8; 12],
+}
+
+/// JavaScript code, with its scope when the BSON type was code with scope.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JavaScript {
+    /// The code.
+    pub code: String,
+    /// The scope document.
+    pub scope: Option<Document>,
 }
 
 /// Binary data with a subtype.
@@ -130,6 +139,11 @@ impl Document {
     /// Returns true when the field exists.
     pub fn contains_key(&self, name: &str) -> bool {
         self.get(name).is_some()
+    }
+
+    /// The fields in order, as a slice.
+    pub fn fields(&self) -> &[(String, Value)] {
+        &self.fields
     }
 
     /// The fields in order.
@@ -264,6 +278,11 @@ pub(crate) fn hex_digit(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn values_stay_small() {
+        assert_eq!(std::mem::size_of::<Value>(), 32);
+    }
 
     #[test]
     fn insert_keeps_the_position_of_an_existing_field() {

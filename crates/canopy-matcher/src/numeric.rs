@@ -2,8 +2,9 @@
 
 use std::cmp::Ordering;
 
-use canopy_protocol::Value;
+use canopy_protocol::bson::decimal128_to_string;
 use canopy_protocol::ejson::js_string_to_number;
+use canopy_protocol::{DecimalRef, ValueRef};
 
 /// A number read from any supported representation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -14,18 +15,25 @@ pub enum Numeric<'a> {
     Double(f64),
     /// A 64 bit integer.
     Long(i64),
-    /// A Decimal128 in its string form.
-    Decimal(&'a str),
+    /// A Decimal128.
+    Decimal(DecimalRef<'a>),
 }
 
 /// Reads a numeric value, or `None` for values that are not numbers.
-pub fn read_numeric(value: &Value) -> Option<Numeric<'_>> {
+pub fn read_numeric(value: ValueRef<'_>) -> Option<Numeric<'_>> {
     match value {
-        Value::Int32(n) => Some(Numeric::Int(*n)),
-        Value::Double(n) => Some(Numeric::Double(*n)),
-        Value::Int64(n) => Some(Numeric::Long(*n)),
-        Value::Decimal128(text) => Some(Numeric::Decimal(text)),
+        ValueRef::Int32(n) => Some(Numeric::Int(n)),
+        ValueRef::Double(n) => Some(Numeric::Double(n)),
+        ValueRef::Int64(n) => Some(Numeric::Long(n)),
+        ValueRef::Decimal128(decimal) => Some(Numeric::Decimal(decimal)),
         _ => None,
+    }
+}
+
+fn with_text<T>(decimal: DecimalRef<'_>, read: impl FnOnce(&str) -> T) -> T {
+    match decimal {
+        DecimalRef::Text(text) => read(text),
+        DecimalRef::Bytes(bytes) => read(&decimal128_to_string(bytes)),
     }
 }
 
@@ -213,7 +221,7 @@ fn exact_of(value: Numeric<'_>) -> Exact {
         Numeric::Int(n) => exact_of_long(i64::from(n)),
         Numeric::Double(n) => exact_of_double(n),
         Numeric::Long(n) => exact_of_long(n),
-        Numeric::Decimal(text) => exact_of_decimal(text),
+        Numeric::Decimal(decimal) => with_text(decimal, exact_of_decimal),
     }
 }
 
@@ -284,7 +292,7 @@ pub fn compare_numeric(a: Numeric<'_>, b: Numeric<'_>) -> Ordering {
 pub fn is_nan(value: Numeric<'_>) -> bool {
     match value {
         Numeric::Double(n) => n.is_nan(),
-        Numeric::Decimal(text) => exact_of_decimal(text) == Exact::NaN,
+        Numeric::Decimal(decimal) => with_text(decimal, exact_of_decimal) == Exact::NaN,
         Numeric::Int(_) | Numeric::Long(_) => false,
     }
 }
@@ -297,14 +305,25 @@ pub fn to_double(value: Numeric<'_>) -> f64 {
         Numeric::Double(n) => n,
         #[allow(clippy::cast_precision_loss)]
         Numeric::Long(n) => n as f64,
-        Numeric::Decimal(text) => js_string_to_number(text).unwrap_or(f64::NAN),
+        Numeric::Decimal(decimal) => with_text(decimal, js_string_to_number).unwrap_or(f64::NAN),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use Numeric::{Decimal, Double, Int, Long};
+    use Numeric::{Double, Int, Long};
+
+    #[allow(non_snake_case)]
+    fn Decimal(text: &str) -> Numeric<'_> {
+        Numeric::Decimal(DecimalRef::Text(text))
+    }
+
+    #[test]
+    fn decimal_bytes_compare_like_their_text() {
+        let bytes = canopy_protocol::bson::decimal128_from_string("1.50").unwrap();
+        assert_eq!(compare_numeric(Numeric::Decimal(DecimalRef::Bytes(bytes)), Double(1.5)), Ordering::Equal);
+    }
 
     #[test]
     fn compares_across_representations_by_exact_value() {

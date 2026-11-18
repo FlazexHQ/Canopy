@@ -175,12 +175,12 @@ fn decode_wrapper(entries: &[(String, Json)]) -> Result<Value, CanopyError> {
             }
             let subtype = u8::from_str_radix(subtype, 16).map_err(|_| fail("$binary"))?;
             let bytes = forgiving_base64_decode(base64).ok_or_else(|| fail("base64 payload"))?;
-            Ok(Value::Binary(Binary { subtype, bytes }))
+            Ok(Value::Binary(Box::new(Binary { subtype, bytes })))
         }
         "$uuid" => {
             let text = string_of(inner).ok_or_else(|| fail("$uuid"))?;
             uuid_bytes(text)
-                .map(|bytes| Value::Binary(Binary { subtype: 4, bytes }))
+                .map(|bytes| Value::Binary(Box::new(Binary { subtype: 4, bytes })))
                 .ok_or_else(|| fail("$uuid"))
         }
         "$timestamp" => {
@@ -201,7 +201,7 @@ fn decode_wrapper(entries: &[(String, Json)]) -> Result<Value, CanopyError> {
             if !options.chars().all(|c| matches!(c, 'i' | 'm' | 's' | 'u' | 'x')) {
                 return Err(fail("$regularExpression"));
             }
-            Ok(Value::Regex(Regex::new(pattern.clone(), options)))
+            Ok(Value::Regex(Box::new(Regex::new(pattern.clone(), options))))
         }
         "$minKey" => match inner {
             Json::Number(n) if *n == 1.0 => Ok(Value::MinKey),
@@ -668,8 +668,8 @@ fn encode_value(value: &Value, canonical: bool) -> Result<Json, CanopyError> {
         Value::MinKey => wrapper("$minKey", Json::Number(1.0)),
         Value::MaxKey => wrapper("$maxKey", Json::Number(1.0)),
         Value::Symbol(_) => return Err(cannot_encode("BSONSymbol")),
-        Value::JavaScript { .. } => return Err(cannot_encode("Code")),
-        Value::DbPointer { .. } => return Err(cannot_encode("DBRef")),
+        Value::JavaScript(_) => return Err(cannot_encode("Code")),
+        Value::DbPointer(_) => return Err(cannot_encode("DBRef")),
     })
 }
 
@@ -708,11 +708,11 @@ mod tests {
         assert_eq!(parsed(r#"{"$date":{"$numberLong":"-1"}}"#), Value::DateTime(-1));
         assert_eq!(
             parsed(r#"{"$binary":{"base64":"AQI=","subType":"80"}}"#),
-            Value::Binary(Binary { subtype: 0x80, bytes: vec![1, 2] })
+            Value::Binary(Box::new(Binary { subtype: 0x80, bytes: vec![1, 2] }))
         );
         assert_eq!(
             parsed(r#"{"$uuid":"00112233-4455-6677-8899-aabbccddeeff"}"#),
-            Value::Binary(Binary { subtype: 4, bytes: (0..16).map(|n| n * 0x11).collect() })
+            Value::Binary(Box::new(Binary { subtype: 4, bytes: (0..16).map(|n| n * 0x11).collect() }))
         );
         assert_eq!(
             parsed(r#"{"$timestamp":{"t":4294967295,"i":0}}"#),
@@ -720,7 +720,7 @@ mod tests {
         );
         assert_eq!(
             parsed(r#"{"$regularExpression":{"pattern":"a","options":"xi"}}"#),
-            Value::Regex(Regex::new("a", "ix"))
+            Value::Regex(Box::new(Regex::new("a", "ix")))
         );
         assert_eq!(parsed(r#"{"$numberDecimal":"1.5E+3"}"#), Value::Decimal128("1.5E+3".to_owned()));
         assert_eq!(parsed(r#"{"$minKey":1}"#), Value::MinKey);

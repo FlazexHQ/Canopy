@@ -1,7 +1,7 @@
 //! Binary BSON: decoding and encoding documents, and the Decimal128 string conversion.
 
 use crate::error::{CanopyError, ErrorCode};
-use crate::value::{Binary, Document, Regex, Value};
+use crate::value::{Binary, DbPointer, Document, JavaScript, Regex, Value};
 
 /// Nesting beyond this depth is refused while decoding, so hostile input cannot exhaust the stack. MongoDB
 /// itself stores at most 100 levels.
@@ -139,7 +139,7 @@ impl<'a> Reader<'a> {
                         bytes = &bytes[4..];
                     }
                 }
-                Value::Binary(Binary { subtype, bytes: bytes.to_vec() })
+                Value::Binary(Box::new(Binary { subtype, bytes: bytes.to_vec() }))
             }
             0x06 => Value::Undefined,
             0x07 => Value::ObjectId(self.array()?),
@@ -153,13 +153,13 @@ impl<'a> Reader<'a> {
             0x0b => {
                 let pattern = self.cstring()?;
                 let options = self.cstring()?;
-                Value::Regex(Regex::new(pattern, &options))
+                Value::Regex(Box::new(Regex::new(pattern, &options)))
             }
             0x0c => {
                 let namespace = self.string()?;
-                Value::DbPointer { namespace, id: self.array()? }
+                Value::DbPointer(Box::new(DbPointer { namespace, id: self.array()? }))
             }
-            0x0d => Value::JavaScript { code: self.string()?, scope: None },
+            0x0d => Value::JavaScript(Box::new(JavaScript { code: self.string()?, scope: None })),
             0x0e => Value::Symbol(self.string()?),
             0x0f => {
                 let start = self.position;
@@ -169,7 +169,7 @@ impl<'a> Reader<'a> {
                 if self.position - start != length {
                     return Err(malformed("code with scope length does not match its content"));
                 }
-                Value::JavaScript { code, scope: Some(scope) }
+                Value::JavaScript(Box::new(JavaScript { code, scope: Some(scope) }))
             }
             0x10 => Value::Int32(self.i32()?),
             0x11 => {
@@ -246,10 +246,10 @@ fn element_type(value: &Value) -> u8 {
         Value::DateTime(_) => 0x09,
         Value::Null => 0x0a,
         Value::Regex(_) => 0x0b,
-        Value::DbPointer { .. } => 0x0c,
-        Value::JavaScript { scope: None, .. } => 0x0d,
+        Value::DbPointer(_) => 0x0c,
+        Value::JavaScript(js) if js.scope.is_none() => 0x0d,
         Value::Symbol(_) => 0x0e,
-        Value::JavaScript { scope: Some(_), .. } => 0x0f,
+        Value::JavaScript(_) => 0x0f,
         Value::Int32(_) => 0x10,
         Value::Timestamp { .. } => 0x11,
         Value::Int64(_) => 0x12,
@@ -262,9 +262,7 @@ fn element_type(value: &Value) -> u8 {
 fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), CanopyError> {
     match value {
         Value::Double(number) => out.extend_from_slice(&number.to_le_bytes()),
-        Value::String(text) | Value::Symbol(text) | Value::JavaScript { code: text, scope: None } => {
-            write_string(out, text)?;
-        }
+        Value::String(text) | Value::Symbol(text) => write_string(out, text)?,
         Value::Document(document) => write_elements(out, document.iter())?,
         Value::Array(items) => {
             let names: Vec<String> = (0..items.len()).map(|index| index.to_string()).collect();
@@ -285,17 +283,20 @@ fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), CanopyError> {
             write_cstring(out, &regex.pattern)?;
             write_cstring(out, &regex.options)?;
         }
-        Value::DbPointer { namespace, id } => {
-            write_string(out, namespace)?;
-            out.extend_from_slice(id);
+        Value::DbPointer(pointer) => {
+            write_string(out, &pointer.namespace)?;
+            out.extend_from_slice(&pointer.id);
         }
-        Value::JavaScript { code, scope: Some(scope) } => {
-            let start = out.len();
-            out.extend_from_slice(&[0, 0, 0, 0]);
-            write_string(out, code)?;
-            write_elements(out, scope.iter())?;
-            patch_length(out, start)?;
-        }
+        Value::JavaScript(js) => match &js.scope {
+            None => write_string(out, &js.code)?,
+            Some(scope) => {
+                let start = out.len();
+                out.extend_from_slice(&[0, 0, 0, 0]);
+                write_string(out, &js.code)?;
+                write_elements(out, scope.iter())?;
+                patch_length(out, start)?;
+            }
+        },
         Value::Int32(number) => out.extend_from_slice(&number.to_le_bytes()),
         Value::Timestamp { t, i } => {
             out.extend_from_slice(&((u64::from(*t) << 32) | u64::from(*i)).to_le_bytes())
@@ -465,17 +466,17 @@ mod tests {
             ("s", Value::String("é".to_owned())),
             ("o", Value::Document(inner.clone())),
             ("a", Value::Array(vec![Value::Int32(1), Value::Null])),
-            ("b", Value::Binary(Binary { subtype: 4, bytes: vec![1; 16] })),
+            ("b", Value::Binary(Box::new(Binary { subtype: 4, bytes: vec![1; 16] }))),
             ("u", Value::Undefined),
             ("id", Value::ObjectId([7; 12])),
             ("t", Value::Bool(true)),
             ("date", Value::DateTime(-5)),
             ("n", Value::Null),
-            ("r", Value::Regex(Regex::new("^a", "mi"))),
-            ("p", Value::DbPointer { namespace: "db.c".to_owned(), id: [1; 12] }),
-            ("js", Value::JavaScript { code: "f()".to_owned(), scope: None }),
+            ("r", Value::Regex(Box::new(Regex::new("^a", "mi")))),
+            ("p", Value::DbPointer(Box::new(DbPointer { namespace: "db.c".to_owned(), id: [1; 12] }))),
+            ("js", Value::JavaScript(Box::new(JavaScript { code: "f()".to_owned(), scope: None }))),
             ("sym", Value::Symbol("y".to_owned())),
-            ("jss", Value::JavaScript { code: "g()".to_owned(), scope: Some(inner) }),
+            ("jss", Value::JavaScript(Box::new(JavaScript { code: "g()".to_owned(), scope: Some(inner) }))),
             ("i", Value::Int32(-3)),
             ("ts", Value::Timestamp { t: 7, i: 9 }),
             ("l", Value::Int64(i64::MIN)),

@@ -6,7 +6,11 @@ pub mod bson;
 pub mod ejson;
 mod error;
 pub mod json;
+pub mod raw;
 mod value;
 
 pub use error::{CanopyError, ErrorCode};
-pub use value::{Binary, Document, Regex, Value, hex, is_int32, object_id_hex, parse_object_id};
+pub use raw::{ArrayRef, DecimalRef, DocRef, RawDocument, ValueRef};
+pub use value::{
+    Binary, DbPointer, Document, JavaScript, Regex, Value, hex, is_int32, object_id_hex, parse_object_id,
+};
