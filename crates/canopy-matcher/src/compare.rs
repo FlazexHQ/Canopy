@@ -77,6 +77,34 @@ pub fn bson_type(value: ValueRef<'_>) -> BsonType {
     }
 }
 
+impl BsonType {
+    /// The `$type` alias of the type, as MongoDB names it in error messages.
+    pub fn alias(self) -> &'static str {
+        match self {
+            BsonType::MinKey => "minKey",
+            BsonType::Undefined => "undefined",
+            BsonType::Null => "null",
+            BsonType::Double => "double",
+            BsonType::Int => "int",
+            BsonType::Long => "long",
+            BsonType::Decimal => "decimal",
+            BsonType::String => "string",
+            BsonType::Symbol => "symbol",
+            BsonType::Object => "object",
+            BsonType::Array => "array",
+            BsonType::BinData => "binData",
+            BsonType::ObjectId => "objectId",
+            BsonType::Bool => "bool",
+            BsonType::Date => "date",
+            BsonType::Timestamp => "timestamp",
+            BsonType::Regex => "regex",
+            BsonType::DbPointer => "dbPointer",
+            BsonType::JavaScript => "javascript",
+            BsonType::MaxKey => "maxKey",
+        }
+    }
+}
+
 /// Returns the BSON type of an owned value.
 pub fn bson_type_of(value: &Value) -> BsonType {
     bson_type(value.view())

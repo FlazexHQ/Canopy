@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import fc from "fast-check"
-import { BSON, type Document, MongoClient } from "mongodb"
+import { BSON, type Document, Long, MongoClient } from "mongodb"
 import { arbitraries } from "../src/index.ts"
 
 /**
@@ -14,6 +14,8 @@ import { arbitraries } from "../src/index.ts"
  * generated filter with `find` and keeps a bit per matching document. `sorts.json` runs each generated sort
  * with `find().sort()` and the `_id` tie breaker and keeps the order of the documents. `projections.json`
  * runs each generated projection with `find()` and keeps the projected documents as raw BSON.
+ * `updates.json` applies each generated update (with array filters when it names `$[x]`) to one of the
+ * documents with `updateOne` and keeps the updated document as raw BSON.
  *
  *   bun packages/testing/scripts/matcher-vectors.ts [--runs 2000] [--seed 20261106] [--dir <folder>]
  *
@@ -39,6 +41,11 @@ if (uri === undefined) {
 
 function base64(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString("base64")
+}
+
+function reason(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.split(" :: caused by :: ").at(-1) ?? message
 }
 
 function bitmask(ids: readonly number[]): string {
@@ -71,6 +78,81 @@ const projectionSpec = fc
       }),
   )
 
+const { value } = arbitraries
+const operand = fc.oneof(
+  value,
+  fc.constantFrom(1, -1, 2, 0.5, 2147483647, Long.fromNumber(3), Long.fromBigInt(2n ** 62n)),
+)
+const updatePath = fc.constantFrom(
+  "a",
+  "b",
+  "a.b",
+  "a.c",
+  "a.0",
+  "a.1",
+  "a.b.c",
+  "d",
+  "a.$[]",
+  "a.$[x]",
+)
+const one = { minKeys: 1, maxKeys: 1 }
+const updateOp = fc.oneof(
+  fc.record({ $set: fc.dictionary(updatePath, value, { minKeys: 1, maxKeys: 2 }) }),
+  fc.record({ $unset: fc.dictionary(updatePath, fc.constant(""), { minKeys: 1, maxKeys: 2 }) }),
+  fc.record({ $inc: fc.dictionary(updatePath, operand, one) }),
+  fc.record({ $mul: fc.dictionary(updatePath, operand, one) }),
+  fc.record({ $min: fc.dictionary(updatePath, value, one) }),
+  fc.record({ $max: fc.dictionary(updatePath, value, one) }),
+  fc.record({ $push: fc.dictionary(updatePath, value, one) }),
+  fc.record({
+    $push: fc.dictionary(
+      fc.constantFrom("a", "b", "a.b"),
+      fc.record(
+        {
+          $each: fc.array(value, { maxLength: 3 }),
+          $slice: fc.constantFrom(0, 1, 2, -1, -2),
+          $position: fc.constantFrom(0, 1, -1),
+          $sort: fc.constantFrom(1, -1, { a: 1 }, { b: -1, a: 1 }),
+        },
+        { requiredKeys: ["$each"] },
+      ),
+      one,
+    ),
+  }),
+  fc.record({ $addToSet: fc.dictionary(updatePath, value, one) }),
+  fc.record({
+    $addToSet: fc.dictionary(
+      fc.constantFrom("a", "b"),
+      fc.record({ $each: fc.array(value, { maxLength: 3 }) }),
+      one,
+    ),
+  }),
+  fc.record({ $pop: fc.dictionary(updatePath, fc.constantFrom(1, -1), one) }),
+  fc.record({
+    $pull: fc.dictionary(
+      fc.constantFrom("a", "b", "a.b"),
+      fc.oneof(value, fc.record({ $gte: value }), fc.record({ b: value })),
+      one,
+    ),
+  }),
+  fc.record({
+    $pullAll: fc.dictionary(fc.constantFrom("a", "b"), fc.array(value, { maxLength: 3 }), one),
+  }),
+  fc.record({
+    $bit: fc.dictionary(
+      fc.constantFrom("a", "b", "c"),
+      fc.dictionary(
+        fc.constantFrom("and", "or", "xor"),
+        fc.constantFrom(1, 5, -1, Long.fromNumber(6)),
+        one,
+      ),
+      one,
+    ),
+  }),
+  fc.record({ $rename: fc.constantFrom({ a: "z" }, { b: "a.q" }, { "a.b": "y" }, { a: "b" }) }),
+)
+const updateCase = fc.tuple(fc.array(updateOp, { minLength: 1, maxLength: 2 }), fc.nat(DOCS - 1))
+
 const client = new MongoClient(uri)
 const db = client.db(`canopy_vectors_${process.pid}`)
 try {
@@ -88,7 +170,7 @@ try {
       const found = await coll.find(filter, { projection: { _id: 1 } }).toArray()
       cases.push({ filter: bytes, matches: bitmask(found.map((doc) => Number(doc["_id"]))) })
     } catch (error: unknown) {
-      cases.push({ filter: bytes, error: error instanceof Error ? error.message : String(error) })
+      cases.push({ filter: bytes, error: reason(error) })
     }
   }
 
@@ -102,7 +184,7 @@ try {
         .toArray()
       sorts.push({ sort: bytes, order: found.map((doc) => Number(doc["_id"])) })
     } catch (error: unknown) {
-      sorts.push({ sort: bytes, error: error instanceof Error ? error.message : String(error) })
+      sorts.push({ sort: bytes, error: reason(error) })
     }
   }
 
@@ -118,9 +200,39 @@ try {
     } catch (error: unknown) {
       projections.push({
         projection: bytes,
-        error: error instanceof Error ? error.message : String(error),
+        error: reason(error),
       })
     }
+  }
+
+  const target = db.collection<Document>("updates")
+  const updates: Record<string, unknown>[] = []
+  for (const [ops, index] of fc.sample(updateCase, { numRuns: runs, seed })) {
+    const update = Object.assign({}, ...ops) as Document
+    const usesFilter = Object.values(update).some((fields) =>
+      Object.keys(fields as Document).some((path) => path.includes("$[x]")),
+    )
+    const arrayFilters = usesFilter ? [{ x: { $gte: 1 } }] : undefined
+    const entry: Record<string, unknown> = {
+      document: index,
+      update: base64(BSON.serialize(update)),
+    }
+    if (arrayFilters !== undefined)
+      entry["arrayFilters"] = base64(BSON.serialize({ list: arrayFilters }))
+    await target.deleteMany({})
+    await target.insertOne({ _id: index, ...(generated[index] ?? {}) })
+    try {
+      await target.updateOne(
+        { _id: index },
+        update,
+        arrayFilters === undefined ? {} : { arrayFilters },
+      )
+      const [after] = await target.find({ _id: index }, { raw: true }).toArray()
+      entry["result"] = base64(after as unknown as Uint8Array)
+    } catch (error: unknown) {
+      entry["error"] = reason(error)
+    }
+    updates.push(entry)
   }
 
   await mkdir(values.dir, { recursive: true })
@@ -134,6 +246,7 @@ try {
   await write("filters.json", "filters", cases)
   await write("sorts.json", "sorts", sorts)
   await write("projections.json", "projections", projections)
+  await write("updates.json", "updates", updates)
 } finally {
   await db.dropDatabase().catch(() => undefined)
   await client.close()

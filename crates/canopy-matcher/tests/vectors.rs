@@ -5,7 +5,9 @@
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-use canopy_matcher::{compile_filter, compile_projection, compile_sort, is_unsupported};
+use canopy_matcher::{
+    UpdateOptions, apply_update, compile_filter, compile_projection, compile_sort, is_unsupported,
+};
 use canopy_protocol::bson::decode_document;
 use canopy_protocol::ejson::forgiving_base64_decode;
 use canopy_protocol::json::{Json, parse_json};
@@ -265,4 +267,61 @@ fn projections_agree_with_mongodb() {
     );
     assert_eq!(unsupported, 0);
     assert!(projected > vectors.cases.len() / 3, "too few projections compared: {projected}");
+}
+
+#[test]
+fn updates_agree_with_mongodb() {
+    let vectors = recorded(include_str!("vectors/updates.json"));
+    let mut mismatches = Vec::new();
+    let (mut applied, mut refused, mut unsupported) = (0, 0, 0);
+    for case in &vectors.cases {
+        let Some(Json::Number(index)) = case.get("document") else { panic!("document") };
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let original = &vectors.documents[*index as usize];
+        let update = document(case.get("update").expect("update"));
+        let array_filters = match case.get("arrayFilters").map(document) {
+            Some(holder) => match holder.get("list") {
+                Some(Value::Array(filters)) => filters.clone(),
+                other => panic!("array filters: {other:?}"),
+            },
+            None => Vec::new(),
+        };
+        let label = format!("{} on {}", shown(update.clone()), shown(original.clone()));
+        let options = UpdateOptions { array_filters, ..UpdateOptions::default() };
+        let outcome = apply_update(original, &Value::Document(update), &options);
+        match (outcome, case.get("result")) {
+            (Err(error), _) if is_unsupported(&error) => unsupported += 1,
+            (Err(_), None) => refused += 1,
+            (Err(error), Some(_)) => {
+                mismatches
+                    .push(format!("{label}: MongoDB applied it, the updater refused ({})", error.message()));
+            }
+            (Ok(after), None) => mismatches.push(format!(
+                "{label}: MongoDB refused it ({}), the updater gave {}",
+                case.get("error").map(text).unwrap_or_default(),
+                shown(after)
+            )),
+            (Ok(after), Some(expected)) => {
+                applied += 1;
+                let expected = document(expected);
+                let bytes = canopy_protocol::bson::encode_document(&after).expect("BSON");
+                if bytes != canopy_protocol::bson::encode_document(&expected).expect("BSON") {
+                    mismatches.push(format!(
+                        "{label}: MongoDB {}, updater {}",
+                        shown(expected),
+                        shown(after)
+                    ));
+                }
+            }
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{} mismatches against {} ({applied} applied, {refused} refused, {unsupported} unsupported):\n{}",
+        mismatches.len(),
+        vectors.source,
+        mismatches.iter().take(40).cloned().collect::<Vec<_>>().join("\n")
+    );
+    assert!(applied > vectors.cases.len() / 3, "too few updates compared: {applied}");
+    assert!(unsupported < vectors.cases.len() / 20, "too many unsupported updates: {unsupported}");
 }

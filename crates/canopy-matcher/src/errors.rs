@@ -16,3 +16,11 @@ pub fn unsupported_query(message: impl Into<String>) -> CanopyError {
 pub fn is_unsupported(error: &CanopyError) -> bool {
     error.name() == UNSUPPORTED_QUERY
 }
+
+/// The class name of errors for updates MongoDB would reject. The message mirrors MongoDB's reason.
+pub const UPDATE_ERROR: &str = "UpdateError";
+
+/// Creates an `UpdateError`.
+pub fn update_error(message: impl Into<String>) -> CanopyError {
+    CanopyError::named(ErrorCode::InvalidQuery, UPDATE_ERROR, message)
+}
