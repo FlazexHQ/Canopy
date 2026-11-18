@@ -117,7 +117,7 @@ jobs:
   install:
     name: Install test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -130,8 +130,14 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
       - run: bun install --frozen-lockfile
-      - name: Pack every package, install the tarballs with Bun, npm, pnpm and Yarn, import every entry point
+      - name: Build and pack the addon of this platform and the WebAssembly fallback
+        run: bun --filter @canopy/native build:native --pack
+      - name: Pack every package, install the tarballs with Bun, npm, pnpm and Yarn, import every entry point, fall back to WebAssembly
         run: bun packages/testing/scripts/install-test.ts --build
 
   docs:
