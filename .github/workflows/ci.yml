@@ -14,6 +14,10 @@ concurrency:
 
 env:
   BUN_VERSION: 1.4.4
+  # A quicker release profile for the addon CI tests. native-release.yml and the nightly benchmarks keep the
+  # shipping profile of Cargo.toml (thin LTO, one codegen unit), so their caches use other keys.
+  CARGO_PROFILE_RELEASE_LTO: "off"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
 jobs:
   check:
@@ -69,8 +73,8 @@ jobs:
       - run: cargo clippy --locked --all-targets -- -D warnings
       - name: Unit tests and the filter vectors recorded from MongoDB
         run: cargo test --locked
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -120,8 +124,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
-          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
+          key: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -131,8 +135,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the addon of this platform and the WebAssembly fallback
         run: bun --filter @canopy/native build:native
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -147,8 +151,21 @@ jobs:
         env:
           CANOPY_MONGO_IMAGE: mongo:8.0.34
       - if: runner.os != 'Linux'
+        name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+      - if: runner.os != 'Linux'
         name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: runner.os != 'Linux' && steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: The suites, the bypass corpus and the invariants on the native engine (Bun)
         shell: bash
         run: bun --bun vitest run $SUITES
@@ -219,13 +236,13 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
-          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
+          key: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       - name: Build and pack the addon of this platform and the WebAssembly fallback
         run: bun --filter @canopy/native build:native --pack
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -295,15 +312,23 @@ jobs:
         with:
           node-version: ${{ matrix.runtime }}
       - run: bun install --frozen-lockfile
+      - name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: Let the canopy dev --with-mongo test run the same mongod
         shell: bash
-        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
-      - if: matrix.runtime == 'bun'
-        run: bunx biome ci .
-      - if: matrix.runtime == 'bun'
-        run: bun run typecheck
+        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/binaries/8.0.34/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
       - if: matrix.runtime == 'bun'
         name: Unit, integration and differential tests (Bun)
         run: bun --bun vitest run
@@ -344,7 +369,7 @@ jobs:
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   mongo:
-    name: MongoDB ${{ matrix.mongo }} replica set
+    name: MongoDB ${{ matrix.mongo }} replica set (${{ matrix.runtime }})
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
     timeout-minutes: 25
@@ -352,6 +377,7 @@ jobs:
       fail-fast: false
       matrix:
         mongo: ["8.0.34"]
+        runtime: [node, bun]
     env:
       CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
     steps:
@@ -361,16 +387,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      # On both legs, so the Bun leg keeps the Node.js 24 it ran next to before the split.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Integration and differential tests (Node, with coverage)
+      - if: matrix.runtime == 'node'
+        name: Integration and differential tests (Node, with coverage)
         run: node node_modules/vitest/vitest.mjs run --coverage --testTimeout=60000
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
           CANOPY_REQUIRE_MONGODB: "1"
-      - name: Integration and differential tests (Bun)
+      - if: matrix.runtime == 'bun'
+        name: Integration and differential tests (Bun)
         run: bun --bun vitest run
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0

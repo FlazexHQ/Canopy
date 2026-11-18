@@ -58,8 +58,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
         run: bun --filter @canopy/native build:native
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -112,8 +112,20 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      - name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: Install Chromium
         working-directory: examples/todo-react
         run: node node_modules/@playwright/test/cli.js install chromium
@@ -190,8 +202,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Build the addon (release), so the benchmarks also measure the Rust core
         run: bun --filter @canopy/native build:native --native-only
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -364,8 +376,8 @@ jobs:
         run: |
           bun run build
           bun --filter @canopy/native build:native
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -382,8 +394,21 @@ jobs:
       - if: runner.os == 'Linux'
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - if: runner.os != 'Linux'
+        name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+      - if: runner.os != 'Linux'
         name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: runner.os != 'Linux' && steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - run: deno --version
       # Vitest needs the thread pool on Deno. Studio is a browser app, tested in browsers instead.
       - name: Full suite on Deno

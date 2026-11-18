@@ -11,7 +11,9 @@
  * PATH runs through `bun x` instead, so the script needs nothing installed globally. The packages depend on
  * each other with exact versions that are not published, so the test serves the tarballs from a registry on
  * localhost and points the `@canopy` scope of each package manager at it (`.npmrc`, or `.yarnrc.yml` for
- * Yarn); every other package comes from the default registry. Imports run under Node.
+ * Yarn); every other package comes from the default registry. Imports run under Node. The package managers
+ * run concurrently, each in its own folder with its own cache; every progress line starts with the name of the
+ * manager, and a failure is printed at the end with the whole output of the step that failed.
  *
  * A package with prebuilt Node-API addons (a `napi` field) is installed from what its `build:native --pack`
  * or `build:native --assemble` wrote to its `packs/` folder: the root package, whose `optionalDependencies`
@@ -165,10 +167,14 @@ function run(
 const bunPath = (): string =>
   "Bun" in globalThis ? process.execPath : (find("bun") ?? usage("bun is not on the PATH"))
 
+/** A program and the arguments that come before those of the package manager it runs. */
+interface Command {
+  readonly program: string
+  readonly prefix: readonly string[]
+}
+
 /** How to run a package manager; Yarn 1 (preinstalled on CI images) is replaced by the current Yarn. */
-async function managerCommand(
-  manager: Manager,
-): Promise<{ program: string; prefix: readonly string[] }> {
+async function managerCommand(manager: Manager): Promise<Command> {
   if (manager === "bun") return { program: bunPath(), prefix: [] }
   const installed = find(manager)
   const classic =
@@ -507,6 +513,56 @@ const INSTALL: Readonly<Record<Manager, readonly string[]>> = {
   yarn: ["install"],
 }
 
+/** The last line of a program's output, for the progress lines. */
+const lastLine = (output: string): string => output.trim().split("\n").at(-1)?.trim() ?? ""
+
+/**
+ * Installs the tarballs with one package manager in its own folder, then imports every entry point and checks
+ * the WebAssembly fallback. Every manager has its own folder and cache (see {@link CACHE}; npm and pnpm keep
+ * their own default caches, which no other manager touches) and they share only the registry, which serves
+ * read only documents, and the Bun cache of the `bun x` fallbacks, which the caller fills before the managers
+ * start. So the managers run concurrently. Progress lines start with the manager's name.
+ *
+ * @returns the failure, naming the manager and holding the whole output of the step that failed, or
+ *   `undefined` when every check passed. It never rejects, so one manager failing cannot stop the others.
+ */
+async function testManager(
+  manager: Manager,
+  command: Command,
+  directory: string,
+  scratch: string,
+  registry: string,
+  tarballs: Tarballs,
+  packages: readonly Workspace[],
+): Promise<string | undefined> {
+  const started = Date.now()
+  const elapsed = (): string => `${((Date.now() - started) / 1000).toFixed(1)} s`
+  try {
+    await scratchProject(manager, directory, registry, tarballs, packages)
+    process.stdout.write(`${manager}: installing\n`)
+    const env = { ...process.env, ...CACHE[manager](scratch) }
+    const { program, prefix } = command
+    const installed = await run(program, [...prefix, ...INSTALL[manager]], directory, env)
+    if (installed.code !== 0)
+      return `${manager}: install failed after ${elapsed()}\n${installed.output.trim()}`
+    process.stdout.write(`${manager}: installed in ${elapsed()}\n`)
+    const node = find("node") ?? "node"
+    const checked = await run(node, ["check.mjs"], directory)
+    process.stdout.write(`${manager}: ${lastLine(checked.output)}\n`)
+    if (checked.code !== 0) return `${manager}: check failed\n${checked.output.trim()}`
+    if (tarballs.addons.length > 0) {
+      const fallback = await run(node, ["fallback.mjs"], directory)
+      process.stdout.write(`${manager}: ${lastLine(fallback.output)}\n`)
+      if (fallback.code !== 0) return `${manager}: fallback failed\n${fallback.output.trim()}`
+    }
+    process.stdout.write(`${manager}: passed in ${elapsed()}\n`)
+    return undefined
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    return `${manager}: failed after ${elapsed()}\n${reason}`
+  }
+}
+
 async function main(): Promise<void> {
   const options = parse(process.argv.slice(2))
   const packages = publishedPackages()
@@ -536,29 +592,24 @@ async function main(): Promise<void> {
       `Packed ${tarballs.files.size} packages and ${tarballs.optional.size} optional ones\n`,
     )
     registry = await serve(tarballsDir, [...tarballs.files, ...tarballs.optional])
+    // One at a time, so the `bun x` fallbacks fill the shared Bun cache before the managers run concurrently.
+    const commands = new Map<Manager, Command>()
     for (const manager of options.managers) {
-      const directory = join(scratch, manager)
-      await scratchProject(manager, directory, registry.url, tarballs, packages)
-      const { program, prefix } = await managerCommand(manager)
-      process.stdout.write(`${manager}: installing\n`)
-      const env = { ...process.env, ...CACHE[manager](scratch) }
-      const installed = await run(program, [...prefix, ...INSTALL[manager]], directory, env)
-      if (installed.code !== 0) {
-        failures.push(`${manager}: install failed\n${installed.output.trim()}`)
-        continue
+      const command = await managerCommand(manager)
+      const ready = await run(command.program, [...command.prefix, "--version"], scratch)
+      if (ready.code !== 0) failures.push(`${manager}: does not run\n${ready.output.trim()}`)
+      else {
+        process.stdout.write(`${manager}: version ${lastLine(ready.output)}\n`)
+        commands.set(manager, command)
       }
-      const node = find("node") ?? "node"
-      const checked = await run(node, ["check.mjs"], directory)
-      process.stdout.write(`${manager}: ${checked.output.trim().split("\n").at(-1) ?? ""}\n`)
-      if (checked.code !== 0) {
-        failures.push(`${manager}: ${checked.output.trim()}`)
-        continue
-      }
-      if (tarballs.addons.length === 0) continue
-      const fallback = await run(node, ["fallback.mjs"], directory)
-      process.stdout.write(`${manager}: ${fallback.output.trim().split("\n").at(-1) ?? ""}\n`)
-      if (fallback.code !== 0) failures.push(`${manager}: ${fallback.output.trim()}`)
     }
+    const url = registry.url
+    const results = await Promise.all(
+      [...commands].map(([manager, command]) =>
+        testManager(manager, command, join(scratch, manager), scratch, url, tarballs, packages),
+      ),
+    )
+    for (const failure of results) if (failure !== undefined) failures.push(failure)
   } finally {
     await registry?.close()
     if (options.keep) process.stdout.write(`Kept ${scratch}\n`)

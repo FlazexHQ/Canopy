@@ -93,8 +93,8 @@ jobs:
           args=()
           for target in ${{ matrix.targets }}; do args+=(--target "$target"); done
           bun packages/native/scripts/build.ts "${args[@]}" ${{ matrix.flags }} --pack
-      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
-        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |

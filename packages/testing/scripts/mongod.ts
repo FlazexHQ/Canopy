@@ -5,12 +5,23 @@
  *
  *   bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder> [--port 27017]
  *
+ * The binaries go to `<folder>/binaries/<version>`, and a later run with the same version reuses them instead
+ * of downloading again (CI caches that folder alone). The data, `mongod.log` and `mongod.pid` (the process
+ * id of the server) go to `<folder>`; a run over the data of an earlier one restarts that replica set.
  * Prints the connection string on success. The server keeps running after the script exits.
  */
 import { execFileSync, spawn } from "node:child_process"
-import { existsSync, mkdirSync, openSync, readdirSync, writeFileSync } from "node:fs"
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { join, resolve } from "node:path"
-import { MongoClient } from "mongodb"
+import { MongoClient, MongoServerError } from "mongodb"
 
 function usage(message: string): never {
   process.stderr.write(
@@ -48,28 +59,61 @@ function archiveUrl(version: string): string {
   usage(`No MongoDB build for ${process.platform}`)
 }
 
-function findMongod(dir: string): string {
+function findMongod(dir: string): string | undefined {
+  if (!existsSync(dir)) return undefined
   const name = process.platform === "win32" ? "mongod.exe" : "mongod"
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const candidate = join(dir, entry.name, "bin", name)
     if (existsSync(candidate)) return candidate
   }
-  throw new Error(`No ${name} in ${dir}`)
+  return undefined
 }
 
-async function download(url: string, dir: string): Promise<string> {
+/** Whether `mongod --version` runs and reports exactly `version`. */
+function reports(mongod: string, version: string): boolean {
+  try {
+    const output = execFileSync(mongod, ["--version"], { encoding: "utf8", timeout: 60_000 })
+    return new RegExp(`^db version v${version.replaceAll(".", "\\.")}\\r?$`, "m").test(output)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Returns the path of `mongod` for `version` under `binaries/<version>`, reusing what an earlier run unpacked
+ * there when it runs and reports that version, and downloading the official build otherwise. The archive is
+ * unpacked into a staging folder first, so an interrupted run never leaves a folder that looks complete.
+ */
+async function install(version: string, dir: string): Promise<string> {
+  const target = join(dir, "binaries", version)
+  const cached = findMongod(target)
+  if (cached !== undefined && reports(cached, version)) {
+    process.stderr.write(`Reusing MongoDB ${version} from ${target}\n`)
+    return cached
+  }
+  const url = archiveUrl(version)
+  process.stderr.write(`Downloading MongoDB ${version} from ${url}\n`)
   const response = await fetch(url)
   if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
-  const archive = join(dir, url.slice(url.lastIndexOf("/") + 1))
+  const staging = `${target}.partial`
+  rmSync(staging, { recursive: true, force: true })
+  mkdirSync(staging, { recursive: true })
+  const archive = join(staging, url.slice(url.lastIndexOf("/") + 1))
   writeFileSync(archive, new Uint8Array(await response.arrayBuffer()))
   // bsdtar ships with Windows 10 and later and also reads zip archives.
   const tar =
     process.platform === "win32"
       ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
       : "tar"
-  execFileSync(tar, ["-xf", archive, "-C", dir], { stdio: "inherit" })
-  return findMongod(dir)
+  execFileSync(tar, ["-xf", archive, "-C", staging], { stdio: "inherit" })
+  rmSync(archive)
+  rmSync(target, { recursive: true, force: true })
+  renameSync(staging, target)
+  const mongod = findMongod(target)
+  if (mongod === undefined) throw new Error(`The archive from ${url} has no mongod`)
+  if (!reports(mongod, version)) throw new Error(`${mongod} does not report version ${version}`)
+  return mongod
 }
 
 async function waitFor<T>(what: string, attempt: () => Promise<T | undefined>): Promise<T> {
@@ -94,7 +138,7 @@ async function main(): Promise<void> {
   const { version, dir, port } = parse(process.argv.slice(2))
   const data = join(dir, "data")
   mkdirSync(data, { recursive: true })
-  const mongod = await download(archiveUrl(version), dir)
+  const mongod = await install(version, dir)
   const log = join(dir, "mongod.log")
   const output = openSync(join(dir, "mongod.out"), "a")
   const child = spawn(
@@ -115,6 +159,7 @@ async function main(): Promise<void> {
     { detached: true, stdio: ["ignore", output, output] },
   )
   child.unref()
+  if (child.pid !== undefined) writeFileSync(join(dir, "mongod.pid"), `${child.pid}\n`)
   let exited: number | null | undefined
   child.once("exit", (code) => {
     exited = code
@@ -137,9 +182,14 @@ async function main(): Promise<void> {
     }
   })
   try {
-    await client.db("admin").command({
-      replSetInitiate: { _id: "rs0", members: [{ _id: 0, host: `localhost:${port}` }] },
-    })
+    try {
+      await client.db("admin").command({
+        replSetInitiate: { _id: "rs0", members: [{ _id: 0, host: `localhost:${port}` }] },
+      })
+    } catch (error: unknown) {
+      if (!(error instanceof MongoServerError && error.codeName === "AlreadyInitialized"))
+        throw error
+    }
     await waitFor("the replica set to elect a primary", async () => {
       const hello = await client.db("admin").command({ hello: 1 })
       return hello["isWritablePrimary"] === true ? true : undefined
