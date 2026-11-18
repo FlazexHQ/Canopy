@@ -7,6 +7,7 @@ pub mod ejson;
 mod error;
 pub mod json;
 pub mod raw;
+pub mod sha256;
 mod value;
 
 pub use error::{CanopyError, ErrorCode};
