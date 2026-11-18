@@ -1,0 +1,12 @@
+/target/
+node_modules/
+bun.lock
+*.node
+*.wasm
+*.tgz
+/binding.d.ts
+/browser.js
+/canopy-native.wasi*
+/wasi-worker*.mjs
+/npm/
+/packs/
