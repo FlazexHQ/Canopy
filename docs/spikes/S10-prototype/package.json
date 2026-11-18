@@ -1,0 +1,41 @@
+{
+  "name": "@canopy-s10/native",
+  "version": "0.0.0",
+  "description": "Spike S10: the Rust matcher behind Node-API with a WebAssembly fallback. Never published to npm.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "napi": {
+    "binaryName": "canopy-native",
+    "packageName": "@canopy-s10/native",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "wasm32-wasip1-threads"
+    ]
+  },
+  "devDependencies": {
+    "@emnapi/core": "2.0.0-beta.3",
+    "@emnapi/runtime": "2.0.0-beta.3",
+    "@napi-rs/cli": "3.10.12",
+    "@napi-rs/wasm-runtime": "1.2.7",
+    "bson": "7.3.3",
+    "emnapi": "2.0.0-beta.3"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "smoke": "node scripts/smoke.ts",
+    "bench": "node scripts/bench.ts"
+  }
+}
