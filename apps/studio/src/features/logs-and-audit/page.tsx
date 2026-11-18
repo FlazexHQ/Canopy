@@ -2,7 +2,13 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import { useId, useState } from "react"
 import { type LogsPage as LogsPageData, REQUEST_SURFACES } from "../../api/contract.ts"
 import { keys, useApi } from "../../app/context.tsx"
-import { EmptyState, ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
+import {
+  EmptyState,
+  ErrorState,
+  KpiStrip,
+  LoadingState,
+  PageHeader,
+} from "../../components/states.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import { Input } from "../../components/ui/input.tsx"
@@ -30,30 +36,28 @@ function statusVariant(status: number): "success" | "warning" | "destructive" {
 function Summary({ data }: { readonly data: LogsPageData }) {
   const summary = summarize(data)
   return (
-    <dl className="grid gap-3 sm:grid-cols-4">
-      <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.requestsPerSecond")}</dt>
-        <dd className="mt-1 text-2xl font-semibold">
-          {summary.estimatedPerSecond === undefined
-            ? t("common.unknown")
-            : formatNumber(Math.round(summary.estimatedPerSecond * 10) / 10)}
-        </dd>
-      </div>
-      <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.serverErrors")}</dt>
-        <dd className="mt-1 text-2xl font-semibold">{formatPercent(summary.serverErrorShare)}</dd>
-      </div>
-      <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.sampleRate")}</dt>
-        <dd className="mt-1 text-2xl font-semibold">{formatPercent(data.sampleRate)}</dd>
-      </div>
-      <div className="rounded-lg border p-4">
-        <dt className="text-sm text-muted-foreground">{t("logs.summary.retention")}</dt>
-        <dd className="mt-1 text-2xl font-semibold">
-          {t("logs.summary.retentionDays", { days: data.retentionDays })}
-        </dd>
-      </div>
-    </dl>
+    <KpiStrip
+      items={[
+        {
+          label: t("logs.summary.requestsPerSecond"),
+          value:
+            summary.estimatedPerSecond === undefined
+              ? t("common.unknown")
+              : formatNumber(Math.round(summary.estimatedPerSecond * 10) / 10),
+          missing: summary.estimatedPerSecond === undefined,
+        },
+        {
+          label: t("logs.summary.serverErrors"),
+          value: formatPercent(summary.serverErrorShare),
+          ...(summary.serverErrorShare > 0.01 ? { tone: "negative" as const } : {}),
+        },
+        { label: t("logs.summary.sampleRate"), value: formatPercent(data.sampleRate) },
+        {
+          label: t("logs.summary.retention"),
+          value: t("logs.summary.retentionDays", { days: data.retentionDays }),
+        },
+      ]}
+    />
   )
 }
 

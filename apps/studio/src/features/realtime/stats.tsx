@@ -1,31 +1,16 @@
 import { useQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { keys, useApi } from "../../app/context.tsx"
-import { ErrorState, LoadingState } from "../../components/states.tsx"
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx"
+import { ErrorState, KpiStrip, LoadingState, Section } from "../../components/states.tsx"
 import { formatNumber, t } from "../../i18n/index.ts"
 import { displayValue } from "../../lib/ejson.ts"
 import { LagChart } from "./lag-chart.tsx"
 
-function Stat({
-  label,
-  value,
-  hint,
-}: {
-  readonly label: string
-  readonly value: ReactNode
-  readonly hint?: ReactNode
-}) {
+function Detail({ label, value }: { readonly label: string; readonly value: ReactNode }) {
   return (
-    <div className="rounded-lg border p-4">
+    <div className="grid min-w-0 gap-0.5 sm:grid-cols-[12rem_minmax(0,1fr)] sm:gap-4">
       <dt className="text-sm text-muted-foreground">{label}</dt>
-      <dd
-        className="mt-1 truncate text-2xl font-semibold"
-        title={typeof value === "string" ? value : undefined}
-      >
-        {value}
-      </dd>
-      {hint === undefined ? null : <dd className="mt-1 text-xs text-muted-foreground">{hint}</dd>}
+      <dd className="min-w-0 truncate text-sm">{value}</dd>
     </div>
   )
 }
@@ -52,58 +37,76 @@ export function RealtimeOverview({ tailRate }: { readonly tailRate: number }) {
   const observers = Object.values(data.observers).reduce((total, count) => total + count, 0)
   const rate = data.eventsPerSecond
   return (
-    <div className="grid gap-6">
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label={t("realtime.stats.connections")} value={formatNumber(data.connections)} />
-        <Stat
-          label={t("realtime.stats.sessions")}
-          value={data.sessions === undefined ? "" : formatNumber(data.sessions)}
-        />
-        <Stat label={t("realtime.stats.subscriptions")} value={formatNumber(data.subscriptions)} />
-        <Stat
-          label={t("realtime.stats.observers")}
-          value={formatNumber(observers)}
-          hint={t("realtime.stats.observersByType", {
-            matcher: data.observers["matcher"] ?? 0,
-            polling: data.observers["polling"] ?? 0,
-          })}
-        />
-        <Stat
-          label={t("realtime.stats.lag")}
-          value={data.lagMs === undefined ? "" : `${formatNumber(data.lagMs)} ms`}
-          {...(data.lagMs === undefined ? { hint: t("realtime.stats.lagNotReported") } : {})}
-        />
-        <Stat
-          label={t("realtime.stats.eventsPerSecond")}
-          value={formatNumber(rate ?? tailRate)}
-          {...(rate === undefined
-            ? { hint: t("realtime.stats.derivedRate", { rate: tailRate }) }
-            : {})}
-        />
-        <Stat label={t("realtime.stats.policyVersion")} value={data.policyVersion ?? ""} />
-        <Stat
-          label={t("realtime.stats.streamPosition")}
-          value={data.streamPosition === undefined ? "" : displayValue(data.streamPosition)}
-        />
-      </dl>
-      {data.collections === undefined ? null : (
-        <p className="text-sm">
-          <span className="text-muted-foreground">{t("realtime.stats.collections")}: </span>
-          {data.collections.join(", ")}
-        </p>
-      )}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("realtime.chart.title")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data.history === undefined ? (
-            <p className="text-sm text-muted-foreground">{t("realtime.stats.lagNotReported")}</p>
-          ) : (
-            <LagChart points={data.history} />
-          )}
-        </CardContent>
-      </Card>
+    <div className="grid gap-10">
+      <KpiStrip
+        items={[
+          { label: t("realtime.stats.connections"), value: formatNumber(data.connections) },
+          {
+            label: t("realtime.stats.sessions"),
+            value: data.sessions === undefined ? "" : formatNumber(data.sessions),
+          },
+          { label: t("realtime.stats.subscriptions"), value: formatNumber(data.subscriptions) },
+          {
+            label: t("realtime.stats.observers"),
+            value: formatNumber(observers),
+            note: t("realtime.stats.observersByType", {
+              matcher: data.observers["matcher"] ?? 0,
+              polling: data.observers["polling"] ?? 0,
+            }),
+          },
+          {
+            label: t("realtime.stats.lag"),
+            value: data.lagMs === undefined ? "" : `${formatNumber(data.lagMs)} ms`,
+            ...(data.lagMs === undefined ? { note: t("realtime.stats.lagNotReported") } : {}),
+          },
+          {
+            label: t("realtime.stats.eventsPerSecond"),
+            value: formatNumber(rate ?? tailRate),
+            ...(rate === undefined
+              ? { note: t("realtime.stats.derivedRate", { rate: tailRate }) }
+              : {}),
+          },
+        ]}
+      />
+      <Section id="realtime-engine" title={t("realtime.stats.engine")}>
+        <dl className="grid gap-2.5 rounded-lg bg-raised px-4 py-3.5">
+          <Detail
+            label={t("realtime.stats.collections")}
+            value={
+              data.collections === undefined || data.collections.length === 0 ? (
+                <span className="text-muted-foreground">{t("common.none")}</span>
+              ) : (
+                data.collections.join(", ")
+              )
+            }
+          />
+          <Detail
+            label={t("realtime.stats.policyVersion")}
+            value={
+              <span className="font-mono text-[13px]" title={data.policyVersion}>
+                {data.policyVersion ?? "-"}
+              </span>
+            }
+          />
+          <Detail
+            label={t("realtime.stats.streamPosition")}
+            value={
+              <span className="font-mono text-[13px]">
+                {data.streamPosition === undefined ? "-" : displayValue(data.streamPosition)}
+              </span>
+            }
+          />
+        </dl>
+      </Section>
+      <Section id="realtime-chart" title={t("realtime.chart.title")}>
+        {data.history === undefined ? (
+          <p className="rounded-lg bg-raised px-4 py-3.5 text-sm text-muted-foreground">
+            {t("realtime.stats.lagNotReported")}
+          </p>
+        ) : (
+          <LagChart points={data.history} />
+        )}
+      </Section>
     </div>
   )
 }

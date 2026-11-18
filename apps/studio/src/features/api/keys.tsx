@@ -240,20 +240,22 @@ export function KeysTab() {
                       {t(`api.keys.${key.kind}`)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className="font-mono text-[13px]">
                     {key.kind === "publishable" && typeof key.key === "string" ? (
                       <span className="flex items-center gap-2">
-                        <span className="break-all">{key.key}</span>
+                        <span className="max-w-64 truncate" title={key.key}>
+                          {key.key}
+                        </span>
                         <CopyButton value={key.key} what={key.name} />
                       </span>
                     ) : (
                       `canopy_${key.kind === "secret" ? "sk" : "pk"}_${key.prefix}…`
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     {key.createdAt === undefined ? "" : formatDateTime(key.createdAt)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="whitespace-nowrap">
                     {key.lastUsedAt === undefined || key.lastUsedAt === null
                       ? t("common.never")
                       : formatRelative(key.lastUsedAt)}
@@ -269,8 +271,13 @@ export function KeysTab() {
                   </TableCell>
                   <TableCell>
                     {!revoked && canManage(key.kind, permissions.createKeys) ? (
-                      <Button variant="outline" size="sm" onClick={() => setRevoking(key)}>
-                        {t("api.keys.revoke", { name: key.name })}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={t("api.keys.revoke", { name: key.name })}
+                        onClick={() => setRevoking(key)}
+                      >
+                        {t("api.keys.revokeShort")}
                       </Button>
                     ) : null}
                   </TableCell>

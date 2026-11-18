@@ -86,7 +86,7 @@ const COLUMNS: Readonly<Record<number, string>> = {
   3: "sm:grid-cols-3",
   4: "sm:grid-cols-4",
   5: "sm:grid-cols-5",
-  6: "sm:grid-cols-6",
+  6: "sm:grid-cols-3 lg:grid-cols-6",
 }
 
 /** Headline figures in one container split by 1px dividers into equal columns. */

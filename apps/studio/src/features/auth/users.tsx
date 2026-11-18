@@ -579,7 +579,7 @@ export function UsersTab() {
                     </Button>
                   </TableCell>
                   <TableCell>{user.name ?? ""}</TableCell>
-                  <TableCell className="font-mono text-xs">
+                  <TableCell className={user.roles.length === 0 ? "text-muted-foreground" : ""}>
                     {user.roles.length === 0 ? t("auth.users.noRoles") : user.roles.join(", ")}
                   </TableCell>
                   <TableCell>

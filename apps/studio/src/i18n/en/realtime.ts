@@ -24,6 +24,7 @@ export const realtime = {
     eventsPerSecond: "Events per second",
     lagNotReported: "This server does not report change stream lag.",
     derivedRate: "{rate} per second in the tail",
+    engine: "Engine",
   },
   chart: {
     title: "Lag and throughput",

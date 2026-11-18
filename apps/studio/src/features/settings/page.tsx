@@ -11,13 +11,6 @@ import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
 import { Button } from "../../components/ui/button.tsx"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "../../components/ui/card.tsx"
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -43,6 +36,7 @@ import {
   TableRow,
 } from "../../components/ui/table.tsx"
 import { formatDateTime, t } from "../../i18n/index.ts"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./setting-row.tsx"
 
 /** Whether a value is a browser origin: a scheme and host with an optional port, no path. */
 export function isOrigin(value: string): boolean {
@@ -638,7 +632,7 @@ function AdminsCard() {
   if (!permissions.readAdmins) return null
   return (
     <Card>
-      <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-2">
+      <CardHeader className="gap-3">
         <div className="grid gap-1.5">
           <CardTitle>{t("settings.admins")}</CardTitle>
           <CardDescription>{t("settings.adminsDescription")}</CardDescription>
@@ -799,7 +793,7 @@ function DangerZone() {
       ? t("settings.danger.rotateMasterKeyPhrase")
       : t("settings.danger.revokeSessionsPhrase")
   return (
-    <Card className="border-destructive/50">
+    <Card className="[&_h2]:text-destructive">
       <CardHeader>
         <CardTitle>{t("settings.danger.title")}</CardTitle>
         <CardDescription>{t("settings.danger.description")}</CardDescription>
@@ -844,7 +838,7 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title={t("settings.title")} description={t("settings.description")} />
-      <div className="grid max-w-4xl gap-6">
+      <div className="grid max-w-5xl">
         {permissions.manageSettings ? null : (
           <p className="text-sm text-muted-foreground">{t("settings.readOnly")}</p>
         )}

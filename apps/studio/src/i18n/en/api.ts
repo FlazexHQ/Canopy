@@ -27,6 +27,7 @@ export const api = {
     activeStatus: "Active",
     revokedStatus: "Revoked {when}",
     revoke: "Revoke {name}",
+    revokeShort: "Revoke",
     revokeTitle: "Revoke {name}?",
     revokeBody:
       "Requests with this key fail from now on, and realtime connections that use it close within about a second.",
