@@ -47,90 +47,113 @@ function compareKeys(a: unknown, b: unknown): number {
   return compareValues(a, b)
 }
 
-interface Cursor {
-  readonly value: unknown
-  readonly index: number
-  readonly positional: boolean
-  readonly element?: boolean
-}
-
 const PARALLEL = "cannot sort with keys that are parallel arrays"
+const AMBIGUOUS =
+  "Ambiguous field name found in array (do not use numeric field names in embedded elements in an array)"
 
-function leafKey(cursor: Cursor): unknown {
-  return cursor.value === undefined ? null : cursor.value
+/** Where a key path addressed an element of the array being expanded by its position. */
+interface Positional {
+  readonly indexed: unknown
+  readonly dotted: unknown
+  readonly remaining: number
 }
 
-function advance(cursor: Cursor, parts: readonly string[]): Cursor {
-  let { value, index } = cursor
-  let positional = cursor.positional
-  while (index < parts.length) {
-    const part = parts[index] ?? ""
-    if (Array.isArray(value)) {
-      if (!isArrayIndex(part)) break
-      value = value[Number(part)]
-      positional = index + 1 === parts.length
-      index += 1
-      continue
-    }
-    positional = false
-    value = isDocument(value) ? value[part] : undefined
-    index += 1
+function fieldOf(container: unknown, part: string): unknown {
+  if (Array.isArray(container)) {
+    return isArrayIndex(part) && Number(part) < container.length
+      ? container[Number(part)]
+      : undefined
   }
-  return { value, index, positional, element: cursor.element === true && index === cursor.index }
+  if (isDocument(container) && Object.hasOwn(container, part)) return container[part]
+  return undefined
 }
 
 /**
- * Generates the sort key tuples of a document the way MongoDB's key generator does: arrays are expanded, keys
- * that pass through the same array are correlated element by element, and keys through different arrays are
- * rejected as parallel arrays.
+ * Follows a path from a document (or an array addressed by position) until its end or the first array,
+ * returning the value found and the index of the first segment after it.
  */
-function keyTuples(cursors: readonly Cursor[], paths: readonly (readonly string[])[]): unknown[][] {
-  const advanced = cursors.map((cursor, i) => advance(cursor, paths[i] ?? []))
-  let shared: unknown[] | undefined
+function extract(container: unknown, parts: readonly string[], index: number): [unknown, number] {
+  const sub = fieldOf(container, parts[index] ?? "")
+  const next = index + 1
+  if (sub === undefined) return [undefined, next]
+  if (Array.isArray(sub) || next === parts.length) return [sub, next]
+  if (isDocument(sub)) return extract(sub, parts, next)
+  return [undefined, next]
+}
+
+/**
+ * Generates the sort key tuples of a document the way MongoDB's key generator does: each key path is
+ * followed to its end or to an array, every key that reaches an array must reach the same one (otherwise
+ * they are parallel arrays), and that array is expanded element by element. A path that addresses an
+ * element of the expanded array by position keeps reading that element while the others are expanded.
+ */
+function generate(
+  paths: readonly (readonly string[])[],
+  names: readonly number[],
+  fixedIn: readonly unknown[],
+  doc: Record<string, unknown> | undefined,
+  positional: readonly (Positional | undefined)[],
+  out: unknown[][],
+): void {
+  const next = [...names]
+  const fixed = [...fixedIn]
+  let array: unknown[] | undefined
   const expanding: number[] = []
-  advanced.forEach((cursor, i) => {
-    if (!Array.isArray(cursor.value) || cursor.positional) return
-    if (shared !== undefined && shared !== cursor.value) throw new InvalidQueryError(PARALLEL)
-    shared = cursor.value
-    expanding.push(i)
+  let expandElements = true
+  paths.forEach((parts, i) => {
+    const at = next[i] ?? parts.length
+    if (at === parts.length) return
+    const info = positional[i]
+    const inDoc = doc !== undefined && Object.hasOwn(doc, parts[at] ?? "")
+    if (inDoc && info !== undefined) throw new InvalidQueryError(AMBIGUOUS)
+    let found: unknown
+    if (inDoc) {
+      ;[found, next[i]] = extract(doc, parts, at)
+    } else if (info !== undefined) {
+      if (Array.isArray(info.indexed)) expandElements = false
+      next[i] = info.remaining
+      found = info.dotted
+    }
+    if (found === undefined) {
+      fixed[i] = null
+      next[i] = parts.length
+      return
+    }
+    if (Array.isArray(found)) {
+      if (array !== undefined && array !== found) throw new InvalidQueryError(PARALLEL)
+      array = found
+      expanding.push(i)
+      return
+    }
+    fixed[i] = found
   })
-  if (shared === undefined) {
-    return [
-      advanced.map((cursor) =>
-        Array.isArray(cursor.value) && cursor.value.length === 0 && cursor.element !== true
-          ? EMPTY_ARRAY
-          : leafKey(cursor),
-      ),
-    ]
+  if (array === undefined) {
+    out.push(fixed)
+    return
   }
-  const array = shared
-  if (array.length === 0) {
-    return keyTuples(
-      advanced.map((cursor, i) =>
-        expanding.includes(i)
-          ? {
-              value: cursor.index === (paths[i]?.length ?? 0) ? EMPTY_ARRAY : undefined,
-              index: paths[i]?.length ?? 0,
-              positional: false,
-            }
-          : cursor,
-      ),
-      paths,
-    )
+  const shared = array
+  const inner: (Positional | undefined)[] = paths.map(() => undefined)
+  for (const i of expanding) {
+    const parts = paths[i] ?? []
+    const at = next[i] ?? parts.length
+    if (at === parts.length) continue
+    const indexed = fieldOf(shared, parts[at] ?? "")
+    if (indexed === undefined) continue
+    const [dotted, remaining] = extract(shared, parts, at)
+    inner[i] = { indexed, dotted, remaining }
   }
-  const out: unknown[][] = []
-  for (const element of array) {
-    const next = advanced.map((cursor, i) => {
-      if (!expanding.includes(i)) return cursor
-      const atLeaf = cursor.index === (paths[i]?.length ?? 0)
-      if (atLeaf) return { value: element, index: cursor.index, positional: true, element: true }
-      if (!isDocument(element))
-        return { value: undefined, index: paths[i]?.length ?? 0, positional: false }
-      return { value: element, index: cursor.index, positional: false }
-    })
-    out.push(...keyTuples(next, paths))
+  const expand = (entry: unknown, whole: boolean, info: readonly (Positional | undefined)[]) => {
+    const withEntry = [...fixed]
+    for (const i of expanding) {
+      if (next[i] === (paths[i] ?? []).length) withEntry[i] = whole ? shared : entry
+    }
+    generate(paths, next, withEntry, isDocument(entry) ? entry : undefined, info, out)
   }
-  return out
+  if (shared.length === 0) {
+    expand(EMPTY_ARRAY, false, [])
+    return
+  }
+  for (const entry of shared) expand(entry === undefined ? null : entry, !expandElements, inner)
 }
 
 function compareTuples(
@@ -145,50 +168,16 @@ function compareTuples(
   return 0
 }
 
-function arrayPrefixes(root: unknown, parts: readonly string[]): string[] {
-  const out: string[] = []
-  const visit = (value: unknown, index: number, prefix: string): void => {
-    if (Array.isArray(value)) {
-      out.push(prefix)
-      if (index === parts.length) return
-      const part = parts[index] ?? ""
-      const next = `${prefix}.${part}`
-      if (isArrayIndex(part)) visit(value[Number(part)], index + 1, next)
-      for (const element of value) if (isDocument(element)) visit(element[part], index + 1, next)
-      return
-    }
-    if (index === parts.length || !isDocument(value)) return
-    const part = parts[index] ?? ""
-    visit(value[part], index + 1, prefix === "" ? part : `${prefix}.${part}`)
-  }
-  visit(root, 0, "")
-  return out
-}
-
-function related(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}.`) || b.startsWith(`${a}.`)
-}
-
-function assertNoParallelArrays(doc: unknown, keys: readonly SortKey[]): void {
-  if (keys.length < 2) return
-  const prefixes = keys.map((key) => arrayPrefixes(doc, key.parts))
-  for (let i = 0; i < prefixes.length; i += 1) {
-    for (let j = i + 1; j < prefixes.length; j += 1) {
-      for (const a of prefixes[i] ?? []) {
-        for (const b of prefixes[j] ?? []) {
-          if (!related(a, b)) throw new InvalidQueryError(PARALLEL)
-        }
-      }
-    }
-  }
-}
-
 function bestTuple(doc: unknown, keys: readonly SortKey[]): unknown[] {
-  assertNoParallelArrays(doc, keys)
+  const tuples: unknown[][] = []
   const paths = keys.map((key) => key.parts)
-  const tuples = keyTuples(
-    keys.map(() => ({ value: doc, index: 0, positional: false })),
+  generate(
     paths,
+    keys.map(() => 0),
+    keys.map(() => null),
+    isDocument(doc) ? doc : undefined,
+    [],
+    tuples,
   )
   let best = tuples[0] ?? keys.map(() => null)
   for (let index = 1; index < tuples.length; index += 1) {

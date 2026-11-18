@@ -101,7 +101,10 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
     const specs = fc.sample(
       fc
         .uniqueArray(
-          fc.tuple(fc.constantFrom("a", "b", "a.b", "c", "a.0"), fc.constantFrom(1, -1)),
+          fc.tuple(
+            fc.constantFrom("a", "b", "a.b", "c", "a.0", "a.c", "a.0.b", "a.b.c"),
+            fc.constantFrom(1, -1),
+          ),
           {
             minLength: 1,
             maxLength: 2,

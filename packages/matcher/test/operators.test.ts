@@ -5,6 +5,7 @@ import {
   compileFilter,
   compileProjection,
   compileSort,
+  compileSortKeys,
   isMatcherSafe,
   UnsupportedQueryError,
   UpdateError,
@@ -130,6 +131,79 @@ describe("compileSort", () => {
     const compare = compileSort({ a: 1, b: 1 })
     expect(() => compare({ _id: 1, a: [1], b: [2] }, { _id: 2 })).toThrow(InvalidQueryError)
   })
+
+  const keyOf = (spec: Record<string, 1 | -1>, doc: Record<string, unknown>) => () =>
+    compileSortKeys(spec).key(doc)
+
+  it("tells arrays apart by identity, not by content", () => {
+    expect(keyOf({ a: 1, b: 1 }, { _id: 1, a: [], b: [] })).toThrow(
+      "cannot sort with keys that are parallel arrays",
+    )
+    expect(keyOf({ a: 1, b: 1 }, { _id: 1, a: [1, 2], b: [1, 2] })).toThrow(
+      "cannot sort with keys that are parallel arrays",
+    )
+    expect(keyOf({ "a.b": 1, "a.0.b": 1 }, { _id: 1, a: [{ b: [1] }, { b: [1] }] })).toThrow(
+      "cannot sort with keys that are parallel arrays",
+    )
+  })
+
+  it("reads a positional path inside the array the other keys expand", () => {
+    expect(keyOf({ "a.b": 1, "a.0.b": 1 }, { _id: 1, a: [{ b: [1, 2] }, { b: 3 }] })).not.toThrow()
+    expect(
+      keyOf(
+        { "a.b": 1, "a.0.c": 1 },
+        {
+          _id: 1,
+          a: [
+            { b: 1, c: [1, 2] },
+            { b: 3, c: [1] },
+          ],
+        },
+      ),
+    ).not.toThrow()
+    expect(keyOf({ "a.0.b": 1, "a.b": 1 }, { _id: 1, a: [[{ b: 1 }], { b: 2 }] })).not.toThrow()
+    expect(keyOf({ "a.b": 1, "a.0.b": 1 }, { _id: 1, a: [{ b: [1, 2] }, { b: [3, 4] }] })).toThrow(
+      "cannot sort with keys that are parallel arrays",
+    )
+    expect(keyOf({ "a.0.b": 1, "a.1.b": 1 }, { _id: 1, a: [{ b: [1] }, { b: [2] }] })).toThrow(
+      "cannot sort with keys that are parallel arrays",
+    )
+    const docs = [
+      { _id: 1, a: [{ b: [5, 2] }, { b: 3 }] },
+      { _id: 2, a: [{ b: 4 }, { b: 1 }] },
+      { _id: 3, a: [{ b: [5] }, { b: 6 }] },
+    ]
+    expect(
+      compileSortKeys({ "a.0.b": -1, "a.b": 1 })
+        .sort(docs)
+        .map((d) => d._id),
+    ).toEqual([1, 3, 2])
+  })
+
+  it("refuses numeric field names inside an array addressed by position", () => {
+    expect(keyOf({ "a.0.b": 1, "a.b": 1 }, { _id: 1, a: [{ "0": { b: 1 } }, { b: 2 }] })).toThrow(
+      "Ambiguous field name found in array",
+    )
+  })
+
+  it("orders empty arrays nested in arrays like MongoDB", () => {
+    const docs = () => [
+      { _id: 1, a: [[], 5] },
+      { _id: 2, a: null },
+      { _id: 3, a: [[1], 0] },
+      { _id: 4, a: [[]] },
+    ]
+    expect(
+      compileSortKeys({ "a.0": 1 })
+        .sort(docs())
+        .map((d) => d._id),
+    ).toEqual([1, 4, 2, 3])
+    expect(
+      compileSortKeys({ a: 1 })
+        .sort(docs())
+        .map((d) => d._id),
+    ).toEqual([2, 3, 1, 4])
+  })
 })
 
 describe("compileProjection", () => {
@@ -162,6 +236,12 @@ describe("compileProjection", () => {
   it("rejects mixed modes and path collisions", () => {
     expect(() => compileProjection({ a: 1, b: 0 })).toThrow(InvalidQueryError)
     expect(() => compileProjection({ a: 1, "a.b": 1 })).toThrow(InvalidQueryError)
+    expect(() => compileProjection({ "_id.x": 1, _id: 1 })).toThrow("Path collision at _id.x")
+    expect(() => compileProjection({ _id: 0, "_id.x": 0 })).toThrow("Path collision at _id.x")
+    expect(compileProjection({ "_id.x": 0 }).apply({ _id: { x: 1, y: 2 }, a: 1 })).toEqual({
+      _id: { y: 2 },
+      a: 1,
+    })
   })
 })
 

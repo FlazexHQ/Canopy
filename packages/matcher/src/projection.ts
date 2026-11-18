@@ -125,6 +125,10 @@ export function compileProjection(spec: unknown): CompiledProjection {
     if (on) included.push(path)
     else excluded.push(path)
   }
+  const nested = [...included, ...excluded].find((path) => path.startsWith("_id."))
+  if (Object.hasOwn(spec, "_id") && nested !== undefined) {
+    throw new InvalidQueryError(`Path collision at ${nested}`)
+  }
   if (included.length > 0 && excluded.length > 0) {
     throw new InvalidQueryError("Cannot mix inclusion and exclusion in a projection")
   }
