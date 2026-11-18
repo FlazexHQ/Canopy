@@ -34,6 +34,7 @@
     "typecheck": "tsc -b test",
     "test": "vitest run",
     "bench": "node --conditions=@canopy/source bench/throughput.ts",
+    "bench:events": "node --conditions=@canopy/source bench/event-cost.ts",
     "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json"
   },
   "dependencies": {
