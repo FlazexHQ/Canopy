@@ -1,74 +1,116 @@
+import {
+  SelectContent as SelectContentPrimitive,
+  SelectItemIndicator,
+  SelectItem as SelectItemPrimitive,
+  Select as SelectPrimitive,
+  SelectTrigger as SelectTriggerPrimitive,
+  SelectValue as SelectValuePrimitive,
+} from "@ui-sdk/react/select"
 import { CheckIcon, ChevronDownIcon } from "lucide-react"
-import { Select as SelectPrimitive } from "radix-ui"
-import type { ComponentProps } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { cn } from "../../lib/utils.ts"
 
-export const Select = SelectPrimitive.Root
-export const SelectValue = SelectPrimitive.Value
+type WithClass<T> = Omit<T, "className" | "children"> & {
+  readonly className?: string
+  readonly children?: ReactNode
+}
 
+/** Chooses one string value from a popup list. */
+export function Select({
+  value,
+  onValueChange,
+  disabled,
+  placeholder,
+  children,
+}: {
+  readonly value: string
+  readonly onValueChange: (value: string) => void
+  readonly disabled?: boolean
+  readonly placeholder?: string
+  readonly children: ReactNode
+}) {
+  return (
+    <SelectPrimitive
+      value={value}
+      {...(disabled === undefined ? {} : { disabled })}
+      {...(placeholder === undefined ? {} : { placeholder })}
+      onValueChange={(next: unknown) => {
+        if (typeof next === "string") onValueChange(next)
+      }}
+    >
+      {children}
+    </SelectPrimitive>
+  )
+}
+
+/** Shows the chosen value inside a {@link SelectTrigger}. */
+export function SelectValue({
+  className,
+  ...props
+}: WithClass<ComponentProps<typeof SelectValuePrimitive>>) {
+  return (
+    <SelectValuePrimitive
+      className={cn("truncate data-placeholder:text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+
+/** The button that opens a {@link Select}. */
 export function SelectTrigger({
   className,
   children,
   ...props
-}: ComponentProps<typeof SelectPrimitive.Trigger>) {
+}: WithClass<ComponentProps<typeof SelectTriggerPrimitive>>) {
   return (
-    <SelectPrimitive.Trigger
+    <SelectTriggerPrimitive
       className={cn(
-        "flex h-9 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground [&>span]:line-clamp-1",
+        "flex h-8 w-full items-center justify-between gap-2 whitespace-nowrap rounded-md border border-input bg-background px-2.5 text-left text-sm transition-colors hover:border-foreground/30 data-disabled:cursor-not-allowed data-disabled:opacity-60 data-open:border-ring",
         className,
       )}
       {...props}
     >
       {children}
-      <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-60" aria-hidden="true" />
-      </SelectPrimitive.Icon>
-    </SelectPrimitive.Trigger>
+      <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </SelectTriggerPrimitive>
   )
 }
 
+/** The popup list of a {@link Select}. */
 export function SelectContent({
   className,
-  children,
-  position = "popper",
   ...props
-}: ComponentProps<typeof SelectPrimitive.Content>) {
+}: WithClass<ComponentProps<typeof SelectContentPrimitive>>) {
   return (
-    <SelectPrimitive.Portal>
-      <SelectPrimitive.Content
-        position={position}
-        className={cn(
-          "relative z-50 max-h-80 min-w-32 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-md",
-          position === "popper" && "w-full min-w-[var(--radix-select-trigger-width)] translate-y-1",
-          className,
-        )}
-        {...props}
-      >
-        <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
-      </SelectPrimitive.Content>
-    </SelectPrimitive.Portal>
+    <SelectContentPrimitive
+      sideOffset={4}
+      className={cn(
+        "popup-motion max-h-[min(20rem,var(--available-height))] min-w-(--anchor-width) overflow-y-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-lg outline-none",
+        className,
+      )}
+      {...props}
+    />
   )
 }
 
+/** One option of a {@link Select}. */
 export function SelectItem({
   className,
   children,
   ...props
-}: ComponentProps<typeof SelectPrimitive.Item>) {
+}: WithClass<ComponentProps<typeof SelectItemPrimitive>>) {
   return (
-    <SelectPrimitive.Item
+    <SelectItemPrimitive
       className={cn(
-        "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+        "relative flex w-full cursor-default select-none items-center rounded-md py-1.5 pr-8 pl-2 text-sm outline-none data-highlighted:bg-accent data-disabled:pointer-events-none data-disabled:opacity-50",
         className,
       )}
       {...props}
     >
-      <span className="absolute right-2 flex size-3.5 items-center justify-center">
-        <SelectPrimitive.ItemIndicator>
-          <CheckIcon className="size-4" aria-hidden="true" />
-        </SelectPrimitive.ItemIndicator>
-      </span>
-      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
-    </SelectPrimitive.Item>
+      {children}
+      <SelectItemIndicator className="absolute right-2 flex size-4 items-center justify-center text-brand">
+        <CheckIcon className="size-4" aria-hidden="true" />
+      </SelectItemIndicator>
+    </SelectItemPrimitive>
   )
 }

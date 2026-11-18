@@ -1,13 +1,18 @@
 import type { ComponentProps } from "react"
 import { cn } from "../../lib/utils.ts"
 
+const fieldClass =
+  "w-full min-w-0 rounded-md border border-input bg-background text-sm transition-colors placeholder:text-muted-foreground hover:border-foreground/30 focus-visible:border-ring focus-visible:outline-1 focus-visible:outline-offset-0 disabled:cursor-not-allowed disabled:opacity-60 aria-invalid:border-destructive"
+
+/** A one line text field. */
 export function Input({ className, type, ...props }: ComponentProps<"input">) {
   return (
     <input
       type={type}
       data-slot="input"
       className={cn(
-        "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-xs transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive",
+        fieldClass,
+        "flex h-8 px-2.5 file:border-0 file:bg-transparent file:text-sm file:font-medium",
         className,
       )}
       {...props}
@@ -15,14 +20,12 @@ export function Input({ className, type, ...props }: ComponentProps<"input">) {
   )
 }
 
+/** A multi line text field. */
 export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
   return (
     <textarea
       data-slot="textarea"
-      className={cn(
-        "flex min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive",
-        className,
-      )}
+      className={cn(fieldClass, "flex min-h-20 px-2.5 py-2", className)}
       {...props}
     />
   )

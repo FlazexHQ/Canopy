@@ -1,6 +1,21 @@
 export const shell = {
   skipToContent: "Skip to content",
   mainNavigation: "Main navigation",
+  openNavigation: "Open navigation",
+  groups: {
+    build: "Build",
+    operate: "Operate",
+  },
+  jump: {
+    open: "Jump to",
+    label: "Jump to a page or collection",
+    placeholder: "Search pages and collections",
+    empty: "Nothing matches that name.",
+    pages: "Pages",
+    collections: "Collections",
+    collectionData: "{name} documents",
+    collectionPolicies: "{name} policies",
+  },
   nav: {
     overview: "Overview",
     data: "Data",

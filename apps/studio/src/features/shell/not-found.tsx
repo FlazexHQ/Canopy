@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { EmptyState } from "../../components/states.tsx"
-import { Button } from "../../components/ui/button.tsx"
+import { buttonVariants } from "../../components/ui/button.tsx"
 import { t } from "../../i18n/index.ts"
 
 export function NotFound() {
@@ -9,9 +9,9 @@ export function NotFound() {
       <EmptyState
         title={t("shell.notFound.title")}
         action={
-          <Button asChild variant="outline">
-            <Link to="/">{t("shell.notFound.home")}</Link>
-          </Button>
+          <Link to="/" className={buttonVariants({ variant: "outline" })}>
+            {t("shell.notFound.home")}
+          </Link>
         }
       >
         {t("shell.notFound.body")}

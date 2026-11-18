@@ -1,41 +1,43 @@
+import { Button as ButtonPrimitive } from "@ui-sdk/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
-import { Slot } from "radix-ui"
 import type { ComponentProps } from "react"
 import { cn } from "../../lib/utils.ts"
 
-const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+/** The classes of a button, for links and triggers that look like one. */
+export const buttonVariants = cva(
+  "inline-flex shrink-0 cursor-default items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-sm font-medium transition-[background-color,color,border-color,scale] duration-100 select-none active:scale-[0.98] disabled:pointer-events-none disabled:opacity-60 aria-disabled:pointer-events-none aria-disabled:opacity-60 data-pending:cursor-progress [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        default: "bg-primary text-primary-foreground hover:bg-primary/85",
         destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-input bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+        outline:
+          "border border-input bg-background text-foreground hover:border-foreground/30 hover:bg-raised",
+        secondary: "bg-secondary text-secondary-foreground hover:bg-active",
+        ghost: "text-foreground hover:bg-accent",
+        link: "h-auto px-0 text-brand underline-offset-4 hover:underline",
       },
       size: {
-        default: "h-9 px-4 py-2",
-        sm: "h-8 px-3 text-xs",
-        lg: "h-10 px-6",
-        icon: "size-9",
+        default: "h-8 px-3",
+        sm: "h-7 px-2.5 text-[13px]",
+        lg: "h-9 px-4",
+        icon: "size-8",
       },
     },
     defaultVariants: { variant: "default", size: "default" },
   },
 )
 
-export type ButtonProps = ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & { readonly asChild?: boolean }
+/** Props of {@link Button}. */
+export type ButtonProps = Omit<ComponentProps<typeof ButtonPrimitive>, "className"> &
+  VariantProps<typeof buttonVariants> & { readonly className?: string }
 
-export function Button({ className, variant, size, asChild = false, ...props }: ButtonProps) {
-  const Component = asChild ? Slot.Root : "button"
+/** A button. Pass `render` to draw it as another element, such as a router link. */
+export function Button({ className, variant, size, type = "button", ...props }: ButtonProps) {
   return (
-    <Component
-      data-slot="button"
-      className={cn(buttonVariants({ variant, size, className }))}
-      {...(asChild ? {} : { type: "button" })}
+    <ButtonPrimitive
+      type={type}
+      className={cn(buttonVariants({ variant, size }), className)}
       {...props}
     />
   )

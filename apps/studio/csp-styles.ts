@@ -5,7 +5,6 @@ import { normalizePath, type Plugin } from "vite"
 const shim = (path: string): string => normalizePath(fileURLToPath(new URL(path, import.meta.url)))
 
 const SHIMS: Readonly<Record<string, string>> = {
-  "react-style-singleton": shim("./src/lib/style-singleton.ts"),
   "style-mod": shim("./src/lib/style-mod.ts"),
 }
 
@@ -16,9 +15,9 @@ const INJECTED_CSS =
 /**
  * Keeps Studio within its CSP (`style-src 'self'`, so no `<style>` elements and no style attributes in
  * markup) without loosening it: the libraries that add CSS at runtime get it through constructed
- * stylesheets, which no CSP directive governs because nothing is parsed from markup. `react-style-singleton`
- * (Radix scroll locking) and `style-mod` (CodeMirror) resolve to shims, except from the shims themselves,
- * and the CSS that `vite-plugin-css-injected-by-js` bundles into Scalar's dependencies is adopted instead
+ * stylesheets, which no CSP directive governs because nothing is parsed from markup. `style-mod`
+ * (CodeMirror) resolves to a shim, except from the shim itself, ui-sdk adopts its sheets because the page
+ * carries a `csp-nonce` meta tag without a nonce, and the CSS that `vite-plugin-css-injected-by-js` bundles into Scalar's dependencies is adopted instead
  * of appended.
  */
 export function cspStyles(): Plugin {

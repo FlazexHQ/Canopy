@@ -12,7 +12,7 @@ import { ErrorState, LoadingState, PageHeader } from "../../components/states.ts
 import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
-import { Button } from "../../components/ui/button.tsx"
+import { Button, buttonVariants } from "../../components/ui/button.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
 import { DiffView } from "./diff-view.tsx"
@@ -148,12 +148,10 @@ function Editor({
   return (
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/policies">
-            <ArrowLeftIcon aria-hidden="true" />
-            {t("policies.editor.back")}
-          </Link>
-        </Button>
+        <Link to="/policies" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+          <ArrowLeftIcon aria-hidden="true" />
+          {t("policies.editor.back")}
+        </Link>
         <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="draft-status">
           {state.dirty ? (
             <Badge variant="warning">{t("policies.editor.draft")}</Badge>

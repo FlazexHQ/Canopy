@@ -1,14 +1,51 @@
-import { Tabs as TabsPrimitive } from "radix-ui"
-import type { ComponentProps } from "react"
+import {
+  TabsList as TabsListPrimitive,
+  TabsPanel,
+  Tabs as TabsPrimitive,
+  TabsTab,
+} from "@ui-sdk/react/tabs"
+import type { ComponentProps, ReactNode } from "react"
 import { cn } from "../../lib/utils.ts"
 
-export const Tabs = TabsPrimitive.Root
+type WithClass<T> = Omit<T, "className"> & { readonly className?: string }
 
-export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrimitive.List>) {
+/** Switches between views that share one place, controlled or uncontrolled. */
+export function Tabs({
+  value,
+  defaultValue,
+  onValueChange,
+  className,
+  children,
+}: {
+  readonly value?: string
+  readonly defaultValue?: string
+  readonly onValueChange?: (value: string) => void
+  readonly className?: string
+  readonly children: ReactNode
+}) {
   return (
-    <TabsPrimitive.List
+    <TabsPrimitive
+      {...(value === undefined ? {} : { value })}
+      {...(defaultValue === undefined ? {} : { defaultValue })}
+      onValueChange={(next: unknown) => {
+        if (typeof next === "string") onValueChange?.(next)
+      }}
+      className={cn("flex flex-col", className)}
+    >
+      {children}
+    </TabsPrimitive>
+  )
+}
+
+/** The row of tabs: underline tabs on a full width rule. */
+export function TabsList({
+  className,
+  ...props
+}: WithClass<ComponentProps<typeof TabsListPrimitive>>) {
+  return (
+    <TabsListPrimitive
       className={cn(
-        "inline-flex h-9 w-fit items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+        "flex w-full items-end gap-5 overflow-x-auto border-b [scrollbar-width:none]",
         className,
       )}
       {...props}
@@ -16,11 +53,12 @@ export function TabsList({ className, ...props }: ComponentProps<typeof TabsPrim
   )
 }
 
-export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsPrimitive.Trigger>) {
+/** One tab. Its selected state is a 2px leaf green underline. */
+export function TabsTrigger({ className, ...props }: WithClass<ComponentProps<typeof TabsTab>>) {
   return (
-    <TabsPrimitive.Trigger
+    <TabsTab
       className={cn(
-        "inline-flex h-full flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm",
+        "relative -mb-px inline-flex h-9 shrink-0 cursor-default items-center gap-1.5 whitespace-nowrap border-b-2 border-transparent text-sm text-muted-foreground outline-offset-[-2px] transition-colors hover:text-foreground data-disabled:opacity-50 data-selected:border-brand data-selected:font-medium data-selected:text-foreground [&_svg]:size-4",
         className,
       )}
       {...props}
@@ -28,6 +66,7 @@ export function TabsTrigger({ className, ...props }: ComponentProps<typeof TabsP
   )
 }
 
-export function TabsContent({ className, ...props }: ComponentProps<typeof TabsPrimitive.Content>) {
-  return <TabsPrimitive.Content className={cn("flex-1 outline-none", className)} {...props} />
+/** The view of one tab. */
+export function TabsContent({ className, ...props }: WithClass<ComponentProps<typeof TabsPanel>>) {
+  return <TabsPanel className={cn("flex-1 outline-none", className)} {...props} />
 }

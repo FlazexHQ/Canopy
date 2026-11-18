@@ -31,8 +31,15 @@ export async function serveMock(
   )
   response.statusCode = answer.status
   answer.headers.forEach((value, name) => {
-    response.setHeader(name, value)
+    if (name !== "set-cookie") response.setHeader(name, value)
   })
+  const cookies = answer.headers.getSetCookie()
+  // Browsers drop `__Host-` cookies without `Secure`; http://localhost still counts as a secure context.
+  if (cookies.length > 0)
+    response.setHeader(
+      "set-cookie",
+      cookies.map((cookie) => (/;\s*Secure/i.test(cookie) ? cookie : `${cookie}; Secure`)),
+    )
   if (answer.body === null) {
     response.end()
     return

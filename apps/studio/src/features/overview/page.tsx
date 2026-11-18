@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
 import type { ApiKey, CollectionSummary, DoctorReport } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
 import { ErrorState, LoadingState, PageHeader } from "../../components/states.tsx"
-import { Button } from "../../components/ui/button.tsx"
+import { buttonVariants } from "../../components/ui/button.tsx"
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.tsx"
 import { formatNumber, formatPercent, type MessageKey, t } from "../../i18n/index.ts"
 import { CheckItem, SEVERITY } from "../doctor/checks.tsx"
@@ -167,9 +167,9 @@ export function OverviewPage() {
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle>{t("overview.problems")}</CardTitle>
-            <Button asChild variant="outline" size="sm">
-              <Link to="/doctor">{t("overview.openDoctor")}</Link>
-            </Button>
+            <Link to="/doctor" className={buttonVariants({ variant: "outline", size: "sm" })}>
+              {t("overview.openDoctor")}
+            </Link>
           </CardHeader>
           <CardContent>
             {doctor.isPending ? (

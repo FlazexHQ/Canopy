@@ -1,65 +1,101 @@
+import {
+  DialogBackdrop,
+  DialogClose,
+  DialogContent as DialogContentPrimitive,
+  DialogDescription as DialogDescriptionPrimitive,
+  Dialog as DialogPrimitive,
+  DialogTitle as DialogTitlePrimitive,
+} from "@ui-sdk/react/dialog"
 import { XIcon } from "lucide-react"
-import { Dialog as DialogPrimitive } from "radix-ui"
-import type { ComponentProps } from "react"
+import type { ComponentProps, ReactNode } from "react"
 import { t } from "../../i18n/index.ts"
 import { cn } from "../../lib/utils.ts"
 
-export const Dialog = DialogPrimitive.Root
+type WithClass<T> = Omit<T, "className" | "children"> & {
+  readonly className?: string
+  readonly children?: ReactNode
+}
 
+/** A modal dialog, always controlled by its parent. */
+export function Dialog({
+  open,
+  onOpenChange,
+  children,
+}: {
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly children: ReactNode
+}) {
+  return (
+    <DialogPrimitive open={open} onOpenChange={(next) => onOpenChange(next)}>
+      {children}
+    </DialogPrimitive>
+  )
+}
+
+/** The panel of a {@link Dialog}, with its backdrop and a close button. */
 export function DialogContent({
   className,
   children,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content>) {
+}: WithClass<ComponentProps<typeof DialogContentPrimitive>>) {
   return (
-    <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
-      <DialogPrimitive.Content
-        data-slot="dialog-content"
+    <>
+      <DialogBackdrop className="backdrop-motion fixed inset-0 bg-black/40 dark:bg-black/60" />
+      <DialogContentPrimitive
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[90vh] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto rounded-lg border bg-background p-6 shadow-lg sm:max-w-lg",
+          "popup-motion fixed inset-0 m-auto grid h-fit max-h-[min(90vh,calc(100dvh-2rem))] w-[calc(100%-2rem)] max-w-lg gap-4 overflow-y-auto rounded-xl border bg-popover p-6 text-popover-foreground shadow-xl outline-none",
           className,
         )}
         {...props}
       >
         {children}
-        <DialogPrimitive.Close className="absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 [&_svg]:size-4">
+        <DialogClose
+          aria-label={t("common.close")}
+          className="absolute top-4 right-4 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground [&_svg]:size-4"
+        >
           <XIcon aria-hidden="true" />
-          <span className="sr-only">{t("common.close")}</span>
-        </DialogPrimitive.Close>
-      </DialogPrimitive.Content>
-    </DialogPrimitive.Portal>
+        </DialogClose>
+      </DialogContentPrimitive>
+    </>
   )
 }
 
+/** The title and description block at the top of a dialog. */
 export function DialogHeader({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("flex flex-col gap-2 text-left", className)} {...props} />
+  return <div className={cn("flex flex-col gap-1.5 pr-8 text-left", className)} {...props} />
 }
 
+/** The actions at the foot of a dialog, the primary one last. */
 export function DialogFooter({ className, ...props }: ComponentProps<"div">) {
   return (
     <div
-      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
+      className={cn("flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end", className)}
       {...props}
     />
   )
 }
 
-export function DialogTitle({ className, ...props }: ComponentProps<typeof DialogPrimitive.Title>) {
+/** Names the dialog. */
+export function DialogTitle({
+  className,
+  ...props
+}: WithClass<ComponentProps<typeof DialogTitlePrimitive>>) {
   return (
-    <DialogPrimitive.Title
-      className={cn("text-lg font-semibold leading-none", className)}
+    <DialogTitlePrimitive
+      className={cn("text-base font-semibold leading-6", className)}
       {...props}
     />
   )
 }
 
+/** Explains the dialog under its title. */
 export function DialogDescription({
   className,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Description>) {
+}: WithClass<ComponentProps<typeof DialogDescriptionPrimitive>>) {
   return (
-    <DialogPrimitive.Description
+    <DialogDescriptionPrimitive
       className={cn("text-sm text-muted-foreground", className)}
       {...props}
     />
