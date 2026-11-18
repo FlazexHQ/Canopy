@@ -36,7 +36,10 @@ export function readClaim(claims: Readonly<Record<string, unknown>> | null, path
   return value
 }
 
-/** Shifts a date by an ISO 8601 duration such as `-P7D` or `PT24H`, using UTC calendar arithmetic. */
+/**
+ * Shifts a date by an ISO 8601 duration such as `-P7D` or `PT24H`, using UTC calendar arithmetic. The result
+ * is an invalid date when it falls outside the range of dates.
+ */
 export function shiftDate(date: Date, duration: string): Date {
   const match = DURATION.exec(duration)
   if (match === null) throw new TypeError(`Invalid ISO 8601 duration: ${duration}`)
@@ -122,6 +125,7 @@ function resolveVariable(
       isDocument(spec) && typeof spec["offset"] === "string" ? spec["offset"] : undefined
     const value = offset === undefined ? new Date(ctx.now.getTime()) : shiftDate(ctx.now, offset)
     if (list) throw new Unresolvable({ kind: "shape", variable: name })
+    if (Number.isNaN(value.getTime())) throw new Unresolvable({ kind: "coercion", variable: name })
     return value
   }
   if (raw === undefined || raw === null) throw new Unresolvable({ kind: "missing", variable: name })

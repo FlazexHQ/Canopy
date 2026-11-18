@@ -195,6 +195,27 @@ describe("variables fail closed", () => {
     expect(filter).toEqual({ createdAt: { $gte: new Date("2026-11-05T12:00:00Z") } })
   })
 
+  it("drops a policy whose $now offset leaves the range of dates", () => {
+    const issues: VariableIssue[] = []
+    const set = createPolicySet([
+      collection("stories", {
+        exposed: true,
+        policies: [
+          allow
+            .read("authenticated")
+            .where({ createdAt: { $gte: now("-P300000Y") } })
+            .named("recent"),
+        ],
+      }),
+    ])
+    const local = new PolicyEngine(set, { onVariableIssue: (issue) => issues.push(issue) })
+    expect(local.using("stories", "read", user({ sub: "u" }))).toEqual({ kind: "deny" })
+    expect(issues).toEqual([
+      { kind: "coercion", variable: "$now", collection: "stories", policy: "recent" },
+    ])
+    expect(Number.isNaN(shiftDate(NOW, "P300000Y").getTime())).toBe(true)
+  })
+
   it("forces DENY when evaluation throws", () => {
     const errors: unknown[] = []
     const local = new PolicyEngine(createPolicySet([todos]), {
