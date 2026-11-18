@@ -12,3 +12,11 @@ dependencies = [
 [[package]]
 name = "canopy-protocol"
 version = "0.0.0"
+
+[[package]]
+name = "canopy-query"
+version = "0.0.0"
+dependencies = [
+ "canopy-matcher",
+ "canopy-protocol",
+]

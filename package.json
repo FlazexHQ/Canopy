@@ -101,6 +101,7 @@
     "readmes": "bun packages/testing/scripts/readmes.ts",
     "api": "bun packages/testing/scripts/api-surface.ts",
     "vectors:matcher": "bun packages/testing/scripts/matcher-vectors.ts",
+    "vectors:query": "bun --conditions=@canopy/source packages/testing/scripts/query-vectors.ts",
     "format": "biome format --write .",
     "test": "turbo run test",
     "test:all": "vitest run",

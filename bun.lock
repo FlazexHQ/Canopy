@@ -644,6 +644,7 @@
         "vitest": "catalog:",
       },
       "devDependencies": {
+        "@canopy/query": "workspace:*",
         "@types/node": "catalog:",
         "typescript": "catalog:",
       },
