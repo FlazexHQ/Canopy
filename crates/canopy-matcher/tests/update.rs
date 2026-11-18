@@ -119,3 +119,19 @@ fn current_date_uses_the_given_clock() {
         r#"{"_id":1,"d":{"$date":"2023-11-14T22:13:20.123Z"},"t":{"$timestamp":{"t":1700000000,"i":1}}}"#
     );
 }
+
+#[test]
+fn a_rename_target_that_is_not_a_string_is_refused_with_the_text_javascript_gives() {
+    assert_eq!(
+        refusal(r#"{"_id":1}"#, r#"{"$rename":{"":[{}]}}"#),
+        "The 'to' field for $rename must be a string: : [object Object]"
+    );
+    assert_eq!(
+        refusal(r#"{"_id":1}"#, r#"{"$rename":{"a":[null,1,[null,2]]}}"#),
+        "The 'to' field for $rename must be a string: a: ,1,,2"
+    );
+    assert_eq!(
+        refusal(r#"{"_id":1}"#, r#"{"$rename":{"a":5}}"#),
+        "The 'to' field for $rename must be a string: a: 5"
+    );
+}

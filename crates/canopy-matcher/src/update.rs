@@ -522,7 +522,14 @@ fn js_string(value: &Value) -> String {
         Value::Int64(n) => n.to_string(),
         Value::Double(n) => canopy_protocol::json::js_number_string(*n),
         Value::Decimal128(text) => text.clone(),
-        Value::Array(items) => items.iter().map(js_string).collect::<Vec<_>>().join(","),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null | Value::Undefined => String::new(),
+                other => js_string(other),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
         _ => "[object Object]".to_owned(),
     }
 }

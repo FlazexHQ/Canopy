@@ -256,6 +256,19 @@ describe("applyUpdate", () => {
     })
   })
 
+  it("refuses a $rename target that is not a string with the text String() gives", () => {
+    const bare = Object.create(null) as Record<string, unknown>
+    expect(() => applyUpdate({ _id: 1 }, { $rename: { "": [bare] } })).toThrow(
+      new UpdateError("The 'to' field for $rename must be a string: : [object Object]"),
+    )
+    expect(() => applyUpdate({ _id: 1 }, { $rename: { a: [null, 1, [undefined, 2]] } })).toThrow(
+      new UpdateError("The 'to' field for $rename must be a string: a: ,1,,2"),
+    )
+    expect(() => applyUpdate({ _id: 1 }, { $rename: { a: 5 } })).toThrow(
+      new UpdateError("The 'to' field for $rename must be a string: a: 5"),
+    )
+  })
+
   it("applies operators without modifying the input", () => {
     const doc = { _id: 1, n: 1, tags: ["a"], nested: { x: 1 } }
     const out = applyUpdate(doc, {
