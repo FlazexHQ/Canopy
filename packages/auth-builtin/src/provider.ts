@@ -28,6 +28,7 @@ import { KeyRing, type SigningKeyDocument, type SigningKeyInfo } from "./keyring
 import type { LeaseDocument } from "./lease.ts"
 import { type AuthLogger, silentAuthLogger } from "./logger.ts"
 import type { BuiltinAuthOptions, ClaimsHookResult } from "./options.ts"
+import { ResponseFloor } from "./response-floor.ts"
 import { type RevocationDocument, RevocationStore } from "./revocation-store.ts"
 import { EngineUserAdmin, toAuthUser } from "./users.ts"
 
@@ -249,7 +250,7 @@ class BetterAuthProvider implements BuiltinAuth {
   private readonly issuer: string
   private readonly audience: string
   private readonly ttl: number
-  private readonly floorMs: number
+  private readonly floor: ResponseFloor
   private keyStream: ChangeStream<SigningKeyDocument> | undefined
   private pruneTimer: ReturnType<typeof setInterval> | undefined
   private closed = false
@@ -263,7 +264,7 @@ class BetterAuthProvider implements BuiltinAuth {
     this.issuer = `${settings.publicUrl}${BASE}`
     this.audience = settings.publicUrl
     this.ttl = settings.accessTokenTtlSeconds
-    this.floorMs = options.responseFloorMs ?? 80
+    this.floor = new ResponseFloor(options.responseFloorMs ?? 80)
     this.origins = new Set(settings.trustedOrigins)
     this.audit = new AuditLog(meta.collection<AuditDocument>("audit_log"), logger)
     this.guard = new IdentifierGuard({
@@ -591,7 +592,9 @@ class BetterAuthProvider implements BuiltinAuth {
       await this.afterEngine(path, request.method, response, email, ip)
     }
     if (FLOOR_PATHS.has(path) && request.method === "POST") {
-      const wait = this.floorMs - (performance.now() - started)
+      const took = performance.now() - started
+      const wait = this.floor.target(path) - took
+      this.floor.record(path, took)
       if (wait > 0) await sleep(wait)
     }
     return response
