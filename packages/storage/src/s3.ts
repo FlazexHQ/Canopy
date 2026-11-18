@@ -4,15 +4,38 @@ import type { ByteRange, StorageBackend, UploadedPart } from "./backend.ts"
 
 /** Where an S3 compatible store is and how to sign requests to it. */
 export interface S3Options {
-  /** The endpoint, such as `https://s3.eu-west-1.amazonaws.com` or `http://localhost:9000` for MinIO. */
-  readonly endpoint: string
+  /**
+   * The endpoint of a store other than AWS S3, such as `http://localhost:9000` for MinIO.
+   * @default `https://s3.<region>.amazonaws.com`
+   */
+  readonly endpoint?: string
   readonly region: string
   readonly bucket: string
   readonly accessKeyId: string
   readonly secretAccessKey: string
   readonly sessionToken?: string
-  /** Addresses the bucket in the path (`endpoint/bucket/key`) rather than the host name. @default true */
+  /**
+   * Addresses the bucket in the path (`endpoint/bucket/key`) rather than the host name.
+   * @default false for AWS S3, true when `endpoint` is given
+   */
   readonly forcePathStyle?: boolean
+  /** A key prefix inside the bucket, such as `canopy/`. @default "" */
+  readonly prefix?: string
+  readonly fetch?: typeof fetch
+  /** The `kind` the backend reports. @default "s3" */
+  readonly kind?: string
+}
+
+/** Where a Cloudflare R2 bucket is and the R2 API token to reach it with. */
+export interface R2Options {
+  /** The Cloudflare account id, the first label of `<accountId>.r2.cloudflarestorage.com`. */
+  readonly accountId: string
+  readonly bucket: string
+  /** The access key id of an R2 API token. */
+  readonly accessKeyId: string
+  readonly secretAccessKey: string
+  /** For a bucket created in a jurisdiction, such as `eu`. */
+  readonly jurisdiction?: string
   /** A key prefix inside the bucket, such as `canopy/`. @default "" */
   readonly prefix?: string
   readonly fetch?: typeof fetch
@@ -114,14 +137,14 @@ function xmlEscape(text: string): string {
 }
 
 /**
- * Stores contents in an S3 compatible object store (AWS S3, MinIO, Cloudflare R2 and others) through its REST
- * API, signed with Signature Version 4. Multipart uploads use the store's own; parts other than the last must
- * be at least 5 MiB.
+ * Stores contents in an S3 compatible object store (AWS S3, MinIO and others) through its REST API, signed
+ * with Signature Version 4. Multipart uploads use the store's own; parts other than the last must be at
+ * least 5 MiB.
  */
 export function s3Backend(options: S3Options): StorageBackend {
   const send = options.fetch ?? globalThis.fetch
-  const endpoint = new URL(options.endpoint)
-  const pathStyle = options.forcePathStyle ?? true
+  const endpoint = new URL(options.endpoint ?? `https://s3.${options.region}.amazonaws.com`)
+  const pathStyle = options.forcePathStyle ?? options.endpoint !== undefined
   const prefix = options.prefix ?? ""
 
   const urlOf = (key: string, query: Readonly<Record<string, string>> = {}): URL => {
@@ -185,7 +208,7 @@ export function s3Backend(options: S3Options): StorageBackend {
   }
 
   return {
-    kind: "s3",
+    kind: options.kind ?? "s3",
     async put(key, body, contentType) {
       await request("PUT", key, { headers: { "content-type": contentType }, body })
     },
@@ -244,4 +267,30 @@ export function s3Backend(options: S3Options): StorageBackend {
       await request("DELETE", key, { query: { uploadId }, expect: [200, 204, 404] })
     },
   }
+}
+
+/**
+ * Stores contents in a Cloudflare R2 bucket through its S3 API, at
+ * `https://<accountId>[.<jurisdiction>].r2.cloudflarestorage.com` in the region `auto`. R2 needs every part
+ * of a multipart upload but the last to have the same size, which resumable uploads guarantee.
+ */
+export function r2Backend(options: R2Options): StorageBackend {
+  if (!/^[0-9a-f]{32}$/i.test(options.accountId))
+    throw new TypeError("An R2 account id is 32 hexadecimal characters")
+  if (options.jurisdiction !== undefined && !/^[a-z]+$/.test(options.jurisdiction))
+    throw new TypeError("An R2 jurisdiction is a lower case word such as eu")
+  const host = [options.accountId, options.jurisdiction, "r2.cloudflarestorage.com"]
+    .filter((part) => part !== undefined)
+    .join(".")
+  return s3Backend({
+    kind: "r2",
+    endpoint: `https://${host}`,
+    region: "auto",
+    bucket: options.bucket,
+    accessKeyId: options.accessKeyId,
+    secretAccessKey: options.secretAccessKey,
+    forcePathStyle: true,
+    ...(options.prefix === undefined ? {} : { prefix: options.prefix }),
+    ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+  })
 }

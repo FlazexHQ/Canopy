@@ -30,6 +30,7 @@ export interface BucketApi {
             number,
             number
         ];
+        readonly transform?: ImageTransformOptions;
         readonly signal?: AbortSignal;
     }): Promise<Blob>;
     remove(path: string): Promise<void>;
@@ -38,9 +39,12 @@ export interface BucketApi {
         readonly limit?: number;
         readonly after?: string;
     }): Promise<StorageList>;
-    createSignedUrl(path: string, expiresIn: number): Promise<string>;
+    createSignedUrl(path: string, expiresIn: number, options?: {
+        readonly transform?: ImageTransformOptions;
+    }): Promise<string>;
     publicUrl(path: string, options?: {
         readonly download?: boolean | string;
+        readonly transform?: ImageTransformOptions;
     }): string;
 }
 
@@ -224,6 +228,14 @@ class ForbiddenError extends CanopyError {
 export type IdOf<Doc> = Doc extends {
     readonly _id: infer I;
 } ? I : unknown;
+
+export interface ImageTransformOptions {
+    readonly width?: number;
+    readonly height?: number;
+    readonly resize?: "cover" | "contain" | "fill";
+    readonly quality?: number;
+    readonly format?: "origin" | "webp" | "avif" | "jpeg" | "png";
+}
 
 export type InsertOf<DB, C extends keyof DB> = DB[C] extends {
     readonly Insert: infer I extends object;

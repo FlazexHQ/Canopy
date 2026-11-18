@@ -16,12 +16,50 @@ export interface ByteRange {
     readonly end: number;
 }
 
+export type ImageFormat = "origin" | "webp" | "avif" | "jpeg" | "png";
+
+export interface ImageLimits {
+    readonly maxDimension?: number;
+    readonly maxSourceSize?: number;
+    readonly maxPixels?: number;
+    readonly concurrency?: number;
+}
+
+class ImageRenderer {
+  constructor(limits?: ImageLimits): ImageRenderer
+  get maxDimension(): number
+  accepts(contentType: string, size: number): void
+  render(source: Uint8Array, contentType: string, transform: ImageTransform): Promise<{ readonly body: Uint8Array; readonly contentType: string; }>
+}
+
+export interface ImageTransform {
+    readonly width?: number;
+    readonly height?: number;
+    readonly resize?: ResizeMode;
+    readonly quality?: number;
+    readonly format?: ImageFormat;
+}
+
+export interface LocalOptions {
+    readonly root: string;
+}
+
 export type ObjectInfo = Omit<StoredObject, "_id" | "key">;
 
 export interface OpenedObject {
     readonly object: ObjectInfo;
     readonly body: ReadableStream<Uint8Array>;
     readonly range: ByteRange | undefined;
+}
+
+export interface R2Options {
+    readonly accountId: string;
+    readonly bucket: string;
+    readonly accessKeyId: string;
+    readonly secretAccessKey: string;
+    readonly jurisdiction?: string;
+    readonly prefix?: string;
+    readonly fetch?: typeof fetch;
 }
 
 export type RangeRequest = {
@@ -31,8 +69,10 @@ export type RangeRequest = {
     readonly suffix: number;
 };
 
+export type ResizeMode = "cover" | "contain" | "fill";
+
 export interface S3Options {
-    readonly endpoint: string;
+    readonly endpoint?: string;
     readonly region: string;
     readonly bucket: string;
     readonly accessKeyId: string;
@@ -41,6 +81,7 @@ export interface S3Options {
     readonly forcePathStyle?: boolean;
     readonly prefix?: string;
     readonly fetch?: typeof fetch;
+    readonly kind?: string;
 }
 
 export interface SignInput {
@@ -71,6 +112,10 @@ class Storage {
   open(caller: Caller, bucket: string, path: string, range?: RangeRequest): Promise<OpenedObject>
   openPublic(bucket: string, path: string, range?: RangeRequest): Promise<OpenedObject>
   openSigned(token: string, bucket: string, path: string, range?: RangeRequest): Promise<OpenedObject>
+  get images(): ImageRenderer | undefined
+  openImage(caller: Caller, bucket: string, path: string, transform: ImageTransform): Promise<OpenedObject>
+  openPublicImage(bucket: string, path: string, transform: ImageTransform): Promise<OpenedObject>
+  openSignedImage(token: string, bucket: string, path: string, transform: ImageTransform): Promise<OpenedObject>
   sign(caller: Caller, bucket: string, path: string, expiresIn: number): Promise<{ readonly token: string; readonly expiresAt: Date; }>
   remove(caller: Caller, bucket: string, path: string): Promise<void>
   list(caller: Caller, bucket: string, options?: { readonly prefix?: string; readonly limit?: number; readonly after?: string; }): Promise<{ readonly data: readonly ObjectInfo[]; readonly next: string | undefined; }>
@@ -91,6 +136,7 @@ export interface StorageBackend {
     putPart(key: string, uploadId: string, part: number, body: Uint8Array): Promise<string>;
     completeMultipart(key: string, uploadId: string, parts: readonly UploadedPart[]): Promise<void>;
     abortMultipart(key: string, uploadId: string): Promise<void>;
+    sweep?(olderThan: Date): Promise<number>;
 }
 
 export interface StorageHandler {
@@ -123,6 +169,7 @@ export interface StorageOptions {
     readonly partSize?: number;
     readonly uploadTtlMs?: number;
     readonly maxSignedUrlSeconds?: number;
+    readonly images?: ImageRenderer;
 }
 
 export interface StoredObject {
@@ -169,7 +216,11 @@ class UrlSigner {
 
 function createStorageHandler(options: StorageHandlerOptions): StorageHandler
 
-function gridfsBackend(db: Db, bucketName?: string): StorageBackend
+function localBackend(options: LocalOptions): Promise<StorageBackend>
+
+function parseTransform(params: URLSearchParams, maxDimension?: number): ImageTransform
+
+function r2Backend(options: R2Options): StorageBackend
 
 function s3Backend(options: S3Options): StorageBackend
 

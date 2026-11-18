@@ -686,6 +686,7 @@ export interface ResolvedConfig {
     readonly storage: false | {
         readonly backend: ResolvedStorageBackend;
         readonly maxUploadSize: number;
+        readonly images: ResolvedStorageImages;
         readonly buckets: Readonly<Record<string, ResolvedBucket>>;
     };
     readonly server: {

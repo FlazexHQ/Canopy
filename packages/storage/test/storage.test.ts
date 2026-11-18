@@ -1,4 +1,7 @@
 import { createHash } from "node:crypto"
+import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Authenticator } from "@canopy/auth"
 import { createStorage } from "@canopy/client"
 import {
@@ -10,12 +13,14 @@ import {
   PolicyEngine,
 } from "@canopy/policy"
 import { MONGODB_URI } from "@canopy/testing"
+import { Transformer } from "@napi-rs/image"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   createStorageHandler,
-  gridfsBackend,
+  ImageRenderer,
+  localBackend,
   Storage,
   type StorageHandler,
   UrlSigner,
@@ -47,11 +52,12 @@ const strict = collection("storage.objects", {
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-suite("storage over HTTP with GridFS", () => {
+suite("storage over HTTP on the local backend", () => {
   const dbName = `canopy_storage_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   let client: MongoClient
   let meta: Db
   let handler: StorageHandler
+  let root: string
   let engine = new PolicyEngine(createPolicySet([objects]))
   const tokens: Record<"alice" | "bob", string> = { alice: "", bob: "" }
 
@@ -59,6 +65,7 @@ suite("storage over HTTP with GridFS", () => {
     client = new MongoClient(MONGODB_URI ?? "")
     await client.connect()
     meta = client.db(`${dbName}_meta`)
+    root = await mkdtemp(join(tmpdir(), "canopy-storage-"))
     await meta.collection("storage_objects").createIndex({ bucket: 1, path: 1 }, { unique: true })
     const pair = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
@@ -73,13 +80,14 @@ suite("storage over HTTP with GridFS", () => {
       client,
       metaDatabase: `${dbName}_meta`,
       policies: () => engine,
-      backend: gridfsBackend(meta),
+      backend: await localBackend({ root }),
       buckets: {
         docs: { public: false, maxFileSize: 12 * MIB, allowedTypes: [] },
         avatars: { public: true, maxFileSize: 1000, allowedTypes: ["image/*"] },
       },
       signer: new UrlSigner("a master key of enough length for tests"),
       partSize: 5 * MIB,
+      images: new ImageRenderer({ maxDimension: 500 }),
     })
     handler = createStorageHandler({
       storage,
@@ -95,6 +103,7 @@ suite("storage over HTTP with GridFS", () => {
   afterAll(async () => {
     await meta.dropDatabase()
     await client.close()
+    await rm(root, { recursive: true, force: true })
   })
 
   const call = (
@@ -114,7 +123,12 @@ suite("storage over HTTP with GridFS", () => {
         ...(init.body === undefined ? {} : { body: init.body }),
       }),
     )
-  const gridFiles = () => meta.collection("storage.files").countDocuments()
+  const filesUnder = async (folder: string): Promise<number> =>
+    (await readdir(join(root, folder), { recursive: true, withFileTypes: true })).filter((entry) =>
+      entry.isFile(),
+    ).length
+  const storedFiles = () => filesUnder("objects")
+  const partFiles = () => filesUnder("uploads")
   const sha = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex")
 
   it("stores a file for its owner and serves it with its type, length, etag and a sandbox", async () => {
@@ -192,7 +206,7 @@ suite("storage over HTTP with GridFS", () => {
   })
 
   it("refuses a second upload to a path without upsert, and a write the check refuses, leaving nothing", async () => {
-    const before = await gridFiles()
+    const before = await storedFiles()
     const again = await call("POST", "object/docs/reports/q3.pdf", "alice", {
       body: "x",
       headers: { "content-type": "text/plain" },
@@ -204,7 +218,7 @@ suite("storage over HTTP with GridFS", () => {
     })
     expect(wrongBucket.status).toBe(403)
     expect(((await wrongBucket.json()) as { code: string }).code).toBe("CANOPY_POLICY_VIOLATION")
-    expect(await gridFiles()).toBe(before)
+    expect(await storedFiles()).toBe(before)
     expect(
       (
         await call("POST", "object/avatars/a.txt", "service", {
@@ -225,11 +239,11 @@ suite("storage over HTTP with GridFS", () => {
     expect((await call("POST", "object/docs/a%2F..%2Fb.txt", "alice", { body: "x" })).status).toBe(
       400,
     )
-    expect(await gridFiles()).toBe(before)
+    expect(await storedFiles()).toBe(before)
   })
 
   it("replaces a file for its owner and drops the old content", async () => {
-    const before = await gridFiles()
+    const before = await storedFiles()
     const replaced = await call("PUT", "object/docs/reports/q3.pdf", "alice", {
       body: "%PDF revised",
       headers: { "content-type": "application/pdf" },
@@ -238,7 +252,7 @@ suite("storage over HTTP with GridFS", () => {
     expect(await (await call("GET", "object/docs/reports/q3.pdf", "alice")).text()).toBe(
       "%PDF revised",
     )
-    expect(await gridFiles()).toBe(before)
+    expect(await storedFiles()).toBe(before)
     const stored = await meta.collection("storage_objects").findOne({ path: "reports/q3.pdf" })
     expect(stored?.["owner"]).toBe("alice")
     expect(stored?.["metadata"]).toEqual({ title: "Q3", secret: "s" })
@@ -372,7 +386,7 @@ suite("storage over HTTP with GridFS", () => {
     const read = await call("GET", "object/docs/big/data.bin", "alice")
     expect(read.headers.get("content-length")).toBe(String(size))
     expect(sha(new Uint8Array(await read.arrayBuffer()))).toBe(sha(content))
-    expect(await meta.collection("storage.files").countDocuments({ filename: /#/ })).toBe(0)
+    expect(await partFiles()).toBe(0)
     expect((await call("GET", `uploads/${status.id}`, "alice")).status).toBe(404)
   })
 
@@ -385,9 +399,9 @@ suite("storage over HTTP with GridFS", () => {
     expect(
       (await call("PUT", `uploads/${id}/1`, "alice", { body: new Uint8Array(5 * MIB) })).status,
     ).toBe(200)
-    expect(await meta.collection("storage.files").countDocuments({ filename: /#/ })).toBe(1)
+    expect(await partFiles()).toBe(1)
     expect((await call("DELETE", `uploads/${id}`, "alice")).status).toBe(204)
-    expect(await meta.collection("storage.files").countDocuments({ filename: /#/ })).toBe(0)
+    expect(await partFiles()).toBe(0)
     expect((await call("GET", "object/docs/big/aborted.bin", "alice")).status).toBe(404)
   })
 
@@ -401,7 +415,7 @@ suite("storage over HTTP with GridFS", () => {
     expect(
       (await call("PUT", `uploads/${id}/1`, "alice", { body: new Uint8Array(10) })).status,
     ).toBe(200)
-    const before = await gridFiles()
+    const before = await storedFiles()
     const lenient = engine
     engine = new PolicyEngine(createPolicySet([strict]))
     try {
@@ -409,7 +423,8 @@ suite("storage over HTTP with GridFS", () => {
     } finally {
       engine = lenient
     }
-    expect(await gridFiles()).toBe(before - 1)
+    expect(await storedFiles()).toBe(before)
+    expect(await partFiles()).toBe(0)
     expect(await meta.collection("storage_objects").countDocuments({ path: "late.bin" })).toBe(0)
   })
 
@@ -420,6 +435,147 @@ suite("storage over HTTP with GridFS", () => {
     })
     expect(created.status).toBe(403)
     expect(await meta.collection("storage_uploads").countDocuments({ bucket: "avatars" })).toBe(0)
+  })
+
+  it("transforms images for readers, caches the variant, and serves it again from the cache", async () => {
+    const source = await Transformer.fromRgbaPixels(
+      new Uint8Array(80 * 40 * 4).fill(200),
+      80,
+      40,
+    ).png()
+    expect(
+      (
+        await call("POST", "object/docs/pics/wide.png", "alice", {
+          body: source,
+          headers: { "content-type": "image/png" },
+        })
+      ).status,
+    ).toBe(201)
+    const path = "render/image/object/docs/pics/wide.png?width=20&format=webp&quality=70"
+    const first = await call("GET", path, "alice")
+    expect(first.status).toBe(200)
+    expect(first.headers.get("content-type")).toBe("image/webp")
+    expect(first.headers.get("content-security-policy")).toContain("sandbox")
+    const body = new Uint8Array(await first.arrayBuffer())
+    expect(first.headers.get("content-length")).toBe(String(body.byteLength))
+    const { width, height, format } = await new Transformer(body).metadata()
+    expect({ width, height, format }).toEqual({ width: 20, height: 10, format: "webp" })
+    const etag = first.headers.get("etag") ?? ""
+    expect(etag).toBe(`"${sha(source)}-${etag.slice(-33, -1)}"`)
+    const variants = meta.collection("storage_variants")
+    expect(await variants.countDocuments()).toBe(1)
+    const variant = await variants.findOne()
+    expect(variant?.["contentType"]).toBe("image/webp")
+    expect(variant?.["size"]).toBe(body.byteLength)
+    const again = await call("GET", path, "alice")
+    expect(new Uint8Array(await again.arrayBuffer())).toEqual(body)
+    expect(await variants.countDocuments()).toBe(1)
+    expect((await call("GET", path, "alice", { headers: { "if-none-match": etag } })).status).toBe(
+      304,
+    )
+    const reordered = await call(
+      "GET",
+      "render/image/object/docs/pics/wide.png?quality=70&format=webp&width=20&resize=cover",
+      "alice",
+    )
+    expect(reordered.headers.get("etag")).toBe(etag)
+    expect(await variants.countDocuments()).toBe(1)
+  })
+
+  it("applies the read policies, bucket access and limits to transformations", async () => {
+    const path = "render/image/object/docs/pics/wide.png?width=20"
+    expect((await call("GET", path, "bob")).status).toBe(404)
+    expect((await call("GET", path, "nobody")).status).toBe(401)
+    expect(
+      (await call("GET", "render/image/public/docs/pics/wide.png?width=20", "nobody")).status,
+    ).toBe(404)
+    expect(
+      (await call("GET", "render/image/object/docs/pics/wide.png?width=501", "alice")).status,
+    ).toBe(400)
+    expect(
+      (await call("GET", "render/image/object/docs/reports/q3.pdf?width=20", "alice")).status,
+    ).toBe(400)
+    expect((await call("GET", "render/image/other/docs/pics/wide.png", "alice")).status).toBe(404)
+    const signed = (await (
+      await call("POST", "sign/docs/pics/wide.png", "alice", {
+        body: JSON.stringify({ expiresIn: 60 }),
+        headers: { "content-type": "application/json" },
+      })
+    ).json()) as { url: string }
+    const token = new URL(signed.url, "http://canopy.test").searchParams.get("token") ?? ""
+    const viaToken = await call(
+      "GET",
+      `render/image/signed/docs/pics/wide.png?width=8&format=png&token=${encodeURIComponent(token)}`,
+      "nobody",
+    )
+    expect(viaToken.status).toBe(200)
+    expect(
+      (await new Transformer(new Uint8Array(await viaToken.arrayBuffer())).metadata()).width,
+    ).toBe(8)
+    expect(
+      (
+        await call(
+          "GET",
+          `render/image/signed/docs/pics/other.png?width=8&token=${encodeURIComponent(token)}`,
+          "nobody",
+        )
+      ).status,
+    ).toBe(401)
+  })
+
+  it("drops the variants of a file when it is replaced or deleted", async () => {
+    const variants = meta.collection("storage_variants")
+    const before = await storedFiles()
+    expect(await variants.countDocuments()).toBe(2)
+    const replacement = await Transformer.fromRgbaPixels(
+      new Uint8Array(30 * 30 * 4).fill(9),
+      30,
+      30,
+    ).png()
+    expect(
+      (
+        await call("PUT", "object/docs/pics/wide.png", "alice", {
+          body: replacement,
+          headers: { "content-type": "image/png" },
+        })
+      ).status,
+    ).toBe(200)
+    expect(await variants.countDocuments()).toBe(0)
+    expect(await storedFiles()).toBe(before - 2)
+    const square = await call("GET", "render/image/object/docs/pics/wide.png?width=20", "alice")
+    const { width, height } = await new Transformer(
+      new Uint8Array(await square.arrayBuffer()),
+    ).metadata()
+    expect({ width, height }).toEqual({ width: 20, height: 20 })
+    expect(await variants.countDocuments()).toBe(1)
+    expect((await call("DELETE", "object/docs/pics/wide.png", "alice")).status).toBe(204)
+    expect(await variants.countDocuments()).toBe(0)
+    expect(await storedFiles()).toBe(before - 3)
+  })
+
+  it("serves no transformations when they are off", async () => {
+    const off = createStorageHandler({
+      storage: new Storage({
+        client,
+        metaDatabase: `${dbName}_meta`,
+        policies: () => engine,
+        backend: await localBackend({ root }),
+        buckets: { docs: { public: false, maxFileSize: MIB, allowedTypes: [] } },
+        signer: new UrlSigner("a master key of enough length for tests"),
+      }),
+      authenticator: new Authenticator(
+        { jwks: { keys: [] }, issuer: ISSUER },
+        { secret: [SECRET] },
+      ),
+      policies: () => engine,
+      contexts: new ContextResolver({ reader: async () => [] }),
+    })
+    const response = await off.fetch(
+      new Request("http://canopy.test/storage/v1/render/image/object/docs/x.png?width=5", {
+        headers: { apikey: SECRET },
+      }),
+    )
+    expect(response.status).toBe(404)
   })
 
   it("works end to end with the client SDK", async () => {
@@ -452,15 +608,35 @@ suite("storage over HTTP with GridFS", () => {
     ])
     const signed = await docs.createSignedUrl("sdk/hello.txt", 30)
     expect(await (await handler.fetch(new Request(signed))).text()).toBe("hello from the sdk")
+    const picture = await Transformer.fromRgbaPixels(
+      new Uint8Array(40 * 40 * 4).fill(80),
+      40,
+      40,
+    ).png()
+    await docs.upload("sdk/pic.png", picture, { contentType: "image/png" })
+    const thumb = await docs.download("sdk/pic.png", { transform: { width: 10, format: "jpeg" } })
+    expect(thumb.type).toBe("image/jpeg")
+    expect(
+      (await new Transformer(new Uint8Array(await thumb.arrayBuffer())).metadata()).width,
+    ).toBe(10)
+    const signedImage = await docs.createSignedUrl("sdk/pic.png", 30, {
+      transform: { height: 4, format: "png" },
+    })
+    const viaSigned = await handler.fetch(new Request(signedImage))
+    expect(viaSigned.headers.get("content-type")).toBe("image/png")
+    expect(
+      (await new Transformer(new Uint8Array(await viaSigned.arrayBuffer())).metadata()).height,
+    ).toBe(4)
+    await docs.remove("sdk/pic.png")
     await docs.remove("sdk/hello.txt")
     await docs.remove("sdk/large.bin")
     await expect(docs.download("sdk/hello.txt")).rejects.toMatchObject({ code: "CANOPY_NOT_FOUND" })
   })
 
   it("deletes a file and its content for its owner", async () => {
-    const before = await gridFiles()
+    const before = await storedFiles()
     expect((await call("DELETE", "object/docs/reports/q3.pdf", "alice")).status).toBe(204)
     expect((await call("GET", "object/docs/reports/q3.pdf", "alice")).status).toBe(404)
-    expect(await gridFiles()).toBe(before - 1)
+    expect(await storedFiles()).toBe(before - 1)
   })
 })

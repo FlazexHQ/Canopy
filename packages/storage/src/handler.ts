@@ -21,6 +21,7 @@ import {
   toProblem,
   withCors,
 } from "@canopy/rest"
+import { parseTransform } from "./images.ts"
 import type { OpenedObject, RangeRequest, Storage } from "./storage.ts"
 
 /** Options of {@link createStorageHandler}. */
@@ -159,7 +160,9 @@ interface Exchange {
 /**
  * Serves the storage API: `object/<bucket>/<path>` (upload with POST, replace with PUT, read with GET or HEAD,
  * delete), `list/<bucket>`, `sign/<bucket>/<path>`, `signed/<bucket>/<path>?token=`,
- * `public/<bucket>/<path>`, and resumable uploads (`POST upload/<bucket>/<path>`, then `uploads/<id>`).
+ * `public/<bucket>/<path>`, image transformations (`render/image/object|public|signed/<bucket>/<path>` with
+ * `width`, `height`, `resize`, `quality` and `format`), and resumable uploads (`POST upload/<bucket>/<path>`,
+ * then `uploads/<id>`).
  * Authentication, rate limits, CORS and problem documents work as in the Data API.
  */
 export function createStorageHandler(options: StorageHandlerOptions): StorageHandler {
@@ -284,6 +287,41 @@ export function createStorageHandler(options: StorageHandlerOptions): StorageHan
         return fileResponse(
           request,
           await storage.openSigned(url.searchParams.get("token") ?? "", bucket, path, range),
+          "private, max-age=0",
+          download,
+        )
+      }
+      case "render": {
+        const [kind, access, ...file] = rest
+        const images = storage.images
+        if (kind !== "image" || images === undefined || (method !== "GET" && method !== "HEAD"))
+          break
+        if (access !== "object" && access !== "public" && access !== "signed") break
+        const { bucket, path } = split(file)
+        const transform = parseTransform(url.searchParams, images.maxDimension)
+        if (access === "object")
+          return fileResponse(
+            request,
+            await storage.openImage(await caller(exchange), bucket, path, transform),
+            "private, max-age=0",
+            download,
+          )
+        anonymous(exchange)
+        if (access === "public")
+          return fileResponse(
+            request,
+            await storage.openPublicImage(bucket, path, transform),
+            "public, max-age=3600",
+            download,
+          )
+        return fileResponse(
+          request,
+          await storage.openSignedImage(
+            url.searchParams.get("token") ?? "",
+            bucket,
+            path,
+            transform,
+          ),
           "private, max-age=0",
           download,
         )

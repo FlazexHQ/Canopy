@@ -1,7 +1,7 @@
 {
   "name": "@canopy/storage",
   "version": "0.0.0",
-  "description": "File storage with DLS policies on file metadata, on GridFS or any S3 compatible object store, with signed URLs and resumable uploads.",
+  "description": "File storage with DLS policies on file metadata, on local disk, Cloudflare R2 or AWS S3, with image transformations, signed URLs and resumable uploads.",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -28,6 +28,7 @@
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@napi-rs/image": "catalog:",
     "mongodb": "catalog:"
   },
   "devDependencies": {

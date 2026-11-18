@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@canopy/testing": "workspace:*",
+    "@napi-rs/image": "catalog:",
     "@opentelemetry/api": "catalog:",
     "@opentelemetry/context-async-hooks": "catalog:",
     "@opentelemetry/core": "catalog:",

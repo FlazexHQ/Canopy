@@ -1,5 +1,9 @@
+import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { MONGODB_URI } from "@canopy/testing"
+import { Transformer } from "@napi-rs/image"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -18,6 +22,7 @@ const objects = collection("storage.objects", {
   policies: [
     allow.read("authenticated").where({ owner: auth("sub") }),
     allow.insert("authenticated").check({ bucket: "files", owner: auth("sub") }),
+    allow.insert("authenticated").check({ bucket: "pics", owner: auth("sub") }),
   ],
 })
 
@@ -29,10 +34,12 @@ suite("storage in the server", () => {
   let canopy: Canopy
   let plain: Canopy
   let token: string
+  let root: string
 
   beforeAll(async () => {
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
+    root = await mkdtemp(join(tmpdir(), "canopy-server-storage-"))
     const pair = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(pair.publicKey)), kid: "k1", alg: "EdDSA", use: "sig" }
     token = await new SignJWT({})
@@ -58,9 +65,12 @@ suite("storage in the server", () => {
         ...base,
         mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: `${dbName}_meta` },
         storage: {
+          backend: { kind: "local", root },
+          images: { maxDimension: 300 },
           buckets: {
             files: { maxFileSize: 100 },
             logos: { public: true, allowedTypes: ["image/*"] },
+            pics: { allowedTypes: ["image/*"] },
           },
         },
       }),
@@ -81,9 +91,16 @@ suite("storage in the server", () => {
     for (const name of [dbName, `${dbName}_meta`, `${dbName}_p`, `${dbName}_pm`])
       await mongo.db(name).dropDatabase()
     await mongo.close()
+    await rm(root, { recursive: true, force: true })
   })
 
-  const request = (target: Canopy, method: string, path: string, body?: string, type?: string) =>
+  const request = (
+    target: Canopy,
+    method: string,
+    path: string,
+    body?: string | Uint8Array,
+    type?: string,
+  ) =>
     target.fetch(
       new Request(`http://canopy.test${path}`, {
         method,
@@ -123,8 +140,34 @@ suite("storage in the server", () => {
     ).toBe(403)
     const stored = await mongo.db(`${dbName}_meta`).collection("storage_objects").findOne({})
     expect(stored).toMatchObject({ bucket: "files", path: "a.txt", owner: "alice", size: 5 })
-    expect(await mongo.db(`${dbName}_meta`).collection("storage.files").countDocuments()).toBe(1)
+    expect(await readdir(join(root, "objects", "files"))).toHaveLength(1)
     expect((await mongo.db(dbName).listCollections().toArray()).map((c) => c.name)).toEqual([])
+  })
+
+  it("transforms images with the configured limits", async () => {
+    const source = await Transformer.fromRgbaPixels(
+      new Uint8Array(60 * 30 * 4).fill(120),
+      60,
+      30,
+    ).png()
+    expect(
+      (await request(canopy, "POST", "/storage/v1/object/pics/p.png", source, "image/png")).status,
+    ).toBe(201)
+    const rendered = await request(
+      canopy,
+      "GET",
+      "/storage/v1/render/image/object/pics/p.png?width=12&format=jpeg",
+    )
+    expect(rendered.status).toBe(200)
+    expect(rendered.headers.get("content-type")).toBe("image/jpeg")
+    const { width, height } = await new Transformer(
+      new Uint8Array(await rendered.arrayBuffer()),
+    ).metadata()
+    expect({ width, height }).toEqual({ width: 12, height: 6 })
+    expect(
+      (await request(canopy, "GET", "/storage/v1/render/image/object/pics/p.png?width=301")).status,
+    ).toBe(400)
+    expect(await mongo.db(`${dbName}_meta`).collection("storage_variants").countDocuments()).toBe(1)
   })
 
   it("never serves storage.objects as an app collection", async () => {
@@ -143,9 +186,10 @@ suite("storage in the server", () => {
   it("creates the storage collections and indexes in the meta database", async () => {
     const indexes = await mongo.db(`${dbName}_meta`).collection("storage_objects").indexes()
     expect(indexes.find((index) => index.name === "bucket_path")?.unique).toBe(true)
-    expect(
-      (await mongo.db(`${dbName}_meta`).listCollections({ name: "storage_uploads" }).toArray())
-        .length,
-    ).toBe(1)
+    for (const name of ["storage_uploads", "storage_variants"])
+      expect((await mongo.db(`${dbName}_meta`).listCollections({ name }).toArray()).length).toBe(1)
+    const variantIndexes = await mongo.db(`${dbName}_meta`).collection("storage_variants").indexes()
+    expect(variantIndexes.map((index) => index.name)).toContain("key")
+    expect(indexes.map((index) => index.name)).toContain("key")
   })
 })

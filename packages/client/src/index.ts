@@ -49,6 +49,7 @@ export { QueryBuilder } from "./query-builder.ts"
 export {
   type BucketApi,
   createStorage,
+  type ImageTransformOptions,
   type ResumableUploadOptions,
   type StorageApi,
   type StorageClientOptions,

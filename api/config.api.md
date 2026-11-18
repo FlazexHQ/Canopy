@@ -426,6 +426,7 @@ export interface ResolvedConfig {
     readonly storage: false | {
         readonly backend: ResolvedStorageBackend;
         readonly maxUploadSize: number;
+        readonly images: ResolvedStorageImages;
         readonly buckets: Readonly<Record<string, ResolvedBucket>>;
     };
     readonly server: {
@@ -502,10 +503,19 @@ export interface ResolvedSchedule {
 }
 
 export type ResolvedStorageBackend = {
-    readonly kind: "gridfs";
+    readonly kind: "local";
+    readonly root: string;
+} | {
+    readonly kind: "r2";
+    readonly accountId: string;
+    readonly bucket: string;
+    readonly accessKeyId: string;
+    readonly secretAccessKey: string;
+    readonly jurisdiction: string | undefined;
+    readonly prefix: string;
 } | {
     readonly kind: "s3";
-    readonly endpoint: string;
+    readonly endpoint: string | undefined;
     readonly region: string;
     readonly bucket: string;
     readonly accessKeyId: string;
@@ -514,6 +524,12 @@ export type ResolvedStorageBackend = {
     readonly forcePathStyle: boolean;
     readonly prefix: string;
 };
+
+export interface ResolvedStorageImages {
+    readonly enabled: boolean;
+    readonly maxDimension: number;
+    readonly maxSourceSize: number;
+}
 
 export interface ResolvedTrigger {
     readonly collection: string;
@@ -546,15 +562,24 @@ export type Source = {
 };
 
 export type StorageBackendInput = {
-    readonly kind: "gridfs";
+    readonly kind: "local";
+    readonly root?: Value<string>;
+} | {
+    readonly kind: "r2";
+    readonly accountId: Value<string>;
+    readonly bucket: Value<string>;
+    readonly accessKeyId: Value<string>;
+    readonly secretAccessKey: Value<string>;
+    readonly jurisdiction?: Value<string>;
+    readonly prefix?: Value<string>;
 } | {
     readonly kind: "s3";
-    readonly endpoint: Value<string>;
     readonly region: Value<string>;
     readonly bucket: Value<string>;
     readonly accessKeyId: Value<string>;
     readonly secretAccessKey: Value<string>;
     readonly sessionToken?: Value<string>;
+    readonly endpoint?: Value<string>;
     readonly forcePathStyle?: Value<boolean>;
     readonly prefix?: Value<string>;
 };
@@ -565,10 +590,17 @@ export interface StorageBucketInput {
     readonly allowedTypes?: Value<readonly string[]>;
 }
 
+export interface StorageImagesInput {
+    readonly enabled?: Value<boolean>;
+    readonly maxDimension?: Value<number>;
+    readonly maxSourceSize?: Value<number>;
+}
+
 export interface StorageInput {
     readonly backend?: StorageBackendInput;
     readonly maxFileSize?: Value<number>;
     readonly maxUploadSize?: Value<number>;
+    readonly images?: StorageImagesInput;
     readonly buckets?: Readonly<Record<string, StorageBucketInput>>;
 }
 

@@ -404,23 +404,59 @@ export interface WebhooksInput {
   readonly schedules?: Readonly<Record<string, ScheduleInput>>
 }
 
-/** Where stored files live: GridFS in the meta database, or an S3 compatible object store. */
+/**
+ * Where stored files live: on local disk, in a Cloudflare R2 bucket, or in an AWS S3 bucket (or another S3
+ * compatible store given by `endpoint`).
+ */
 export type StorageBackendInput =
-  | { readonly kind: "gridfs" }
+  | {
+      readonly kind: "local"
+      /**
+       * The folder files are stored under, relative to the config file (or to the working directory when set
+       * from the environment). @default "storage"
+       */
+      readonly root?: Value<string>
+    }
+  | {
+      readonly kind: "r2"
+      /** The Cloudflare account id. */
+      readonly accountId: Value<string>
+      readonly bucket: Value<string>
+      /** The access key id of an R2 API token. */
+      readonly accessKeyId: Value<string>
+      readonly secretAccessKey: Value<string>
+      /** For a bucket created in a jurisdiction, such as `eu`. */
+      readonly jurisdiction?: Value<string>
+      /** A key prefix inside the bucket. @default "" */
+      readonly prefix?: Value<string>
+    }
   | {
       readonly kind: "s3"
-      /** Such as `https://s3.eu-west-1.amazonaws.com`, or `http://localhost:9000` for MinIO. */
-      readonly endpoint: Value<string>
       readonly region: Value<string>
       readonly bucket: Value<string>
       readonly accessKeyId: Value<string>
       readonly secretAccessKey: Value<string>
       readonly sessionToken?: Value<string>
-      /** Addresses the bucket in the path rather than the host name. @default true */
+      /**
+       * The endpoint of a store other than AWS S3, such as `http://localhost:9000` for MinIO.
+       * @default `https://s3.<region>.amazonaws.com`
+       */
+      readonly endpoint?: Value<string>
+      /** Addresses the bucket in the path rather than the host name. @default true with `endpoint`, else false */
       readonly forcePathStyle?: Value<boolean>
       /** A key prefix inside the bucket. @default "" */
       readonly prefix?: Value<string>
     }
+
+/** Image transformations at `/storage/v1/render/image/...`. */
+export interface StorageImagesInput {
+  /** @default true */
+  readonly enabled?: Value<boolean>
+  /** The largest width or height asked for, in pixels. @default 2500 */
+  readonly maxDimension?: Value<number>
+  /** The largest source image transformed, in bytes. @default 26214400 (25 MiB) */
+  readonly maxSourceSize?: Value<number>
+}
 
 /** The settings of one storage bucket. */
 export interface StorageBucketInput {
@@ -437,12 +473,13 @@ export interface StorageBucketInput {
  * the metadata document of every file. On when at least one bucket is configured.
  */
 export interface StorageInput {
-  /** @default { kind: "gridfs" } */
+  /** @default { kind: "local", root: "storage" } */
   readonly backend?: StorageBackendInput
   /** The largest file sent in one request, in bytes. @default 52428800 (50 MiB) */
   readonly maxFileSize?: Value<number>
   /** The largest resumable upload, in bytes. @default 5368709120 (5 GiB) */
   readonly maxUploadSize?: Value<number>
+  readonly images?: StorageImagesInput
   readonly buckets?: Readonly<Record<string, StorageBucketInput>>
 }
 
@@ -625,10 +662,19 @@ export interface ResolvedBuiltinAuth {
 
 /** A resolved storage backend. */
 export type ResolvedStorageBackend =
-  | { readonly kind: "gridfs" }
+  | { readonly kind: "local"; readonly root: string }
+  | {
+      readonly kind: "r2"
+      readonly accountId: string
+      readonly bucket: string
+      readonly accessKeyId: string
+      readonly secretAccessKey: string
+      readonly jurisdiction: string | undefined
+      readonly prefix: string
+    }
   | {
       readonly kind: "s3"
-      readonly endpoint: string
+      readonly endpoint: string | undefined
       readonly region: string
       readonly bucket: string
       readonly accessKeyId: string
@@ -637,6 +683,13 @@ export type ResolvedStorageBackend =
       readonly forcePathStyle: boolean
       readonly prefix: string
     }
+
+/** Resolved image transformation settings. */
+export interface ResolvedStorageImages {
+  readonly enabled: boolean
+  readonly maxDimension: number
+  readonly maxSourceSize: number
+}
 
 /** A resolved storage bucket. */
 export interface ResolvedBucket {
@@ -732,6 +785,7 @@ export interface ResolvedConfig {
     | {
         readonly backend: ResolvedStorageBackend
         readonly maxUploadSize: number
+        readonly images: ResolvedStorageImages
         readonly buckets: Readonly<Record<string, ResolvedBucket>>
       }
   readonly server: {

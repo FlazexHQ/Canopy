@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { s3Backend, signV4, UrlSigner } from "../src/index.ts"
+import { r2Backend, s3Backend, signV4, UrlSigner } from "../src/index.ts"
 import { checkPath, checkType } from "../src/paths.ts"
 
 describe("signV4", () => {
@@ -203,6 +203,81 @@ describe("s3Backend", () => {
     await expect(backend("WRONG").put("x", new Uint8Array([1]), "text/plain")).rejects.toThrow(
       "The object store answered 403 (AccessDenied)",
     )
+  })
+})
+
+describe("AWS S3 and Cloudflare R2 addressing", () => {
+  const capture = () => {
+    const seen: { url: string; authorization: string }[] = []
+    const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers)
+      seen.push({ url: String(input), authorization: headers.get("authorization") ?? "" })
+      return new Response(null, { status: 200 })
+    }) as typeof globalThis.fetch
+    return { seen, fetch }
+  }
+
+  it("addresses AWS S3 by virtual host in its region unless an endpoint is given", async () => {
+    const aws = capture()
+    const store = s3Backend({
+      region: "eu-west-1",
+      bucket: "my-files",
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      fetch: aws.fetch,
+    })
+    expect(store.kind).toBe("s3")
+    await store.put("docs/1", new Uint8Array([1]), "text/plain")
+    expect(aws.seen[0]?.url).toBe("https://my-files.s3.eu-west-1.amazonaws.com/docs/1")
+    expect(aws.seen[0]?.authorization).toContain("/eu-west-1/s3/aws4_request")
+    const minio = capture()
+    await s3Backend({
+      endpoint: "http://localhost:9000",
+      region: "us-east-1",
+      bucket: "my-files",
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      fetch: minio.fetch,
+    }).put("docs/1", new Uint8Array([1]), "text/plain")
+    expect(minio.seen[0]?.url).toBe("http://localhost:9000/my-files/docs/1")
+  })
+
+  it("addresses R2 by account and jurisdiction in the region auto", async () => {
+    const r2 = capture()
+    const store = r2Backend({
+      accountId: "0123456789abcdef0123456789abcdef",
+      bucket: "uploads",
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      prefix: "app/",
+      fetch: r2.fetch,
+    })
+    expect(store.kind).toBe("r2")
+    await store.put("docs/1", new Uint8Array([1]), "text/plain")
+    expect(r2.seen[0]?.url).toBe(
+      "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/uploads/app/docs/1",
+    )
+    expect(r2.seen[0]?.authorization).toContain("/auto/s3/aws4_request")
+    const eu = capture()
+    await r2Backend({
+      accountId: "0123456789abcdef0123456789abcdef",
+      bucket: "uploads",
+      accessKeyId: "AK",
+      secretAccessKey: "SK",
+      jurisdiction: "eu",
+      fetch: eu.fetch,
+    }).delete("docs/1")
+    expect(eu.seen[0]?.url).toBe(
+      "https://0123456789abcdef0123456789abcdef.eu.r2.cloudflarestorage.com/uploads/docs/1",
+    )
+  })
+
+  it("refuses an R2 account id or jurisdiction that would change the host", () => {
+    const base = { bucket: "b", accessKeyId: "AK", secretAccessKey: "SK" }
+    expect(() => r2Backend({ ...base, accountId: "evil.example.com#" })).toThrow("32 hexadecimal")
+    expect(() =>
+      r2Backend({ ...base, accountId: "0123456789abcdef0123456789abcdef", jurisdiction: "x.y" }),
+    ).toThrow("jurisdiction")
   })
 })
 

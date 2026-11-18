@@ -25,6 +25,7 @@ import {
   ObjectId,
 } from "mongodb"
 import type { ByteRange, StorageBackend } from "./backend.ts"
+import { type ImageRenderer, type ImageTransform, transformHash } from "./images.ts"
 import { checkPath, checkType, escapeRegex, isBucketName, mediaType } from "./paths.ts"
 import type { UrlSigner } from "./tokens.ts"
 
@@ -58,6 +59,19 @@ export interface StoredObject {
 
 /** What callers see of a stored file. */
 export type ObjectInfo = Omit<StoredObject, "_id" | "key">
+
+/** A cached image transformation of a stored file, in `canopy.storage_variants`. */
+interface StoredVariant {
+  /** Where the variant is in the backend: `<key>.variants/<hash>`. */
+  readonly _id: string
+  /** The key of the source content; the variant goes when that content is replaced or deleted. */
+  readonly key: string
+  readonly size: number
+  readonly contentType: string
+  readonly createdAt: Date
+}
+
+type RenderedVariant = StoredVariant & { readonly body: Uint8Array }
 
 /** A resumable upload, in `canopy.storage_uploads`. */
 interface UploadSession {
@@ -109,6 +123,8 @@ export interface StorageOptions {
   readonly uploadTtlMs?: number
   /** How long a signed URL may live at most. @default 7 days */
   readonly maxSignedUrlSeconds?: number
+  /** Transforms images on request; without it image transformations are off. */
+  readonly images?: ImageRenderer
 }
 
 /** What an upload writes besides the content. */
@@ -159,6 +175,8 @@ export class Storage {
   private readonly options: StorageOptions
   private readonly objects: Collection<StoredObject>
   private readonly uploads: Collection<UploadSession>
+  private readonly variants: Collection<StoredVariant>
+  private readonly rendering = new Map<string, Promise<RenderedVariant>>()
 
   constructor(options: StorageOptions) {
     this.options = options
@@ -166,6 +184,7 @@ export class Storage {
     const meta = options.client.db(options.metaDatabase)
     this.objects = meta.collection<StoredObject>("storage_objects")
     this.uploads = meta.collection<UploadSession>("storage_uploads")
+    this.variants = meta.collection<StoredVariant>("storage_variants")
     const partSize = options.partSize ?? 8 * MIB
     if (partSize < 5 * MIB)
       throw new TypeError("The part size of resumable uploads must be at least 5 MiB")
@@ -317,8 +336,20 @@ export class Storage {
       await this.backend.delete(key).catch(() => {})
       throw error
     }
-    if (existing !== null) await this.backend.delete(existing.key).catch(() => {})
+    if (existing !== null) await this.discard(existing.key)
     return info(next)
+  }
+
+  /** Deletes stored content and every cached variant of it. A failure leaves garbage, never an error. */
+  private async discard(key: string): Promise<void> {
+    await this.backend.delete(key).catch(() => {})
+    try {
+      const variants = await this.variants.find({ key }, { projection: { _id: 1 } }).toArray()
+      for (const { _id } of variants) await this.backend.delete(_id).catch(() => {})
+      await this.variants.deleteMany({ key })
+    } catch {
+      return
+    }
   }
 
   /** The metadata of a file the caller may read. Throws `NotFoundError` otherwise. */
@@ -345,6 +376,30 @@ export class Storage {
     }
   }
 
+  private async findVisible(caller: Caller, bucket: string, path: string): Promise<StoredObject> {
+    this.bucket(bucket)
+    const object = await this.visible(caller, bucket, path)
+    if (object === null) throw new NotFoundError("No such file")
+    return object
+  }
+
+  private async findPublic(bucket: string, path: string): Promise<StoredObject> {
+    if (!this.bucket(bucket).public) throw new NotFoundError("No such file")
+    const object = await this.objects.findOne({ bucket, path })
+    if (object === null) throw new NotFoundError("No such file")
+    return object
+  }
+
+  private async findSigned(token: string, bucket: string, path: string): Promise<StoredObject> {
+    const grant = this.options.signer.verify(token)
+    if (grant === undefined || grant.bucket !== bucket || grant.path !== path)
+      throw new CanopyError(ErrorCode.Unauthorized, "The signed URL is not valid or has expired")
+    this.bucket(bucket)
+    const object = await this.objects.findOne({ bucket, path })
+    if (object === null) throw new NotFoundError("No such file")
+    return object
+  }
+
   /** Opens a file the caller may read. */
   async open(
     caller: Caller,
@@ -352,19 +407,14 @@ export class Storage {
     path: string,
     range?: RangeRequest,
   ): Promise<OpenedObject> {
-    this.bucket(bucket)
-    const object = await this.visible(caller, bucket, path)
-    if (object === null) throw new NotFoundError("No such file")
+    const object = await this.findVisible(caller, bucket, path)
     const opened = await this.read(object, range)
     return { ...opened, object: this.readable(caller, object) }
   }
 
   /** Opens a file of a public bucket, without a policy. */
   async openPublic(bucket: string, path: string, range?: RangeRequest): Promise<OpenedObject> {
-    if (!this.bucket(bucket).public) throw new NotFoundError("No such file")
-    const object = await this.objects.findOne({ bucket, path })
-    if (object === null) throw new NotFoundError("No such file")
-    return this.read(object, range)
+    return this.read(await this.findPublic(bucket, path), range)
   }
 
   /** Opens the file a signed URL token grants. */
@@ -374,13 +424,119 @@ export class Storage {
     path: string,
     range?: RangeRequest,
   ): Promise<OpenedObject> {
-    const grant = this.options.signer.verify(token)
-    if (grant === undefined || grant.bucket !== bucket || grant.path !== path)
-      throw new CanopyError(ErrorCode.Unauthorized, "The signed URL is not valid or has expired")
-    this.bucket(bucket)
-    const object = await this.objects.findOne({ bucket, path })
-    if (object === null) throw new NotFoundError("No such file")
-    return this.read(object, range)
+    return this.read(await this.findSigned(token, bucket, path), range)
+  }
+
+  /** The image renderer, or `undefined` when image transformations are off. */
+  get images(): ImageRenderer | undefined {
+    return this.options.images
+  }
+
+  /** Opens a transformed image the caller may read. */
+  async openImage(
+    caller: Caller,
+    bucket: string,
+    path: string,
+    transform: ImageTransform,
+  ): Promise<OpenedObject> {
+    const object = await this.findVisible(caller, bucket, path)
+    const opened = await this.transformed(object, transform)
+    return {
+      ...opened,
+      object: this.readable(caller, { ...object, ...opened.object }),
+    }
+  }
+
+  /** Opens a transformed image of a public bucket, without a policy. */
+  async openPublicImage(
+    bucket: string,
+    path: string,
+    transform: ImageTransform,
+  ): Promise<OpenedObject> {
+    return this.transformed(await this.findPublic(bucket, path), transform)
+  }
+
+  /** Opens a transformed image of the file a signed URL token grants. */
+  async openSignedImage(
+    token: string,
+    bucket: string,
+    path: string,
+    transform: ImageTransform,
+  ): Promise<OpenedObject> {
+    return this.transformed(await this.findSigned(token, bucket, path), transform)
+  }
+
+  /**
+   * Serves a transformation of an image from the variant cache, or renders and caches it. Identical
+   * transformations in flight share one rendering.
+   */
+  private async transformed(
+    object: StoredObject,
+    transform: ImageTransform,
+  ): Promise<OpenedObject> {
+    const images = this.options.images
+    if (images === undefined) throw new NotFoundError("Image transformations are off")
+    images.accepts(object.contentType, object.size)
+    const hash = transformHash(transform)
+    const variantKey = `${object.key}.variants/${hash}`
+    const served = (
+      variant: { readonly size: number; readonly contentType: string },
+      body: ReadableStream<Uint8Array>,
+    ): OpenedObject => ({
+      object: {
+        ...info(object),
+        size: variant.size,
+        contentType: variant.contentType,
+        etag: `${object.etag}-${hash}`,
+      },
+      body,
+      range: undefined,
+    })
+    const cached = await this.variants.findOne({ _id: variantKey })
+    if (cached !== null) {
+      try {
+        return served(cached, await this.backend.get(variantKey))
+      } catch (error: unknown) {
+        if (!(error instanceof NotFoundError)) throw error
+        await this.variants.deleteOne({ _id: variantKey })
+      }
+    }
+    let pending = this.rendering.get(variantKey)
+    if (pending === undefined) {
+      pending = this.render(object, variantKey, transform, images).finally(() =>
+        this.rendering.delete(variantKey),
+      )
+      this.rendering.set(variantKey, pending)
+    }
+    const variant = await pending
+    return served(variant, bytesStream(variant.body))
+  }
+
+  /** Renders a variant and caches it, unless the source was replaced or deleted meanwhile. */
+  private async render(
+    object: StoredObject,
+    variantKey: string,
+    transform: ImageTransform,
+    images: ImageRenderer,
+  ): Promise<RenderedVariant> {
+    const source = await collect(await this.backend.get(object.key), object.size)
+    const rendered = await images.render(source, object.contentType, transform)
+    const variant: StoredVariant = {
+      _id: variantKey,
+      key: object.key,
+      size: rendered.body.byteLength,
+      contentType: rendered.contentType,
+      createdAt: new Date(),
+    }
+    try {
+      await this.backend.put(variantKey, rendered.body, rendered.contentType)
+      await this.variants.replaceOne({ _id: variantKey }, variant, { upsert: true })
+      if ((await this.objects.countDocuments({ key: object.key }, { limit: 1 })) === 0)
+        await this.discard(object.key)
+    } catch {
+      await this.backend.delete(variantKey).catch(() => {})
+    }
+    return { ...variant, body: rendered.body }
   }
 
   /** A token that lets anyone read one file the caller may read, for `expiresIn` seconds. */
@@ -413,7 +569,7 @@ export class Storage {
       $and: [{ bucket, path }, toFilter(engine.target(STORAGE_COLLECTION, "delete", ctx))],
     })
     if (removed === null) throw new NotFoundError("No such file")
-    await this.backend.delete(removed.key).catch(() => {})
+    await this.discard(removed.key)
   }
 
   /** Lists the files of a bucket the caller may read, by path, after `after`. */
@@ -570,7 +726,7 @@ export class Storage {
       throw error
     }
     await this.uploads.deleteOne({ _id: id })
-    if (existing !== null) await this.backend.delete(existing.key).catch(() => {})
+    if (existing !== null) await this.discard(existing.key)
     return info(next)
   }
 
@@ -581,8 +737,13 @@ export class Storage {
     await this.uploads.deleteOne({ _id: id })
   }
 
-  /** Drops the parts of uploads that expired unfinished. Returns how many were dropped. */
+  /**
+   * Drops the parts of uploads that expired unfinished, and what interrupted writes left in the backend.
+   * Returns how many uploads were dropped.
+   */
   async sweep(now: Date = new Date()): Promise<number> {
+    const ttl = this.options.uploadTtlMs ?? 86_400_000
+    await this.backend.sweep?.(new Date(now.getTime() - 2 * ttl)).catch(() => 0)
     let dropped = 0
     for (const session of await this.uploads
       .find({ expiresAt: { $lte: now } })
@@ -594,6 +755,28 @@ export class Storage {
     }
     return dropped
   }
+}
+
+function bytesStream(body: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(body)
+      controller.close()
+    },
+  })
+}
+
+/** Reads a stream of at most `size` bytes into one array. */
+async function collect(stream: ReadableStream<Uint8Array>, size: number): Promise<Uint8Array> {
+  const out = new Uint8Array(size)
+  let offset = 0
+  for await (const chunk of stream) {
+    if (offset + chunk.byteLength > size)
+      throw new CanopyError(ErrorCode.Internal, "The stored file is larger than its metadata says")
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return offset === size ? out : out.subarray(0, offset)
 }
 
 function status(session: UploadSession): UploadStatus {

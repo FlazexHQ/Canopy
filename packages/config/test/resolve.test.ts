@@ -711,3 +711,144 @@ describe("webhooks", () => {
     expect(found[1]?.message).toMatch(/at least 16/)
   })
 })
+
+describe("storage", () => {
+  const ACCOUNT = "0123456789abcdef0123456789abcdef"
+  const buckets = { avatars: { public: true } }
+
+  it("is off without buckets and on local disk next to the config file by default", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.storage).toBe(false)
+    expect(resolve({ mongodb: { uri: URI }, storage: { buckets } }).config.storage).toEqual({
+      backend: { kind: "local", root: "/project/canopy/storage" },
+      maxUploadSize: 5 * 1024 * 1024 * 1024,
+      images: { enabled: true, maxDimension: 2500, maxSourceSize: 25 * 1024 * 1024 },
+      buckets: { avatars: { public: true, maxFileSize: 50 * 1024 * 1024, allowedTypes: [] } },
+    })
+  })
+
+  it("resolves a local root against the config folder, or the working directory from the environment", () => {
+    const local = (
+      root: string | ReturnType<typeof env>,
+      variables: Record<string, string> = {},
+    ) => {
+      const storage = resolve(
+        { mongodb: { uri: URI }, storage: { backend: { kind: "local", root }, buckets } },
+        variables,
+      ).config.storage
+      return storage === false ? undefined : storage.backend
+    }
+    expect(local("../data/files")).toEqual({ kind: "local", root: "/project/data/files" })
+    expect(local("/srv/canopy")).toEqual({ kind: "local", root: "/srv/canopy" })
+    expect(local("D:\\files")).toEqual({ kind: "local", root: "D:\\files" })
+    expect(local(env("FILES_ROOT"), { FILES_ROOT: "uploads" })).toEqual({
+      kind: "local",
+      root: "/project/uploads",
+    })
+  })
+
+  it("builds R2 and S3 backends and masks their secrets", () => {
+    const r2 = resolve(
+      {
+        mongodb: { uri: URI },
+        storage: {
+          backend: {
+            kind: "r2",
+            accountId: ACCOUNT,
+            bucket: "files",
+            accessKeyId: "AK",
+            secretAccessKey: env("R2_SECRET"),
+            jurisdiction: "eu",
+          },
+          buckets,
+        },
+      },
+      { R2_SECRET: "r2-secret-value" },
+    )
+    expect(r2.config.storage === false ? undefined : r2.config.storage.backend).toEqual({
+      kind: "r2",
+      accountId: ACCOUNT,
+      bucket: "files",
+      accessKeyId: "AK",
+      secretAccessKey: "r2-secret-value",
+      jurisdiction: "eu",
+      prefix: "",
+    })
+    expect(formatConfig(r2)).not.toContain("r2-secret-value")
+    const s3 = (backend: Record<string, unknown>) => {
+      const storage = resolve({
+        mongodb: { uri: URI },
+        storage: {
+          backend: {
+            kind: "s3",
+            region: "eu-west-1",
+            bucket: "files",
+            accessKeyId: "AK",
+            secretAccessKey: "SK",
+            ...backend,
+          } as never,
+          buckets,
+        },
+      }).config.storage
+      return storage === false ? undefined : storage.backend
+    }
+    expect(s3({})).toMatchObject({ kind: "s3", endpoint: undefined, forcePathStyle: false })
+    expect(s3({ endpoint: "http://localhost:9000" })).toMatchObject({
+      endpoint: "http://localhost:9000",
+      forcePathStyle: true,
+    })
+    expect(s3({ endpoint: "http://localhost:9000", forcePathStyle: false })).toMatchObject({
+      forcePathStyle: false,
+    })
+  })
+
+  it("reports missing and malformed backend settings, an unknown kind and image limits", () => {
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          storage: { backend: { kind: "r2", accountId: "not-hex", bucket: "b" } as never, buckets },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual([
+      "storage.backend.accessKeyId",
+      "storage.backend.secretAccessKey",
+      "storage.backend.accountId",
+    ])
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          storage: { backend: { kind: "s3", bucket: "b" } as never, buckets },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual([
+      "storage.backend.region",
+      "storage.backend.accessKeyId",
+      "storage.backend.secretAccessKey",
+    ])
+    const gridfs = problems(() =>
+      resolve({
+        mongodb: { uri: URI },
+        storage: { backend: { kind: "gridfs" } as never, buckets },
+      }),
+    )
+    expect(gridfs.map((problem) => problem.path)).toEqual(["storage.backend.kind"])
+    expect(gridfs[0]?.message).toContain('{ kind: "local", root }')
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          storage: { images: { maxDimension: 0, maxSourceSize: 0 }, buckets },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual(["storage.images.maxDimension", "storage.images.maxSourceSize"])
+  })
+
+  it("turns image transformations off from the environment", () => {
+    const storage = resolve(
+      { mongodb: { uri: URI }, storage: { buckets } },
+      { CANOPY_STORAGE_IMAGES: "false" },
+    ).config.storage
+    expect(storage === false ? undefined : storage.images.enabled).toBe(false)
+  })
+})

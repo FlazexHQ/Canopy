@@ -56,6 +56,12 @@ const POSITIVE: Range = {
   message: (value) => `Received ${value}.
 Expected a whole number of at least 1.`,
 }
+const DIMENSION: Range = {
+  min: 1,
+  max: 10_000,
+  message: (value) => `Received ${value}.
+Expected a number of pixels from 1 to 10000.`,
+}
 const PORT: Range = {
   min: 0,
   max: 65_535,
@@ -250,7 +256,16 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
     backend: {
       t: "tagged",
       kinds: {
-        gridfs: { kind: str },
+        local: { kind: str, root: str },
+        r2: {
+          kind: str,
+          accountId: str,
+          bucket: str,
+          accessKeyId: str,
+          secretAccessKey: str,
+          jurisdiction: str,
+          prefix: str,
+        },
         s3: {
           kind: str,
           endpoint: url,
@@ -263,10 +278,15 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
           prefix: str,
         },
       },
-      hint: 'Use { kind: "gridfs" } or { kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey }.',
+      hint: 'Use { kind: "local", root }, { kind: "r2", accountId, bucket, accessKeyId, secretAccessKey } or { kind: "s3", region, bucket, accessKeyId, secretAccessKey }.',
     },
     maxFileSize: withDefault(int, 50 * 1024 * 1024, POSITIVE),
     maxUploadSize: withDefault(int, 5 * 1024 * 1024 * 1024, POSITIVE),
+    images: obj({
+      enabled: withDefault(bool, true),
+      maxDimension: withDefault(int, 2500, DIMENSION),
+      maxSourceSize: withDefault(int, 25 * 1024 * 1024, POSITIVE),
+    }),
     buckets: {
       t: "record",
       of: obj({ public: bool, maxFileSize: int, allowedTypes: list }),
@@ -340,6 +360,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_AUDIT_DATA_WRITES", "audit.dataWrites", bool],
   ["CANOPY_WEBHOOK_SECRET", "webhooks.secret", str],
   ["CANOPY_STORAGE_MAX_FILE_SIZE", "storage.maxFileSize", int],
+  ["CANOPY_STORAGE_IMAGES", "storage.images.enabled", bool],
   ["CANOPY_TRACING", "telemetry.tracing", bool],
   ["CANOPY_CORS_ORIGINS", "cors.origins", { t: "origins" }],
   ["PORT", "server.port", int],

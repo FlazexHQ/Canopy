@@ -37,6 +37,32 @@ export interface ResumableUploadOptions extends UploadFileOptions {
   readonly retries?: number
 }
 
+/**
+ * An image transformation applied on the server: resize to `width` and `height` (one keeps the aspect
+ * ratio), fit with `resize`, and encode as `format` with `quality`. Works for JPEG, PNG, WebP, AVIF, GIF and
+ * BMP files.
+ */
+export interface ImageTransformOptions {
+  readonly width?: number
+  readonly height?: number
+  /** `cover` crops to fill the box, `contain` fits inside it, `fill` stretches. @default "cover" */
+  readonly resize?: "cover" | "contain" | "fill"
+  /** From 20 to 100. @default 80 */
+  readonly quality?: number
+  /** @default "origin", the format of the file */
+  readonly format?: "origin" | "webp" | "avif" | "jpeg" | "png"
+}
+
+/** The query string of a transformation, in a fixed order so equal transformations share a URL. */
+function transformQuery(transform: ImageTransformOptions): URLSearchParams {
+  const query = new URLSearchParams()
+  for (const name of ["width", "height", "resize", "quality", "format"] as const) {
+    const value = transform[name]
+    if (value !== undefined) query.set(name, String(value))
+  }
+  return query
+}
+
 /** A page of {@link BucketApi.list}. */
 export interface StorageList {
   readonly data: readonly StorageObject[]
@@ -61,10 +87,14 @@ export interface BucketApi {
     body: Blob | Uint8Array,
     options?: ResumableUploadOptions,
   ): Promise<StorageObject>
-  /** Reads a file, or a byte range of it. */
+  /** Reads a file, a byte range of it, or a transformed image. */
   download(
     path: string,
-    options?: { readonly range?: readonly [number, number]; readonly signal?: AbortSignal },
+    options?: {
+      readonly range?: readonly [number, number]
+      readonly transform?: ImageTransformOptions
+      readonly signal?: AbortSignal
+    },
   ): Promise<Blob>
   remove(path: string): Promise<void>
   list(options?: {
@@ -72,10 +102,17 @@ export interface BucketApi {
     readonly limit?: number
     readonly after?: string
   }): Promise<StorageList>
-  /** A URL anyone can read the file with, for `expiresIn` seconds. */
-  createSignedUrl(path: string, expiresIn: number): Promise<string>
-  /** The URL of a file in a public bucket. */
-  publicUrl(path: string, options?: { readonly download?: boolean | string }): string
+  /** A URL anyone can read the file (or a transformed image of it) with, for `expiresIn` seconds. */
+  createSignedUrl(
+    path: string,
+    expiresIn: number,
+    options?: { readonly transform?: ImageTransformOptions },
+  ): Promise<string>
+  /** The URL of a file in a public bucket, or of a transformed image of it. */
+  publicUrl(
+    path: string,
+    options?: { readonly download?: boolean | string; readonly transform?: ImageTransformOptions },
+  ): string
 }
 
 /** Options of {@link createStorage}. */
@@ -270,6 +307,15 @@ export function createStorage(options: StorageClientOptions): StorageApi {
           return (await done.json()) as StorageObject
         },
         async download(path, download = {}) {
+          if (download.transform !== undefined) {
+            const query = transformQuery(download.transform).toString()
+            const response = await request(
+              "GET",
+              `${at("render/image/object", path)}${query === "" ? "" : `?${query}`}`,
+              { signal: download.signal },
+            )
+            return response.blob()
+          }
           const response = await request("GET", at("object", path), {
             ...(download.range === undefined
               ? {}
@@ -293,21 +339,26 @@ export function createStorage(options: StorageClientOptions): StorageApi {
           )
           return (await response.json()) as StorageList
         },
-        async createSignedUrl(path, expiresIn) {
+        async createSignedUrl(path, expiresIn, signOptions = {}) {
           const { body, ...headers } = json({ expiresIn })
           const response = await request("POST", at("sign", path), { body, headers })
           const { url } = (await response.json()) as { url: string }
-          return new URL(url, options.url).toString()
+          const signed = new URL(url, options.url)
+          if (signOptions.transform === undefined) return signed.toString()
+          const token = signed.searchParams.get("token") ?? ""
+          const query = transformQuery(signOptions.transform)
+          query.set("token", token)
+          return `${base}/${at("render/image/signed", path)}?${query.toString()}`
         },
         publicUrl(path, publicOptions = {}) {
-          const download = publicOptions.download
-          const query =
-            download === undefined || download === false
-              ? ""
-              : download === true
-                ? "?download"
-                : `?download=${encodeURIComponent(download)}`
-          return `${base}/${at("public", path)}${query}`
+          const { transform, download } = publicOptions
+          const parts = transform === undefined ? [] : [transformQuery(transform).toString()]
+          if (download === true) parts.push("download")
+          else if (typeof download === "string")
+            parts.push(`download=${encodeURIComponent(download)}`)
+          const search = parts.filter((part) => part !== "").join("&")
+          const area = transform === undefined ? "public" : "render/image/public"
+          return `${base}/${at(area, path)}${search === "" ? "" : `?${search}`}`
         },
       }
     },

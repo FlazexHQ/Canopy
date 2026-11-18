@@ -14,6 +14,7 @@ import {
   type ConfigFunction,
   isResolvedConfig,
   type ResolvedConfig,
+  type ResolvedStorageBackend,
   resolveConfig,
 } from "@canopy/config"
 import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
@@ -58,8 +59,11 @@ import {
 } from "@canopy/rest"
 import {
   createStorageHandler,
-  gridfsBackend,
+  ImageRenderer,
+  localBackend,
+  r2Backend,
   Storage,
+  type StorageBackend,
   type StorageHandler,
   s3Backend,
   UrlSigner,
@@ -596,7 +600,7 @@ async function buildData(
     }
   }
   const engineRealtime = realtime
-  const storage = buildStorage(config, connection, auth, engine, contexts, rateLimits, logger)
+  const storage = await buildStorage(config, connection, auth, engine, contexts, rateLimits, logger)
   const graphql =
     rest === undefined || config.graphql === false
       ? undefined
@@ -658,8 +662,36 @@ async function buildData(
 /** How often unfinished resumable uploads past their expiry are dropped. */
 const STORAGE_SWEEP_MS = 3_600_000
 
+/** The backend the storage section names: local disk, Cloudflare R2 or AWS S3. */
+function storageBackend(backend: ResolvedStorageBackend): Promise<StorageBackend> | StorageBackend {
+  switch (backend.kind) {
+    case "local":
+      return localBackend({ root: backend.root })
+    case "r2":
+      return r2Backend({
+        accountId: backend.accountId,
+        bucket: backend.bucket,
+        accessKeyId: backend.accessKeyId,
+        secretAccessKey: backend.secretAccessKey,
+        ...(backend.jurisdiction === undefined ? {} : { jurisdiction: backend.jurisdiction }),
+        prefix: backend.prefix,
+      })
+    case "s3":
+      return s3Backend({
+        ...(backend.endpoint === undefined ? {} : { endpoint: backend.endpoint }),
+        region: backend.region,
+        bucket: backend.bucket,
+        accessKeyId: backend.accessKeyId,
+        secretAccessKey: backend.secretAccessKey,
+        ...(backend.sessionToken === undefined ? {} : { sessionToken: backend.sessionToken }),
+        forcePathStyle: backend.forcePathStyle,
+        prefix: backend.prefix,
+      })
+  }
+}
+
 /** File storage at `/storage/v1` when the config has buckets, and the hourly sweep of abandoned uploads. */
-function buildStorage(
+async function buildStorage(
   config: ResolvedConfig,
   connection: Connection,
   auth: Auth,
@@ -667,24 +699,12 @@ function buildStorage(
   contexts: ContextResolver,
   rateLimits: RateLimits | undefined,
   logger: Logger,
-): { readonly storage: Storage; readonly handler: StorageHandler; stop(): void } | undefined {
+): Promise<
+  { readonly storage: Storage; readonly handler: StorageHandler; stop(): void } | undefined
+> {
   const settings = config.storage
   if (settings === false) return undefined
-  const backend =
-    settings.backend.kind === "s3"
-      ? s3Backend({
-          endpoint: settings.backend.endpoint,
-          region: settings.backend.region,
-          bucket: settings.backend.bucket,
-          accessKeyId: settings.backend.accessKeyId,
-          secretAccessKey: settings.backend.secretAccessKey,
-          ...(settings.backend.sessionToken === undefined
-            ? {}
-            : { sessionToken: settings.backend.sessionToken }),
-          forcePathStyle: settings.backend.forcePathStyle,
-          prefix: settings.backend.prefix,
-        })
-      : gridfsBackend(connection.meta)
+  const backend = await storageBackend(settings.backend)
   const storage = new Storage({
     client: connection.mongo,
     metaDatabase: config.mongodb.metaDatabase,
@@ -693,6 +713,14 @@ function buildStorage(
     buckets: settings.buckets,
     signer: new UrlSigner(config.masterKey),
     maxUploadSize: settings.maxUploadSize,
+    ...(settings.images.enabled
+      ? {
+          images: new ImageRenderer({
+            maxDimension: settings.images.maxDimension,
+            maxSourceSize: settings.images.maxSourceSize,
+          }),
+        }
+      : {}),
   })
   const handler = createStorageHandler({
     storage,

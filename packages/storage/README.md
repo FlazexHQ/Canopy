@@ -2,9 +2,9 @@
 
 # @canopy/storage
 
-File storage with DLS policies on file metadata, on GridFS or any S3 compatible object store, with signed URLs and resumable uploads.
+File storage with DLS policies on file metadata, on local disk, Cloudflare R2 or AWS S3, with image transformations, signed URLs and resumable uploads.
 
-Most apps get it through `@canopy/server` and the `storage` config section. Storage policies are ordinary policies on the reserved collection `storage.objects`, applied to the metadata document of every file.
+Most apps get it through `@canopy/server` and the `storage` config section. Files live on local disk (`localBackend`), in Cloudflare R2 (`r2Backend`) or in AWS S3 (`s3Backend`). Storage policies are ordinary policies on the reserved collection `storage.objects`, applied to the metadata document of every file, and images can be resized and converted on request.
 
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.
@@ -21,8 +21,21 @@ bun add @canopy/storage @canopy/auth @canopy/policy @canopy/rest mongodb
 
 ```ts
 import { Authenticator } from "@canopy/auth"
-import { allow, auth, ContextResolver, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { createStorageHandler, gridfsBackend, Storage, UrlSigner } from "@canopy/storage"
+import {
+  allow,
+  auth,
+  ContextResolver,
+  collection,
+  createPolicySet,
+  PolicyEngine,
+} from "@canopy/policy"
+import {
+  createStorageHandler,
+  ImageRenderer,
+  localBackend,
+  Storage,
+  UrlSigner,
+} from "@canopy/storage"
 import { MongoClient } from "mongodb"
 
 const objects = collection("storage.objects", {
@@ -38,9 +51,10 @@ const storage = new Storage({
   client,
   metaDatabase: "canopy",
   policies: () => policies,
-  backend: gridfsBackend(client.db("canopy")),
+  backend: await localBackend({ root: "./storage" }),
   buckets: { avatars: { public: true, maxFileSize: 1_000_000, allowedTypes: ["image/*"] } },
   signer: new UrlSigner(process.env["CANOPY_MASTER_KEY"]),
+  images: new ImageRenderer({ maxDimension: 2000 }),
 })
 export const handler = createStorageHandler({
   storage,

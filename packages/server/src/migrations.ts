@@ -184,6 +184,15 @@ export const META_MIGRATIONS: readonly MetaMigration[] = [
       await createIndexes(meta, "storage_uploads", [{ key: { expiresAt: 1 }, name: "expires" }])
     },
   },
+  {
+    version: 6,
+    name: "create-storage-variants",
+    async up(meta) {
+      await createIndexes(meta, "storage_objects", [{ key: { key: 1 }, name: "key" }])
+      await createCollection(meta, "storage_variants")
+      await createIndexes(meta, "storage_variants", [{ key: { key: 1 }, name: "key" }])
+    },
+  },
 ]
 
 function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {

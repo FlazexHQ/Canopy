@@ -148,5 +148,37 @@ describe("storage client", () => {
     expect(bucket.publicUrl("a.png", { download: "logo.png" })).toBe(
       "https://api.example.com/storage/v1/public/docs/a.png?download=logo.png",
     )
+    expect(bucket.publicUrl("a.png", { download: true })).toBe(
+      "https://api.example.com/storage/v1/public/docs/a.png?download",
+    )
+  })
+
+  it("asks for transformed images on the render routes with the parameters in a fixed order", async () => {
+    const server = fakeServer()
+    const bucket = createStorage(options(server.fetch)).from("docs")
+    expect(
+      bucket.publicUrl("dir/a b.png", {
+        transform: { format: "webp", width: 200, resize: "contain", quality: 70, height: 100 },
+      }),
+    ).toBe(
+      "https://api.example.com/storage/v1/render/image/public/docs/dir/a%20b.png?width=200&height=100&resize=contain&quality=70&format=webp",
+    )
+    expect(bucket.publicUrl("a.png", { transform: { width: 20 }, download: true })).toBe(
+      "https://api.example.com/storage/v1/render/image/public/docs/a.png?width=20&download",
+    )
+    expect(bucket.publicUrl("a.png", { transform: {} })).toBe(
+      "https://api.example.com/storage/v1/render/image/public/docs/a.png",
+    )
+    expect(await bucket.createSignedUrl("a b.png", 60, { transform: { height: 50 } })).toBe(
+      "https://api.example.com/storage/v1/render/image/signed/docs/a%20b.png?height=50&token=t",
+    )
+    await expect(
+      bucket.download("missing.png", { transform: { width: 10, format: "png" } }),
+    ).rejects.toThrow()
+    const asked = server.calls.at(-1)
+    expect(asked?.method).toBe("GET")
+    expect(asked?.url).toBe(
+      "https://api.example.com/storage/v1/render/image/object/docs/missing.png?width=10&format=png",
+    )
   })
 })

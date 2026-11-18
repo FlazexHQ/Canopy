@@ -16,7 +16,7 @@ export interface UploadedPart {
  * written once: replacing a file writes a new key and deletes the old one.
  */
 export interface StorageBackend {
-  /** A name for logs and the admin API, such as `gridfs` or `s3`. */
+  /** A name for logs and the admin API: `local`, `r2` or `s3`. */
   readonly kind: string
   /** Stores the whole content of a key. */
   put(key: string, body: Uint8Array, contentType: string): Promise<void>
@@ -32,4 +32,9 @@ export interface StorageBackend {
   completeMultipart(key: string, uploadId: string, parts: readonly UploadedPart[]): Promise<void>
   /** Drops the parts of an upload. */
   abortMultipart(key: string, uploadId: string): Promise<void>
+  /**
+   * Removes what an interrupted write left behind, and multipart uploads untouched since `olderThan`.
+   * Returns how many entries it removed. Stores that clean up by themselves leave it out.
+   */
+  sweep?(olderThan: Date): Promise<number>
 }

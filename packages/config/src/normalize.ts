@@ -17,6 +17,7 @@ import type {
   ResolvedRelation,
   ResolvedSchedule,
   ResolvedStorageBackend,
+  ResolvedStorageImages,
   ResolvedTrigger,
   Transport,
   TriggerOperation,
@@ -44,10 +45,15 @@ function usableSecret(secret: string): boolean {
   return /^[A-Za-z0-9+/]+={0,2}$/.test(encoded) && Math.floor((encoded.length * 3) / 4) >= 16
 }
 
-/** Resolves the `storage` section: off without buckets, GridFS unless an S3 store is given. */
+/**
+ * Resolves the `storage` section: off without buckets, on local disk unless R2 or S3 is given. A local root
+ * is resolved against the folder of the config file, or the working directory when it comes from the
+ * environment.
+ */
 function normalizeStorage(
   resolver: Resolver,
   tree: Record<string, unknown>,
+  options: ResolveOptions,
 ): ResolvedConfig["storage"] {
   const rawBuckets = get(tree, "storage.buckets")
   if (!isPlainObject(rawBuckets) || Object.keys(rawBuckets).length === 0) return false
@@ -75,26 +81,78 @@ function normalizeStorage(
     }
   }
   const raw = get(tree, "storage.backend")
-  let backend: ResolvedStorageBackend = { kind: "gridfs" }
-  if (isPlainObject(raw) && raw["kind"] === "s3") {
-    const missing = ["endpoint", "region", "bucket", "accessKeyId", "secretAccessKey"].filter(
-      (field) => typeof raw[field] !== "string",
-    )
-    for (const field of missing)
-      resolver.problem(`storage.backend.${field}`, `The S3 backend needs ${field}.`, true)
+  const chosen = isPlainObject(raw) ? raw : {}
+  const text = (field: string): string | undefined =>
+    typeof chosen[field] === "string" ? (chosen[field] as string) : undefined
+  const required = (kind: string, fields: readonly string[]): void => {
+    for (const field of fields)
+      if (text(field) === undefined || text(field) === "")
+        resolver.problem(`storage.backend.${field}`, `The ${kind} backend needs ${field}.`, true)
+  }
+  let backend: ResolvedStorageBackend
+  if (chosen["kind"] === "r2") {
+    required("R2", ["accountId", "bucket", "accessKeyId", "secretAccessKey"])
+    const accountId = text("accountId") ?? ""
+    if (accountId !== "" && !/^[0-9a-f]{32}$/i.test(accountId))
+      resolver.problem(
+        "storage.backend.accountId",
+        `Received ${accountId}.
+Expected the 32 hexadecimal characters of a Cloudflare account id.`,
+      )
+    const jurisdiction = text("jurisdiction")
+    if (jurisdiction !== undefined && !/^[a-z]+$/.test(jurisdiction))
+      resolver.problem(
+        "storage.backend.jurisdiction",
+        `Received ${jurisdiction}.
+Expected a jurisdiction such as eu or fedramp.`,
+      )
+    backend = {
+      kind: "r2",
+      accountId,
+      bucket: text("bucket") ?? "",
+      accessKeyId: text("accessKeyId") ?? "",
+      secretAccessKey: text("secretAccessKey") ?? "",
+      jurisdiction,
+      prefix: text("prefix") ?? "",
+    }
+  } else if (chosen["kind"] === "s3") {
+    required("S3", ["region", "bucket", "accessKeyId", "secretAccessKey"])
+    const endpoint = text("endpoint")
     backend = {
       kind: "s3",
-      endpoint: String(raw["endpoint"] ?? ""),
-      region: String(raw["region"] ?? ""),
-      bucket: String(raw["bucket"] ?? ""),
-      accessKeyId: String(raw["accessKeyId"] ?? ""),
-      secretAccessKey: String(raw["secretAccessKey"] ?? ""),
-      sessionToken: typeof raw["sessionToken"] === "string" ? raw["sessionToken"] : undefined,
-      forcePathStyle: raw["forcePathStyle"] !== false,
-      prefix: typeof raw["prefix"] === "string" ? raw["prefix"] : "",
+      endpoint,
+      region: text("region") ?? "",
+      bucket: text("bucket") ?? "",
+      accessKeyId: text("accessKeyId") ?? "",
+      secretAccessKey: text("secretAccessKey") ?? "",
+      sessionToken: text("sessionToken"),
+      forcePathStyle:
+        typeof chosen["forcePathStyle"] === "boolean"
+          ? chosen["forcePathStyle"]
+          : endpoint !== undefined,
+      prefix: text("prefix") ?? "",
+    }
+  } else {
+    const root = text("root")
+    if (root === "") resolver.problem("storage.backend.root", "Use a folder for the stored files.")
+    const base =
+      resolver.sources.get("storage.backend.root")?.kind === "env" ? options.cwd : options.baseDir
+    backend = {
+      kind: "local",
+      root: joinPath(base, root === undefined || root === "" ? "storage" : root),
     }
   }
-  return { backend, maxUploadSize: get(tree, "storage.maxUploadSize") as number, buckets }
+  const images: ResolvedStorageImages = {
+    enabled: get(tree, "storage.images.enabled") as boolean,
+    maxDimension: get(tree, "storage.images.maxDimension") as number,
+    maxSourceSize: get(tree, "storage.images.maxSourceSize") as number,
+  }
+  return {
+    backend,
+    maxUploadSize: get(tree, "storage.maxUploadSize") as number,
+    images,
+    buckets,
+  }
 }
 
 /** Resolves the `webhooks` section: names, collections, URLs and cron expressions. */
@@ -504,7 +562,7 @@ export function normalize(
     cors,
     audit: { dataWrites: at<boolean>("audit.dataWrites") },
     webhooks: normalizeWebhooks(resolver, tree),
-    storage: normalizeStorage(resolver, tree),
+    storage: normalizeStorage(resolver, tree, options),
     telemetry: { tracing: at<boolean>("telemetry.tracing") },
     server: {
       port: at<number>("server.port"),

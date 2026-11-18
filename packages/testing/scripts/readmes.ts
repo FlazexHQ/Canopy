@@ -180,10 +180,23 @@ createServer(toNodeListener(rest)).listen(8080)`,
   storage: {
     with: ["@canopy/auth", "@canopy/policy", "@canopy/rest", "mongodb"],
     about:
-      "Most apps get it through `@canopy/server` and the `storage` config section. Storage policies are ordinary policies on the reserved collection `storage.objects`, applied to the metadata document of every file.",
+      "Most apps get it through `@canopy/server` and the `storage` config section. Files live on local disk (`localBackend`), in Cloudflare R2 (`r2Backend`) or in AWS S3 (`s3Backend`). Storage policies are ordinary policies on the reserved collection `storage.objects`, applied to the metadata document of every file, and images can be resized and converted on request.",
     snippet: `import { Authenticator } from "@canopy/auth"
-import { allow, auth, ContextResolver, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { createStorageHandler, gridfsBackend, Storage, UrlSigner } from "@canopy/storage"
+import {
+  allow,
+  auth,
+  ContextResolver,
+  collection,
+  createPolicySet,
+  PolicyEngine,
+} from "@canopy/policy"
+import {
+  createStorageHandler,
+  ImageRenderer,
+  localBackend,
+  Storage,
+  UrlSigner,
+} from "@canopy/storage"
 import { MongoClient } from "mongodb"
 
 const objects = collection("storage.objects", {
@@ -199,9 +212,10 @@ const storage = new Storage({
   client,
   metaDatabase: "canopy",
   policies: () => policies,
-  backend: gridfsBackend(client.db("canopy")),
+  backend: await localBackend({ root: "./storage" }),
   buckets: { avatars: { public: true, maxFileSize: 1_000_000, allowedTypes: ["image/*"] } },
   signer: new UrlSigner(process.env["CANOPY_MASTER_KEY"]),
+  images: new ImageRenderer({ maxDimension: 2000 }),
 })
 export const handler = createStorageHandler({
   storage,
