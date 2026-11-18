@@ -41,10 +41,12 @@ export {
   type PolicySource,
   staticPolicies,
 } from "./policy-source.ts"
+export { type Readiness, type ReadinessOptions, readinessCheck } from "./readiness.ts"
+export { createRealtime, Realtime } from "./realtime.ts"
 export {
+  type ConnectInfo,
   type ConnectionHandler,
   type ConnectionInfo,
-  createRealtime,
   DEFAULT_REALTIME_LIMITS,
   type DeniedPolicy,
   type DlsDenial,
@@ -53,11 +55,10 @@ export {
   type ObserverInfo,
   type ObserverOutcome,
   type PolicyOption,
-  Realtime,
   type RealtimeLimits,
   type RealtimeOptions,
   type RealtimeStats,
-} from "./realtime.ts"
+} from "./realtime-types.ts"
 export { indexableConjunct, ObserverRegistry, referencedTopFields } from "./registry.ts"
 export { type RealtimeSocket, Session } from "./session.ts"
 export { EXACT_BSON, MongoSnapshotReader, Semaphore } from "./snapshot.ts"

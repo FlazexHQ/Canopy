@@ -1,4 +1,5 @@
 export { builtin, email, external } from "./auth.ts"
+export { type CronSchedule, parseCron } from "./cron.ts"
 export {
   type EnvKind,
   type EnvMarker,
@@ -7,23 +8,20 @@ export {
   isEnvMarker,
   parseDuration,
 } from "./env.ts"
+export { databaseFromUri, joinPath } from "./normalize.ts"
 export {
   ConfigError,
   type ConfigProblem,
-  databaseFromUri,
-  formatConfig,
-  isResolvedConfig,
-  joinPath,
   type Resolution,
   type ResolveOptions,
-  redactUri,
-  resolveConfig,
   type Source,
-  suggest,
-} from "./resolve.ts"
+} from "./resolution.ts"
+export { formatConfig, isResolvedConfig, redactUri, resolveConfig } from "./resolve.ts"
+export { suggest } from "./resolver.ts"
 export {
   type Auth0Input,
   type AuthInput,
+  type BucketInput,
   type BuiltinAuthInput,
   type CanopyConfigInput,
   type ClaimsHookFunction,
@@ -45,16 +43,28 @@ export {
   type OAuthClientInput,
   type OidcProviderInput,
   type PoliciesInput,
+  type RateLimitsInput,
   type RealtimeInput,
   type RelationInput,
+  type ResolvedBucket,
   type ResolvedBuiltinAuth,
   type ResolvedCollection,
   type ResolvedConfig,
   type ResolvedEmailTransport,
   type ResolvedExternalAuth,
   type ResolvedRelation,
+  type ResolvedSchedule,
+  type ResolvedStorageBackend,
+  type ResolvedTrigger,
   type RestInput,
+  type ScheduleInput,
+  type StorageBackendInput,
+  type StorageBucketInput,
+  type StorageInput,
   type SupabaseInput,
   type Transport,
+  type TriggerInput,
+  type TriggerOperation,
   type Value,
+  type WebhooksInput,
 } from "./types.ts"

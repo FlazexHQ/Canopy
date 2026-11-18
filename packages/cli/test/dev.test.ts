@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { MONGODB_URI } from "@canopy/testing"
@@ -80,6 +80,10 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     const base = urls[0] ?? ""
     expect(lines).toContain(`  REST      ${base}/rest/v1`)
     expect(lines).toContain(`  Realtime  ${base.replace("http", "ws")}/realtime/v1`)
+    expect(lines).toContain(`  GraphQL   ${base}/graphql/v1`)
+    expect(lines).toContain(`  Studio    ${base}/studio`)
+    const claim = lines.find((line) => line.includes("claim it in Studio with the setup token"))
+    expect(claim?.split(" ").pop()?.length ?? 0).toBeGreaterThan(20)
     expect(lines.some((line) => line.startsWith("  Policies  1 collections, 1 policies"))).toBe(
       true,
     )
@@ -140,6 +144,40 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     expect(await ids(urls[0] ?? "", key)).toEqual(["a"])
     stop.abort()
     expect(await running).toBe(0)
+  })
+
+  it("keeps an existing types file up to date, and leaves projects without one alone", async () => {
+    const typed = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
+    await mkdir(join(typed, "src"))
+    await writeFile(join(typed, "src", "canopy.gen.ts"), "// stale\n")
+    const untyped = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
+    for (const root of [typed, untyped]) {
+      const lines: string[] = []
+      const urls: string[] = []
+      const stop = new AbortController()
+      const running = dev(
+        { cwd: root, env: {}, port: 0, onReady: (url) => urls.push(url) },
+        { log: (line) => lines.push(line), error: (line) => lines.push(line) },
+        stop.signal,
+      )
+      await until(
+        async () => urls.length,
+        (count) => count > 0,
+      )
+      if (root === typed) {
+        const text = await until(
+          () => readFile(join(root, "src", "canopy.gen.ts"), "utf8"),
+          (value) => value.includes("todos"),
+        )
+        expect(text).toContain("export interface Database")
+        expect(lines.some((line) => line.startsWith("  Types     src"))).toBe(true)
+      } else {
+        expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
+      }
+      stop.abort()
+      expect(await running).toBe(0)
+    }
+    await expect(readFile(join(untyped, "src", "canopy.gen.ts"), "utf8")).rejects.toThrow()
   })
 
   it("exits 1 with the config problems when the config is invalid", async () => {

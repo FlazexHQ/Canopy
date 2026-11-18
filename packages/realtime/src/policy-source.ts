@@ -6,6 +6,7 @@ import {
   CONTEXT_DOCUMENT_ID,
   type CollectionPolicies,
   type ContextDefinitions,
+  contextsFromStored,
   createPolicySet,
   fromStored,
   type PolicySet,
@@ -113,15 +114,12 @@ export function directoryPolicies(dir: string): PolicySource {
 export function databasePolicies(client: MongoClient, metaDatabase = "canopy"): PolicySource {
   const db: Db = client.db(metaDatabase)
   const load = async (): Promise<PolicySet> => {
-    const docs = (await db.collection("policies").find({}).toArray()) as unknown as Record<
-      string,
-      unknown
-    >[]
+    const docs: unknown[] = await db.collection("policies").find({}).toArray()
     const definitions: CollectionPolicies[] = []
     let contexts: ContextDefinitions = {}
     for (const doc of docs) {
-      if (doc["_id"] === CONTEXT_DOCUMENT_ID) {
-        contexts = (doc["lookups"] ?? {}) as ContextDefinitions
+      if (isDocument(doc) && doc["_id"] === CONTEXT_DOCUMENT_ID) {
+        contexts = contextsFromStored(doc["lookups"])
         continue
       }
       definitions.push(fromStored(doc))

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 import { createServer } from "node:http"
+import { parseJsonWebKeySet, RateLimits } from "@canopy/auth"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
-import type { JSONWebKeySet } from "jose"
+import { serveMetrics, tryPathname } from "@canopy/node-http"
 import { MongoClient } from "mongodb"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
 import { type Logger, redacting } from "../logger.ts"
-import { createRealtime, type RealtimeOptions } from "../realtime.ts"
+import { readinessCheck } from "../readiness.ts"
+import { createRealtime } from "../realtime.ts"
+import type { RealtimeOptions } from "../realtime-types.ts"
 import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../transports.ts"
 
 /**
@@ -46,7 +49,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
             issuer: auth.issuer,
             audience: auth.audience,
             ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
-            ...(auth.jwks === undefined ? {} : { jwks: auth.jwks as unknown as JSONWebKeySet }),
+            ...(auth.jwks === undefined ? {} : { jwks: parseJsonWebKeySet(auth.jwks) }),
             ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
             ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
             ...(auth.allowServiceRoleFromJwt === true ? { allowServiceRoleFromJwt: true } : {}),
@@ -66,6 +69,18 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
     nodeId: config.server.nodeId,
     logger,
     logVariableIssues: config.environment === "development",
+    ...(config.rateLimits === false
+      ? {}
+      : {
+          rateLimits: new RateLimits({
+            requests: config.rateLimits.requests,
+            messages: config.rateLimits.messages,
+            anonymousConnectionsPerAddress: config.rateLimits.anonymousConnectionsPerAddress,
+            failedAuthentications: config.rateLimits.failedAuthentications,
+            exemptService: config.rateLimits.exemptService,
+            trustedProxies: config.server.trustedProxies,
+          }),
+        }),
   }
 }
 
@@ -115,25 +130,31 @@ async function main(): Promise<void> {
         })
       : undefined
   const { port, metricsPort } = config.server
-  const health = (path: string): { status: number; body: string } | undefined =>
-    path === "/healthz" || path === "/readyz" ? { status: 200, body: "ok" } : undefined
-
-  const metrics = createServer((request, response) => {
-    if (new URL(request.url ?? "/", "http://localhost").pathname !== "/metrics") {
-      response.statusCode = 404
-      response.end()
-      return
-    }
-    response.setHeader("content-type", "text/plain; version=0.0.4")
-    response.end(realtime.renderMetrics())
+  const readiness = readinessCheck({
+    mongo: options.mongo,
+    changeStream: () => realtime.changeStreamOpen,
   })
-  metrics.listen(metricsPort)
+  const health = async (path: string): Promise<{ status: number; body: string } | undefined> => {
+    if (path === "/healthz") return { status: 200, body: "ok" }
+    if (path !== "/readyz") return undefined
+    const state = await readiness()
+    return state.ready
+      ? { status: 200, body: "ok" }
+      : { status: 503, body: `not ready: ${state.reason ?? "unknown"}` }
+  }
+
+  const metrics = await serveMetrics({
+    port: metricsPort,
+    host: config.server.metricsHost,
+    token: config.server.metricsToken,
+    render: () => realtime.renderMetrics(),
+  })
 
   const bun = (
     globalThis as { Bun?: { serve(options: Record<string, unknown>): { stop(): void } } }
   ).Bun
-  const notFound = (path: string): Response => {
-    const result = health(path)
+  const notFound = async (path: string): Promise<Response> => {
+    const result = await health(path)
     return new Response(result?.body ?? "Not found", { status: result?.status ?? 404 })
   }
   let stopServer: () => Promise<void>
@@ -158,9 +179,11 @@ async function main(): Promise<void> {
     const fallbackTransports = http === undefined ? undefined : toNodeHandler(http)
     const server = createServer((request, response) => {
       const fallback = (): void => {
-        const result = health(new URL(request.url ?? "/", "http://localhost").pathname)
-        response.statusCode = result?.status ?? 404
-        response.end(result?.body ?? "Not found")
+        const path = tryPathname(request)
+        void (path === undefined ? Promise.resolve(undefined) : health(path)).then((result) => {
+          response.statusCode = result?.status ?? (path === undefined ? 400 : 404)
+          response.end(result?.body ?? (path === undefined ? "Bad request" : "Not found"))
+        })
       }
       if (fallbackTransports === undefined) fallback()
       else fallbackTransports(request, response, fallback)

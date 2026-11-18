@@ -1,7 +1,8 @@
 import { readFile, stat } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { type Resolution, resolveConfig } from "./resolve.ts"
+import type { Resolution } from "./resolution.ts"
+import { resolveConfig } from "./resolve.ts"
 import type { Command, ConfigContext, Environment } from "./types.ts"
 
 /** Options of {@link loadConfig}. */

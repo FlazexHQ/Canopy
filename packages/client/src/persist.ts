@@ -1,4 +1,4 @@
-import type { Persister, PersistScope } from "./client.ts"
+import type { Persister, PersistScope } from "./client-types.ts"
 
 const SCOPES: readonly PersistScope[] = ["mutations", "docs", "auth"]
 

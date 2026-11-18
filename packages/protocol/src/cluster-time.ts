@@ -74,5 +74,14 @@ export function toCt(value: unknown): ClusterTime | undefined {
   return parts === undefined ? undefined : ctFromParts(parts.t, parts.i)
 }
 
+/**
+ * The cluster time a snapshot session read at. The MongoDB driver keeps it in an undocumented `snapshotTime`
+ * field of the session, set by the first read. Returns `undefined` before that read, or when the field is
+ * missing or not a timestamp (a driver that renamed it), so callers fall back to the operation time.
+ */
+export function snapshotTimeOf(session: object): ClusterTime | undefined {
+  return "snapshotTime" in session ? toCt(session.snapshotTime) : undefined
+}
+
 /** The zero cluster time, earlier than every real one. */
 export const ZERO_CT: ClusterTime = "0"

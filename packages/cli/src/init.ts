@@ -82,7 +82,7 @@ CANOPY_PUBLISHABLE_KEYS=
 CANOPY_SECRET_KEYS=
 `
 
-const GITIGNORE_LINES = ["canopy/.env", "canopy/.env.*", "!canopy/.env.example"]
+const GITIGNORE_LINES = ["canopy/.env", "canopy/.env.*", "!canopy/.env.example", ".canopy/"]
 
 const OWNER_FIELDS = ["ownerId", "userId", "owner", "createdBy", "authorId", "uid"]
 const TENANT_FIELDS = ["tenantId", "orgId", "organizationId", "workspaceId", "teamId", "accountId"]
@@ -189,10 +189,12 @@ export async function init(options: InitOptions, out: Output): Promise<number> {
   out.log("")
   out.log("Next:")
   out.log(`  1. ${manager.add} @canopy/config @canopy/policy && ${manager.addDev} @canopy/cli`)
-  out.log("  2. Copy canopy/.env.example to canopy/.env.local and set MONGODB_URI")
   out.log(
-    "  3. Write the policies of a collection in canopy/policies (start from ./templates), then set exposed: true",
+    `  2. ${manager.exec} canopy dev --with-mongo  (starts a local MongoDB; or set MONGODB_URI in canopy/.env.local and run canopy dev)`,
   )
-  out.log(`  4. ${manager.exec} canopy dev`)
+  out.log("  3. Open the Studio URL it prints and claim the project with the setup token")
+  out.log(
+    "  4. Write the policies of a collection in canopy/policies (start from ./templates), then set exposed: true",
+  )
   return 0
 }

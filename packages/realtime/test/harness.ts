@@ -122,8 +122,8 @@ export class TestClient {
     })
   }
 
-  static async open(url: string): Promise<TestClient> {
-    const socket = new WebSocket(url, SUBPROTOCOL)
+  static async open(url: string, headers: Record<string, string> = {}): Promise<TestClient> {
+    const socket = new WebSocket(url, SUBPROTOCOL, { headers })
     await new Promise<void>((resolve, reject) => {
       socket.once("open", () => resolve())
       socket.once("error", reject)
@@ -135,8 +135,9 @@ export class TestClient {
     url: string,
     tokenValue?: string,
     extra: Record<string, unknown> = {},
+    headers: Record<string, string> = {},
   ): Promise<TestClient> {
-    const client = await TestClient.open(url)
+    const client = await TestClient.open(url, headers)
     client.send({
       t: "hello",
       v: 1,

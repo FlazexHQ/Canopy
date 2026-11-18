@@ -10,7 +10,10 @@
  *
  * Policy and config files are loaded from disk at run time and import `@canopy/policy` and
  * `@canopy/config`. A generated entry hands those imports the copies embedded in the executable, so a
- * policy folder needs no `node_modules` and its definitions are the ones the engine checks against.
+ * policy folder needs no `node_modules` and its definitions are the ones the engine checks against. The
+ * entry also loads `reflect-metadata` first: Bun's bundler runs a CommonJS side effect import after the
+ * ES modules next to it, so tsyringe (used by the passkey dependencies) would otherwise find no polyfill
+ * and stop the executable at startup.
  * Writes `SHA256SUMS` next to the executables.
  */
 import { spawnSync } from "node:child_process"
@@ -87,7 +90,10 @@ function parse(argv: readonly string[]) {
 }
 
 function shim(program: Program, entryDir: string): string {
-  const imports = program.packages.map((name, index) => `import * as p${index} from "${name}"`)
+  const imports = [
+    `import "reflect-metadata"`,
+    ...program.packages.map((name, index) => `import * as p${index} from "${name}"`),
+  ]
   const modules = program.packages.map(
     (name, index) =>
       `    build.module("${name}", () => ({ exports: p${index}, loader: "object" }))`,
@@ -118,6 +124,9 @@ function main(): void {
     process.stderr.write(
       `warning: Bun ${bun.version} embeds itself, but the repository pins Bun ${pinned}\n`,
     )
+  const version = (
+    JSON.parse(readFileSync(join(ROOT, "packages/cli/package.json"), "utf8")) as { version: string }
+  ).version
   const { targets, programs, out } = parse(process.argv.slice(2))
   mkdirSync(out, { recursive: true })
   const sums: string[] = []
@@ -140,6 +149,7 @@ function main(): void {
           "--minify",
           "--sourcemap",
           "--conditions=@canopy/source",
+          `--define=process.env.CANOPY_BUILD_VERSION=${JSON.stringify(version)}`,
           ...(target === undefined ? [] : [`--target=bun-${target}`]),
           generated,
           "--outfile",

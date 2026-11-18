@@ -26,6 +26,8 @@ masked. An invalid config stops every command before it connects, with all probl
 | `cors.origins`          | `CANOPY_CORS_ORIGINS`        | `publicUrl`                 | Allowed browser origins, or `"*"`                        |
 | `server.port`           | `PORT`                       | 8080                        | The HTTP and WebSocket port                              |
 | `server.metricsPort`    | `METRICS_PORT`               | 9464                        | Prometheus metrics; keep it private                      |
+| `server.metricsHost`    | `METRICS_HOST`               | `127.0.0.1`                 | Address the metrics port binds; the images use `0.0.0.0` |
+| `server.metricsToken`   | `CANOPY_METRICS_TOKEN`       | none                        | Bearer token scrapers must send, 16 characters or more   |
 | `server.adminListen`    | `CANOPY_ADMIN_LISTEN`        |                             | Serves `/admin` and `/studio` only on this address       |
 | `server.nodeId`         | `CANOPY_NODE_ID`             | `n1`                        | Names this instance in logs and metrics                  |
 | `server.trustedProxies` | `CANOPY_TRUSTED_PROXIES`     |                             | Proxies whose `X-Forwarded-For` is trusted               |
@@ -86,10 +88,68 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
 
+## `rateLimits`
+
+Per caller token buckets for the data plane, counted in memory by each instance. `false` turns them off. See
+[Rate limits](/guides/rate-limits/).
+
+| Setting                          | Variable                                  | Default                       |
+| -------------------------------- | ----------------------------------------- | ----------------------------- |
+| `enabled`                        | `CANOPY_RATE_LIMITS`                      | `true`                        |
+| `requests.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_REQUESTS`, `..._REQUEST_BURST` | 50 and 200            |
+| `messages.perSecond`, `.burst`   | `CANOPY_RATE_LIMIT_MESSAGES`, `..._MESSAGE_BURST` | 20 and 100            |
+| `anonymousConnectionsPerAddress` | `CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS` | 50                            |
+| `failedAuthentications.perSecond`, `.burst` | `CANOPY_RATE_LIMIT_FAILED_AUTH`, `..._FAILED_AUTH_BURST` | 1 and 30 |
+| `exemptService`                  | `CANOPY_RATE_LIMIT_EXEMPT_SERVICE`        | `true`                        |
+
+`requests` covers REST and GraphQL requests; `messages` covers the realtime frames `sub`, `mut` and `auth`.
+
+## `audit`
+
+| Setting      | Variable                   | Default | Description                                                    |
+| ------------ | -------------------------- | ------- | -------------------------------------------------------------- |
+| `dataWrites` | `CANOPY_AUDIT_DATA_WRITES` | `false` | Record every committed REST, GraphQL and realtime write in the audit log |
+
+Each entry is a `data.<op>` action (`data.insert`, `data.updateMany`, ...) with the caller's subject as the
+actor, the collection and the `_id` of every document written as the target, and the caller's roles, the
+cluster time and the mutation ID as details. Documents are never copied into the log. Entries are written after
+the commit, one insert into the meta database per write; a failed insert is logged and does not fail the
+write. Studio shows them on the Audit page, and the audit retention setting expires them like other entries.
+
+## `storage`
+
+| Setting         | Variable                       | Default              | Description                                          |
+| --------------- | ------------------------------ | -------------------- | ---------------------------------------------------- |
+| `backend`       |                                | `{ kind: "gridfs" }` | GridFS in the meta database, or `{ kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey, sessionToken?, forcePathStyle?, prefix? }` |
+| `maxFileSize`   | `CANOPY_STORAGE_MAX_FILE_SIZE` | `52428800`           | The largest file sent in one request, in bytes        |
+| `maxUploadSize` |                                | `5368709120`         | The largest resumable upload, in bytes               |
+| `buckets`       |                                | `{}`                 | `{ <name>: { public?, maxFileSize?, allowedTypes? } }`; storage is on with at least one |
+
+See [storage](/guides/storage/).
+
+## `webhooks`
+
+| Setting       | Variable                | Default | Description                                                         |
+| ------------- | ----------------------- | ------- | ------------------------------------------------------------------- |
+| `secret`      | `CANOPY_WEBHOOK_SECRET` |         | Signs every delivery; `whsec_` and base64, or 16 characters or more  |
+| `maxAttempts` |                         | `8`     | Attempts before a delivery becomes a dead letter                     |
+| `timeout`     |                         | `"10s"` | How long one attempt may take                                        |
+| `triggers`    |                         | `{}`    | `{ <name>: { collection, operations?, filter?, url } }`              |
+| `schedules`   |                         | `{}`    | `{ <name>: { cron, url, body? } }`, cron in UTC                      |
+
+See [triggers and scheduled jobs](/guides/webhooks/).
+
+## `telemetry`
+
+| Setting   | Variable         | Default | Description                                                              |
+| --------- | ---------------- | ------- | ------------------------------------------------------------------------ |
+| `tracing` | `CANOPY_TRACING` | `false` | OpenTelemetry spans for requests, MongoDB commands, policy loads and fan out; see [metrics and tracing](/operations/tracing/) |
+
 ## `collections`
 
-Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`, and
-GraphQL `relations: { <field>: { to, local, foreign, many } }`.
+Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`,
+GraphQL `relations: { <field>: { to, local, foreign, many } }`, and `search: true` to allow `$search` and
+`$vectorSearch` in Data API aggregations ([search](/guides/rest/#search)).
 
 ## Reading variables
 

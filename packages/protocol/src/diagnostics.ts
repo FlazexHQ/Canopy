@@ -160,6 +160,16 @@ function messages(error: unknown, depth = 0): string {
 const at = (target: MongoTarget): string =>
   target.host === undefined ? "MongoDB" : `MongoDB at ${target.host}`
 
+function standaloneDiagnostic(target: MongoTarget): Diagnostic {
+  return {
+    code: ErrorCode.Unavailable,
+    summary: "change streams are not available",
+    cause: `${at(target)} is a standalone server; change streams and transactions need a replica set.`,
+    fix: "convert it to a single node replica set: start mongod with --replSet rs0, run rs.initiate() once\nand add replicaSet=rs0 to the connection string.",
+    docs: "standalone-mongodb",
+  }
+}
+
 const ROLE_HINT =
   "The canopyRealtime and canopyPlatform roles in the operations guide list every action Canopy needs."
 
@@ -191,13 +201,7 @@ const RULES: readonly MongoDiagnosticRule[] = [
       error.codeName === "Location40573" ||
       /only supported on replica sets/i.test(text) ||
       /Transaction numbers are only allowed on a replica set member or mongos/i.test(text),
-    diagnose: (_error, _text, target) => ({
-      code: ErrorCode.Unavailable,
-      summary: "change streams are not available",
-      cause: `${at(target)} is a standalone server; change streams and transactions need a replica set.`,
-      fix: "convert it to a single node replica set: start mongod with --replSet rs0, run rs.initiate() once\nand add replicaSet=rs0 to the connection string.",
-      docs: "standalone-mongodb",
-    }),
+    diagnose: (_error, _text, target) => standaloneDiagnostic(target),
   },
   {
     matches: (error, text) =>
@@ -280,6 +284,29 @@ export function diagnoseMongoError(
   for (const rule of RULES) {
     if (rule.matches(driver, text)) return rule.diagnose(driver, text, target)
   }
+  return undefined
+}
+
+/**
+ * Checks a deployment at startup from its `hello` and `buildInfo` answers: it must be a replica set or a
+ * sharded cluster (change streams and transactions) and run MongoDB 7.0 or newer. Returns the problem, or
+ * `undefined` when there is none.
+ */
+export function deploymentDiagnostic(
+  hello: Readonly<Record<string, unknown>>,
+  version: string,
+  target: MongoTarget = {},
+): Diagnostic | undefined {
+  if (typeof hello["setName"] !== "string" && hello["msg"] !== "isdbgrid")
+    return standaloneDiagnostic(target)
+  const major = Number.parseInt(version, 10)
+  if (!Number.isInteger(major) || major < 7)
+    return {
+      code: ErrorCode.Unavailable,
+      summary: "MongoDB is too old",
+      cause: `${at(target)} runs MongoDB ${version}; Canopy needs ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer.`,
+      fix: `upgrade the deployment to MongoDB ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer.`,
+    }
   return undefined
 }
 

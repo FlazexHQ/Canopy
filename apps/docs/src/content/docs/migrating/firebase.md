@@ -26,6 +26,8 @@ Export each collection with a script using the Admin SDK and insert it with the 
 Firestore document id as `_id`, turn `Timestamp` into `Date`, references into id strings, and flatten each
 subcollection into its own collection:
 
+<!-- snippet: not checked -->
+
 ```ts
 for (const snapshot of (await firestore.collection("posts").get()).docs) {
   const { createdAt, author, ...fields } = snapshot.data()
@@ -108,6 +110,8 @@ checked with Firebase's scrypt variant at the first sign in and then rehashed. G
 Microsoft sign ins stay linked to the same accounts. See [importing users](/guides/importing-users/).
 
 ## 4. Move clients
+
+<!-- snippet: not checked -->
 
 ```ts
 // Firestore

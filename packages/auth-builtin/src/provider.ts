@@ -8,7 +8,7 @@ import {
   resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
-import { ErrorCode, UnauthorizedError } from "@canopy/protocol"
+import { CanopyError, ErrorCode, isDocument, UnauthorizedError } from "@canopy/protocol"
 import { type JSONWebKeySet, errors as joseErrors, jwtVerify } from "jose"
 import { type ChangeStream, MongoServerError } from "mongodb"
 import { type AuditDocument, AuditLog } from "./audit.ts"
@@ -111,6 +111,19 @@ const CEREMONY_REQUEST_HEADER = "x-canopy-ceremony"
 
 const CEREMONY_COOKIE = /^(?:__Secure-)?canopy\.(?:two_factor|better-auth-passkey)$/
 
+const SESSION_COOKIE = /^(?:__Secure-)?canopy\.(?:session_token|session_data|dont_remember)$/
+
+/** Routes that end in a new session, after which the engine looks at the session the request arrived with. */
+const SESSION_STARTING = [
+  "/sign-in",
+  "/sign-up",
+  "/callback",
+  "/magic-link/verify",
+  "/email-otp/verify-email",
+  "/passkey/verify-authentication",
+  "/verify-email",
+]
+
 /**
  * A second factor and a passkey sign in each keep a short lived, signed cookie between their two steps.
  * Bearer clients (cross site SPAs, native apps) do not keep cookies, so the cookie travels in headers:
@@ -118,6 +131,34 @@ const CEREMONY_COOKIE = /^(?:__Secure-)?canopy\.(?:two_factor|better-auth-passke
  * back into a cookie. Only those cookie names pass; they are signed by the engine, so a client cannot
  * forge one.
  */
+/**
+ * Reads a request body of at most `max` bytes, stopping as soon as it is exceeded, so a body without a
+ * `Content-Length` cannot make the server buffer more than the limit. Returns `null` beyond the limit.
+ */
+async function readLimited(request: Request, max: number): Promise<ArrayBuffer | null> {
+  if (request.body === null) return new ArrayBuffer(0)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => {})
+      return null
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return bytes.buffer
+}
+
 function bridgeCeremonyCookies(headers: Headers): void {
   const carried = headers.get(CEREMONY_REQUEST_HEADER)
   headers.delete(CEREMONY_REQUEST_HEADER)
@@ -249,7 +290,8 @@ class BetterAuthProvider implements BuiltinAuth {
       ...(rotation.refreshMs === undefined ? {} : { refreshMs: rotation.refreshMs }),
       logger,
       mint: keyMinter(settings.algorithm, async () => {
-        if (engine === undefined) throw new Error("The auth engine is not ready")
+        if (engine === undefined)
+          throw new CanopyError(ErrorCode.Unavailable, "The auth engine is not ready")
         return (await engine.context()).secret
       }),
     })
@@ -490,8 +532,8 @@ class BetterAuthProvider implements BuiltinAuth {
     const body =
       request.method === "GET" || request.method === "HEAD"
         ? undefined
-        : await request.arrayBuffer()
-    if (body !== undefined && body.byteLength > MAX_BODY_BYTES)
+        : await readLimited(request, MAX_BODY_BYTES)
+    if (body === null)
       return failure(ErrorCode.PayloadTooLarge, 413, "The request body is too large")
     const ip = resolveClientAddress(
       request.headers,
@@ -534,6 +576,8 @@ class BetterAuthProvider implements BuiltinAuth {
     if (path === "/upgrade" && request.method === "POST")
       response = await this.upgrade(headers, body, ip)
     else {
+      if (SESSION_STARTING.some((prefix) => path.startsWith(prefix)))
+        await this.dropEndedSession(headers)
       response = await this.engine.handler(
         new Request(request.url, {
           method: request.method,
@@ -553,11 +597,33 @@ class BetterAuthProvider implements BuiltinAuth {
     return response
   }
 
+  /**
+   * Removes the session cookies of a session that no longer exists (revoked, ended by a password or role
+   * change, or expired). After a sign in the engine reads the session the request arrived with, to link an
+   * anonymous user; finding none, it deletes the session cookies, which would also remove the new session's.
+   */
+  private async dropEndedSession(headers: Headers): Promise<void> {
+    const cookie = headers.get("cookie")
+    if (cookie === null) return
+    const pairs = cookie
+      .split(";")
+      .map((pair) => pair.trim())
+      .filter((pair) => pair !== "")
+    const isSession = (pair: string): boolean =>
+      SESSION_COOKIE.test(pair.slice(0, pair.indexOf("=")))
+    if (!pairs.some(isSession)) return
+    const { found } = await this.engine.getSession(headers)
+    if (found !== null) return
+    const kept = pairs.filter((pair) => !isSession(pair))
+    if (kept.length === 0) headers.delete("cookie")
+    else headers.set("cookie", kept.join("; "))
+  }
+
   private emailOf(body: ArrayBuffer): string | undefined {
     try {
       const parsed: unknown = JSON.parse(new TextDecoder().decode(body))
-      if (typeof parsed !== "object" || parsed === null) return undefined
-      const email = (parsed as { email?: unknown }).email
+      if (!isDocument(parsed)) return undefined
+      const email = parsed["email"]
       return typeof email === "string" && email.length <= 320 ? email : undefined
     } catch {
       return undefined
@@ -811,22 +877,26 @@ class BetterAuthProvider implements BuiltinAuth {
 function checkHookResult(result: unknown): ClaimsHookResult {
   if (result === undefined || result === null) return {}
   if (typeof result !== "object" || Array.isArray(result))
-    throw new Error("the hook must return an object")
+    throw new CanopyError(ErrorCode.AuthHookFailed, "the hook must return an object")
   const { app_metadata, roles, ...rest } = result as Record<string, unknown>
   const extra = Object.keys(rest)
   if (extra.length > 0)
-    throw new Error(`the hook may only return app_metadata and roles, not ${extra.join(", ")}`)
+    throw new CanopyError(
+      ErrorCode.AuthHookFailed,
+      `the hook may only return app_metadata and roles, not ${extra.join(", ")}`,
+    )
   if (
     app_metadata !== undefined &&
     (typeof app_metadata !== "object" || app_metadata === null || Array.isArray(app_metadata))
   )
-    throw new Error("app_metadata must be an object")
+    throw new CanopyError(ErrorCode.AuthHookFailed, "app_metadata must be an object")
   if (roles !== undefined) {
     if (
       !Array.isArray(roles) ||
       roles.some((role) => typeof role !== "string" || role === "" || RESERVED_ROLES.has(role))
     )
-      throw new Error(
+      throw new CanopyError(
+        ErrorCode.AuthHookFailed,
         "roles must be a list of names other than anon, authenticated, service and public",
       )
   }

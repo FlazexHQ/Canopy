@@ -29,6 +29,8 @@ query with operators the client cannot evaluate, so optimistic writes do not mov
 and a mutation the server refused, with its error code.
 
 ```ts
+import { attachDevtools } from "@canopy/devtools"
+
 attachDevtools(canopy, { open: true, logSize: 500, warnings: false })
 ```
 

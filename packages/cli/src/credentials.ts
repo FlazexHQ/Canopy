@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 
 /** The result of running a keychain tool. */
 export interface ToolResult {
@@ -103,7 +104,8 @@ async function readFileStore(path: string): Promise<Record<string, string>> {
     text = await readFile(path, "utf8")
   } catch (error: unknown) {
     if (errorCode(error) === "ENOENT") return {}
-    throw new Error(
+    throw new CanopyError(
+      ErrorCode.ConfigInvalid,
       `Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`,
       { cause: error },
     )
@@ -112,10 +114,15 @@ async function readFileStore(path: string): Promise<Record<string, string>> {
   try {
     parsed = JSON.parse(text)
   } catch (error: unknown) {
-    throw new Error(`${path} is not valid JSON; fix or remove it`, { cause: error })
+    throw new CanopyError(ErrorCode.ConfigInvalid, `${path} is not valid JSON; fix or remove it`, {
+      cause: error,
+    })
   }
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
-    throw new Error(`${path} must hold a JSON object; fix or remove it`)
+    throw new CanopyError(
+      ErrorCode.ConfigInvalid,
+      `${path} must hold a JSON object; fix or remove it`,
+    )
   return Object.fromEntries(
     Object.entries(parsed).filter(
       (entry): entry is [string, string] => typeof entry[1] === "string",
@@ -262,6 +269,27 @@ async function forgetFileToken(
   return true
 }
 
+/**
+ * Encrypts a token that an older version left in plain text in the default Windows credentials file.
+ * Best effort: when PowerShell fails or the file cannot be written, the token stays as it was.
+ */
+async function sealStoredToken(
+  path: string,
+  account: string,
+  token: string,
+  run: ToolRunner,
+): Promise<void> {
+  try {
+    const sealed = await dpapi(run, "Protect", token)
+    if (sealed === undefined) return
+    const latest = await readFileStore(path)
+    if (latest[account] !== token) return
+    await writeFileStore(path, { ...latest, [account]: `${PROTECTED_PREFIX}${sealed}` })
+  } catch {
+    // The plain text token still works; sealing is retried on the next read.
+  }
+}
+
 /** Reads the admin token of a project from the keychain or the credentials file. */
 export async function readToken(
   url: string,
@@ -280,11 +308,19 @@ export async function readToken(
     if (lookup !== undefined && lookup.code === 0 && lookup.stdout.trim() !== "")
       return lookup.stdout.trim()
   }
-  const stored = (await readFileStore(credentialsFile(options.env, platform)))[account]
-  if (stored === undefined || !stored.startsWith(PROTECTED_PREFIX)) return stored
+  const path = credentialsFile(options.env, platform)
+  const tokens = await readFileStore(path)
+  const stored = tokens[account]
+  if (stored === undefined) return stored
+  if (!stored.startsWith(PROTECTED_PREFIX)) {
+    if (platform === "win32" && options.env["CANOPY_CREDENTIALS"] === undefined)
+      await sealStoredToken(path, account, stored, run)
+    return stored
+  }
   const token = await dpapi(run, "Unprotect", stored.slice(PROTECTED_PREFIX.length))
   if (token === undefined)
-    throw new Error(
+    throw new CanopyError(
+      ErrorCode.Unauthorized,
       `The token for ${account} is encrypted for another Windows account, or this one cannot read it any more; run canopy login again`,
     )
   return token

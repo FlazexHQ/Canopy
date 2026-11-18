@@ -16,14 +16,14 @@
 
 | | |
 |---|---|
-| **Status** | Planning. No code yet; the repository is set up by hand in Phase 0 (no `bun init` or other generators). |
+| **Status** | Phases 1 to 4 are implemented on `master` (DLS core and realtime, Data API and optimistic SDK, auth, server and Studio, GraphQL and the framework bindings). Phase 4's entry gate (security review O4, test gap T1) is not recorded as closed. Phase 5 (scale and edge) has not started; spike S8 is written up. Nothing is published yet. The repository is set up by hand (no `bun init` or other generators). |
 | **Language** | TypeScript 6.x |
 | **Runtime** | Bun (primary), then Node.js 26 LTS (24 LTS minimum), then Deno; Cloudflare Workers for the edge worker |
 | **Operating systems** | Windows (10, 11, Server 2022+), Linux (Debian, Ubuntu, Fedora, RHEL, Arch, Alpine and other distributions) and macOS (Apple silicon and Intel), x64 and arm64, natively on every runtime |
 | **Package manager** | Bun (primary), then pnpm, Yarn and npm |
 | **Database** | MongoDB 7.0+ replica set or sharded cluster (8.0+ required from 1.0), self-hosted or Atlas |
 | **License** | Apache-2.0 (proposed) |
-| **Last updated** | 2026-11-07 |
+| **Last updated** | 2026-11-13 |
 
 ## Reading order
 

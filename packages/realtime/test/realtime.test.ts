@@ -202,6 +202,7 @@ suite("realtime engine against MongoDB", () => {
     await client.subscribe("b", "nope")
     await client.subscribe("c", "archive")
     await client.subscribe("d", "todos", { filter: { $where: "true" } })
+    await client.subscribe("e", "todos", { filter: { $text: { $search: "x" } } })
     const nosubs = Object.fromEntries(
       client.messages.flatMap((m) => (m.t === "nosub" ? [[m.s, m.err?.code]] : [])),
     )
@@ -210,7 +211,12 @@ suite("realtime engine against MongoDB", () => {
       b: ErrorCode.NotFound,
       c: ErrorCode.NotFound,
       d: ErrorCode.InvalidQuery,
+      e: ErrorCode.InvalidQuery,
     })
+    const text = client.messages.flatMap((m) =>
+      m.t === "nosub" && m.s === "e" ? [m.err?.msg] : [],
+    )
+    expect(text[0]).toMatch(/\$text/)
   })
 
   it("refuses bad tokens and unknown keys", async () => {

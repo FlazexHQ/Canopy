@@ -12,7 +12,13 @@ export default defineConfig({
       sidebar: [
         {
           label: "Start here",
-          items: ["start/introduction", "start/sidecar", "start/embedded", "start/platform"],
+          items: [
+            "start/introduction",
+            "start/built-in-auth",
+            "start/sidecar",
+            "start/embedded",
+            "start/platform",
+          ],
         },
         {
           label: "Concepts",
@@ -33,11 +39,26 @@ export default defineConfig({
             "guides/server-rendering",
             "guides/react-native",
             "guides/multi-tab",
+            "guides/rate-limits",
+            "guides/webhooks",
+            "guides/storage",
             "guides/devtools",
             "guides/tanstack-db",
             "guides/two-factor-and-passkeys",
             "guides/importing-users",
             "guides/studio",
+          ],
+        },
+        {
+          label: "Operations",
+          items: [
+            "operations/kubernetes",
+            "operations/several-instances",
+            "operations/tracing",
+            "operations/backup-and-restore",
+            "operations/key-rotation",
+            "operations/change-stream-history",
+            "operations/upgrades",
           ],
         },
         {
@@ -47,6 +68,11 @@ export default defineConfig({
         {
           label: "Migrating",
           items: ["migrating/atlas-app-services", "migrating/parse", "migrating/firebase"],
+        },
+        {
+          label: "Troubleshooting",
+          collapsed: true,
+          items: [{ autogenerate: { directory: "errors" } }],
         },
         {
           label: "Reference",

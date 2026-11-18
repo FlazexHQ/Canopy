@@ -9,6 +9,7 @@ import {
   type PolicyDefinition,
   type RequestContext,
   Role,
+  STORAGE_COLLECTION,
 } from "./model.ts"
 import { hashCollection, hashPolicySet } from "./stored.ts"
 import { validateCollectionPolicies, validateContexts } from "./validate.ts"
@@ -206,13 +207,13 @@ export class PolicyEngine {
 
   /** Whether non service callers may reach the collection at all. */
   isExposed(name: string): boolean {
-    return this.set.collections.get(name)?.exposed === true
+    return name !== STORAGE_COLLECTION && this.set.collections.get(name)?.exposed === true
   }
 
   /** Whether the collection may be subscribed to. */
   isRealtime(name: string): boolean {
     const def = this.set.collections.get(name)
-    return def?.exposed === true && def.realtime
+    return name !== STORAGE_COLLECTION && def?.exposed === true && def.realtime
   }
 
   private applicable(

@@ -86,6 +86,15 @@ const notes = collection("notes", {
   fields: { read: { default: { omit: ["secret"] } } },
 })
 
+const orders = collection("orders", {
+  exposed: true,
+  policies: [
+    allow.read("authenticated").where({ ownerId: auth("sub") }),
+    allow.update("authenticated").where({ ownerId: auth("sub") }),
+  ],
+  immutable: ["lines.sku"],
+})
+
 const slots = collection("slots", {
   exposed: true,
   policies: [
@@ -171,7 +180,7 @@ suite("WritePath against MongoDB", () => {
     await client.connect()
     db = client.db(dbName)
     const engine = new PolicyEngine(
-      createPolicySet([todos, boards, plain, inbox, hidden, notes, slots]),
+      createPolicySet([todos, boards, plain, inbox, hidden, notes, slots, orders]),
     )
     writes = new WritePath({
       client,
@@ -181,7 +190,7 @@ suite("WritePath against MongoDB", () => {
       limits: { maxBulk: 3, maxInsertMany: 5 },
     })
     await writes.ensureIndexes()
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots", "orders"])
       await db.createCollection(name)
   })
 
@@ -192,7 +201,7 @@ suite("WritePath against MongoDB", () => {
   })
 
   beforeEach(async () => {
-    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots"])
+    for (const name of ["todos", "boards", "plain", "inbox", "hidden", "notes", "slots", "orders"])
       await coll(name).deleteMany({})
     await client.db(metaName).collection("mutations").deleteMany({})
   })
@@ -464,6 +473,40 @@ suite("WritePath against MongoDB", () => {
       })
     })
 
+    it("applies immutable fields to every element of an array", async () => {
+      await coll("orders").insertOne({
+        _id: 1,
+        ownerId: "alice",
+        lines: [
+          { sku: "a", qty: 1 },
+          { sku: "b", qty: 2 },
+        ],
+      })
+      const updates: Document[] = [
+        { $set: { "lines.0.sku": "x" } },
+        { $set: { "lines.$[].sku": "x" } },
+        { $set: { "lines.1": { sku: "x", qty: 2 } } },
+        { $unset: { "lines.0.sku": "" } },
+      ]
+      for (const update of updates) {
+        const error = await failure(
+          run(alice, { op: "update", collection: "orders", id: 1, update }),
+        )
+        expect(error.code).toBe(ErrorCode.PolicyViolation)
+      }
+      const allowed = await run(alice, {
+        op: "update",
+        collection: "orders",
+        id: 1,
+        update: { $inc: { "lines.0.qty": 1 } },
+      })
+      expect(allowed.modified).toBe(1)
+      expect((await byId("orders", 1))?.["lines"]).toEqual([
+        { sku: "a", qty: 2 },
+        { sku: "b", qty: 2 },
+      ])
+    })
+
     it("lets service change anything, including immutable fields", async () => {
       const result = await run(service, {
         op: "update",
@@ -542,6 +585,46 @@ suite("WritePath against MongoDB", () => {
         }),
       )
       expect(filter.code).toBe(ErrorCode.InvalidQuery)
+    })
+
+    it("refuses $text in filters and preconditions of a caller that cannot read every field", async () => {
+      await coll("todos").insertOne({ _id: 41, ownerId: "alice", internalNotes: "secret plan" })
+      await coll("todos").createIndex({ internalNotes: "text" })
+      try {
+        const search = { $text: { $search: "secret" } }
+        const where = await failure(
+          run(alice, {
+            op: "update",
+            collection: "todos",
+            id: 41,
+            update: { $set: { done: true } },
+            where: search,
+          }),
+        )
+        expect(where.code).toBe(ErrorCode.InvalidQuery)
+        expect(where.message).toMatch(/\$text/)
+        const filter = await failure(
+          run(alice, {
+            op: "updateMany",
+            collection: "todos",
+            filter: search,
+            update: { $set: { done: true } },
+            bulk: true,
+          }),
+        )
+        expect(filter.code).toBe(ErrorCode.InvalidQuery)
+        expect((await byId("todos", 41))?.["done"]).toBeUndefined()
+        const allowed = await run(service, {
+          op: "updateMany",
+          collection: "todos",
+          filter: search,
+          update: { $set: { done: true } },
+          bulk: true,
+        })
+        expect(allowed.matched).toBe(1)
+      } finally {
+        await coll("todos").dropIndex("internalNotes_text")
+      }
     })
 
     it("decodes EJSON values in ids", async () => {
@@ -809,6 +892,56 @@ suite("WritePath against MongoDB", () => {
       )
       expect(different.code).toBe(ErrorCode.Conflict)
       expect(await docs("todos")).toHaveLength(1)
+    })
+
+    it("rejects a mutation ID reused for a different request or role set", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", count: 0 })
+      const bump = (by: number): WriteRequest => ({
+        op: "update",
+        collection: "todos",
+        id: 1,
+        update: { $inc: { count: by } },
+      })
+      await run(alice, bump(1), "m-fingerprint")
+      const body = await failure(run(alice, bump(5), "m-fingerprint"))
+      expect(body.code).toBe(ErrorCode.Conflict)
+      expect(body.message).toMatch(/different write/)
+      const roles: Caller = {
+        context: { ...alice.context, roles: new Set(["authenticated", "editor"]) },
+        subject: "alice",
+      }
+      const elevated = await failure(run(roles, bump(1), "m-fingerprint"))
+      expect(elevated.code).toBe(ErrorCode.Conflict)
+      expect((await run(alice, bump(1), "m-fingerprint")).replayed).toBe(true)
+      expect((await byId("todos", 1))?.["count"]).toBe(1)
+
+      const batch = (title: string): WriteRequest[] => [
+        { op: "update", collection: "todos", id: 1, update: { $set: { title } } },
+      ]
+      await writes.executeBatch(alice, batch("a"), { mutationId: "m-fingerprint-batch" })
+      const otherBatch = await failure(
+        writes.executeBatch(alice, batch("b"), { mutationId: "m-fingerprint-batch" }),
+      )
+      expect(otherBatch.code).toBe(ErrorCode.Conflict)
+      expect((await byId("todos", 1))?.["title"]).toBe("a")
+    })
+
+    it("still replays records written before mutation IDs were bound to their request", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", count: 0 })
+      const bump = (by: number): WriteRequest => ({
+        op: "update",
+        collection: "todos",
+        id: 1,
+        update: { $inc: { count: by } },
+      })
+      await run(alice, bump(1), "m-legacy-record")
+      await client
+        .db(metaName)
+        .collection<{ _id: string }>("mutations")
+        .updateOne({ _id: "m-legacy-record" }, { $unset: { fp: "" } })
+      const replayed = await run(alice, bump(5), "m-legacy-record")
+      expect(replayed.replayed).toBe(true)
+      expect((await byId("todos", 1))?.["count"]).toBe(1)
     })
 
     it("records nothing when the write fails, so a corrected retry with the same ID applies", async () => {

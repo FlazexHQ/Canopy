@@ -31,21 +31,37 @@
     "@canopy/auth-builtin": "workspace:*",
     "@canopy/config": "workspace:*",
     "@canopy/graphql": "workspace:*",
+    "@canopy/matcher": "workspace:*",
     "@canopy/node-http": "workspace:*",
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@canopy/storage": "workspace:*",
     "@canopy/studio": "workspace:*",
     "mongodb": "catalog:"
   },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentelemetry/api": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@canopy/testing": "workspace:*",
+    "@opentelemetry/api": "catalog:",
+    "@opentelemetry/context-async-hooks": "catalog:",
+    "@opentelemetry/core": "catalog:",
+    "@opentelemetry/sdk-trace-base": "catalog:",
     "@types/node": "catalog:",
     "@types/ws": "catalog:",
+    "fast-check": "catalog:",
     "jose": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:",
-    "ws": "catalog:"
+    "ws": "catalog:",
+    "yaml": "catalog:"
   }
 }

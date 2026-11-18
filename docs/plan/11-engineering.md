@@ -187,11 +187,10 @@ score ≥ 80 % on policy, query and matcher.
   6. a short simulation run;
   7. protocol vectors;
   8. a Playwright smoke test;
-  9. `size-limit`;
-  10. an install and smoke test of the packed packages with Bun, pnpm, Yarn and npm, including the `canopy`
+  9. an install and smoke test of the packed packages with Bun, pnpm, Yarn and npm, including the `canopy`
       and `canopy-realtime` binaries, on Linux, Windows and macOS;
-  11. a docs build;
-  12. a check that a changeset is present.
+  10. a docs build;
+  11. a check that a changeset is present.
 
   Turborepo remote caching keeps the run under 10 minutes.
 

@@ -1,4 +1,4 @@
-import type { FallbackTransport } from "./client.ts"
+import type { FallbackTransport } from "./client-types.ts"
 import { type Frame, HttpSocket } from "./http-socket.ts"
 
 interface PolledQuery {
@@ -136,7 +136,9 @@ class RestSocket extends HttpSocket {
         if (!ids.has(key)) this.emit({ t: "removed", c: query.c, id: value, ct: body.ct, s: [id] })
       query.ids = ids
       this.emit({ t: "ready", s: id, ct: body.ct })
-    } catch {}
+    } catch {
+      // A failed poll (network, an aborted fetch) keeps the last state; the next poll retries.
+    }
   }
 
   private async mutate(message: Frame): Promise<void> {

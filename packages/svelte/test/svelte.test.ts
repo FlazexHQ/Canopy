@@ -3,7 +3,9 @@ import { loadVectors, runVector } from "@canopy/testing/vectors"
 import { flushSync, mount, unmount } from "svelte"
 import { describe, expect, it } from "vitest"
 import { canopyStatus, createQuery } from "../src/index.ts"
+import Consumer from "./Consumer.svelte"
 import Probe from "./Probe.svelte"
+import Provider from "./Provider.svelte"
 
 class Socket implements WebSocketLike {
   static last: Socket | undefined
@@ -107,4 +109,71 @@ describe("Svelte 5", () => {
     stop()
     expect(seen).toEqual(["live", "closed"])
   })
+
+  it("shows a refused subscription as an error and keeps reading after it", async () => {
+    const client = await connected()
+    const socket = Socket.last as Socket
+    const query = createQuery(client.live<string, { _id: number }>("secrets", {}))
+    const target = document.createElement("div")
+    const component = mount(Probe, { target, props: { query } })
+    flushSync()
+    await flush()
+    const sub = socket.sent.find((m) => m["t"] === "sub")?.["id"]
+    socket.push({
+      t: "nosub",
+      seq: 1,
+      s: sub,
+      err: { code: "CANOPY_FORBIDDEN", msg: "Not allowed to read secrets" },
+    })
+    await flush()
+    flushSync()
+    expect(query.status).toBe("error")
+    expect(query.error?.message).toBe("Not allowed to read secrets")
+    expect(target.textContent).toBe("error:0:Not allowed to read secrets")
+    await unmount(component)
+    client.close()
+  })
+
+  it("passes the client down through setCanopy and renders its status", async () => {
+    const client = await connected()
+    const target = document.createElement("div")
+    const component = mount(Provider, { target, props: { client } })
+    flushSync()
+    expect(target.textContent).toBe("live")
+    client.close()
+    flushSync()
+    expect(target.textContent).toBe("closed")
+    await unmount(component)
+  })
+
+  it("refuses getCanopy without a client from a parent", () => {
+    const target = document.createElement("div")
+    expect(() => mount(Consumer, { target })).toThrow(
+      "getCanopy needs setCanopy(client) in a parent component",
+    )
+  })
 })
+
+async function connected(): Promise<CanopyClient> {
+  const client = new CanopyClient({
+    url: "http://canopy.test",
+    publishableKey: "pk",
+    WebSocket: Socket,
+    lifecycle: false,
+  })
+  await flush()
+  ;(Socket.last as Socket).push({
+    t: "welcome",
+    seq: 0,
+    sid: "s",
+    v: 1,
+    resumed: false,
+    hb: 25000,
+    pv: "p",
+    ct: "1",
+    caps: [],
+    limits: {},
+  })
+  await flush()
+  return client
+}

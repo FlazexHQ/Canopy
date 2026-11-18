@@ -2,6 +2,7 @@ import {
   CONTEXT_DOCUMENT_ID,
   type CollectionPolicies,
   type ContextDefinitions,
+  contextsFromStored,
   createPolicySet,
   fromStored,
   type LintEnvironment,
@@ -9,6 +10,7 @@ import {
   lintPolicies,
   OPERATIONS,
   type PolicySet,
+  readStored,
   type StoredCollectionPolicies,
   toStored,
 } from "@canopy/policy"
@@ -111,7 +113,7 @@ export interface PolicyHistoryEntry {
   collection: string
   version: number
   hash: string
-  document: StoredCollectionPolicies | StoredContextLookups
+  document: StoredPolicyDocument
   publishedAt: Date
   publishedBy: string
   comment?: string
@@ -128,6 +130,41 @@ export interface StoredContextLookups {
   readonly hash: string
   readonly updatedAt?: Date
   readonly updatedBy?: string
+}
+
+/** A document of `canopy.policies`: the policies of one collection, or the context lookups. */
+export type StoredPolicyDocument = StoredCollectionPolicies | StoredContextLookups
+
+/**
+ * Checks the structure of the `_context` document read from `canopy.policies`. Throws a `TypeError` on a
+ * malformed document; the lookups themselves are validated when they are compiled.
+ */
+function readStoredContexts(value: unknown): StoredContextLookups {
+  if (!isDocument(value) || value["_id"] !== CONTEXT_DOCUMENT_ID)
+    throw new TypeError(`The context lookups document needs the _id '${CONTEXT_DOCUMENT_ID}'`)
+  const { version, hash, updatedAt, updatedBy } = value
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 0)
+    throw new TypeError("The stored context lookups need a version")
+  if (typeof hash !== "string") throw new TypeError("The stored context lookups need a hash")
+  if (updatedAt !== undefined && updatedAt !== null && !(updatedAt instanceof Date))
+    throw new TypeError("updatedAt of the context lookups must be a date")
+  if (updatedBy !== undefined && updatedBy !== null && typeof updatedBy !== "string")
+    throw new TypeError("updatedBy of the context lookups must be a string")
+  return {
+    _id: CONTEXT_DOCUMENT_ID,
+    version,
+    lookups: contextsFromStored(value["lookups"]),
+    hash,
+    ...(updatedAt instanceof Date ? { updatedAt } : {}),
+    ...(typeof updatedBy === "string" ? { updatedBy } : {}),
+  }
+}
+
+/** Checks the structure of any document of `canopy.policies`. */
+function readPolicyDocument(value: unknown): StoredPolicyDocument {
+  return isDocument(value) && value["_id"] === CONTEXT_DOCUMENT_ID
+    ? readStoredContexts(value)
+    : readStored(value)
 }
 
 /** The body of a context lookup publish. */
@@ -147,14 +184,6 @@ export interface PublishContextsResult {
 /** The hash of context lookup declarations. */
 export function hashContexts(lookups: ContextDefinitions): string {
   return `sha256:${sha256Hex(canonicalString(lookups))}`
-}
-
-interface Versioned {
-  readonly _id: string
-  readonly version: number
-  readonly hash: string
-  readonly updatedAt?: Date
-  readonly updatedBy?: string
 }
 
 /** The outcome of checking a definition against the policies in force. */
@@ -208,7 +237,7 @@ export class PolicyStore {
   private readonly audit: AuditLog
   private readonly writable: boolean
   private readonly lintEnvironment: ((collection: string) => Promise<LintEnvironment>) | undefined
-  readonly policies: Collection<StoredCollectionPolicies>
+  private readonly documents: Collection<StoredPolicyDocument>
   readonly history: Collection<PolicyHistoryEntry>
 
   constructor(options: PolicyStoreOptions) {
@@ -217,7 +246,7 @@ export class PolicyStore {
     this.audit = options.audit
     this.writable = options.writable
     this.lintEnvironment = options.lintEnvironment
-    this.policies = this.meta.collection<StoredCollectionPolicies>("policies")
+    this.documents = this.meta.collection<StoredPolicyDocument>("policies")
     this.history = this.meta.collection<PolicyHistoryEntry>("policy_history")
   }
 
@@ -228,7 +257,9 @@ export class PolicyStore {
 
   /** The stored policies of a collection. */
   async get(collection: string): Promise<StoredCollectionPolicies | undefined> {
-    return (await this.policies.findOne({ _id: collection })) ?? undefined
+    if (collection === CONTEXT_DOCUMENT_ID) return undefined
+    const doc = await this.documents.findOne({ _id: collection })
+    return doc === null ? undefined : readStored(doc)
   }
 
   /** Every stored definition and the context lookups. */
@@ -240,10 +271,10 @@ export class PolicyStore {
     const definitions = new Map<string, CollectionPolicies>()
     const stored = new Map<string, StoredCollectionPolicies>()
     let contexts: ContextDefinitions = {}
-    for (const doc of await this.policies.find({}).toArray()) {
-      if (doc._id === CONTEXT_DOCUMENT_ID) {
-        const lookups = (doc as unknown as Record<string, unknown>)["lookups"]
-        contexts = (isDocument(lookups) ? lookups : {}) as ContextDefinitions
+    for (const raw of await this.documents.find({}).toArray()) {
+      const doc = readPolicyDocument(raw)
+      if ("lookups" in doc) {
+        contexts = doc.lookups
         continue
       }
       stored.set(doc._id, doc)
@@ -327,8 +358,8 @@ export class PolicyStore {
 
   /** The stored context lookups. */
   async getContexts(): Promise<StoredContextLookups | undefined> {
-    const doc = await this.policies.findOne({ _id: CONTEXT_DOCUMENT_ID })
-    return (doc ?? undefined) as unknown as StoredContextLookups | undefined
+    const doc = await this.documents.findOne({ _id: CONTEXT_DOCUMENT_ID })
+    return doc === null ? undefined : readStoredContexts(doc)
   }
 
   /** Publishes the context lookups as the next version of `_context`, with history and audit. */
@@ -357,7 +388,7 @@ export class PolicyStore {
     return { stored, findings }
   }
 
-  private async commit<T extends Versioned>(
+  private async commit<T extends StoredPolicyDocument>(
     id: string,
     build: (version: number, updatedAt: Date, updatedBy: string) => T,
     input: Omit<PublishInput, "definition">,
@@ -365,12 +396,12 @@ export class PolicyStore {
     rollbackOf: number | undefined,
   ): Promise<T> {
     const by = actorName(input.actor)
-    const documents = this.policies as unknown as Collection<Versioned>
     const label = id === CONTEXT_DOCUMENT_ID ? "The context lookups" : `The policies of '${id}'`
     const session = this.client.startSession()
     try {
       return await session.withTransaction(async () => {
-        const current = await documents.findOne({ _id: id }, { session })
+        const found = await this.documents.findOne({ _id: id }, { session })
+        const current = found === null ? null : readPolicyDocument(found)
         const version = current?.version ?? 0
         if (version !== input.expectedVersion)
           throw new ConflictError(
@@ -392,7 +423,7 @@ export class PolicyStore {
               $setOnInsert: {
                 _id: new ObjectId(),
                 hash: current.hash,
-                document: current as unknown as StoredCollectionPolicies,
+                document: current,
                 publishedAt: current.updatedAt ?? now,
                 publishedBy: current.updatedBy ?? "unknown",
               },
@@ -406,7 +437,7 @@ export class PolicyStore {
             collection: id,
             version: next.version,
             hash: next.hash,
-            document: next as unknown as StoredCollectionPolicies,
+            document: next,
             publishedAt: now,
             publishedBy: by,
             ...(input.comment === undefined ? {} : { comment: input.comment }),
@@ -415,7 +446,7 @@ export class PolicyStore {
           },
           { session },
         )
-        await documents.replaceOne({ _id: id }, next, { upsert: true, session })
+        await this.documents.replaceOne({ _id: id }, next, { upsert: true, session })
         await this.audit.record(
           {
             action,
@@ -473,6 +504,10 @@ export class PolicyStore {
       )
     if (input.collection === CONTEXT_DOCUMENT_ID)
       throw new ValidationError("Roll the context lookups back with rollbackContexts()")
+    if ("lookups" in entry.document)
+      throw new ValidationError(
+        `Version ${input.version} of '${input.collection}' holds context lookups`,
+      )
     return this.publish(
       { ...input, definition: fromStored(entry.document) },
       "policy.rollback",
@@ -492,12 +527,11 @@ export class PolicyStore {
       throw new NotFoundError(
         `The context lookups have no version ${input.version} in their history`,
       )
-    const lookups = (entry.document as unknown as { lookups?: unknown }).lookups
-    return this.publishContexts(
-      { ...input, lookups: (isDocument(lookups) ? lookups : {}) as ContextDefinitions },
-      "context.rollback",
-      input.version,
-    )
+    const lookups =
+      "lookups" in entry.document ? contextsFromStored(entry.document.lookups) : undefined
+    if (lookups === undefined)
+      throw new ValidationError(`Version ${input.version} of the context lookups holds no lookups`)
+    return this.publishContexts({ ...input, lookups }, "context.rollback", input.version)
   }
 }
 

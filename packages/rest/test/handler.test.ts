@@ -3,7 +3,7 @@ import type { AddressInfo } from "node:net"
 import { Authenticator } from "@canopy/auth"
 import { compileSort } from "@canopy/matcher"
 import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { ctToBigInt, ErrorCode, toCt } from "@canopy/protocol"
+import { CanopyError, ctToBigInt, ErrorCode, toCt } from "@canopy/protocol"
 import { MONGODB_URI } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
@@ -176,6 +176,12 @@ suite("REST read endpoints against MongoDB", () => {
     })
     expect(typeof body["detail"]).toBe("string")
     expect(body["requestId"]).toBe(response.headers.get("x-request-id"))
+    const help = new CanopyError(code as ErrorCode, "")
+    if (help.docs === undefined) expect(body["docs"]).toBeUndefined()
+    else {
+      expect(body["docs"]).toBe(`errors/${help.docs}`)
+      expect(body["hint"]).toBe(help.hint)
+    }
     return body
   }
 
@@ -366,6 +372,33 @@ suite("REST read endpoints against MongoDB", () => {
       await problem(await call("/todos?sort=internalNotes"), 400, ErrorCode.InvalidQuery)
       const nested = encodeURIComponent(JSON.stringify({ $or: [{ internalNotes: "secret 0" }] }))
       await problem(await call(`/todos?filter=${nested}`), 400, ErrorCode.InvalidQuery)
+    })
+
+    it("refuses $text to a caller that cannot read every field", async () => {
+      await db.collection("todos").createIndex({ internalNotes: "text" })
+      try {
+        const search = { $text: { $search: "secret" } }
+        const text = encodeURIComponent(JSON.stringify(search))
+        const find = await problem(await call(`/todos?filter=${text}`), 400, ErrorCode.InvalidQuery)
+        expect(find["detail"]).toMatch(/\$text/)
+        const count = await problem(
+          await call("/todos/_count", { body: { filter: search } }),
+          400,
+          ErrorCode.InvalidQuery,
+        )
+        expect(count["detail"]).toMatch(/\$text/)
+        await problem(
+          await call("/todos/_distinct", { body: { field: "status", filter: search } }),
+          400,
+          ErrorCode.InvalidQuery,
+        )
+        const service = await json(
+          await call(`/todos?filter=${text}&limit=1000`, { as: "service" }),
+        )
+        expect((service["data"] as unknown[]).length).toBe(data.length)
+      } finally {
+        await db.collection("todos").dropIndex("internalNotes_text")
+      }
     })
 
     it("intersects requested fields with the readable ones", async () => {

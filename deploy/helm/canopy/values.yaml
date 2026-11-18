@@ -1,0 +1,51 @@
+# Values of the Canopy chart. MongoDB is not part of the chart: set the URI of a replica set in the secret.
+
+image:
+  repository: canopy
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+
+# The app database and the environment. Production refuses development keys and needs a master key.
+database: app
+environment: production
+
+# The secret with MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS and, optionally,
+# CANOPY_METRICS_TOKEN and the identity provider settings. The chart never creates keys: create the secret
+# first (see NOTES.txt), or name one managed elsewhere.
+existingSecret: canopy
+
+# The name of a ConfigMap holding the policy files, mounted at /app/policies. Leave empty to read policies
+# from the meta database instead (published with Studio or `canopy policies push`).
+policiesConfigMap: canopy-policies
+
+# How long connected clients get to move to another pod on shutdown. The termination grace period is this
+# plus 15 seconds.
+drainWindowSeconds: 30
+
+# Extra environment variables, for example CANOPY_TRUSTED_PROXIES or CANOPY_CORS_ORIGINS.
+env: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+metrics:
+  # A headless Service on the metrics port for Prometheus. The pods bind 0.0.0.0, so keep the port inside the
+  # cluster and set CANOPY_METRICS_TOKEN in the secret.
+  enabled: true
+
+podDisruptionBudget:
+  maxUnavailable: 1
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

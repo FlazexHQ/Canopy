@@ -148,6 +148,18 @@ describe("checkImplied", () => {
         .tuple(field, field)
         .filter(([from, to]) => from !== to)
         .map(([from, to]) => ({ $rename: { [from]: to } })),
+      fc
+        .tuple(fc.constantFrom("$mul", "$min", "$max"), field, fc.integer({ min: -2, max: 2 }))
+        .map(([op, key, v]) => ({ [op]: { [key]: v } })),
+      fc
+        .tuple(fc.constantFrom("$push", "$addToSet", "$pull"), field, value)
+        .map(([op, key, v]) => ({ [op]: { [key]: v } })),
+      fc.tuple(field, fc.constantFrom(1, -1)).map(([key, end]) => ({ $pop: { [key]: end } })),
+      field.map((key) => ({ $currentDate: { [key]: true } })),
+      fc
+        .tuple(field, value, field, value)
+        .filter(([a, , b]) => a !== b)
+        .map(([a, va, b, vb]) => ({ $set: { [a]: va }, $max: { [b]: vb } })),
     )
     const doc = fc.record(
       {
@@ -157,6 +169,7 @@ describe("checkImplied", () => {
         n: value,
         flag: value,
         meta: fc.oneof(value, fc.record({ x: value }, { requiredKeys: [] })),
+        flagCount: fc.oneof(value, fc.array(value, { maxLength: 3 })),
       },
       { requiredKeys: ["_id"] },
     )

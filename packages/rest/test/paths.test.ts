@@ -47,4 +47,11 @@ describe("immutableViolations", () => {
   it("flags array index paths beneath an immutable array", () => {
     expect(immutableViolations(["tags.0", "tagsCount"], ["tags"])).toEqual(["tags.0"])
   })
+
+  it("flags writes to an immutable field inside array elements", () => {
+    expect(immutableViolations(["lines.0.sku"], ["lines.sku"])).toEqual(["lines.0.sku"])
+    expect(immutableViolations(["lines.0"], ["lines.sku"])).toEqual(["lines.0"])
+    expect(immutableViolations(["lines.12.sku.code"], ["lines.sku"])).toEqual(["lines.12.sku.code"])
+    expect(immutableViolations(["lines.0.qty", "lines.0.skus"], ["lines.sku"])).toEqual([])
+  })
 })

@@ -5,32 +5,43 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project status
 
 Canopy (working name) is an open source, self hostable backend platform for MongoDB, "Supabase for MongoDB".
-Phase 1 (DLS core and Canopy Realtime, v0.1) is done and the repository is in **Phase 2 (Data API and optimistic
-SDK, v0.2)**. Packages: `protocol`, `matcher`, `query`, `policy` (universal), `auth` (API keys, JWKS tokens and the `AuthProvider` contract), `auth-builtin` (built in app user auth on Better
-Auth, loaded only by `server`, never by the sidecar), `config`, `node-http` (the `node:http` bridge of every fetch handler), `server`,
-`rest` (the transactional write path, with the REST endpoints to follow), `realtime` (engine plus the
-`canopy-realtime` sidecar), `client`, `react`, `cli` and the private `testing` harness. Examples live in `examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar;
-`todo-react`: an optimistic, offline capable React app with Playwright tests),
-and the sidecar quickstart is `packages/realtime/README.md`. The only branch is
-**`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers and Changesets.
+Phases 1 to 4 are implemented on `master`: the DLS core and Canopy Realtime, the Data API and optimistic SDK,
+auth, the server and Studio, and GraphQL with the framework bindings. Phase 4's exit criteria pass, but its
+entry gate (the security review O4 and test gap T1 of the Phase 3 review) is not recorded as closed, and the
+repository is working through `plans/README.md` before Phase 5 (scale and edge, starting from spike S8).
+Nothing is published to npm yet and no license has been chosen. Packages (`packages/`):
+`protocol`, `matcher`, `query`, `policy` (universal), `schema` (schema inference, validators and type
+generation), `auth` (API keys, JWKS tokens and the `AuthProvider` contract), `auth-builtin` (built in app user
+auth on Better Auth, loaded only by `server`, never by the sidecar), `config`, `node-http` (the `node:http`
+bridge of every fetch handler), `rest` (the Data API endpoints: find, count, distinct, aggregate, batch,
+insert, patch, replace and delete, over the transactional write path), `graphql` (the GraphQL API),
+`realtime` (engine plus the `canopy-realtime` sidecar), `storage` (file storage with policies on the reserved
+`storage.objects` collection, GridFS or S3, signed URLs and resumable uploads), `server` (composes everything
+from one config),
+`studio` (serves the built Studio assets), `client`, `react`, `vue`, `svelte`, `solid`, `tanstack-db`,
+`devtools`, `cli` and the private `testing` harness. Applications (`apps/`): `studio` (the admin dashboard,
+built into `packages/studio`) and `docs` (the Astro Starlight documentation site). Examples live in
+`examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar; `todo-react`: an optimistic,
+offline capable React app with Playwright tests), and the sidecar quickstart is `packages/realtime/README.md`.
+The only branch is **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers
+and Changesets.
+
 `docs/` is the source of truth for the design:
 start at `docs/README.md` (reading order, one page summary, glossary), then `docs/plan/00` to `13`, then the ADRs in
 `docs/adr/`. When code and docs disagree, raise it; design changes are merged back into the docs.
 
-**Never commit `docs/` or `tools/`.** Both are local only and listed in `.gitignore` (as is `lefthook-local.yml`).
-Do not stage, commit or push anything under them (no `git add -f`, no removing the ignore rules), and do not
-move their content into tracked files to get around this. Committed files must not link into `docs/`, because
-those links would be broken in the repository.
+`docs/` (plan, ADRs, spikes), `plans/` and `tools/repo-check` are tracked and may be committed. Code comments
+still must not cite plan sections (see the comment rule below), because published packages do not ship `docs/`.
 
-The governance drafts `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md` and `SECURITY.md` are also ignored
-**for now** (until the user says to publish them). Keep them up to date locally, but do not commit them or link to
-them from committed files.
+The governance drafts `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md` and `SECURITY.md` are ignored
+**for now** (until the user says to publish them), as is `lefthook-local.yml`. Keep the drafts up to date
+locally, but do not commit them or link to them from committed files.
 
-Because a clean clone has neither directory, nothing committed may depend on them: `tools/` is **not** a Bun
-workspace member (it would change `bun.lock` and break `bun install --frozen-lockfile`), and the root
-`tsconfig.json`, `package.json` scripts, `vitest.config.ts`, `lefthook.yml` and CI never reference it. Each tool
-under `tools/` is a standalone package with its own install; local git hooks that use it go in
-`lefthook-local.yml`.
+`tools/` is still not a Bun workspace member (it would change `bun.lock` and break
+`bun install --frozen-lockfile`). Each tool under `tools/` is a standalone package with its own lockfile and
+install. The root `tsconfig.json`, `vitest.config.ts` and `knip.json` (which ignores `tools/**`) do not
+reference it; only `lefthook.yml` and the CI `check` and `commit-rules` jobs run `tools/repo-check` (it resolves
+`typescript` from the root install, so it needs no install of its own).
 
 Fixed decisions (do not change without the user saying so):
 
@@ -59,7 +70,7 @@ Fixed decisions (do not change without the user saying so):
   documentation: interfaces, classes, exported functions and types, public APIs. A comment on a single line is
   allowed only when it is temporary or the line is genuinely complex. Never narrate what the code does.
   Do not cite the planning docs in comments (no "(plan 05 §5)", "plan 02 §8", "ADR 0005" and the like) unless
-  the comment is temporary; explain the behavior itself instead, since `docs/` is not in the repository.
+  the comment is temporary; explain the behavior itself instead, because published packages do not ship `docs/`.
 - **No dashes:** do not use dashes as punctuation anywhere in the codebase: no em dash (U+2014), en dash
   (U+2013), or a hyphen standing in for one (a hyphen with a space on each side) in comments, docs, strings,
   error messages, commit messages or PR text.
@@ -88,6 +99,8 @@ Engineering standards from `docs/plan/11-engineering.md` §5:
 - Universal packages (`protocol`, `matcher`, `query`, `policy`) use Web standard APIs only, never `node:` imports,
   and have no runtime dependencies outside the workspace.
 - New dependencies must be MIT, Apache 2.0, BSD or ISC; server packages need a written justification.
+  Development tooling that nothing published installs may also pull in BlueOak 1.0.0 (decided 2026-11-18
+  for Stryker's minimatch).
 
 ## Commands
 
@@ -96,6 +109,12 @@ bun install --frozen-lockfile
 bun run typecheck                          # tsc -b: root config files plus every referenced package
 bun run lint                               # biome check . (bunx biome ci . in CI)
 bun run lint:exports                       # knip: exports and types nothing imports
+bun run lint:docs                          # every public export has TSDoc (also checked in CI)
+bun run lint:snippets                      # generated package READMEs are current; every ts/tsx snippet compiles
+bun run readmes                            # regenerate the package READMEs (packages/testing/scripts/readmes.ts)
+bun run api                                # regenerate api/<package>.api.md, the public API of each package
+bun run lint:api                           # the committed api/ files match the code (also checked in CI)
+bun run check                              # lint, typecheck, lint:exports, lint:docs, lint:snippets, lint:api and test:all
 bun run format                             # biome format --write .
 bun run test:all                           # vitest run over packages/* and apps/* (Node); bun --bun vitest run for Bun
 bun run test                               # turbo run test (per package, cached)
@@ -103,18 +122,24 @@ bun run test:coverage                      # V8 coverage, with floors for matche
 bun run db:up                              # single node replica set from deploy/compose/dev.yaml on localhost:27017
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
+bun run dev                                # canopy dev from source against deploy/dev (see below)
 bun --filter @canopy/matcher test          # one package
 bun --filter @canopy/rest bench            # write path cost benchmark against the dev replica set
 bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
 CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test:all   # include MongoDB suites
 ```
 
-`bun run dev` (replica set plus server watch plus Studio) arrives with the server. Integration and differential
+`bun run dev` runs `canopy dev` from source (`packages/cli/src/dev.ts`) with the config in `deploy/dev/` (REST,
+realtime, Studio, API keys generated for the session, a scratch `notes` collection). It needs a replica set
+already running: it uses `mongodb://localhost:27017/?replicaSet=rs0` (what `bun run db:up` starts) unless
+`MONGODB_URI` is set or `deploy/dev/.env.local` defines it. Pass flags after `--`, for example
+`bun run dev --port 3000`; `--with-mongo` starts a replica set in Docker instead. Integration and differential
 tests need a MongoDB **replica set** (change streams and transactions do not work on a standalone server) given
 by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
-`tsc -b`, Knip and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
-sets on MongoDB 7.0 and 8.0 (with V8 coverage and its floors on 8.0 under Node); `nightly.yml` runs the long differential and simulation runs, the browser tests on
+`tsc -b`, Knip, the docs export check, the docs site build and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
+sets on MongoDB 7.0 and 8.0 (with V8 coverage and its floors on 8.0 under Node), the Studio and todo-react Playwright suites, the Docker
+images job, the Changesets check and a license check of everything the published packages install (`bun packages/testing/scripts/licenses.ts`); `security.yml` runs dependency review on pull requests, CodeQL and secret scanning; `nightly.yml` runs the long differential and simulation runs, the browser tests on
 Windows and macOS, Linux arm64, Alpine (musl) and Deno. Actions are pinned to commit SHAs. Without Docker (the
 Windows and macOS runners), `bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder>` downloads
 the official binaries and starts a replica set on localhost:27017. MongoDB 8 does not start on Linux kernels
@@ -135,9 +160,9 @@ the same scripts on Bun. Their tests spawn `canopy-realtime` from source with `-
 Adding a package: create `packages/<name>/` by hand with `package.json` (`@canopy/<name>`, `"type": "module"`),
 a `tsconfig.json` that extends one of the root `tsconfig.{server,universal,web,edge}.json` and sets `rootDir`,
 and `vitest.config.ts`; then add it to `references` in the root `tsconfig.json`. Shared versions go in the
-`catalog` of the root `package.json`. The local checker enforces this:
-`bun tools/repo-check/src/cli.ts workspace dashes` (also run by the `lefthook-local.yml` hooks, with
-`commit-msg` checking Conventional Commits, sign off and dashes).
+`catalog` of the root `package.json`. The repository checker enforces this:
+`bun tools/repo-check/src/cli.ts workspace dashes` (run by the tracked `lefthook.yml` pre-commit hook and the CI
+`check` job; the `commit-msg` hook and the CI `commit-rules` job check Conventional Commits, sign off and dashes).
 
 ## Architecture (big picture)
 

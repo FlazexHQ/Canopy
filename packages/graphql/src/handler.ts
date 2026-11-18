@@ -1,4 +1,9 @@
-import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
+import {
+  type Authenticator,
+  credentialsFromHeaders,
+  type RateLimits,
+  retryAfterSeconds,
+} from "@canopy/auth"
 import { type ContextResolver, type PolicyEngine, Role } from "@canopy/policy"
 import {
   CanopyError,
@@ -71,25 +76,42 @@ export interface GraphqlHandlerOptions {
   readonly limits?: Partial<OperationLimits>
   /** The most operations in one batched request. Defaults to 10. */
   readonly maxBatch?: number
+  /** The largest request body in bytes. Defaults to 1 MiB, like the Data API. */
+  readonly maxBodyBytes?: number
   /** Defaults to `always`; the server uses `authenticated` in production, so `anon` cannot introspect. */
   readonly introspection?: IntrospectionMode
   readonly persisted?: PersistedOperations
   readonly cors?: CorsOptions
+  /**
+   * Limits requests per caller. A caller over its budget gets `429` with `Retry-After` and
+   * `CANOPY_RATE_LIMITED`; over graphql-ws the operation fails with the same code. A batched request
+   * costs one token. Counted in memory, so each instance limits on its own.
+   */
+  readonly rateLimits?: RateLimits
+  /** Called for every request or operation the rate limits refused, for metrics. */
+  readonly onRateLimited?: () => void
   /** Called with every unexpected error, for logging. */
   readonly onError?: (error: unknown) => void
 }
 
 /** A GraphQL handler built on the Web `Request` and `Response` types. */
 export interface GraphqlHandler {
-  /** Serves one request on the endpoint (queries, mutations, and subscriptions over SSE). */
-  fetch(request: Request): Promise<Response>
+  /**
+   * Serves one request on the endpoint (queries, mutations, and subscriptions over SSE). `info.ip` is the
+   * socket peer, which the rate limits turn into the client address.
+   */
+  fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** The endpoint path. */
   readonly path: string
   /**
    * Prepares an operation for another transport, such as graphql-ws: authenticates the request, picks
    * the caller's schema, parses, validates and checks limits. Returns errors instead of throwing.
    */
-  prepare(request: Request, params: OperationParams): Promise<PreparedOperation>
+  prepare(
+    request: Request,
+    params: OperationParams,
+    info?: { readonly ip?: string },
+  ): Promise<PreparedOperation>
   /** The schema a request sees. */
   schemaFor(request: Request): Promise<GraphQLSchema>
   /**
@@ -140,6 +162,8 @@ export type PreparedOperation =
 interface Session {
   readonly caller: Caller
   readonly credentials: LiveCredentials
+  /** The stored API key the request used, when it used one. */
+  readonly keyId?: string | undefined
 }
 
 /** The context of one request: the session and how many root fields the operation writes. */
@@ -265,6 +289,90 @@ class RelationLoader {
   }
 }
 
+const DEFAULT_BODY_BYTES = 1024 * 1024
+
+function tooLarge(maxBytes: number): Response {
+  return Response.json(
+    {
+      errors: [
+        {
+          message: `The request body may not exceed ${maxBytes} bytes`,
+          extensions: { code: ErrorCode.PayloadTooLarge },
+        },
+      ],
+    },
+    { status: 413 },
+  )
+}
+
+function rateLimitedError(seconds: number): GraphQLError {
+  return new GraphQLError(
+    `Too many requests. Retry in ${seconds} ${seconds === 1 ? "second" : "seconds"}.`,
+    {
+      extensions: {
+        code: ErrorCode.RateLimited,
+        details: { retryAfterSeconds: seconds },
+        http: { status: 429 },
+      },
+    },
+  )
+}
+
+/** A `429` that browsers may read: it carries the CORS headers yoga would have added. */
+function rateLimited(
+  seconds: number,
+  cors: CorsOptions | undefined,
+  origin: string | null,
+): Response {
+  const headers: Record<string, string> = { "retry-after": String(seconds) }
+  if (cors !== undefined && origin !== null) {
+    if (cors.origins === "*") headers["access-control-allow-origin"] = "*"
+    else if (cors.origins.includes(origin)) {
+      headers["access-control-allow-origin"] = origin
+      headers["access-control-allow-credentials"] = "true"
+      headers["vary"] = "Origin"
+    }
+    headers["access-control-expose-headers"] = "retry-after"
+  }
+  const { message, extensions } = rateLimitedError(seconds)
+  return Response.json({ errors: [{ message, extensions }] }, { status: 429, headers })
+}
+
+/**
+ * Reads a request body up to `maxBytes`. Returns the request again with the buffered body, or the
+ * `413` response when the declared or the streamed size is above the limit.
+ */
+async function withinLimit(request: Request, maxBytes: number): Promise<Request | Response> {
+  if (request.body === null) return request
+  const declared = request.headers.get("content-length")
+  if (declared !== null && Number(declared) > maxBytes) return tooLarge(maxBytes)
+  const reader = request.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > maxBytes) {
+      await reader.cancel()
+      return tooLarge(maxBytes)
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: bytes,
+    signal: request.signal,
+  })
+}
+
 function operationOf(
   document: DocumentNode,
   name: string | null | undefined,
@@ -311,6 +419,8 @@ function maskError(error: unknown, onError: ((error: unknown) => void) | undefin
       extensions: {
         code: original.code,
         ...(original.details === undefined ? {} : { details: original.details }),
+        ...(original.hint === undefined ? {} : { hint: original.hint }),
+        ...(original.docs === undefined ? {} : { docs: `errors/${original.docs}` }),
         http: { status: original.status },
       },
     })
@@ -351,6 +461,7 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
       : () => options.policies as PolicyEngine
   const limits: OperationLimits = { ...DEFAULT_OPERATION_LIMITS, ...options.limits }
   const introspection = options.introspection ?? "always"
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
   const live = options.realtime === undefined ? undefined : new LiveQueries(options.realtime)
   const readLimits = options.reads.readLimits
   const schemaCache = new Map<string, GraphQLSchema>()
@@ -372,7 +483,45 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
             ctx: (await options.contexts.resolve(current.set.contexts, names, principal.context))
               .ctx,
           }
-    return { caller: { context, subject: principal.subject }, credentials }
+    return { caller: { context, subject: principal.subject }, credentials, keyId: principal.keyId }
+  }
+
+  /** Spends a token for the session's caller. Returns the seconds to wait when it is over its budget. */
+  const overBudget = (
+    session: Session,
+    headers: Headers,
+    peer: string | undefined,
+  ): number | undefined => {
+    const limits = options.rateLimits
+    if (limits === undefined) return undefined
+    const wait = limits.request({
+      key: session.keyId ?? session.credentials.key,
+      subject: session.caller.subject,
+      roles: session.caller.context.roles,
+      address: limits.addressOf(headers, peer),
+    })
+    if (wait === 0) return undefined
+    options.onRateLimited?.()
+    return retryAfterSeconds(wait)
+  }
+
+  /** The seconds to wait when the client address has used up its failed authentications. */
+  const failuresBlocked = (headers: Headers, peer: string | undefined): number | undefined => {
+    const limits = options.rateLimits
+    if (limits === undefined) return undefined
+    const wait = limits.authenticationBlocked(limits.addressOf(headers, peer))
+    if (wait === 0) return undefined
+    options.onRateLimited?.()
+    return retryAfterSeconds(wait)
+  }
+
+  /** The request's session, counting a failed authentication against the client address. */
+  const guardedSession = (request: Request, peer: string | undefined): Promise<Session> => {
+    const limits = options.rateLimits
+    if (limits === undefined) return sessionOf(request)
+    return limits.guardAuthentication(limits.addressOf(request.headers, peer), () =>
+      sessionOf(request),
+    )
   }
 
   const sessionOf = (request: Request): Promise<Session> => {
@@ -510,14 +659,17 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
     const hash = (params.extensions?.["persistedQuery"] as { sha256Hash?: unknown } | undefined)
       ?.sha256Hash
     if (typeof hash === "string") {
-      const found = persisted?.operations[hash]
+      const found =
+        persisted !== undefined && Object.hasOwn(persisted.operations, hash)
+          ? persisted.operations[hash]
+          : undefined
       if (found === undefined)
         throw new GraphQLError("PersistedQueryNotFound", {
           extensions: { code: ErrorCode.NotFound, http: { status: 404 } },
         })
       return found
     }
-    if (persisted?.only === true && persisted.operations[sha256Hex(params.query)] === undefined)
+    if (persisted?.only === true && !Object.hasOwn(persisted.operations, sha256Hex(params.query)))
       throw new GraphQLError("Only persisted operations are allowed", {
         extensions: { code: ErrorCode.Forbidden, http: { status: 403 } },
       })
@@ -593,9 +745,20 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
 
   return {
     path,
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, info: { readonly ip?: string } = {}): Promise<Response> {
       try {
-        return await yoga.fetch(request)
+        const bounded = await withinLimit(request, maxBodyBytes)
+        if (bounded instanceof Response) return bounded
+        if (options.rateLimits !== undefined) {
+          const blocked = failuresBlocked(bounded.headers, info.ip)
+          if (blocked !== undefined)
+            return rateLimited(blocked, cors, bounded.headers.get("origin"))
+          const session = await guardedSession(bounded, info.ip).catch(() => undefined)
+          const wait =
+            session === undefined ? undefined : overBudget(session, bounded.headers, info.ip)
+          if (wait !== undefined) return rateLimited(wait, cors, bounded.headers.get("origin"))
+        }
+        return await yoga.fetch(bounded)
       } catch (error: unknown) {
         options.onError?.(error)
         return new Response(null, { status: 500 })
@@ -662,10 +825,18 @@ export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHan
         return { errors: [maskError(error, options.onError)] }
       }
     },
-    async prepare(request: Request, params: OperationParams): Promise<PreparedOperation> {
+    async prepare(
+      request: Request,
+      params: OperationParams,
+      info: { readonly ip?: string } = {},
+    ): Promise<PreparedOperation> {
       const { parse, validate } = await import("graphql")
       try {
-        const session = await sessionOf(request)
+        const blocked = failuresBlocked(request.headers, info.ip)
+        if (blocked !== undefined) return { ok: false, errors: [rateLimitedError(blocked)] }
+        const session = await guardedSession(request, info.ip)
+        const wait = overBudget(session, request.headers, info.ip)
+        if (wait !== undefined) return { ok: false, errors: [rateLimitedError(wait)] }
         const schema = await schemaOf(session)
         const query = persistedLookup(params)
         const document = parse(query)

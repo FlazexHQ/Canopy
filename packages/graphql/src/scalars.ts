@@ -12,8 +12,16 @@ import {
 } from "@canopy/protocol"
 import { GraphQLError, GraphQLScalarType, Kind, type ValueNode } from "graphql"
 
+function shown(value: unknown): string {
+  try {
+    return JSON.stringify(encode(value)) ?? "it"
+  } catch {
+    return value instanceof Date ? "an invalid date" : "it"
+  }
+}
+
 function invalid(type: string, value: unknown): GraphQLError {
-  return new GraphQLError(`${type} cannot represent ${JSON.stringify(encode(value)) ?? "it"}`, {
+  return new GraphQLError(`${type} cannot represent ${shown(value)}`, {
     extensions: { code: "CANOPY_INVALID_QUERY" },
   })
 }

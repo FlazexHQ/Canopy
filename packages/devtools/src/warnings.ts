@@ -1,4 +1,4 @@
-import type { CanopyClient } from "@canopy/client"
+import type { CanopyClient, Schema } from "@canopy/client"
 import { isMatcherSafe } from "@canopy/matcher/lite"
 
 /** Options of {@link watchMistakes}. */
@@ -32,7 +32,11 @@ const DENIED = new Set(["CANOPY_POLICY_VIOLATION", "CANOPY_FORBIDDEN"])
  * until the server answers), and mutations the server's policies rejected. Each mistake is reported once.
  * Returns a function that stops watching.
  */
-export function watchMistakes(client: CanopyClient, options: WarningOptions = {}): () => void {
+export function watchMistakes<DB extends Schema<DB>>(
+  typed: CanopyClient<DB>,
+  options: WarningOptions = {},
+): () => void {
+  const client = typed as unknown as CanopyClient
   const warn =
     options.warn ??
     ((message: string) => {

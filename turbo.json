@@ -10,10 +10,6 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**", "test/**", "vectors/**", "vitest.config.ts", "package.json"],
       "outputs": []
-    },
-    "test:integration": {
-      "dependsOn": ["^build"],
-      "cache": false
     }
   }
 }

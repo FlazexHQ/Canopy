@@ -91,3 +91,5 @@ export {
   type RequestLogQuery,
   type RequestSurface,
 } from "./request-log.ts"
+export type { DeadLetter, HookKind } from "./webhooks/queue.ts"
+export type { HookInfo, Webhooks } from "./webhooks/webhooks.ts"

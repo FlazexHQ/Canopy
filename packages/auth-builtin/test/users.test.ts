@@ -137,6 +137,73 @@ describeMongo("user admin", () => {
     ).resolves.toBeDefined()
   })
 
+  it("ends the sessions and access tokens of a user whose password, roles or email change", async () => {
+    const changes = [
+      { password: "changed password 2" },
+      { roles: ["editor"] },
+      { email: "moved@example.com" },
+    ]
+    for (const [index, change] of changes.entries()) {
+      const email = `change${index}@example.com`
+      const user = await h.auth.users.create({
+        email,
+        password: "change password 1",
+        emailVerified: true,
+      })
+      const client = h.client()
+      await client.post("/auth/v1/sign-in/email", { email, password: "change password 1" })
+      const token = (await tokenFor(client)).token ?? ""
+      await expect(h.auth.verifyAccessToken(token)).resolves.toBeDefined()
+      await h.auth.users.update(user.id, change)
+      expect(await h.auth.users.listSessions(user.id), JSON.stringify(change)).toEqual([])
+      expect((await tokenFor(client)).reply.status).toBe(401)
+      await expect(h.auth.verifyAccessToken(token)).rejects.toMatchObject({
+        code: "CANOPY_UNAUTHORIZED",
+      })
+    }
+  })
+
+  it("keeps the sessions of a user whose name, metadata or unchanged email is updated", async () => {
+    const user = await h.auth.users.create({
+      email: "kept@example.com",
+      password: "kept password 1",
+      emailVerified: true,
+    })
+    const client = h.client()
+    await client.post("/auth/v1/sign-in/email", {
+      email: "kept@example.com",
+      password: "kept password 1",
+    })
+    const token = (await tokenFor(client)).token ?? ""
+    await h.auth.users.update(user.id, {
+      name: "New",
+      email: "kept@example.com",
+      userMetadata: { theme: "dark" },
+    })
+    expect(await h.auth.users.listSessions(user.id)).toHaveLength(1)
+    expect((await tokenFor(client)).reply.status).toBe(200)
+    await expect(h.auth.verifyAccessToken(token)).resolves.toBeDefined()
+  })
+
+  it("signs in again from the browser whose session was revoked", async () => {
+    const user = await h.auth.users.create({
+      email: "again@example.com",
+      password: "again password 1",
+      emailVerified: true,
+    })
+    const client = h.client()
+    const credentials = { email: "again@example.com", password: "again password 1" }
+    await client.post("/auth/v1/sign-in/email", credentials)
+    expect((await tokenFor(client)).reply.status).toBe(200)
+    expect(await h.auth.users.revokeSessions(user.id)).toBe(1)
+    expect((await tokenFor(client)).reply.status).toBe(401)
+    await sleep(1100)
+    expect((await client.post("/auth/v1/sign-in/email", credentials)).status).toBe(200)
+    const { reply, token } = await tokenFor(client)
+    expect(reply.status).toBe(200)
+    await expect(h.auth.verifyAccessToken(token ?? "")).resolves.toMatchObject({ sub: user.id })
+  })
+
   it("lists and revokes sessions of a user", async () => {
     const user = await h.auth.users.create({
       email: "sess@example.com",

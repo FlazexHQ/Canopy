@@ -1,12 +1,13 @@
 # Canopy as one server next to a single node replica set. From the repository root:
 #   docker compose -f deploy/compose/canopy.yaml up -d --build --wait
 # The server listens on http://localhost:8080 (REST on /rest/v1, realtime on /realtime/v1) and serves
-# Prometheus metrics on http://localhost:9464/metrics. Policies are read from ./policies (CANOPY_POLICY_DIR
+# Prometheus metrics on http://localhost:9464/metrics, published on the loopback address only (set
+# CANOPY_METRICS_TOKEN to require a bearer token). Policies are read from ./policies (CANOPY_POLICY_DIR
 # picks another folder) and reloaded when they change.
 #
 # Settings come from the environment of `docker compose` (or an .env file next to this one):
-#   CANOPY_PUBLISHABLE_KEYS  Publishable keys for browsers (the anon role). Default: pk_dev
-#   CANOPY_SECRET_KEYS       Secret keys for servers (the service role). Default: sk_dev_change_me
+#   CANOPY_PUBLISHABLE_KEYS  Publishable keys for browsers (the anon role). Default: pk_dev, refused in production
+#   CANOPY_SECRET_KEYS       Secret keys for servers (the service role). Default: sk_dev_change_me, refused in production
 #   CANOPY_JWT_JWKS_URL, CANOPY_JWT_ISSUER, CANOPY_JWT_AUDIENCE, CANOPY_JWT_ROLES_CLAIM
 #                            Your identity provider. Without them only API keys authenticate.
 #   CANOPY_DB                The app database. Default: app
@@ -21,7 +22,7 @@ name: canopy
 
 services:
   mongo:
-    image: ${CANOPY_MONGO_IMAGE:-mongo:8.0.34}
+    image: ${CANOPY_MONGO_IMAGE:-mongo:8.0.34@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142}
     command: ["--replSet", "rs0", "--bind_ip_all"]
     ports: ["${CANOPY_MONGO_PORT:-27017}:27017"]
     volumes:
@@ -48,10 +49,11 @@ services:
         condition: service_healthy
     ports:
       - "${CANOPY_PORT:-8080}:8080"
-      - "${CANOPY_METRICS_PORT:-9464}:9464"
+      - "127.0.0.1:${CANOPY_METRICS_PORT:-9464}:9464"
     environment:
       MONGODB_URI: mongodb://mongo:27017/?replicaSet=rs0
       CANOPY_DB: ${CANOPY_DB:-app}
+      CANOPY_METRICS_TOKEN: ${CANOPY_METRICS_TOKEN:-}
       CANOPY_ENV: ${CANOPY_ENV:-development}
       CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:-}
       CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:-pk_dev}

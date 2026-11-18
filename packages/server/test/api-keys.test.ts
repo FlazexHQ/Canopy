@@ -39,7 +39,7 @@ suite("stored API keys", () => {
       defineConfig({
         mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: metaName },
         keys: { publishable: ["pk_from_config"], secret: ["sk_from_config"] },
-        realtime: { checkpoints: "off" },
+        realtime: { checkpoints: "off", drainWindow: "1s" },
       }),
       { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
     )

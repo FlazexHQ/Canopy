@@ -8,6 +8,10 @@ Passkeys are bound to the host name of `publicUrl`, so set it to the address use
 
 ## Enrolling an authenticator app
 
+<!-- snippet: declare function showQrCode(uri: string): void -->
+<!-- snippet: declare function showOnce(codes: readonly string[]): void -->
+<!-- snippet: declare const codeFromTheApp: string -->
+
 ```ts
 const { totpURI, backupCodes } = await auth.enableTwoFactor({ password })
 showQrCode(totpURI)
@@ -49,3 +53,21 @@ form browsers expect and back.
 
 Access tokens carry `aal`: `aal2` after a TOTP code, a backup code or a passkey, `aal1` otherwise. Your server
 code and policies can read it to protect sensitive operations.
+
+`aal2` only exists on sessions that went through a second factor or a passkey. Magic link, email code, OAuth and
+anonymous sign ins never ask for one and produce `aal1` sessions, so a policy that only checks `authenticated`
+does not enforce the second factor. To require it, compare the claim in a `check` clause, which MongoDB
+evaluates:
+
+```ts
+import { auth, restrict } from "@canopy/policy"
+
+restrict.update("authenticated").check({ $expr: { $eq: [auth("aal"), "aal2"] } })
+```
+
+A token without the claim is denied. `where` clauses cannot test a claim on its own, so reads are limited by
+roles and fields instead.
+
+Registering a passkey, listing sessions and unlinking an account need a sign in from the last 15 minutes. An
+older session gets `403` with `SESSION_NOT_FRESH` and has to sign in again first. TOTP enrolment always needs
+the account password, so an account without a password cannot enrol a second factor.

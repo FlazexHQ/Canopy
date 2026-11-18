@@ -4,6 +4,8 @@ import {
   Authenticator,
   addressAllowed,
   type JwtAuthOptions,
+  parseJsonWebKeySet,
+  RateLimits,
   resolveClientAddress,
 } from "@canopy/auth"
 import type { BuiltinAuth } from "@canopy/auth-builtin"
@@ -15,11 +17,12 @@ import {
   resolveConfig,
 } from "@canopy/config"
 import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
-import { toNodeListener as serveOnNode } from "@canopy/node-http"
+import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
 import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
 import {
   CloseCode,
   DiagnosticError,
+  deploymentDiagnostic,
   diagnoseMongoError,
   ForbiddenError,
   formatDiagnostic,
@@ -30,6 +33,7 @@ import {
   attach,
   type BunServerLike,
   bunHandlers,
+  Counter,
   createHttpTransport,
   createRealtime,
   databasePolicies,
@@ -38,6 +42,7 @@ import {
   type Logger,
   type PolicySource,
   type Realtime,
+  readinessCheck,
   silentLogger,
   staticPolicies,
   toNodeHandler,
@@ -48,10 +53,18 @@ import {
   type RestHandler,
   SchemaCache,
   toNodeListener,
+  type WriteEvent,
   WritePath,
 } from "@canopy/rest"
+import {
+  createStorageHandler,
+  gridfsBackend,
+  Storage,
+  type StorageHandler,
+  s3Backend,
+  UrlSigner,
+} from "@canopy/storage"
 import { createStudioHandler } from "@canopy/studio"
-import type { JSONWebKeySet } from "jose"
 import { MongoClient } from "mongodb"
 import { AdminAccounts } from "./admin/accounts.ts"
 import { type AdminApi, createAdminApi } from "./admin/api.ts"
@@ -67,7 +80,10 @@ import { revokes, startBuiltinAuth } from "./builtin-auth.ts"
 import { migrateMeta } from "./migrations.ts"
 import { PolicyStore } from "./policy-store.ts"
 import { RequestLog, surfaceOf } from "./request-log.ts"
+import { loadTracing, type Tracing } from "./tracing.ts"
 import { ViewTokens } from "./view-tokens.ts"
+import { compileTriggers } from "./webhooks/triggers.ts"
+import { startWebhooks, type Webhooks } from "./webhooks/webhooks.ts"
 
 /** How often each node rereads the runtime settings (the admin allowlist, request log sampling). */
 const SETTINGS_REFRESH_MS = 10_000
@@ -143,6 +159,8 @@ export interface Canopy extends AsyncDisposable {
   readonly graphql: GraphqlHandler | undefined
   /** The realtime engine, when realtime is on. */
   readonly realtime: Realtime | undefined
+  /** Renders the metrics of the data plane and of realtime in the Prometheus text format. */
+  renderMetrics(): string
   /** Built in auth, when the config chooses `builtin()`; it serves `/auth/v1`. */
   readonly auth: BuiltinAuth | undefined
   /** The policies in force (hot reloaded). */
@@ -151,6 +169,10 @@ export interface Canopy extends AsyncDisposable {
   readonly keys: ApiKeys
   /** The admin API, Studio and the stores behind them. */
   readonly admin: AdminSurface
+  /** Database triggers and schedules, when the config has any. */
+  readonly webhooks: Webhooks | undefined
+  /** File storage at `/storage/v1`, when the config has buckets. */
+  readonly storage: Storage | undefined
   /**
    * Serves REST, the SSE and long-poll transports, `/healthz` and `/readyz`; anything else goes to
    * `fallback` (404 without one). WebSockets need {@link attach} (Node) or {@link bun}.
@@ -188,7 +210,7 @@ function jwtOptions(config: ResolvedConfig): JwtAuthOptions | undefined {
     issuer: auth.issuer,
     audience: auth.audience,
     ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
-    ...(auth.jwks === undefined ? {} : { jwks: auth.jwks as unknown as JSONWebKeySet }),
+    ...(auth.jwks === undefined ? {} : { jwks: parseJsonWebKeySet(auth.jwks) }),
     ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
     ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
     ...(auth.allowServiceRoleFromJwt === true ? { allowServiceRoleFromJwt: true } : {}),
@@ -232,9 +254,20 @@ function reporter(options: CreateCanopyOptions, logger: Logger, level: "error" |
 }
 
 /** Connects to MongoDB and brings the meta database up to date. */
-async function connect(config: ResolvedConfig, options: CreateCanopyOptions, logger: Logger) {
+async function connect(
+  config: ResolvedConfig,
+  options: CreateCanopyOptions,
+  logger: Logger,
+  tracing: Tracing | undefined,
+) {
   const ownsMongo = options.mongo === undefined
-  const mongo = options.mongo ?? new MongoClient(config.mongodb.uri, { appName: "canopy" })
+  const mongo =
+    options.mongo ??
+    new MongoClient(config.mongodb.uri, {
+      appName: "canopy",
+      ...(tracing === undefined ? {} : { monitorCommands: true }),
+    })
+  tracing?.instrument(mongo)
   const report = reporter(options, logger, "error")
   /** Runs a startup step, turning a MongoDB failure into a diagnostic and closing a client of our own. */
   const diagnosed = async <T>(step: () => Promise<T>): Promise<T> => {
@@ -252,6 +285,20 @@ async function connect(config: ResolvedConfig, options: CreateCanopyOptions, log
     }
   }
   await diagnosed(() => mongo.connect())
+  const admin = mongo.db("admin")
+  const [hello, build] = await diagnosed(() =>
+    Promise.all([admin.command({ hello: 1 }), admin.command({ buildInfo: 1 })]),
+  )
+  const unsupported = deploymentDiagnostic(
+    hello,
+    String(build["version"] ?? "0"),
+    mongoTarget(config.mongodb.uri, config.mongodb.database),
+  )
+  if (unsupported !== undefined) {
+    report(formatDiagnostic(unsupported))
+    if (ownsMongo) await mongo.close().catch(() => {})
+    throw new DiagnosticError(unsupported)
+  }
   const meta = mongo.db(config.mongodb.metaDatabase)
   if (options.migrate !== false) await diagnosed(() => migrateMeta(meta, { logger }))
   return {
@@ -266,6 +313,24 @@ async function connect(config: ResolvedConfig, options: CreateCanopyOptions, log
 }
 
 type Connection = Awaited<ReturnType<typeof connect>>
+
+/** Records a committed data plane write in the audit log, without its documents. */
+function auditWrite(audit: AuditLog, logger: Logger): (event: WriteEvent) => void {
+  return (event) => {
+    audit
+      .record({
+        action: `data.${event.op}`,
+        actor: { type: "user", id: event.subject },
+        target: { collection: event.collection, ids: event.ids },
+        details: {
+          roles: event.roles,
+          ct: event.ct,
+          ...(event.mutationId === undefined ? {} : { mutationId: event.mutationId }),
+        },
+      })
+      .catch((error: unknown) => logger.error({ err: error }, "could not audit a write"))
+  }
+}
 
 /** The audit log, the request log and the runtime settings, reread every few seconds. */
 async function buildStores(connection: Connection, logger: Logger) {
@@ -308,7 +373,8 @@ async function buildStores(connection: Connection, logger: Logger) {
   }
   /** Records a `node:http` request in the request log once its response is written. */
   const logNode = (request: IncomingMessage, response: ServerResponse): void => {
-    const path = new URL(request.url ?? "/", "http://localhost").pathname
+    const path = tryPathname(request)
+    if (path === undefined) return
     const surface = surfaceOf(path)
     if (surface === undefined) return
     const started = performance.now()
@@ -380,6 +446,14 @@ async function buildAuth(
 
 type Auth = Awaited<ReturnType<typeof buildAuth>>
 
+/** The proxies whose `X-Forwarded-For` is trusted, for the admin allowlist, built in auth and the rate limits. */
+function trustedProxiesOf(config: ResolvedConfig): string[] {
+  return [
+    ...config.server.trustedProxies,
+    ...(config.auth?.kind === "builtin" ? config.auth.trustedProxies : []),
+  ]
+}
+
 /**
  * The policy source with hot reload, the context lookup resolver, REST and the realtime engine. With
  * realtime on, its engine holds the policies; otherwise a standalone engine follows the source.
@@ -388,8 +462,10 @@ async function buildData(
   config: ResolvedConfig,
   connection: Connection,
   auth: Auth,
+  stores: Stores,
   options: CreateCanopyOptions,
   logger: Logger,
+  tracing: Tracing | undefined,
 ) {
   const { mongo, db } = connection
   const development = config.environment === "development"
@@ -410,6 +486,22 @@ async function buildData(
     : {}
   const contexts = new ContextResolver({ reader: mongoContextReader(db) })
   const schemas = new SchemaCache(db)
+  const limits = config.rateLimits
+  const rateLimits =
+    limits === false
+      ? undefined
+      : new RateLimits({
+          requests: limits.requests,
+          messages: limits.messages,
+          anonymousConnectionsPerAddress: limits.anonymousConnectionsPerAddress,
+          failedAuthentications: limits.failedAuthentications,
+          exemptService: limits.exemptService,
+          trustedProxies: trustedProxiesOf(config),
+        })
+  const httpRateLimited = new Counter(
+    "canopy_http_rate_limited_total",
+    "REST and GraphQL requests refused by the rate limits",
+  )
   const source: PolicySource =
     options.policies !== undefined
       ? staticPolicies(options.policies)
@@ -440,6 +532,9 @@ async function buildData(
           contexts,
           schemas,
           readLimits: { defaultLimit: restConfig.defaultLimit, maxLimit: restConfig.maxLimit },
+          search: Object.entries(config.collections)
+            .filter(([, collection]) => collection.search === true)
+            .map(([name]) => name),
           maxBodyBytes: restConfig.maxBodyBytes,
           mutationTtlSeconds: Math.round(restConfig.mutationTtlMs / 1000),
           idTypes: Object.fromEntries(
@@ -448,7 +543,12 @@ async function buildData(
               .map(([name, collection]) => [name, collection.idType]),
           ),
           ...(config.cors === undefined ? {} : { cors: config.cors }),
+          ...(rateLimits === undefined
+            ? {}
+            : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "rest" }) }),
           onError: (error) => logger.error({ err: error }, "REST request failed"),
+          ...(config.audit.dataWrites ? { onWrite: auditWrite(stores.audit, logger) } : {}),
+          ...(development ? { explainDenials: true } : {}),
         })
 
   const realtimeConfig = config.realtime
@@ -467,17 +567,27 @@ async function buildData(
         contexts,
         logger,
         traceCapacity: 256,
+        ...(tracing === undefined ? {} : { span: tracing.span }),
         logVariableIssues: development,
+        ...(rateLimits === undefined ? {} : { rateLimits }),
         ...(rest === undefined ? {} : { mutations: rest.writes }),
       }),
     )
   } else {
-    let current = new PolicyEngine(await source.load(), variableHooks)
+    const load = (set: PolicySet): PolicyEngine =>
+      tracing === undefined
+        ? new PolicyEngine(set, variableHooks)
+        : tracing.span(
+            "canopy.policy.load",
+            { version: set.version },
+            () => new PolicyEngine(set, variableHooks),
+          )
+    let current = load(await source.load())
     standalone = current
     if (watch && source.watch !== undefined) {
       stopWatching = source.watch(
         (set) => {
-          current = new PolicyEngine(set, variableHooks)
+          current = load(set)
           standalone = current
         },
         (error) =>
@@ -486,6 +596,7 @@ async function buildData(
     }
   }
   const engineRealtime = realtime
+  const storage = buildStorage(config, connection, auth, engine, contexts, rateLimits, logger)
   const graphql =
     rest === undefined || config.graphql === false
       ? undefined
@@ -504,11 +615,15 @@ async function buildData(
             maxAliases: config.graphql.maxAliases,
           },
           maxBatch: config.graphql.maxBatch,
+          ...(config.rest === false ? {} : { maxBodyBytes: config.rest.maxBodyBytes }),
           introspection: config.graphql.introspection,
           ...(config.graphql.persisted === undefined
             ? {}
             : { persisted: await persistedOperations(config.graphql.persisted) }),
           ...(config.cors === undefined ? {} : { cors: config.cors }),
+          ...(rateLimits === undefined
+            ? {}
+            : { rateLimits, onRateLimited: () => httpRateLimited.inc({ surface: "graphql" }) }),
           onError: (error) => logger.error({ err: error }, "GraphQL request failed"),
         })
 
@@ -516,8 +631,12 @@ async function buildData(
     contexts,
     rest,
     graphql,
+    storage,
     realtime: engineRealtime,
     engine,
+    /** The data plane limits, when they are on. */
+    rateLimits,
+    httpRateLimited,
     /** Stops following the policy source of a standalone engine. */
     stopReloading(): void {
       stopWatching?.()
@@ -529,10 +648,71 @@ async function buildData(
       })
     },
     close(): void {
+      storage?.stop()
       graphql?.close()
       contexts.close()
     },
   }
+}
+
+/** How often unfinished resumable uploads past their expiry are dropped. */
+const STORAGE_SWEEP_MS = 3_600_000
+
+/** File storage at `/storage/v1` when the config has buckets, and the hourly sweep of abandoned uploads. */
+function buildStorage(
+  config: ResolvedConfig,
+  connection: Connection,
+  auth: Auth,
+  engine: () => PolicyEngine,
+  contexts: ContextResolver,
+  rateLimits: RateLimits | undefined,
+  logger: Logger,
+): { readonly storage: Storage; readonly handler: StorageHandler; stop(): void } | undefined {
+  const settings = config.storage
+  if (settings === false) return undefined
+  const backend =
+    settings.backend.kind === "s3"
+      ? s3Backend({
+          endpoint: settings.backend.endpoint,
+          region: settings.backend.region,
+          bucket: settings.backend.bucket,
+          accessKeyId: settings.backend.accessKeyId,
+          secretAccessKey: settings.backend.secretAccessKey,
+          ...(settings.backend.sessionToken === undefined
+            ? {}
+            : { sessionToken: settings.backend.sessionToken }),
+          forcePathStyle: settings.backend.forcePathStyle,
+          prefix: settings.backend.prefix,
+        })
+      : gridfsBackend(connection.meta)
+  const storage = new Storage({
+    client: connection.mongo,
+    metaDatabase: config.mongodb.metaDatabase,
+    policies: engine,
+    backend,
+    buckets: settings.buckets,
+    signer: new UrlSigner(config.masterKey),
+    maxUploadSize: settings.maxUploadSize,
+  })
+  const handler = createStorageHandler({
+    storage,
+    authenticator: auth.authenticator,
+    policies: engine,
+    contexts,
+    ...(config.cors === undefined ? {} : { cors: config.cors }),
+    ...(rateLimits === undefined ? {} : { rateLimits }),
+    onError: (error) => logger.error({ err: error }, "storage request failed"),
+  })
+  const timer = setInterval(() => {
+    storage.sweep().then(
+      (dropped) => {
+        if (dropped > 0) logger.info({ uploads: dropped }, "dropped expired resumable uploads")
+      },
+      (error: unknown) => logger.warn({ err: error }, "could not sweep expired uploads"),
+    )
+  }, STORAGE_SWEEP_MS)
+  timer.unref?.()
+  return { storage, handler, stop: () => clearInterval(timer) }
 }
 
 /** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
@@ -642,6 +822,7 @@ async function buildAdmin(
   stores: Stores,
   auth: Auth,
   data: Data,
+  webhooks: Webhooks | undefined,
   options: CreateCanopyOptions,
   logger: Logger,
 ) {
@@ -699,6 +880,7 @@ async function buildAdmin(
           realtime,
           ...(data.graphql === undefined ? {} : { graphql: data.graphql }),
           viewTokens: auth.viewTokens,
+          ...(webhooks === undefined ? {} : { webhooks }),
           ...(lag === undefined ? {} : { lag }),
           logger,
           ...(builtin === undefined ? {} : { auth: builtin }),
@@ -731,10 +913,7 @@ async function buildAdmin(
     options.studio === false
       ? undefined
       : (options.studio ?? (adminApi === undefined ? undefined : createStudioHandler().fetch))
-  const trustedProxies = [
-    ...config.server.trustedProxies,
-    ...(config.auth?.kind === "builtin" ? config.auth.trustedProxies : []),
-  ]
+  const trustedProxies = trustedProxiesOf(config)
   const adminFetch = async (
     request: Request,
     peer: { readonly ip?: string } = {},
@@ -839,26 +1018,44 @@ export async function createCanopy(
   options: CreateCanopyOptions = {},
 ): Promise<Canopy> {
   const config = resolveInput(input, options)
+  compileTriggers(config.webhooks.triggers)
   const logger = options.logger ?? silentLogger
-  const connection = await connect(config, options, logger)
+  const tracing = config.telemetry.tracing ? await loadTracing() : undefined
+  const connection = await connect(config, options, logger, tracing)
   const stores = await buildStores(connection, logger)
   const auth = await buildAuth(config, connection, stores, logger)
-  const data = await buildData(config, connection, auth, options, logger)
+  const data = await buildData(config, connection, auth, stores, options, logger, tracing)
   closeRevokedConnections(auth, data.realtime, logger)
-  const admin = await buildAdmin(config, connection, stores, auth, data, options, logger)
+  const webhooks = await connection.diagnosed(() =>
+    startWebhooks({ config, client: connection.mongo, logger }),
+  )
+  const admin = await buildAdmin(config, connection, stores, auth, data, webhooks, options, logger)
   const transports = buildTransports(config, data.realtime)
   const { rest, realtime, graphql } = data
   const { http } = transports
   const { builtin } = auth
   const { logResponse, logNode } = stores
   let closing = false
+  const readiness = readinessCheck({
+    mongo: connection.mongo,
+    ...(realtime === undefined && webhooks === undefined
+      ? {}
+      : {
+          changeStream: () => (realtime?.changeStreamOpen ?? true) && (webhooks?.streaming ?? true),
+        }),
+  })
 
-  const health = (path: string): Response | undefined => {
-    if (path === "/healthz") return plain(200, "ok")
-    if (path === "/readyz") return closing ? plain(503, "draining") : plain(200, "ready")
-    return undefined
+  const health = (path: string): Promise<Response> | undefined => {
+    if (path === "/healthz") return Promise.resolve(plain(200, "ok"))
+    if (path !== "/readyz") return undefined
+    if (closing) return Promise.resolve(plain(503, "draining"))
+    return readiness().then((state) =>
+      state.ready ? plain(200, "ready") : plain(503, `not ready: ${state.reason ?? "unknown"}`),
+    )
   }
   const isRest = (path: string): boolean => path === "/rest/v1" || path.startsWith("/rest/v1/")
+  const isStorage = (path: string): boolean =>
+    data.storage !== undefined && (path === "/storage/v1" || path.startsWith("/storage/v1/"))
   const isGraphql = (path: string): boolean =>
     graphql !== undefined && (path === graphql.path || path === `${graphql.path}/`)
   const isAuth = (path: string): boolean =>
@@ -877,10 +1074,14 @@ export async function createCanopy(
     const path = new URL(request.url).pathname
     if (isAdmin(path)) return admin.private ? plain(404, "Not found") : admin.fetch(request, info)
     if (isAuth(path)) return authFetch(request, info)
-    if (rest !== undefined && isRest(path)) return rest.fetch(request)
-    if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request)
-    if (http?.matches(request) === true) return http.fetch(request)
-    return health(path) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
+    if (rest !== undefined && isRest(path)) return rest.fetch(request, info)
+    if (graphql !== undefined && isGraphql(path)) return graphql.fetch(request, info)
+    if (data.storage !== undefined && isStorage(path))
+      return data.storage.handler.fetch(request, info)
+    if (http?.matches(request) === true) return http.fetch(request, info)
+    return (
+      (await health(path)) ?? (fallback === undefined ? plain(404, "Not found") : fallback(request))
+    )
   }
 
   const fetch = async (
@@ -889,7 +1090,11 @@ export async function createCanopy(
     info: { readonly ip?: string } = {},
   ): Promise<Response> => {
     const started = performance.now()
-    return logResponse(request, await route(request, fallback, info), started, info.ip)
+    const response =
+      tracing === undefined
+        ? await route(request, fallback, info)
+        : await tracing.fetch(request, () => route(request, fallback, info))
+    return logResponse(request, response, started, info.ip)
   }
 
   const canopy: Canopy = {
@@ -897,9 +1102,18 @@ export async function createCanopy(
     rest,
     graphql,
     realtime,
+    renderMetrics: () => `${data.httpRateLimited.render()}
+${realtime?.renderMetrics() ?? ""}${
+  webhooks === undefined
+    ? ""
+    : `
+${webhooks.metrics.render()}`
+}`,
     auth: builtin,
     keys: auth.apiKeys,
     admin: admin.surface,
+    webhooks,
+    storage: data.storage?.storage,
     get policies() {
       return data.engine()
     },
@@ -907,12 +1121,19 @@ export async function createCanopy(
     node(nodeOptions = {}) {
       const restListener = rest === undefined ? undefined : toNodeListener(rest)
       const graphqlListener = graphql === undefined ? undefined : serveOnNode(graphql.fetch)
+      const storageListener =
+        data.storage === undefined ? undefined : serveOnNode(data.storage.handler.fetch)
       const streaming = http === undefined ? undefined : toNodeHandler(http)
       const adminListener = serveOnNode(admin.fetch)
       const authListener = serveOnNode(authFetch)
-      return (request, response) => {
+      const serve = (request: IncomingMessage, response: ServerResponse) => {
         logNode(request, response)
-        const path = new URL(request.url ?? "/", "http://localhost").pathname
+        const path = tryPathname(request)
+        if (path === undefined) {
+          response.statusCode = 400
+          response.end("Bad request")
+          return
+        }
         if (isAuth(path)) return authListener(request, response)
         if (isAdmin(path)) {
           if (!admin.private) return adminListener(request, response)
@@ -923,12 +1144,21 @@ export async function createCanopy(
         if (restListener !== undefined && isRest(path)) return restListener(request, response)
         if (graphqlListener !== undefined && isGraphql(path))
           return graphqlListener(request, response)
+        if (storageListener !== undefined && isStorage(path))
+          return storageListener(request, response)
         const notRealtime = (): void => {
           const answer = health(path)
           if (answer !== undefined) {
-            response.statusCode = answer.status
-            response.setHeader("content-type", "text/plain; charset=utf-8")
-            void answer.text().then((body) => response.end(body))
+            void answer
+              .then(async (result) => {
+                response.statusCode = result.status
+                response.setHeader("content-type", "text/plain; charset=utf-8")
+                response.end(await result.text())
+              })
+              .catch(() => {
+                response.statusCode = 500
+                response.end()
+              })
             return
           }
           if (nodeOptions.fallback !== undefined) {
@@ -941,6 +1171,8 @@ export async function createCanopy(
         if (streaming === undefined) notRealtime()
         else streaming(request, response, notRealtime)
       }
+      if (tracing === undefined) return serve
+      return (request, response) => tracing.node(request, response, () => serve(request, response))
     },
     async attach(server) {
       if (graphql !== undefined && realtime !== undefined) {
@@ -970,14 +1202,16 @@ export async function createCanopy(
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
           const path = new URL(request.url).pathname
-          if (isAdmin(path) || isAuth(path) || isGraphql(path))
+          if (isAdmin(path) || isAuth(path) || isGraphql(path) || isStorage(path))
             return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) {
             const started = performance.now()
             const ip = peer(request, server).ip
-            return rest
-              .fetch(request)
-              .then((response) => logResponse(request, response, started, ip))
+            const served =
+              tracing === undefined
+                ? rest.fetch(request)
+                : tracing.fetch(request, () => rest.fetch(request))
+            return served.then((response) => logResponse(request, response, started, ip))
           }
           if (!transports.websocket && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)
@@ -998,6 +1232,7 @@ export async function createCanopy(
       data.stopReloading()
       stores.stop()
       await admin.close()
+      await webhooks?.stop()
       await data.drain(closeOptions.drainMs)
       await transports.close()
       data.close()

@@ -29,10 +29,12 @@
     "!**/*.tsbuildinfo"
   ],
   "scripts": {
+    "mutation": "node ../../node_modules/@stryker-mutator/core/bin/stryker.js run",
     "build": "tsc -b",
     "typecheck": "tsc -b test",
     "test": "vitest run",
-    "bench": "node --conditions=@canopy/source bench/throughput.ts"
+    "bench": "node --conditions=@canopy/source bench/throughput.ts",
+    "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json"
   },
   "dependencies": {
     "@canopy/protocol": "workspace:*"

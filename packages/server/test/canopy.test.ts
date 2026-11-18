@@ -54,7 +54,7 @@ suite("createCanopy against MongoDB", () => {
       mongodb: { uri: MONGODB_URI ?? "", database: dbName, metaDatabase: metaName },
       auth: { kind: "external", jwks: { keys: [jwk] }, issuer: ISSUER, audience: AUDIENCE },
       keys: { publishable: [KEY] },
-      realtime: { checkpoints: "off" },
+      realtime: { checkpoints: "off", drainWindow: "1s" },
     })
 
   beforeAll(async () => {
@@ -313,5 +313,24 @@ suite("createCanopy against MongoDB", () => {
       404,
     )
     await realtimeOnly.close()
+  })
+
+  it("reports not ready while the change stream is down, and draining once closing", async () => {
+    const instance = await createCanopy(config(), {
+      env: {},
+      mongo,
+      policies: createPolicySet([notes]),
+      onSetupToken: false,
+    })
+    const readyz = async () => {
+      const response = await instance.fetch(new Request("http://canopy.test/readyz"))
+      return `${response.status} ${await response.text()}`
+    }
+    expect(await readyz()).toBe("200 ready")
+    await instance.realtime?.close()
+    await new Promise((resolve) => setTimeout(resolve, 1100))
+    expect(await readyz()).toBe("503 not ready: the change stream is not open")
+    expect((await instance.fetch(new Request("http://canopy.test/healthz"))).status).toBe(200)
+    await instance.close()
   })
 })

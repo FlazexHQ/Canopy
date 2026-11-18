@@ -5,9 +5,9 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http"
-import type { AddressInfo } from "node:net"
+import { type AddressInfo, connect } from "node:net"
 import { afterEach, describe, expect, it } from "vitest"
-import { type NodeListener, toNodeListener } from "../src/index.ts"
+import { type NodeListener, toNodeListener, tryPathname, tryRequestUrl } from "../src/index.ts"
 
 const servers: Server[] = []
 
@@ -191,5 +191,76 @@ describe("toNodeListener", () => {
     })
     expect((await raw(`${base}/todos`)).status).toBe(204)
     expect(path).toBe("/rest/v1/todos")
+  })
+})
+
+function rawRequest(base: string, text: string): Promise<string> {
+  const { port } = new URL(base)
+  return new Promise((resolve, reject) => {
+    const socket = connect(Number(port), "127.0.0.1", () => socket.end(text))
+    let received = ""
+    socket.setEncoding("utf8")
+    socket.on("data", (chunk: string) => {
+      received += chunk
+    })
+    socket.on("end", () => resolve(received))
+    socket.on("error", reject)
+  })
+}
+
+describe("unparsable request targets", () => {
+  const ok: NodeListener = toNodeListener(() => new Response("served"))
+
+  it("answers 400 to a target of // and keeps serving", async () => {
+    const base = await serve(ok)
+    const answer = await rawRequest(
+      base,
+      "GET // HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    expect(answer.startsWith("HTTP/1.1 400")).toBe(true)
+    const after = await raw(`${base}/`)
+    expect(after.status).toBe(200)
+    expect(after.body).toBe("served")
+  })
+
+  it("survives an empty Host header", async () => {
+    const base = await serve(ok)
+    const answer = await rawRequest(base, "GET / HTTP/1.1\r\nHost: \r\nConnection: close\r\n\r\n")
+    expect(answer).toMatch(/^HTTP\/1\.1 (200|400)/)
+    expect((await raw(`${base}/`)).status).toBe(200)
+  })
+
+  it("answers 400 without consulting matches or next", async () => {
+    let consulted = false
+    const listener = toNodeListener(() => new Response("served"), {
+      matches: () => {
+        consulted = true
+        return true
+      },
+    })
+    const base = await serve(listener, (response) => {
+      response.statusCode = 299
+      response.end()
+    })
+    const answer = await rawRequest(
+      base,
+      "GET // HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    expect(answer.startsWith("HTTP/1.1 400")).toBe(true)
+    expect(consulted).toBe(false)
+  })
+})
+
+describe("tryPathname", () => {
+  it("returns the path of a request, or undefined when the target does not parse", () => {
+    expect(tryPathname({ url: "/a/b?c=1", headers: {} } as IncomingMessage)).toBe("/a/b")
+    expect(tryPathname({ url: "//", headers: {} } as IncomingMessage)).toBeUndefined()
+    expect(tryPathname({ headers: {} } as IncomingMessage)).toBe("/")
+  })
+
+  it("ignores a Host header that does not parse", () => {
+    expect(
+      tryRequestUrl({ url: "/x", headers: { host: "a b" } } as IncomingMessage)?.pathname,
+    ).toBe("/x")
   })
 })

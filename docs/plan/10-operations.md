@@ -171,7 +171,6 @@ They are re-baselined after spikes S1, S3 and S5.
 | REST overhead vs the raw driver, indexed `findOne`, p50 | ≤ 1.5 ms |
 | REST simple-read throughput | ≥ 5k requests/s per vCPU |
 | Cold start to ready, excluding the MongoDB connection | ≤ 2 s |
-| SDK core size | ≤ 15 kB gzip |
 
 **Benchmark suite (`bench/`).**
 

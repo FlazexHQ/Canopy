@@ -11,4 +11,3 @@ Add server rendering, multi-tab sharing and React Native support to the client.
 - `client.devtools()` exposes frame taps, subscriptions and the pending mutations for `@canopy/devtools`.
 - `@canopy/react` adds `<Hydrate state>`, `useDocument(collection, id)` and `useSession()`, and is marked `"use client"` for React Server Components.
 
-The core bundle budget moves from 20.75 kB to 21.25 kB (21.21 kB measured); the decision to raise it further or ship a smaller client matcher is still open.

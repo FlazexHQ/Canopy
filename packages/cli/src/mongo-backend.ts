@@ -1,6 +1,7 @@
 import {
   canAccess,
   documentPaths,
+  immutableViolations,
   type PolicyEngine,
   projectReadable,
   Role,
@@ -12,7 +13,7 @@ import {
   type PolicyOutcome,
   type PolicyTestCase,
 } from "@canopy/policy/testing"
-import { parseUpdate, pathsOverlap } from "@canopy/query"
+import { parseUpdate } from "@canopy/query"
 import type { Db, Document } from "mongodb"
 
 /**
@@ -85,9 +86,7 @@ export function mongoBackend(engine: PolicyEngine, db: Db, now: Date = new Date(
               const denied = written.filter((path) => !canAccess(writable, path))
               if (denied.length > 0)
                 return { allowed: false, reason: `fields not writable: ${denied.join(", ")}` }
-              const immutable = written.filter((path) =>
-                engine.immutable(collection).some((field) => pathsOverlap(path, field)),
-              )
+              const immutable = immutableViolations(written, engine.immutable(collection))
               if (immutable.length > 0)
                 return { allowed: false, reason: `immutable fields: ${immutable.join(", ")}` }
             }

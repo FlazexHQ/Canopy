@@ -166,9 +166,10 @@ suite("admin API tokens", () => {
       details: { method: "GET", path: "/admin/v1/me" },
     })
 
-    const key = await token("POST", "/api-keys", { kind: "publishable", name: "from ci" })
-    expect(key.status).toBe(201)
-    expect(await lastAudit({ action: "key.create" })).toMatchObject({
+    const created = await owner("POST", "/api-keys", { kind: "publishable", name: "for ci" })
+    const { info } = (await created.json()) as { info: { id: string } }
+    expect((await token("DELETE", `/api-keys/${info.id}`)).status).toBe(200)
+    expect(await lastAudit({ action: "key.revoke" })).toMatchObject({
       actor: { tokenId: ownerToken.id },
       outcome: "ok",
     })
@@ -256,14 +257,32 @@ suite("admin API tokens", () => {
     })
   })
 
+  it("cannot create API keys, which would outlive its revocation", async () => {
+    const token = await create(owner, { name: "keys", role: "admin" })
+    const call = bearer(token.token)
+    for (const kind of ["secret", "publishable"]) {
+      const response = await call("POST", "/api-keys", { kind, name: `from token ${kind}` })
+      expect(response.status, kind).toBe(403)
+      expect(await response.json()).toMatchObject({ details: { reason: "session_required" } })
+    }
+    expect(await meta.collection("api_keys").countDocuments({ name: /^from token/ })).toBe(0)
+    expect((await call("GET", "/api-keys")).status).toBe(200)
+    const bySession = await owner("POST", "/api-keys", { kind: "secret", name: "from session" })
+    expect(bySession.status).toBe(201)
+  })
+
   it("never exceeds its admin's current role, and stops when the admin is disabled", async () => {
     const token = await create(developer, { name: "ci" })
     const call = bearer(token.token)
-    expect((await call("POST", "/api-keys", { kind: "publishable", name: "a" })).status).toBe(201)
+    const keyId = async (name: string): Promise<string> => {
+      const created = await owner("POST", "/api-keys", { kind: "publishable", name })
+      return ((await created.json()) as { info: { id: string } }).info.id
+    }
+    expect((await call("DELETE", `/api-keys/${await keyId("a")}`)).status).toBe(200)
     expect((await owner("PATCH", `/admins/${developerId}`, { role: "viewer" })).status).toBe(200)
     const me = (await (await call("GET", "/me")).json()) as { user: { role: string } }
     expect(me.user.role).toBe("viewer")
-    expect((await call("POST", "/api-keys", { kind: "publishable", name: "b" })).status).toBe(403)
+    expect((await call("DELETE", `/api-keys/${await keyId("b")}`)).status).toBe(403)
 
     expect((await owner("PATCH", `/admins/${developerId}`, { disabled: true })).status).toBe(200)
     expect((await call("GET", "/me")).status).toBe(401)

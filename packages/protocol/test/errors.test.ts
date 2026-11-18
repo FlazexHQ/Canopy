@@ -9,6 +9,44 @@ import {
   NotFoundError,
 } from "../src/index.ts"
 
+describe("hints", () => {
+  it("gives the common codes a hint and a docs page, and lets an error override them", () => {
+    const forbidden = new CanopyError(ErrorCode.Forbidden, "No policy grants read on 'todos'")
+    expect(forbidden.hint).toMatch(/allow rule/)
+    expect(forbidden.docs).toBe("forbidden")
+    const custom = new CanopyError(ErrorCode.Forbidden, "x", {
+      hint: "Ask an admin",
+      docs: "custom",
+    })
+    expect([custom.hint, custom.docs]).toEqual(["Ask an admin", "custom"])
+    for (const code of [
+      ErrorCode.Unauthorized,
+      ErrorCode.TokenExpired,
+      ErrorCode.NotFound,
+      ErrorCode.PolicyViolation,
+      ErrorCode.InvalidQuery,
+      ErrorCode.Conflict,
+      ErrorCode.ValidationFailed,
+      ErrorCode.RateLimited,
+      ErrorCode.SubscriptionTooLarge,
+    ]) {
+      const error = new CanopyError(code, "m")
+      expect(error.hint?.length ?? 0).toBeGreaterThan(20)
+      expect(error.docs).toMatch(/^[a-z-]+$/)
+    }
+    expect(new CanopyError(ErrorCode.Internal, "m").hint).toBeUndefined()
+    expect(new CanopyError(ErrorCode.Internal, "m").docs).toBeUndefined()
+  })
+
+  it("keeps the wire frame of realtime errors to the code and message", () => {
+    expect(new CanopyError(ErrorCode.Forbidden, "no").toWire()).toEqual({
+      code: ErrorCode.Forbidden,
+      msg: "no",
+    })
+    expect(errorFromWire({ code: ErrorCode.Conflict, msg: "x" }).docs).toBe("conflict")
+  })
+})
+
 describe("isCanopyError", () => {
   it("recognizes Canopy errors and narrows by code", () => {
     const error: unknown = new ConflictError("changed first")

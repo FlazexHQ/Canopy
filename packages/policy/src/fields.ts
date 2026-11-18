@@ -11,15 +11,22 @@ export type FieldAccess =
 
 const ALL: FieldAccess = { kind: "all" }
 
+/** Keeps the outermost of paths that contain each other: `profile` covers `profile.name`. */
+function pruneDescendants(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths)]
+  return unique.filter((path) => !unique.some((other) => other !== path && isWithin(path, other)))
+}
+
 function fromRule(rule: FieldRule): FieldAccess {
-  if ("only" in rule) return rule.only.includes("*") ? ALL : { kind: "only", paths: [...rule.only] }
-  return rule.omit.length === 0 ? ALL : { kind: "omit", paths: [...rule.omit] }
+  if ("only" in rule)
+    return rule.only.includes("*") ? ALL : { kind: "only", paths: pruneDescendants(rule.only) }
+  return rule.omit.length === 0 ? ALL : { kind: "omit", paths: pruneDescendants(rule.omit) }
 }
 
 function union(a: FieldAccess, b: FieldAccess): FieldAccess {
   if (a.kind === "all" || b.kind === "all") return ALL
   if (a.kind === "only" && b.kind === "only")
-    return { kind: "only", paths: [...new Set([...a.paths, ...b.paths])] }
+    return { kind: "only", paths: pruneDescendants([...a.paths, ...b.paths]) }
   if (a.kind === "omit" && b.kind === "omit") {
     const hidden = new Set<string>()
     for (const x of a.paths)
@@ -27,12 +34,12 @@ function union(a: FieldAccess, b: FieldAccess): FieldAccess {
         if (isWithin(x, y)) hidden.add(x)
         else if (isWithin(y, x)) hidden.add(y)
       }
-    return hidden.size === 0 ? ALL : { kind: "omit", paths: [...hidden] }
+    return hidden.size === 0 ? ALL : { kind: "omit", paths: pruneDescendants([...hidden]) }
   }
   const only = a.kind === "only" ? a : (b as { kind: "only"; paths: readonly string[] })
   const omit = a.kind === "omit" ? a : (b as { kind: "omit"; paths: readonly string[] })
   const hidden = omit.paths.filter((x) => !only.paths.some((allowed) => isWithin(x, allowed)))
-  return hidden.length === 0 ? ALL : { kind: "omit", paths: hidden }
+  return hidden.length === 0 ? ALL : { kind: "omit", paths: pruneDescendants(hidden) }
 }
 
 /**
@@ -76,6 +83,35 @@ export function canAccess(access: FieldAccess, path: string): boolean {
 /** Returns the paths in `paths` that `access` does not allow. */
 export function deniedPaths(access: FieldAccess, paths: readonly string[]): string[] {
   return paths.filter((path) => !canAccess(access, path))
+}
+
+/**
+ * Returns the written paths that touch an immutable path: equal to it, beneath it or an ancestor of it.
+ * Array indexes are ignored, so `lines.0.sku` touches an immutable `lines.sku`.
+ */
+export function immutableViolations(
+  written: readonly string[],
+  immutable: readonly string[],
+): string[] {
+  const frozen = immutable.map(stripIndexes)
+  return written.filter((path) => {
+    const stripped = stripIndexes(path)
+    return frozen.some((field) => pathsOverlap(stripped, field))
+  })
+}
+
+/** The refusal of a `$text` search by a caller that cannot read every field. */
+export const TEXT_SEARCH_DENIED = "$text is not available when some fields are not readable"
+
+/**
+ * Whether a filter's `$text` search is out of reach for `access`. A text index may cover fields the caller
+ * cannot read, and `$text` names none of them, so it is allowed only when every field is readable.
+ */
+export function deniesTextSearch(
+  access: FieldAccess,
+  filter: Readonly<Record<string, unknown>>,
+): boolean {
+  return access.kind !== "all" && Object.hasOwn(filter, "$text")
 }
 
 /** Removes every field `access` does not allow from a document. `_id` is always kept. */

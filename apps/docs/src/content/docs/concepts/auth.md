@@ -43,6 +43,7 @@ issuer), [TOTP and passkeys](/guides/two-factor-and-passkeys/). Canopy issues sh
 signed with rotating keys and publishes them at `/auth/v1/.well-known/jwks.json`.
 
 ```ts
+import { createClient } from "@canopy/client"
 import { createAuth } from "@canopy/client/auth"
 import { indexedDbPersister } from "@canopy/client/persist"
 

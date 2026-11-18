@@ -3,8 +3,8 @@ import { ObjectId } from "mongodb"
 
 /** Who did something. */
 export interface Actor {
-  readonly type: "admin" | "system"
-  /** The admin user id, or a system component such as `setup`. */
+  readonly type: "admin" | "system" | "user"
+  /** The admin user id, a system component such as `setup`, or the subject of a data plane caller. */
   readonly id: string
   readonly email?: string
   readonly role?: string

@@ -18,12 +18,14 @@ export {
   ctToParts,
   isClusterTime,
   maxCt,
+  snapshotTimeOf,
   toCt,
   ZERO_CT,
 } from "./cluster-time.ts"
 export {
   type Diagnostic,
   DiagnosticError,
+  deploymentDiagnostic,
   diagnoseMongoError,
   diagnosticOf,
   type FormatDiagnosticOptions,
@@ -117,3 +119,10 @@ export {
   timestampParts,
   wrappedNumber,
 } from "./values.ts"
+export {
+  signWebhook,
+  type VerifyWebhookOptions,
+  verifyWebhook,
+  type WebhookHeaders,
+  webhookHeaders,
+} from "./webhooks.ts"

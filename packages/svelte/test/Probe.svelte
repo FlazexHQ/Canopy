@@ -4,4 +4,4 @@ import type { Query } from "../src/index.ts"
 let { query }: { query: Query<{ _id: number }> } = $props()
 </script>
 
-<p>{query.status}:{query.data.length}</p>
+<p>{query.status}:{query.data.length}{query.error === undefined ? "" : `:${query.error.message}`}</p>

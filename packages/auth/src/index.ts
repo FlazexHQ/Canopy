@@ -29,6 +29,8 @@ export {
   isAddressRule,
   resolveClientAddress,
 } from "./client-address.ts"
+export { parseImportedPasswordHash } from "./imported-hash.ts"
+export { parseJsonWebKeySet } from "./jwks.ts"
 export type {
   AccessTokenClaims,
   AuthProvider,
@@ -46,4 +48,14 @@ export type {
   UserAdmin,
   UserPage,
 } from "./provider.ts"
+export {
+  type BucketSpec,
+  DEFAULT_RATE_LIMITS,
+  type LimitCaller,
+  type RateLimitOptions,
+  RateLimits,
+  rateLimitError,
+  retryAfterSeconds,
+  TokenBuckets,
+} from "./rate-limit.ts"
 export { RevocationSet } from "./revocations.ts"

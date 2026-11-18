@@ -1,3 +1,4 @@
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import {
   type CryptoKey,
   importJWK,
@@ -114,7 +115,8 @@ export class KeyRing {
       await new Promise((resolve) => setTimeout(resolve, 100))
       await this.tick()
     }
-    if (this.activeKey() === undefined) throw new Error("No signing key could be created or loaded")
+    if (this.activeKey() === undefined)
+      throw new CanopyError(ErrorCode.Unavailable, "No signing key could be created or loaded")
     const refreshMs = this.options.refreshMs ?? 30_000
     this.timer = setInterval(() => {
       this.tick().catch((error: unknown) =>

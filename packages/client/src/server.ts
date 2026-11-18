@@ -9,7 +9,7 @@ import {
   type SubQuery,
   toCanonical,
 } from "@canopy/protocol"
-import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client.ts"
+import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client-types.ts"
 import type { CollectionName, DocumentOf, Filter, Schema, UntypedSchema } from "./types.ts"
 
 /** Where a server request gets the user's access token. */
@@ -66,7 +66,9 @@ async function failure(response: Response): Promise<CanopyError> {
         code: problem.code,
         msg: typeof problem.detail === "string" ? problem.detail : response.statusText,
       })
-  } catch {}
+  } catch {
+    // Not Problem Details: fall through to the generic error for the status.
+  }
   return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${response.status}`)
 }
 

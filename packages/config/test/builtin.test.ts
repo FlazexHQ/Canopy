@@ -158,6 +158,40 @@ describe("builtin()", () => {
     expect(missing).toEqual(["auth.email"])
   })
 
+  it("refuses well known development API keys in production only", () => {
+    const keys = (publishable: string[], secret: string[]) => ({ publishable, secret })
+    const refused = problems(() =>
+      resolve({ ...production, keys: keys(["pk_dev"], ["sk_dev_change_me"]) }),
+    ).map((problem) => problem.path)
+    expect(refused).toEqual(["keys.publishable", "keys.secret"])
+    const generated = problems(() =>
+      resolve({
+        ...production,
+        keys: keys(["canopy_pk_live_1"], [`canopy_sk_dev_${"a".repeat(36)}`]),
+      }),
+    ).map((problem) => problem.path)
+    expect(generated).toEqual(["keys.secret"])
+    expect(
+      resolve({ ...production, keys: keys(["canopy_pk_live_1"], [`sk_${"x".repeat(40)}`]) }).config
+        .keys.secret,
+    ).toEqual([`sk_${"x".repeat(40)}`])
+    expect(
+      resolve({ mongodb: { uri: URI }, keys: keys(["pk_dev"], ["sk_dev_change_me"]) }).config.keys,
+    ).toEqual(keys(["pk_dev"], ["sk_dev_change_me"]))
+    expect(
+      problems(() =>
+        resolve(
+          { mongodb: { uri: URI } },
+          {
+            CANOPY_ENV: "production",
+            CANOPY_MASTER_KEY: KEY,
+            CANOPY_SECRET_KEYS: "sk_dev_change_me",
+          },
+        ),
+      ).map((problem) => problem.path),
+    ).toEqual(["keys.secret"])
+  })
+
   it("refuses unsafe lifetimes, short passwords and bad provider ids", () => {
     const found = problems(() =>
       resolve({
@@ -183,6 +217,51 @@ describe("builtin()", () => {
         "auth.oidc.1.id",
       ].sort(),
     )
+  })
+
+  it("resolves every email transport with only its own fields", () => {
+    const transportOf = (transport: unknown, variables: Record<string, string> = {}) => {
+      const auth = resolve(
+        { mongodb: { uri: URI }, auth: builtin({ email: { from: "a@b.c", transport } as never }) },
+        variables,
+      ).config.auth
+      return auth?.kind === "builtin" ? auth.email.transport : undefined
+    }
+    expect(
+      transportOf(
+        email.smtp({ host: "smtp.example", port: env.int("SMTP_PORT"), secure: true, pass: "p" }),
+        { SMTP_PORT: "465" },
+      ),
+    ).toEqual({ kind: "smtp", host: "smtp.example", port: 465, secure: true, pass: "p" })
+    expect(transportOf(email.postmark({ serverToken: "t" }))).toEqual({
+      kind: "postmark",
+      serverToken: "t",
+    })
+    expect(
+      transportOf(email.ses({ region: "eu-west-1", accessKeyId: "a", secretAccessKey: "s" })),
+    ).toEqual({ kind: "ses", region: "eu-west-1", accessKeyId: "a", secretAccessKey: "s" })
+    expect(transportOf(email.log())).toEqual({ kind: "log" })
+  })
+
+  it("reports a transport without its required fields", () => {
+    for (const transport of [
+      { kind: "resend" },
+      { kind: "postmark" },
+      { kind: "smtp" },
+      { kind: "ses", region: "eu-west-1", accessKeyId: "a" },
+    ]) {
+      const found = problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          auth: builtin({ email: { from: "a@b.c", transport } as never }),
+        }),
+      )
+      expect(
+        found.map((problem) => problem.path),
+        transport.kind,
+      ).toEqual(["auth.email.transport"])
+      expect(found[0]?.message, transport.kind).toContain(`The ${transport.kind} transport needs`)
+    }
   })
 
   it("reports external only settings and variables, and unknown transports", () => {

@@ -211,6 +211,38 @@ suite("policy lifecycle", () => {
     ])
   })
 
+  it("refuses malformed documents in the meta database instead of trusting their shape", async () => {
+    const policies = meta.collection("policies")
+    await policies.insertOne({
+      _id: "posts" as never,
+      version: 1,
+      exposed: true,
+      realtime: false,
+      policies: [{ name: "x", kind: "allow", ops: ["read"], roles: ["anon"] }],
+      hash: "sha256:x",
+    })
+    await expect(store.get("posts")).rejects.toThrow("Policy 'x' has an unknown kind")
+    await expect(store.all()).rejects.toThrow(TypeError)
+    await expect(publish(readAll, 1)).rejects.toThrow(TypeError)
+    await policies.deleteMany({})
+
+    await policies.insertOne({
+      _id: "posts" as never,
+      version: "1",
+      exposed: true,
+      realtime: false,
+      policies: [],
+      hash: "sha256:x",
+    })
+    await expect(store.get("posts")).rejects.toThrow("need a version")
+    await policies.deleteMany({})
+
+    await policies.insertOne({ _id: "_context" as never, version: 1, hash: "h", lookups: "x" })
+    await expect(store.getContexts()).rejects.toThrow("The context lookups must be a document")
+    await expect(store.all()).rejects.toThrow(TypeError)
+    expect(await store.get("_context")).toBeUndefined()
+  })
+
   it("keeps BSON types of clauses given as decoded values", async () => {
     const id = new ObjectId("65a1b2c3d4e5f6a7b8c9d0e1")
     const def = definitionFromInput("posts", {

@@ -80,4 +80,33 @@ describe("imported password hashes", () => {
       await verifyLegacyHash("$2a$05$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW", "U*U"),
     ).toBe(false)
   })
+
+  it("refuses work factors that would let one sign in exhaust the server", () => {
+    expect(() =>
+      encodeLegacyHash({ algorithm: "bcrypt", hash: `$2b$31$${"a".repeat(53)}` }),
+    ).toThrow(/cost/)
+    expect(() =>
+      encodeLegacyHash({
+        algorithm: "argon2id",
+        hash: "$argon2id$v=19$m=4194304,t=2,p=4$c29tZXNhbHQ$GpZ3sK/oH9p7VIiV56G/64Zo/8GaUw434IimaPqxwCo",
+      }),
+    ).toThrow(/memory/)
+    expect(() =>
+      encodeLegacyHash({
+        algorithm: "firebase-scrypt",
+        signerKey: b64("key"),
+        saltSeparator: b64("sep"),
+        rounds: 32,
+        memCost: 20,
+        salt: b64("salt"),
+        hash: b64("hash"),
+      }),
+    ).toThrow(/rounds/)
+    expect(() =>
+      encodeLegacyHash({
+        algorithm: "bcrypt",
+        hash: "$2b$12$CCCCCCCCCCCCCCCCCCCCC.E5YPO9kmyuRGyh0XouQYb4YMJKvyOeW",
+      }),
+    ).not.toThrow()
+  })
 })

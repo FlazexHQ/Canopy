@@ -1,3 +1,5 @@
+export { immutableViolations } from "@canopy/policy"
+export { type CallerOptions, requestCaller } from "./caller.ts"
 export { mongoContextReader } from "./context-reader.ts"
 export {
   type CursorKey,
@@ -22,7 +24,11 @@ export {
   negotiate,
   type Preferences,
   preferencesOf,
+  preflight,
+  problemResponse,
   readBody,
+  requestIdOf,
+  withCors,
 } from "./http.ts"
 export { type IdType, parseId } from "./ids.ts"
 export { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"
@@ -42,7 +48,7 @@ export {
   splitList,
   typedValue,
 } from "./params.ts"
-export { immutableViolations, leafPaths } from "./paths.ts"
+export { leafPaths } from "./paths.ts"
 export {
   DEFAULT_PROBLEM_TYPE_BASE,
   PROBLEM_MEDIA_TYPE,
@@ -72,6 +78,7 @@ export {
   type Caller,
   DEFAULT_WRITE_LIMITS,
   type ReturnedDocument,
+  type WriteEvent,
   type WriteLimits,
   type WriteOptions,
   WritePath,

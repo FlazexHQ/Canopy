@@ -124,14 +124,24 @@ export class Long {
   }
 }
 
-const DECIMAL = /^[+-]?(?:(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?|Infinity|inf|NaN)$/i
+/** A decimal string; groups: fraction digits (after `1.` or `.`), then the written exponent. */
+const DECIMAL = /^[+-]?(?:(?:\d+\.?(\d*)|\.(\d+))(?:[eE]([+-]?\d+))?|Infinity|inf|NaN)$/i
 
-/** A Decimal128 value, kept in its string form. Arithmetic is not supported. */
+/**
+ * A Decimal128 value, kept in its string form. Arithmetic is not supported. Its exponent, with the fraction
+ * digits folded in, must stay within 6210 either way: Decimal128 holds exponents from -6176 to 6111 for up
+ * to 34 digits, and computing with a larger one costs time and memory in proportion to it.
+ */
 export class Decimal128 {
   readonly value: string
 
   constructor(value: string) {
-    if (!DECIMAL.test(value)) throw new TypeError(`Invalid Decimal128 string: ${value}`)
+    const match = DECIMAL.exec(value)
+    if (
+      match === null ||
+      Math.abs(Number(match[3] ?? 0) - (match[1] ?? match[2] ?? "").length) > 6210
+    )
+      throw new TypeError(`Invalid Decimal128 string: ${value}`)
     this.value = value
   }
 

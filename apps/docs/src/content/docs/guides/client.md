@@ -7,6 +7,8 @@ description: Live queries, optimistic writes and typed collections with @canopy/
 bun add @canopy/client
 ```
 
+<!-- snippet: declare const identityProvider: { getAccessToken(): Promise<string> } -->
+
 ```ts
 import { createClient } from "@canopy/client"
 
@@ -67,10 +69,12 @@ bunx canopy gen types
 ```
 
 ```ts
+import { createClient } from "@canopy/client"
 import type { Database } from "./canopy.gen.ts"
 
 const canopy = createClient<Database>({ url, publishableKey })
-canopy.from("todos").find({ done: "yes" }) // a type error: done is a boolean
+// @ts-expect-error done is a boolean
+canopy.from("todos").find({ done: "yes" })
 ```
 
 ## Connection status

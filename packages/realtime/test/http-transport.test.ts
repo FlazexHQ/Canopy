@@ -285,6 +285,20 @@ suite("SSE and long-poll transports", () => {
     ).toBe(401)
   })
 
+  it("issues tickets on the session path too, so routing by session ID reaches the right node", async () => {
+    const { sid } = await open()
+    const issued = await call(`/sessions/${sid}/tickets`, { method: "POST" })
+    expect(issued.status).toBe(201)
+    const { ticket } = (await issued.json()) as { ticket: string }
+    expect((await call(`/sessions/${sid}/poll?wait=0&ticket=${ticket}`, {}, null)).status).toBe(200)
+    expect((await call(`/sessions/${sid}/tickets`, { method: "POST" }, "pk_other")).status).toBe(
+      401,
+    )
+    expect((await call(`/sessions/${sid}/tickets`, { method: "GET" })).status).toBe(405)
+    const moved = await call("/sessions/n7.abc/tickets", { method: "POST" })
+    expect(moved.status).toBe(409)
+  })
+
   it("ends a session with DELETE", async () => {
     const { sid } = await open()
     expect((await call(`/sessions/${sid}`, { method: "DELETE" })).status).toBe(204)

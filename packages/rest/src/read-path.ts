@@ -4,6 +4,7 @@ import {
   type Compiled,
   canAccess,
   deniedPaths,
+  deniesTextSearch,
   type FieldAccess,
   intersectProjection,
   OPERATIONS,
@@ -12,6 +13,7 @@ import {
   projectReadable,
   Role,
   securePipeline,
+  TEXT_SEARCH_DENIED,
   toFilter,
 } from "@canopy/policy"
 import {
@@ -22,6 +24,7 @@ import {
   InvalidQueryError,
   isDocument,
   serverErrorCode,
+  snapshotTimeOf,
   toCt,
 } from "@canopy/protocol"
 import {
@@ -116,6 +119,11 @@ export interface ReadPathOptions {
   readonly policies: PolicyEngine | (() => PolicyEngine)
   readonly limits?: Partial<ReadLimits>
   readonly queryLimits?: QueryLimits
+  /**
+   * Collections whose aggregations may start with `$search` or `$vectorSearch` (they need an Atlas Search or
+   * MongoDB Search index). The policy filters the search results before any later stage.
+   */
+  readonly search?: readonly string[]
 }
 
 /** A find request. Values may hold protocol BSON classes decoded from EJSON. */
@@ -176,6 +184,7 @@ export class ReadPath {
   private readonly engine: () => PolicyEngine
   private readonly limits: ReadLimits
   private readonly queryLimits: QueryLimits
+  private readonly searchable: ReadonlySet<string>
   private readonly sizes = new Map<string, { readonly docs: number; readonly at: number }>()
   /** How many unsorted finds in a row lost the `_id` walk, by collection, read filter and filter shape. */
   private readonly sparse = new Map<string, number>()
@@ -187,6 +196,7 @@ export class ReadPath {
     this.engine = typeof policies === "function" ? policies : () => policies
     this.limits = { ...DEFAULT_READ_LIMITS, ...options.limits }
     this.queryLimits = options.queryLimits ?? DEFAULT_LIMITS
+    this.searchable = new Set(options.search ?? [])
   }
 
   /** How long an unsorted find on this collection may walk `_id` order, from its estimated size. */
@@ -252,7 +262,7 @@ export class ReadPath {
     const ctx = caller.context
     const names = new Set<string>()
     for (const def of engine.set.collections.values()) {
-      if (def.exposed) names.add(def.collection)
+      if (engine.isExposed(def.collection)) names.add(def.collection)
     }
     if (ctx.roles.has(Role.Service)) {
       try {
@@ -502,12 +512,20 @@ export class ReadPath {
     abortCheck(options.signal, "read")
     const planned = this.plan(caller, collection)
     const max = this.limits.maxAggregateResults
-    const secured = securePipeline(planned.engine, planned.name, pipeline, caller.context, {
-      maxStages: this.limits.maxPipelineStages,
-      maxSample: max,
-      query: this.queryLimits,
-    })
-    return this.inSnapshot(planned.service, async (session) => {
+    const search = this.searchable.has(planned.name)
+    const secured = securePipeline(
+      planned.engine,
+      planned.name,
+      pipeline,
+      caller.context,
+      { maxStages: this.limits.maxPipelineStages, maxSample: max, query: this.queryLimits },
+      { search, maxSearchResults: max },
+    )
+    const first = secured[0]
+    const searching =
+      search && first !== undefined && ("$search" in first || "$vectorSearch" in first)
+    const read = searching ? this.atClusterTime.bind(this) : this.inSnapshot.bind(this)
+    return read(planned.service, async (session) => {
       const docs = (await this.db
         .collection(planned.name)
         .aggregate(toDriver([...secured, { $limit: max + 1 }]) as unknown as Document[], {
@@ -548,6 +566,8 @@ export class ReadPath {
       },
       this.queryLimits,
     )
+    if (deniesTextSearch(planned.readable, parsed.filter.filter))
+      throw new InvalidQueryError(TEXT_SEARCH_DENIED)
     const denied = deniedPaths(planned.readable, parsed.paths)
     if (denied.length > 0)
       throw new InvalidQueryError(
@@ -581,6 +601,28 @@ export class ReadPath {
     })
   }
 
+  /**
+   * Runs a read that cannot use a snapshot (search stages are served by the search index, which follows the
+   * collection asynchronously) and reports the cluster time of its reply.
+   */
+  private async atClusterTime<T extends object>(
+    service: boolean,
+    read: (session: ClientSession) => Promise<T>,
+  ): Promise<T & { readonly ct: ClusterTime }> {
+    const session = this.client.startSession()
+    try {
+      const result = await read(session)
+      const ct = toCt(session.operationTime) ?? (await this.currentClusterTime())
+      if (ct === undefined)
+        throw new CanopyError(ErrorCode.Internal, "The read has no cluster time")
+      return { ...result, ct }
+    } catch (error: unknown) {
+      throw fromDriverError(error, service)
+    } finally {
+      await session.endSession()
+    }
+  }
+
   private async currentClusterTime(): Promise<ClusterTime | undefined> {
     const session = this.client.startSession()
     try {
@@ -599,8 +641,7 @@ export class ReadPath {
       const session = this.client.startSession({ snapshot: true })
       try {
         const result = await read(session)
-        const internal = session as unknown as { snapshotTime?: unknown }
-        return { result, ct: toCt(internal.snapshotTime) ?? toCt(session.operationTime) }
+        return { result, ct: snapshotTimeOf(session) ?? toCt(session.operationTime) }
       } finally {
         await session.endSession()
       }

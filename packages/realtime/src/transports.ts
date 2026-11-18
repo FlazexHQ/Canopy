@@ -1,6 +1,6 @@
 import type { IncomingMessage, Server } from "node:http"
 import type { Duplex } from "node:stream"
-import { type NodeListener, toNodeListener } from "@canopy/node-http"
+import { type NodeListener, toNodeListener, tryPathname } from "@canopy/node-http"
 import { CloseCode, SUBPROTOCOL } from "@canopy/protocol"
 import type { HttpTransport } from "./http-transport.ts"
 import type { Realtime } from "./realtime.ts"
@@ -19,10 +19,6 @@ export interface AttachOptions {
 /** A handle to detach the transport again. */
 export interface Attachment {
   close(): Promise<void>
-}
-
-function pathOf(request: IncomingMessage): string {
-  return new URL(request.url ?? "/", "http://localhost").pathname
 }
 
 /**
@@ -45,7 +41,12 @@ export async function attach(
     handleProtocols: (protocols) => (protocols.has(SUBPROTOCOL) ? SUBPROTOCOL : false),
   })
   const onUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
-    if (pathOf(request) !== path) return
+    const target = tryPathname(request)
+    if (target === undefined) {
+      socket.destroy()
+      return
+    }
+    if (target !== path) return
     wss.handleUpgrade(request, socket, head, (ws) => {
       if (ws.protocol !== SUBPROTOCOL) {
         ws.close(CloseCode.UnsupportedVersion, "unsupported subprotocol")
@@ -60,7 +61,16 @@ export async function attach(
           return ws.bufferedAmount
         },
       }
-      const connection = realtime.connect(adapter)
+      const forwarded = request.headers["x-forwarded-for"]
+      const address = realtime.clientAddress(
+        new Headers(
+          forwarded === undefined
+            ? {}
+            : { "x-forwarded-for": Array.isArray(forwarded) ? forwarded.join(",") : forwarded },
+        ),
+        request.socket.remoteAddress,
+      )
+      const connection = realtime.connect(adapter, { address })
       let alive = true
       const ping = setInterval(() => {
         if (!alive) {
@@ -110,10 +120,13 @@ export interface BunSocket<T> {
 /** The subset of Bun's `Server` the adapter uses. */
 export interface BunServerLike<T> {
   upgrade(request: Request, options: { headers?: Record<string, string>; data: T }): boolean
+  /** The peer address of a request, which the rate limits use for anonymous callers. */
+  requestIP?(request: Request): { readonly address: string } | null
 }
 
 interface BunData {
   connection: ReturnType<Realtime["connect"]> | undefined
+  address?: string
 }
 
 /**
@@ -140,7 +153,9 @@ export function bunHandlers(
   const path = options.path ?? "/realtime/v1"
   return {
     fetch(request, server) {
-      if (options.http?.matches(request) === true) return options.http.fetch(request)
+      const peer = server.requestIP?.(request)?.address
+      if (options.http?.matches(request) === true)
+        return options.http.fetch(request, peer === undefined ? {} : { ip: peer })
       if (new URL(request.url).pathname !== path) {
         return options.fallback === undefined
           ? new Response("Not found", { status: 404 })
@@ -153,22 +168,29 @@ export function bunHandlers(
         return new Response("Unsupported subprotocol", { status: 426 })
       const upgraded = server.upgrade(request, {
         headers: { "Sec-WebSocket-Protocol": SUBPROTOCOL },
-        data: { connection: undefined },
+        data: {
+          connection: undefined,
+          ...(peer === undefined ? {} : { address: realtime.clientAddress(request.headers, peer) }),
+        },
       })
       return upgraded ? undefined : new Response("Upgrade failed", { status: 400 })
     },
     websocket: {
       maxPayloadLength: 256 * 1024,
       open(ws) {
-        ws.data.connection = realtime.connect({
-          send: (text) => {
-            ws.send(text)
+        const { address } = ws.data
+        ws.data.connection = realtime.connect(
+          {
+            send: (text) => {
+              ws.send(text)
+            },
+            close: (code, reason) => ws.close(code, reason),
+            get bufferedAmount() {
+              return ws.getBufferedAmount()
+            },
           },
-          close: (code, reason) => ws.close(code, reason),
-          get bufferedAmount() {
-            return ws.getBufferedAmount()
-          },
-        })
+          address === undefined ? {} : { address },
+        )
       },
       message(ws, message) {
         if (typeof message !== "string") {
@@ -190,7 +212,7 @@ export function bunHandlers(
  * before any body parser.
  */
 export function toNodeHandler(transport: HttpTransport): NodeListener {
-  return toNodeListener((request) => transport.fetch(request), {
+  return toNodeListener((request, info) => transport.fetch(request, info), {
     matches: (url) => transport.matches(new Request(url)),
   })
 }

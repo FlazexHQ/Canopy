@@ -12,18 +12,34 @@ import {
   createComputed,
   createContext,
   createSignal,
+  type JSX,
   onCleanup,
   useContext,
 } from "solid-js"
 
-/** The context the client is provided through: `<CanopyContext.Provider value={canopy}>`. */
+/** The context the client is provided through, usually by {@link CanopyProvider}. */
 export const CanopyContext = createContext<CanopyClient | undefined>(undefined)
+
+/** Props of {@link CanopyProvider}. */
+export interface CanopyProviderProps<DB extends Schema<DB>> {
+  readonly client: CanopyClient<DB>
+  readonly children?: JSX.Element
+}
+
+/** Provides a client, typed or not, to {@link useCanopy} in the components below it. */
+export function CanopyProvider<DB extends Schema<DB>>(props: CanopyProviderProps<DB>): JSX.Element {
+  return CanopyContext.Provider({
+    value: props.client as unknown as CanopyClient,
+    get children() {
+      return props.children
+    },
+  })
+}
 
 /** Returns the client from {@link CanopyContext}. Pass the schema to get it back typed. */
 export function useCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB> {
   const client = useContext(CanopyContext)
-  if (client === undefined)
-    throw new Error("useCanopy needs <CanopyContext.Provider value={client}>")
+  if (client === undefined) throw new Error("useCanopy needs <CanopyProvider client={client}>")
   return client as unknown as CanopyClient<DB>
 }
 
@@ -61,7 +77,9 @@ export function createQuery<T>(query: LiveQuery<T> | Accessor<LiveQuery<T>>): Qu
 }
 
 /** The connection status as a signal. */
-export function createCanopyStatus(client: CanopyClient = useCanopy()): Accessor<ConnectionStatus> {
+export function createCanopyStatus<DB extends Schema<DB> = UntypedSchema>(
+  client: CanopyClient<DB> = useCanopy<DB>(),
+): Accessor<ConnectionStatus> {
   const [status, setStatus] = createSignal(client.connectionStatus)
   onCleanup(client.onStatus((next) => setStatus(() => next)))
   return status

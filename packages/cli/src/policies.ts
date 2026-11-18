@@ -32,7 +32,9 @@ export function cliActor(): Actor {
   let user = "unknown"
   try {
     user = userInfo().username
-  } catch {}
+  } catch {
+    // Some containers have no passwd entry for the user; the actor stays "unknown".
+  }
   return { type: "system", id: `cli:${user}` }
 }
 

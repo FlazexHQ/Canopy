@@ -76,7 +76,9 @@ export function createQuery<T>(query: LiveQuery<T>): Query<T> {
 }
 
 /** The connection status, reactive like {@link createQuery}, with the store contract as well. */
-export function canopyStatus(client: CanopyClient): {
+export function canopyStatus<DB extends Schema<DB>>(
+  client: CanopyClient<DB>,
+): {
   readonly current: ConnectionStatus
   subscribe(run: (status: ConnectionStatus) => void): () => void
 } {

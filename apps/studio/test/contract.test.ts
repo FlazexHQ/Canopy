@@ -22,6 +22,11 @@ const NOT_IN_MOCK = [
   "GET contexts/history",
   "POST contexts/rollback",
   "POST users/import",
+  "GET webhooks",
+  "GET webhooks/dead-letters",
+  "POST webhooks/dead-letters/:/retry",
+  "DELETE webhooks/dead-letters/:",
+  "POST webhooks/:/run",
 ]
 
 const shape = (route: string): string =>

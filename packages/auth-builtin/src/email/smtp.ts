@@ -1,5 +1,6 @@
 import { connect as connectTcp, type Socket } from "node:net"
 import { connect as connectTls, type TLSSocket } from "node:tls"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import type { EmailMessage, EmailTransport } from "./transport.ts"
 
 /** Settings of an SMTP relay. */
@@ -91,7 +92,10 @@ class Connection {
     const reply = await this.read()
     if (!expect.includes(reply.code)) {
       const verb = line.split(" ")[0] ?? line
-      throw new Error(`The SMTP server answered ${verb} with ${reply.code}`)
+      throw new CanopyError(
+        ErrorCode.Unavailable,
+        `The SMTP server answered ${verb} with ${reply.code}`,
+      )
     }
     return reply
   }
@@ -150,14 +154,19 @@ function base64Lines(text: string): string {
 function address(value: string): string {
   const match = /<([^>]+)>\s*$/.exec(value)
   const bare = (match?.[1] ?? value).trim()
-  if (/[\r\n<>]/.test(bare)) throw new Error("Invalid email address")
+  if (/[\r\n<>]/.test(bare))
+    throw new CanopyError(ErrorCode.ValidationFailed, "Invalid email address")
   return bare
 }
 
 /** Builds an RFC 5322 message with a text part and an optional HTML part, both base64 encoded. */
 export function buildMime(message: EmailMessage, now: Date = new Date()): string {
   for (const value of [message.from, message.to, message.subject])
-    if (/[\r\n]/.test(value)) throw new Error("Email headers must not contain line breaks")
+    if (/[\r\n]/.test(value))
+      throw new CanopyError(
+        ErrorCode.ValidationFailed,
+        "Email headers must not contain line breaks",
+      )
   const domain = address(message.from).split("@")[1] ?? "localhost"
   const id = `${crypto.randomUUID()}@${domain}`
   const head = [
@@ -239,7 +248,11 @@ export function smtp(options: SmtpOptions): EmailTransport {
       signal?.addEventListener("abort", abort, { once: true })
       try {
         const greeting = await connection.read()
-        if (greeting.code !== 220) throw new Error(`The SMTP server greeted with ${greeting.code}`)
+        if (greeting.code !== 220)
+          throw new CanopyError(
+            ErrorCode.Unavailable,
+            `The SMTP server greeted with ${greeting.code}`,
+          )
         let hello = await connection.command(`EHLO ${name}`, [250])
         const offers = (keyword: string): boolean =>
           hello.lines.some((line) => line.toUpperCase().startsWith(keyword))
@@ -249,7 +262,10 @@ export function smtp(options: SmtpOptions): EmailTransport {
           hello = await connection.command(`EHLO ${name}`, [250])
         }
         if (requireTls && !connection.encrypted)
-          throw new Error("The SMTP server does not offer STARTTLS; refusing to send in clear text")
+          throw new CanopyError(
+            ErrorCode.Unavailable,
+            "The SMTP server does not offer STARTTLS; refusing to send in clear text",
+          )
         if (options.user !== undefined) {
           const token = Buffer.from(`\u0000${options.user}\u0000${options.pass ?? ""}`).toString(
             "base64",
@@ -263,7 +279,10 @@ export function smtp(options: SmtpOptions): EmailTransport {
         connection.write(`${body}\r\n.\r\n`)
         const accepted = await connection.read()
         if (accepted.code !== 250)
-          throw new Error(`The SMTP server refused the message with ${accepted.code}`)
+          throw new CanopyError(
+            ErrorCode.Unavailable,
+            `The SMTP server refused the message with ${accepted.code}`,
+          )
         await connection.command("QUIT", [221]).catch(() => undefined)
       } finally {
         signal?.removeEventListener("abort", abort)

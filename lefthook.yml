@@ -4,3 +4,10 @@ pre-commit:
     biome:
       glob: "*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,json,jsonc,css}"
       run: bunx biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+    repo-check:
+      run: bun tools/repo-check/src/cli.ts workspace dashes
+
+commit-msg:
+  commands:
+    repo-check:
+      run: bun tools/repo-check/src/cli.ts commit-msg {1}

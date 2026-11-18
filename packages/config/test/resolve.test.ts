@@ -69,11 +69,30 @@ describe("resolveConfig", () => {
     expect(config.server).toEqual({
       port: 8080,
       metricsPort: 9464,
+      metricsHost: "127.0.0.1",
+      metricsToken: undefined,
       adminListen: undefined,
       nodeId: "n1",
       trustedProxies: [],
     })
     expect(config.cors).toBeUndefined()
+  })
+
+  it("binds metrics to loopback unless told otherwise, and keeps the metrics token secret", () => {
+    const resolution = resolve(
+      { mongodb: { uri: URI } },
+      { METRICS_HOST: "0.0.0.0", CANOPY_METRICS_TOKEN: "a-long-metrics-token" },
+    )
+    expect(resolution.config.server.metricsHost).toBe("0.0.0.0")
+    expect(resolution.config.server.metricsToken).toBe("a-long-metrics-token")
+    const text = formatConfig(resolution, { sources: true })
+    expect(text).not.toContain("a-long-metrics-token")
+    expect(text).toContain('server.metricsToken = "••••"  (env CANOPY_METRICS_TOKEN)')
+    expect(
+      problems(() => resolve({ mongodb: { uri: URI }, server: { metricsToken: "short" } })).map(
+        (problem) => problem.path,
+      ),
+    ).toEqual(["server.metricsToken"])
   })
 
   it("resolves env markers with their types and defaults", () => {
@@ -323,6 +342,25 @@ describe("resolveConfig", () => {
     ).toEqual(["auth.audience"])
   })
 
+  it("accepts an inline key set only with a keys array of objects", () => {
+    const key = { kty: "OKP", crv: "Ed25519", x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo" }
+    const auth = resolve({
+      mongodb: { uri: URI },
+      auth: external({ jwks: { keys: [key] }, issuer: "i", audience: "a" }),
+    }).config.auth
+    expect(auth).toMatchObject({ jwks: { keys: [key] } })
+    for (const jwks of [{}, { keys: key }, { keys: [key, "k2"] }])
+      expect(
+        problems(() =>
+          resolve({
+            mongodb: { uri: URI },
+            auth: external({ jwks, issuer: "i", audience: "a" } as never),
+          }),
+        ).map((problem) => problem.path),
+        JSON.stringify(jwks),
+      ).toEqual(["auth.jwks"])
+  })
+
   it("enforces production rules", () => {
     const production = { CANOPY_ENV: "production" }
     expect(
@@ -500,5 +538,176 @@ describe("GraphQL settings", () => {
         }),
       ).map((problem) => problem.path),
     ).toEqual(["collections.people.typeName", "collections.people.relations.team"])
+  })
+})
+
+describe("rateLimits", () => {
+  const DEFAULTS = {
+    requests: { perSecond: 50, burst: 200 },
+    messages: { perSecond: 20, burst: 100 },
+    anonymousConnectionsPerAddress: 50,
+    failedAuthentications: { perSecond: 1, burst: 30 },
+    exemptService: true,
+  }
+
+  it("is on by default, with limits ordinary apps do not reach", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.rateLimits).toEqual(DEFAULTS)
+    expect(resolve({ mongodb: { uri: URI }, rateLimits: true }).config.rateLimits).toEqual(DEFAULTS)
+  })
+
+  it("takes overrides from the file and from variables", () => {
+    const { config, sources } = resolve(
+      { mongodb: { uri: URI }, rateLimits: { requests: { perSecond: 5 } } },
+      {
+        CANOPY_RATE_LIMIT_REQUEST_BURST: "9",
+        CANOPY_RATE_LIMIT_MESSAGES: "3",
+        CANOPY_RATE_LIMIT_MESSAGE_BURST: "4",
+        CANOPY_RATE_LIMIT_ANONYMOUS_CONNECTIONS: "7",
+        CANOPY_RATE_LIMIT_FAILED_AUTH: "2",
+        CANOPY_RATE_LIMIT_FAILED_AUTH_BURST: "6",
+        CANOPY_RATE_LIMIT_EXEMPT_SERVICE: "false",
+      },
+    )
+    expect(config.rateLimits).toEqual({
+      requests: { perSecond: 5, burst: 9 },
+      messages: { perSecond: 3, burst: 4 },
+      anonymousConnectionsPerAddress: 7,
+      failedAuthentications: { perSecond: 2, burst: 6 },
+      exemptService: false,
+    })
+    expect(sources.get("rateLimits.requests.burst")).toMatchObject({
+      kind: "env",
+      name: "CANOPY_RATE_LIMIT_REQUEST_BURST",
+    })
+  })
+
+  it("turns off with false in the file or with CANOPY_RATE_LIMITS=false", () => {
+    expect(resolve({ mongodb: { uri: URI }, rateLimits: false }).config.rateLimits).toBe(false)
+    expect(
+      resolve({ mongodb: { uri: URI } }, { CANOPY_RATE_LIMITS: "false" }).config.rateLimits,
+    ).toBe(false)
+    expect(
+      resolve({ mongodb: { uri: URI }, rateLimits: { enabled: false } }).config.rateLimits,
+    ).toBe(false)
+  })
+
+  it("refuses a bucket that could never hold a token, and a variable against a disabled file", () => {
+    expect(
+      problems(() =>
+        resolve({ mongodb: { uri: URI }, rateLimits: { requests: { perSecond: 0, burst: 0 } } }),
+      ).map((problem) => problem.path),
+    ).toEqual(["rateLimits.requests.perSecond", "rateLimits.requests.burst"])
+    expect(
+      problems(() =>
+        resolve({ mongodb: { uri: URI }, rateLimits: false }, { CANOPY_RATE_LIMIT_REQUESTS: "5" }),
+      )[0]?.path,
+    ).toBe("rateLimits.requests.perSecond")
+  })
+})
+
+describe("webhooks", () => {
+  const SECRET = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw"
+
+  it("defaults to no hooks, eight attempts and a ten second timeout", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.webhooks).toEqual({
+      secret: undefined,
+      maxAttempts: 8,
+      timeoutMs: 10_000,
+      triggers: {},
+      schedules: {},
+    })
+  })
+
+  it("resolves triggers and schedules, with every operation by default and the secret from the environment", () => {
+    const resolution = resolve(
+      {
+        mongodb: { uri: URI },
+        webhooks: {
+          timeout: "3s",
+          triggers: {
+            placed: { collection: "orders", filter: { status: "placed" }, url: env("HOOK_URL") },
+          },
+          schedules: {
+            nightly: { cron: "@daily", url: "https://fn.example.com/n", body: { a: 1 } },
+          },
+        },
+      },
+      { CANOPY_WEBHOOK_SECRET: SECRET, HOOK_URL: "https://hooks.example.com/placed" },
+    )
+    expect(resolution.config.webhooks).toEqual({
+      secret: SECRET,
+      maxAttempts: 8,
+      timeoutMs: 3000,
+      triggers: {
+        placed: {
+          collection: "orders",
+          operations: ["insert", "update", "replace", "delete"],
+          filter: { status: "placed" },
+          url: "https://hooks.example.com/placed",
+        },
+      },
+      schedules: { nightly: { cron: "@daily", url: "https://fn.example.com/n", body: { a: 1 } } },
+    })
+    expect(formatConfig(resolution)).not.toContain(SECRET)
+  })
+
+  it("reports missing secrets, bad names, cron expressions, URLs and shared names together", () => {
+    expect(
+      problems(() =>
+        resolve({
+          mongodb: { uri: URI },
+          webhooks: {
+            maxAttempts: 0,
+            triggers: {
+              "1bad": { collection: "orders", url: "https://a.example.com" },
+              noCollection: { collection: "system.views", url: "https://a.example.com" },
+              ftp: { collection: "orders", url: "ftp://a.example.com" },
+              shared: {
+                collection: "orders",
+                operations: ["insert"],
+                url: "https://a.example.com",
+              },
+            },
+            schedules: {
+              never: { cron: "0 0 30 2 *", url: "https://a.example.com" },
+              shared: { cron: "@hourly", url: "https://a.example.com" },
+              typo: { cron: "61 * * * *", url: "https://a.example.com" },
+            },
+          },
+        }),
+      ).map((problem) => problem.path),
+    ).toEqual([
+      "webhooks.maxAttempts",
+      "webhooks.triggers.1bad",
+      "webhooks.triggers.noCollection.collection",
+      "webhooks.triggers.ftp.url",
+      "webhooks.schedules.never.cron",
+      "webhooks.schedules.shared",
+      "webhooks.schedules.typo.cron",
+      "webhooks.secret",
+    ])
+  })
+
+  it("refuses a short secret and an operation that is not a change", () => {
+    const found = problems(() =>
+      resolve({
+        mongodb: { uri: URI },
+        webhooks: {
+          secret: "short",
+          triggers: {
+            a: {
+              collection: "orders",
+              operations: ["insert", "drop" as never],
+              url: "https://a.example.com",
+            },
+          },
+        },
+      }),
+    )
+    expect(found.map((problem) => problem.path)).toEqual([
+      "webhooks.triggers.a.operations",
+      "webhooks.secret",
+    ])
+    expect(found[1]?.message).toMatch(/at least 16/)
   })
 })

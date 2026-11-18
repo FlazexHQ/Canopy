@@ -102,7 +102,9 @@ export function registerRealtime(route: RouteFn, deps: AdminDeps): void {
           close()
           try {
             controller.close()
-          } catch {}
+          } catch {
+            // The client already cancelled the stream.
+          }
         })
       },
       cancel: close,

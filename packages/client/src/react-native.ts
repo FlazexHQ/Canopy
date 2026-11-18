@@ -1,4 +1,4 @@
-import type { LifecycleSource } from "./client.ts"
+import type { LifecycleSource } from "./client-types.ts"
 
 /** The part of React Native's `AppState` the lifecycle uses. */
 export interface AppStateLike {

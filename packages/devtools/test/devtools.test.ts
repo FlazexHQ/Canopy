@@ -1,4 +1,4 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { attachDevtools, watchMistakes } from "../src/index.ts"
 
@@ -69,6 +69,23 @@ const cells = (): string[] =>
   [...document.querySelectorAll("[data-canopy-devtools] td")].map((cell) => cell.textContent ?? "")
 
 describe("devtools panel", () => {
+  it("attaches to a client typed with a generated schema", () => {
+    const typed = new CanopyClient<
+      DocumentSchema<{ todos: { readonly _id: string; done: boolean } }>
+    >({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: Socket,
+      lifecycle: false,
+    })
+    const devtools = attachDevtools(typed, { open: true, warnings: false })
+    const stop = watchMistakes(typed, { warn: () => {} })
+    expect(document.querySelector("[data-canopy-devtools]")).not.toBeNull()
+    stop()
+    devtools.destroy()
+    typed.close()
+  })
+
   it("shows the connection, subscriptions and the protocol log", async () => {
     const { client, socket } = await connected()
     const devtools = attachDevtools(client, { open: true, warnings: false })
@@ -115,6 +132,30 @@ describe("devtools panel", () => {
     )
     devtools.destroy()
     expect(document.querySelector("[data-canopy-devtools]")).toBeNull()
+  })
+
+  it("keeps tokens and secret keys out of the protocol log and the panel", async () => {
+    const client = new CanopyClient({
+      url: "http://canopy.test",
+      publishableKey: "canopy_sk_do_not_show",
+      WebSocket: Socket,
+      lifecycle: false,
+      auth: { getToken: () => "header.payload.signature" },
+    })
+    clients.push(client)
+    const devtools = attachDevtools(client, { open: true, warnings: false })
+    await flush()
+    const hello = devtools.log.find((entry) => entry.type === "hello")
+    expect(hello?.direction).toBe("out")
+    for (const entry of devtools.log) {
+      expect(entry.text).not.toContain("header.payload.signature")
+      expect(entry.text).not.toContain("canopy_sk_do_not_show")
+    }
+    ;[...document.querySelectorAll("button")].find((node) => node.textContent === "Log")?.click()
+    expect(document.body.textContent).not.toContain("header.payload.signature")
+    expect(document.body.textContent).not.toContain("canopy_sk_do_not_show")
+    expect(document.body.textContent).toContain("hello")
+    devtools.destroy()
   })
 
   it("discards a pending mutation from the panel", async () => {

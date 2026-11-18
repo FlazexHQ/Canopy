@@ -27,14 +27,40 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
+      - name: Repository rules (workspace layout and dashes)
+        run: bun tools/repo-check/src/cli.ts workspace dashes
+      - name: Licenses of what the published packages install (MIT, Apache 2.0, BSD, ISC)
+        run: bun packages/testing/scripts/licenses.ts
       - run: bun run typecheck
       - name: Unused exports
         run: bun run lint:exports
       - name: Every public export is documented
         run: bun run lint:docs
-      - name: Bundle size budgets
-        run: bunx size-limit
+      - name: Package READMEs are up to date and every TypeScript snippet of the READMEs and docs compiles
+        run: bun run lint:snippets
+      - name: The committed public API files match the code
+        run: bun run lint:api
       - run: bun --bun vitest run
+
+  install:
+    name: Install test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Pack every package, install the tarballs with Bun, npm, pnpm and Yarn, import every entry point
+        run: bun packages/testing/scripts/install-test.ts --build
 
   docs:
     name: Docs site
@@ -83,6 +109,7 @@ jobs:
         runtime: [bun, "24", "26"]
     env:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      CANOPY_REQUIRE_MONGODB: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -95,6 +122,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - name: Let the canopy dev --with-mongo test run the same mongod
+        shell: bash
+        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
       - if: matrix.runtime == 'bun'
         run: bunx biome ci .
       - if: matrix.runtime == 'bun'
@@ -114,6 +144,7 @@ jobs:
           exe=""
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          "binaries/canopy$exe" --version
           "binaries/canopy$exe" policies lint --dir policies
           MONGODB_URI="$CANOPY_TEST_MONGODB_URI" CANOPY_DB=binary CANOPY_POLICIES=policies \
             CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
@@ -125,6 +156,7 @@ jobs:
           done
           curl -fsS -X POST 127.0.0.1:18090/rest/v1/notes -H "apikey: sk_ci" \
             -H "content-type: application/json" -d '{"ownerId":"user_1"}' || { cat server.log; exit 1; }
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci || { cat server.log; exit 1; }
           if [ "$RUNNER_OS" = "Windows" ]; then
             kill "$server"
           else
@@ -162,17 +194,19 @@ jobs:
         run: node node_modules/vitest/vitest.mjs run ${{ matrix.mongo == '8.0.34' && '--coverage --testTimeout=60000' || '' }}
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CANOPY_REQUIRE_MONGODB: "1"
       - name: Integration and differential tests (Bun)
         run: bun --bun vitest run
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CANOPY_REQUIRE_MONGODB: "1"
       - if: failure()
         run: docker compose -f deploy/compose/dev.yaml logs mongo
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   e2e:
-    name: Browser end to end tests (todo-react, Playwright)
+    name: Browser end to end tests (todo-react, auth-notes, graphql-vue and next-ssr, Playwright)
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -191,6 +225,23 @@ jobs:
         run: node node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Multi tab, multi user and offline tests
         working-directory: examples/todo-react
+        run: node node_modules/@playwright/test/cli.js test
+        env:
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      - name: Sign up, sign in and private live notes (auth-notes)
+        working-directory: examples/auth-notes
+        run: node node_modules/@playwright/test/cli.js test
+        env:
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      - name: GraphQL queries, mutations and live Vue updates (graphql-vue)
+        working-directory: examples/graphql-vue
+        run: node node_modules/@playwright/test/cli.js test
+        env:
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      - name: Build the packages Next.js consumes
+        run: bun run build
+      - name: Server rendering and hydration with Next.js (next-ssr)
+        working-directory: examples/next-ssr
         run: node node_modules/@playwright/test/cli.js test
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
@@ -268,6 +319,7 @@ jobs:
         working-directory: ${{ runner.temp }}
         run: |
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          binaries/canopy-linux-x64 --version
           binaries/canopy-linux-x64 policies lint --dir policies
           MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary \
             CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
@@ -278,6 +330,7 @@ jobs:
           done
           curl -fsS -X POST localhost:18090/rest/v1/notes -H "apikey: sk_ci" \
             -H "content-type: application/json" -d '{"ownerId":"user_1"}'
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
           kill -TERM %1
           wait %1
           grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
@@ -302,3 +355,23 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - run: bun install --frozen-lockfile
       - run: bunx changeset status --since=origin/${{ github.base_ref }}
+
+  commit-rules:
+    name: Commit messages
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - name: Conventional Commits, sign off and dashes
+        run: |
+          for sha in $(git rev-list --no-merges "origin/${{ github.base_ref }}..HEAD"); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
+            bun tools/repo-check/src/cli.ts commit-msg "$RUNNER_TEMP/message"
+          done

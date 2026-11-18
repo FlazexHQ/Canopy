@@ -1,0 +1,7 @@
+{
+  "source": "node v26.12.1, MongoDB 8.0.34, lowest of 3 runs",
+  "ratios": {
+    "fanout per user, 1k connections, 1k writes/s: plain change stream p50 ÷ delivery p50": 0.896,
+    "fanout shared query, 1k connections, 20 writes/s: plain change stream p50 ÷ delivery p50": 0.83
+  }
+}

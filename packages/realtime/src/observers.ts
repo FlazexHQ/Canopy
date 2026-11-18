@@ -49,6 +49,12 @@ export interface ObserverListener {
 export interface MembershipHooks {
   memberAdded(observer: Observer, key: string): void
   memberRemoved(observer: Observer, key: string): void
+  /**
+   * Called when the observer starts and stops reading a snapshot. While it reads, it must see every event of
+   * its collection: it does not know its members yet, and a delete or an update that moves a document out of
+   * the query would otherwise miss it and leave the document from the older snapshot in place.
+   */
+  buffering(observer: Observer, on: boolean): void
 }
 
 /** The observer types: in process filter, sorted window, and MongoDB polling. */
@@ -73,7 +79,7 @@ interface Member {
 }
 
 function sameDoc(a: Doc, b: Doc): boolean {
-  return canonicalString(a) === canonicalString(b)
+  return a === b || canonicalString(a) === canonicalString(b)
 }
 
 /**
@@ -205,6 +211,7 @@ export abstract class Observer {
       return
     }
     this.refreshing = true
+    this.hooks.buffering(this, true)
     const before = initial ? new Map<string, Member>() : new Map(this.visible())
     this.reader
       .read({
@@ -216,6 +223,7 @@ export abstract class Observer {
       .then(
         ({ docs, ct }) => {
           this.refreshing = false
+          this.hooks.buffering(this, false)
           if (this.state === "failed") return
           const pending = this.buffered
           this.buffered = []
@@ -251,6 +259,7 @@ export abstract class Observer {
         },
         (error: unknown) => {
           this.refreshing = false
+          this.hooks.buffering(this, false)
           this.fail(
             error instanceof CanopyError
               ? error
@@ -275,6 +284,8 @@ export abstract class Observer {
     if (this.state === "failed") return
     this.state = "failed"
     this.failure = error
+    this.buffered = []
+    this.hooks.buffering(this, false)
     for (const key of [...this.trackedKeys()]) this.hooks.memberRemoved(this, key)
     const all = [...this.listeners, ...this.waiting]
     this.listeners.clear()
@@ -306,7 +317,7 @@ export abstract class Observer {
     for (const [key, member] of after) {
       const previous = before.get(key)
       if (previous === undefined) this.notifyAdded(key, member.id, member.doc, ct)
-      else if (!sameDoc(previous.doc, member.doc))
+      else if (previous !== member && !sameDoc(previous.doc, member.doc))
         this.notifyChanged(key, member.id, member.doc, ct)
     }
   }
@@ -587,7 +598,21 @@ export class PollingObserver extends Observer {
     })
   }
 
+  protected override readLimit(): number {
+    const cap = this.limits.maxTrackedDocs + 1
+    return this.query.limit === undefined ? cap : Math.min(this.query.limit, cap)
+  }
+
   protected load(docs: readonly Doc[]): void {
+    if (docs.length > this.limits.maxTrackedDocs) {
+      this.fail(
+        new CanopyError(
+          ErrorCode.SubscriptionTooLarge,
+          `The subscription matches more than ${this.limits.maxTrackedDocs} documents; add a limit`,
+        ),
+      )
+      return
+    }
     for (const key of this.members.keys()) this.hooks.memberRemoved(this, key)
     this.members = new Map()
     this.order = []

@@ -63,17 +63,19 @@ function argumentValue(node: ValueNode, variables: Readonly<Record<string, unkno
   return valueFromASTUntyped(node, variables)
 }
 
-/** The multiplier a field puts on its subtree: its `limit` argument, or that argument's default. */
+/**
+ * The multiplier a field puts on its subtree: its `limit` argument, or that argument's default when the
+ * argument is left out, null, or a variable without a value.
+ */
 function multiplier(
   field: GraphQLField<unknown, unknown> | undefined,
   args: readonly { readonly name: { readonly value: string }; readonly value: ValueNode }[],
   variables: Readonly<Record<string, unknown>>,
 ): number {
   const given = args.find((arg) => arg.name.value === "limit")
-  const value =
-    given === undefined
-      ? field?.args.find((arg) => arg.name === "limit")?.defaultValue
-      : argumentValue(given.value, variables)
+  const fallback = field?.args.find((arg) => arg.name === "limit")?.defaultValue
+  const supplied = given === undefined ? undefined : argumentValue(given.value, variables)
+  const value = supplied === undefined || supplied === null ? fallback : supplied
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 1
 }
 
@@ -145,7 +147,17 @@ export function measureOperation(
       : operation.operation === "mutation"
         ? schema.getMutationType()
         : schema.getSubscriptionType()
-  const walk: Walk = { schema, fragments, variables: variables ?? {}, aliases: 0, depth: 0 }
+  const effective: Record<string, unknown> = {}
+  for (const definition of operation.variableDefinitions ?? [])
+    if (definition.defaultValue !== undefined)
+      effective[definition.variable.name.value] = valueFromASTUntyped(definition.defaultValue)
+  const walk: Walk = {
+    schema,
+    fragments,
+    variables: { ...effective, ...variables },
+    aliases: 0,
+    depth: 0,
+  }
   const complexity = cost(walk, operation.selectionSet, root ?? undefined, 1, 1, new Set())
   return { depth: walk.depth, complexity, aliases: walk.aliases }
 }

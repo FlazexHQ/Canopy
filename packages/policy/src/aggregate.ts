@@ -9,6 +9,7 @@ import {
 import { type PolicyEngine, toFilter } from "./engine.ts"
 import { canAccess, toProjection } from "./fields.ts"
 import { type RequestContext, Role } from "./model.ts"
+import { SEARCH_STAGES, secureSearchStage } from "./search.ts"
 
 /** Limits on caller pipelines. */
 export interface PipelineLimits {
@@ -17,6 +18,17 @@ export interface PipelineLimits {
   /** Maximum `$sample` size. */
   readonly maxSample: number
   readonly query: QueryLimits
+}
+
+/** Options of {@link securePipeline}. */
+export interface SecurePipelineOptions {
+  /**
+   * Allows `$search` and `$vectorSearch` as the first stage, for a collection with a search index the app
+   * opted in. @default false
+   */
+  readonly search?: boolean
+  /** The most documents `$vectorSearch` may ask for. @default 1000 */
+  readonly maxSearchResults?: number
 }
 
 /** Default pipeline limits. */
@@ -67,7 +79,13 @@ interface State {
  * because the join runs on the foreign documents before their pipeline does. Stages outside the allowlist
  * (`$out`, `$merge`, `$graphLookup`, `$search`, the diagnostic stages and anything unknown) are rejected,
  * and so are `$function`, `$accumulator`, `$where` and system variables other than `$$NOW`, `$$ROOT`,
- * `$$CURRENT` and `$$REMOVE`. Throws {@link InvalidQueryError}.
+ * `$$CURRENT` and `$$REMOVE`.
+ *
+ * With `options.search`, the pipeline may start with `$search` or `$vectorSearch`; the prefix then follows
+ * that stage, so the search runs over the collection and the policy filters its results before any later
+ * stage. Every field the search uses must be readable for the caller, and operators that can match any
+ * field (`queryString`, `moreLikeThis`, wildcard paths) need every field readable. Throws
+ * {@link InvalidQueryError}.
  */
 export function securePipeline(
   engine: PolicyEngine,
@@ -75,9 +93,36 @@ export function securePipeline(
   pipeline: unknown,
   ctx: RequestContext,
   limits: PipelineLimits = DEFAULT_PIPELINE_LIMITS,
+  options: SecurePipelineOptions = {},
 ): Stage[] {
   const state: State = { engine, ctx, limits, stages: 0 }
-  return [...prefix(state, collection), ...stages(state, pipeline, "The pipeline")]
+  const first: unknown = Array.isArray(pipeline) ? pipeline[0] : undefined
+  const name = isDocument(first) ? Object.keys(first)[0] : undefined
+  if (
+    options.search !== true ||
+    first === undefined ||
+    name === undefined ||
+    !SEARCH_STAGES.has(name)
+  )
+    return [...prefix(state, collection), ...stages(state, pipeline, "The pipeline")]
+  if (!isDocument(first) || Object.keys(first).length !== 1)
+    fail("A stage must have exactly one key")
+  state.stages += 1
+  const searchStage = ctx.roles.has(Role.Service)
+    ? { [name]: first[name] }
+    : secureSearchStage(
+        {
+          readable: engine.readable(collection, ctx),
+          maxResults: options.maxSearchResults ?? 1000,
+        },
+        name,
+        first[name],
+      )
+  return [
+    searchStage,
+    ...prefix(state, collection),
+    ...stages(state, (pipeline as unknown[]).slice(1), "The pipeline"),
+  ]
 }
 
 /** The stages that restrict a collection to what the caller may read. */
@@ -184,6 +229,10 @@ function sanitizeStage(state: State, input: unknown): Stage {
     case "$unionWith":
       return { $unionWith: sanitizeUnion(state, value) }
     default:
+      if (SEARCH_STAGES.has(name) || name === "$searchMeta")
+        fail(
+          `The stage ${name} is not allowed here: only $search and $vectorSearch, as the first stage on a collection with search turned on`,
+        )
       return fail(`The stage ${name} is not allowed`)
   }
 }

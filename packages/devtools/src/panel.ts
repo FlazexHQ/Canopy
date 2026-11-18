@@ -1,4 +1,4 @@
-import type { CanopyClient, StaleMutation } from "@canopy/client"
+import type { CanopyClient, Schema, StaleMutation } from "@canopy/client"
 import { type Frame, framesOf, type WarningOptions, watchMistakes } from "./warnings.ts"
 
 /** One entry of the protocol log. */
@@ -70,6 +70,17 @@ function table(
   return node
 }
 
+const REDACTED = "[redacted]"
+
+/** Hides the credentials a frame carries: user tokens and secret keys. */
+function redact(frame: Frame): Frame {
+  const copy: Record<string, unknown> = { ...frame }
+  if (typeof copy["token"] === "string" && copy["token"] !== "") copy["token"] = REDACTED
+  if (typeof copy["key"] === "string" && copy["key"].startsWith("canopy_sk_"))
+    copy["key"] = REDACTED
+  return copy
+}
+
 function json(value: unknown): string {
   try {
     return JSON.stringify(value)
@@ -85,7 +96,11 @@ function json(value: unknown): string {
  * Development warnings are printed to the console. Built from DOM APIs only, so it works under a strict
  * CSP and with any framework.
  */
-export function attachDevtools(client: CanopyClient, options: DevtoolsOptions = {}): Devtools {
+export function attachDevtools<DB extends Schema<DB>>(
+  typed: CanopyClient<DB>,
+  options: DevtoolsOptions = {},
+): Devtools {
+  const client = typed as unknown as CanopyClient
   const parent = options.parent ?? document.body
   const logSize = options.logSize ?? 200
   const log: LogEntry[] = []
@@ -251,7 +266,7 @@ export function attachDevtools(client: CanopyClient, options: DevtoolsOptions = 
         type: String(frame.t),
         seq: typeof frame.seq === "number" ? frame.seq : undefined,
         ct: typeof frame.ct === "string" ? frame.ct : undefined,
-        text: json(frame),
+        text: json(redact(frame)),
       })
     }
     if (log.length > logSize) log.splice(0, log.length - logSize)

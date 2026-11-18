@@ -18,12 +18,12 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | Command                                  | What it does                                                                            |
 | ---------------------------------------- | --------------------------------------------------------------------------------------- |
 | `canopy init [--mongodb-uri <uri>]`      | Adds `canopy/` with the config, starter policies and `.env.example`; never overwrites   |
-| `canopy dev [--with-mongo] [--port <n>]` | Runs Canopy with hot reload; `--with-mongo` starts a replica set in Docker              |
+| `canopy dev [--with-mongo] [--port <n>]` | Runs Canopy with hot reload; `--with-mongo` starts a replica set (Docker, else binaries) |
 | `canopy doctor`                          | Checks MongoDB, change streams, policies and indexes; exits 1 on errors                 |
 | `canopy policies lint`                   | Validates and lints the policy directory                                                |
 | `canopy policies test`                   | Runs policy tests in memory and, with `--mongodb-uri`, against MongoDB                  |
 | `canopy policies explain <collection>`   | Shows how policies decide an operation (`--as`, `--roles`, `--op`, `--filter`, `--ctx`) |
-| `canopy gen types [--check]`             | Generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`)         |
+| `canopy gen types [--check \| --watch]` | Generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`); `--watch` regenerates on policy and collection changes |
 | `canopy config print [--sources]`        | Prints the resolved config, secrets masked                                              |
 
 ## Database changes
@@ -59,7 +59,10 @@ requests and `canopy policies push --env production --comment "$GIT_SHA"` on mer
 ## Remote projects
 
 `canopy login <url> [--env <name>]` checks an admin token and stores it in the OS keychain (macOS Keychain,
-the Linux Secret Service, or a credentials file elsewhere). With `--env <name>`, `policies push`, `diff`,
+the Linux Secret Service). On Windows the token goes to `%APPDATA%\canopy\credentials.json`, encrypted for
+your Windows account with DPAPI (the protection Credential Manager uses; any program running as you can
+still decrypt it, as with the other keychains), and a token that an older version saved in plain text is
+encrypted the next time it is read. Elsewhere without a keychain it is a credentials file with mode 0600. With `--env <name>`, `policies push`, `diff`,
 `pull`, `history`, `rollback`, `auth import` and `admin tokens` work on that project through its admin API.
 `CANOPY_ADMIN_URL` and `CANOPY_ADMIN_TOKEN` override the stored login, which is how CI jobs authenticate.
 `canopy logout <url>` removes the token.

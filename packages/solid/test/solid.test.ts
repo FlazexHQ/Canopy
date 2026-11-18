@@ -1,8 +1,14 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
 import { loadVectors, runVector } from "@canopy/testing/vectors"
 import { createRoot, createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { CanopyContext, createCanopyStatus, createQuery, useCanopy } from "../src/index.ts"
+import {
+  CanopyContext,
+  CanopyProvider,
+  createCanopyStatus,
+  createQuery,
+  useCanopy,
+} from "../src/index.ts"
 
 class Socket implements WebSocketLike {
   static last: Socket | undefined
@@ -115,6 +121,44 @@ describe("Solid", () => {
     client.close()
   })
 
+  it("shows a refused subscription through the error accessor", async () => {
+    const client = newClient()
+    await flush()
+    const socket = Socket.last as Socket
+    socket.push({
+      t: "welcome",
+      seq: 0,
+      sid: "s",
+      v: 1,
+      resumed: false,
+      hb: 25000,
+      pv: "p",
+      ct: "1",
+      caps: [],
+      limits: {},
+    })
+    await flush()
+    const { query, dispose } = createRoot((dispose) => ({
+      query: createQuery(client.live("secrets", {})),
+      dispose,
+    }))
+    await flush()
+    expect(query.error()).toBeUndefined()
+    const sub = socket.sent.find((m) => m["t"] === "sub")?.["id"]
+    socket.push({
+      t: "nosub",
+      seq: 1,
+      s: sub,
+      err: { code: "CANOPY_FORBIDDEN", msg: "Not allowed to read secrets" },
+    })
+    await flush()
+    expect(query.status()).toBe("error")
+    expect(query.error()?.message).toBe("Not allowed to read secrets")
+    expect(query.state().error).toBe(query.error())
+    dispose()
+    client.close()
+  })
+
   it("reads the client from context", () => {
     const client = newClient()
     let found: unknown
@@ -129,7 +173,33 @@ describe("Solid", () => {
       dispose()
     })
     expect(found).toBe(client)
-    expect(() => createRoot(() => useCanopy())).toThrow(/CanopyContext/)
+    expect(() => createRoot(() => useCanopy())).toThrow(/CanopyProvider/)
+    client.close()
+  })
+
+  it("provides a typed client through CanopyProvider", () => {
+    type Typed = DocumentSchema<{ todos: { readonly _id: string; title: string } }>
+    const client = new CanopyClient<Typed>({
+      url: "http://canopy.test",
+      publishableKey: "pk",
+      WebSocket: Socket,
+      lifecycle: false,
+    })
+    let found: CanopyClient<Typed> | undefined
+    let status: string | undefined
+    createRoot((dispose) => {
+      CanopyProvider({
+        client,
+        get children() {
+          found = useCanopy<Typed>()
+          status = createCanopyStatus<Typed>()()
+          return null
+        },
+      })
+      dispose()
+    })
+    expect(found).toBe(client)
+    expect(status).toBe(client.connectionStatus)
     client.close()
   })
 })

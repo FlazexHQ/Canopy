@@ -1,4 +1,9 @@
-export { DEFAULT_PIPELINE_LIMITS, type PipelineLimits, securePipeline } from "./aggregate.ts"
+export {
+  DEFAULT_PIPELINE_LIMITS,
+  type PipelineLimits,
+  type SecurePipelineOptions,
+  securePipeline,
+} from "./aggregate.ts"
 export {
   type ContextChange,
   type ContextDatabase,
@@ -59,11 +64,14 @@ export {
 export {
   canAccess,
   deniedPaths,
+  deniesTextSearch,
   documentPaths,
   type FieldAccess,
   fieldAccess,
+  immutableViolations,
   intersectProjection,
   projectReadable,
+  TEXT_SEARCH_DENIED,
   toProjection,
 } from "./fields.ts"
 export { checkImplied } from "./implication.ts"
@@ -82,12 +90,15 @@ export {
   type PolicyKind,
   type RequestContext,
   Role,
+  STORAGE_COLLECTION,
 } from "./model.ts"
 export {
   CONTEXT_DOCUMENT_ID,
+  contextsFromStored,
   fromStored,
   hashCollection,
   hashPolicySet,
+  readStored,
   type StoredCollectionPolicies,
   type StoredPolicy,
   toStored,

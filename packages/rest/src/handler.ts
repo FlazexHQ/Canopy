@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto"
-import { type Authenticator, credentialsFromHeaders } from "@canopy/auth"
+import type { Authenticator, RateLimits } from "@canopy/auth"
 import { ContextResolver, type PolicyEngine } from "@canopy/policy"
 import {
   CanopyError,
   ErrorCode,
-  ForbiddenError,
   InvalidQueryError,
   isDocument,
   toCanopyError,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
 import type { MongoClient } from "mongodb"
+import { type CallerOptions, requestCaller } from "./caller.ts"
 import { mongoContextReader } from "./context-reader.ts"
 import { explainRoute } from "./explain-route.ts"
 import {
@@ -40,7 +40,7 @@ import {
 import { DEFAULT_PROBLEM_TYPE_BASE, toProblem } from "./problem.ts"
 import { type FindRequest, type FindResult, type ReadLimits, ReadPath } from "./read-path.ts"
 import { SchemaCache } from "./schema-source.ts"
-import { type WriteLimits, WritePath } from "./write-path.ts"
+import { type WriteEvent, type WriteLimits, WritePath } from "./write-path.ts"
 import { writeRoutes } from "./write-routes.ts"
 
 /** Options for {@link createRestHandler}. */
@@ -57,6 +57,8 @@ export interface RestHandlerOptions {
   /** How the `{id}` segment is read per collection. Collections without an entry use `auto`. */
   readonly idTypes?: Readonly<Record<string, IdType>>
   readonly readLimits?: Partial<ReadLimits>
+  /** Collections whose aggregations may start with `$search` or `$vectorSearch`. */
+  readonly search?: readonly string[]
   readonly writeLimits?: Partial<WriteLimits>
   readonly queryLimits?: QueryLimits
   /** The Canopy meta database, which holds idempotency records. Defaults to `canopy`. */
@@ -82,6 +84,21 @@ export interface RestHandlerOptions {
    * that reads the app database; without a change stream, its results only expire after their `ttl`.
    */
   readonly contexts?: ContextResolver
+  /**
+   * Limits requests per caller. A caller over its budget gets `429` with `Retry-After` and
+   * `CANOPY_RATE_LIMITED`, before any policy or database work. Callers with the `service` role are exempt
+   * unless the limits say otherwise. Counted in memory, so each instance limits on its own.
+   */
+  readonly rateLimits?: RateLimits
+  /**
+   * Explains refused writes in `details.explain` (which policies decided, or which fields). It reveals the
+   * policy structure, so turn it on in development only.
+   */
+  readonly explainDenials?: boolean
+  /** Called after each committed write of the Data API and of everything sharing its write path. */
+  readonly onWrite?: (event: WriteEvent) => void
+  /** Called for every request the rate limits refused, for metrics. */
+  readonly onRateLimited?: () => void
   /** Called with every error that becomes a `5xx` response, for logging. */
   readonly onError?: (error: unknown, request: Request) => void
 }
@@ -91,9 +108,10 @@ export interface RestHandler {
   /**
    * Serves one request. Pass it to `Bun.serve({ fetch })`, `Deno.serve`, a Hono route
    * (`app.all('/rest/v1/*', (c) => rest.fetch(c.req.raw))`) or {@link toNodeListener} for `node:http` and
-   * Express. Never rejects: failures become Problem Details responses.
+   * Express. Never rejects: failures become Problem Details responses. `info.ip` is the socket peer, which
+   * the rate limits turn into the client address (anonymous callers are limited per address).
    */
-  fetch(request: Request): Promise<Response>
+  fetch(request: Request, info?: { readonly ip?: string }): Promise<Response>
   /** The read path, for embedding without HTTP. */
   readonly reads: ReadPath
   /** The write path, shared with realtime mutations when both are embedded. */
@@ -111,8 +129,11 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     policies: options.policies,
     ...(options.readLimits === undefined ? {} : { limits: options.readLimits }),
     ...(options.queryLimits === undefined ? {} : { queryLimits: options.queryLimits }),
+    ...(options.search === undefined ? {} : { search: options.search }),
   })
   const writes = new WritePath({
+    ...(options.onWrite === undefined ? {} : { onWrite: options.onWrite }),
+    ...(options.explainDenials === true ? { explainDenials: true } : {}),
     client: options.client,
     database: options.database,
     policies: options.policies,
@@ -130,6 +151,13 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   const contexts =
     options.contexts ??
     new ContextResolver({ reader: mongoContextReader(options.client.db(options.database)) })
+  const callers: CallerOptions = {
+    authenticator: options.authenticator,
+    policies: engine,
+    contexts,
+    ...(options.rateLimits === undefined ? {} : { rateLimits: options.rateLimits }),
+    ...(options.onRateLimited === undefined ? {} : { onRateLimited: options.onRateLimited }),
+  }
   const schemaCache = options.schemas ?? new SchemaCache(options.client.db(options.database))
   const documents = new Map<string, Record<string, unknown>>()
   const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_BODY_BYTES
@@ -340,7 +368,11 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     return { ...(route === undefined ? {} : { route }), allow: Object.keys(table) }
   }
 
-  const serve = async (request: Request, requestId: string): Promise<Response> => {
+  const serve = async (
+    request: Request,
+    requestId: string,
+    peer: string | undefined,
+  ): Promise<Response> => {
     const url = new URL(request.url)
     const instance = url.pathname
     const encoding = negotiate(request.headers.get("accept"))
@@ -370,26 +402,14 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
         response.headers.set("allow", allow.join(", "))
         return response
       }
-      const credentials = credentialsFromHeaders(request.headers)
-      const principal = await options.authenticator.authenticate(credentials.key, credentials.token)
-      if (principal.readOnly === true)
-        throw new ForbiddenError("A view token only follows data over realtime")
-      const current = engine()
-      const names = current.contextNames(lookupScope(segments), principal.context.roles)
-      const context =
-        names.length === 0
-          ? principal.context
-          : {
-              ...principal.context,
-              ctx: (await contexts.resolve(current.set.contexts, names, principal.context)).ctx,
-            }
+      const caller = await requestCaller(callers, request, peer, lookupScope(segments))
       return await route({
         request,
         url,
         segments,
         encoding,
         prefer: preferencesOf(request.headers),
-        caller: { context, subject: principal.subject },
+        caller,
         requestId,
       })
     } catch (error: unknown) {
@@ -406,11 +426,11 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
   return {
     reads,
     writes,
-    async fetch(request: Request): Promise<Response> {
+    async fetch(request: Request, info: { readonly ip?: string } = {}): Promise<Response> {
       const requestId = requestIdOf(request.headers)
       let response: Response
       try {
-        response = await serve(request, requestId)
+        response = await serve(request, requestId, info.ip)
       } catch (error: unknown) {
         options.onError?.(error, request)
         response = new Response(null, { status: 500 })
