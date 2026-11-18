@@ -23,6 +23,7 @@ import {
 } from "../../components/ui/dialog.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import { t } from "../../i18n/index.ts"
 import { formatEjson, parseEjsonObject } from "../../lib/ejson.ts"
 import { testSnippet } from "./model.ts"
@@ -332,10 +333,9 @@ export function Simulator({
       ) : null}
       <div className="grid gap-1">
         <Label htmlFor={`${id}-op`}>{t("policies.simulator.op")}</Label>
-        <select
+        <NativeSelect
           id={`${id}-op`}
           value={input.op}
-          className="h-9 w-40 rounded-md border border-input bg-background px-2 text-sm"
           onChange={(event) => set({ op: event.target.value as SimulatedOperation })}
         >
           {SIMULATED_OPERATIONS.map((op) => (
@@ -343,7 +343,7 @@ export function Simulator({
               {op}
             </option>
           ))}
-        </select>
+        </NativeSelect>
       </div>
       {input.op === "read" ? (
         <CodeEditor

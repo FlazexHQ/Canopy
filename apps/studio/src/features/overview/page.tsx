@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import { ArrowUpRightIcon, CheckIcon } from "lucide-react"
 import type { ApiKey, CollectionSummary, DoctorReport } from "../../api/contract.ts"
 import { keys, useApi, useSession } from "../../app/context.tsx"
+import { EXPOSURE_BADGE, exposureOf } from "../../app/exposure.ts"
 import {
   EmptyState,
   ErrorState,
@@ -62,17 +63,6 @@ export function checklistOf(
     { id: "realtime", done: list.some((c) => c.realtime), to: "/data" },
   ]
 }
-
-/**
- * What a collection's exposure means for clients of the Data API: not exposed, exposed with no live policy
- * (so every request but the service role's is denied), or exposed and guarded by its live policies.
- */
-export function accessOf(collection: CollectionSummary): "private" | "closed" | "guarded" {
-  if (!collection.exposed) return "private"
-  return (collection.policyCount ?? 0) > 0 ? "guarded" : "closed"
-}
-
-const ACCESS_BADGE = { private: "secondary", closed: "warning", guarded: "success" } as const
 
 function Checklist({ items }: { readonly items: readonly ChecklistItem[] }) {
   const done = items.filter((item) => item.done).length
@@ -167,7 +157,7 @@ function CollectionsBlock({
           </TableHeader>
           <TableBody>
             {list.slice(0, 6).map((collection) => {
-              const access = accessOf(collection)
+              const access = exposureOf(collection)
               return (
                 <TableRow key={collection.name}>
                   <TableCell className="font-medium">
@@ -187,7 +177,7 @@ function CollectionsBlock({
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={ACCESS_BADGE[access]}>
+                    <Badge variant={EXPOSURE_BADGE[access]}>
                       {t(`overview.collections.accessKinds.${access}`)}
                     </Badge>
                   </TableCell>

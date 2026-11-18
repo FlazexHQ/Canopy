@@ -6,6 +6,7 @@ import { ConfirmDialog } from "../../components/confirm-dialog.tsx"
 import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import { t } from "../../i18n/index.ts"
 import {
   exportDocuments,
@@ -37,7 +38,7 @@ function FormatPicker({
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>{t("data.transfer.format")}</Label>
-      <select
+      <NativeSelect
         id={id}
         value={value}
         onChange={(event) => onChange(event.target.value as TransferFormat)}
@@ -48,7 +49,7 @@ function FormatPicker({
             {t(`data.transfer.formats.${format}`)}
           </option>
         ))}
-      </select>
+      </NativeSelect>
     </div>
   )
 }

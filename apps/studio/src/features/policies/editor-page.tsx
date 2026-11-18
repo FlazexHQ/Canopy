@@ -12,9 +12,11 @@ import { ErrorState, LoadingState, PageHeader } from "../../components/states.ts
 import { errorMessage, useToast } from "../../components/toast.tsx"
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert.tsx"
 import { Badge } from "../../components/ui/badge.tsx"
-import { Button, buttonVariants } from "../../components/ui/button.tsx"
+import { Button } from "../../components/ui/button.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
+import { AccessMapView } from "./access-map.tsx"
 import { DiffView } from "./diff-view.tsx"
 import { useDraft } from "./draft-store.ts"
 import { PolicyHistory } from "./history.tsx"
@@ -147,37 +149,45 @@ function Editor({
     permissions.publishPolicies && check.errors.length === 0 && (state.dirty || published === null)
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <Link to="/policies" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-          <ArrowLeftIcon aria-hidden="true" />
-          {t("policies.editor.back")}
-        </Link>
-        <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="draft-status">
-          {state.dirty ? (
-            <Badge variant="warning">{t("policies.editor.draft")}</Badge>
-          ) : published === null ? (
-            <Badge variant="outline">{t("policies.editor.noPublished")}</Badge>
-          ) : (
-            <Badge variant="secondary">
-              {t("policies.editor.upToDate", { version: published.version })}
-            </Badge>
-          )}
-          {state.dirty ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                state.discard()
-                setRevision((value) => value + 1)
-                toast({ title: t("policies.editor.discarded") })
-              }}
-            >
-              {t("policies.editor.discard")}
-            </Button>
-          ) : null}
-        </div>
-      </div>
-      <PageHeader title={collection} description={t("policies.description")} />
+      <PageHeader
+        title={collection}
+        back={
+          <Link
+            to="/policies"
+            className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeftIcon className="size-4" aria-hidden="true" />
+            {t("policies.editor.back")}
+          </Link>
+        }
+        description={t("policies.description")}
+        actions={
+          <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="draft-status">
+            {state.dirty ? (
+              <Badge variant="warning">{t("policies.editor.draft")}</Badge>
+            ) : published === null ? (
+              <Badge variant="outline">{t("policies.editor.noPublished")}</Badge>
+            ) : (
+              <Badge variant="secondary">
+                {t("policies.editor.upToDate", { version: published.version })}
+              </Badge>
+            )}
+            {state.dirty ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  state.discard()
+                  setRevision((value) => value + 1)
+                  toast({ title: t("policies.editor.discarded") })
+                }}
+              >
+                {t("policies.editor.discard")}
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
       {conflict === undefined ? null : (
         <Alert variant="warning" className="mb-4">
           <AlertTitle>{t("policies.publish.conflictTitle")}</AlertTitle>
@@ -209,39 +219,40 @@ function Editor({
           </AlertDescription>
         </Alert>
       )}
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <div className="grid content-start gap-6">
-          {readOnly ? null : (
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="grid gap-1">
-                <label htmlFor="policy-template" className="text-sm font-medium">
-                  {t("policies.editor.template")}
-                </label>
-                <select
-                  id="policy-template"
-                  value={template}
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                  onChange={(event) => setTemplate(event.target.value as TemplateId)}
-                >
-                  {TEMPLATE_IDS.map((id) => (
-                    <option key={id} value={id}>
-                      {t(`policies.editor.templates.${id}`)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <Button variant="outline" onClick={() => setTemplateOpen(true)}>
-                {t("policies.editor.templateApply")}
-              </Button>
+      <div className="grid gap-x-8 gap-y-10 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="grid min-w-0 content-start gap-10">
+          <AccessMapView draft={state.draft} />
+          <Tabs value={view} onValueChange={setView} className="gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold">{t("policies.editor.rules")}</h2>
+              {readOnly ? null : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="policy-template" className="text-sm text-muted-foreground">
+                    {t("policies.editor.template")}
+                  </label>
+                  <NativeSelect
+                    id="policy-template"
+                    value={template}
+                    onChange={(event) => setTemplate(event.target.value as TemplateId)}
+                  >
+                    {TEMPLATE_IDS.map((id) => (
+                      <option key={id} value={id}>
+                        {t(`policies.editor.templates.${id}`)}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                  <Button variant="outline" onClick={() => setTemplateOpen(true)}>
+                    {t("policies.editor.templateApply")}
+                  </Button>
+                </div>
+              )}
             </div>
-          )}
-          <Tabs value={view} onValueChange={setView}>
-            <TabsList aria-label={t("policies.editor.views")}>
+            <TabsList variant="segmented" aria-label={t("policies.editor.views")}>
               <TabsTrigger value="form">{t("policies.editor.form")}</TabsTrigger>
               <TabsTrigger value="ejson">{t("policies.editor.ejson")}</TabsTrigger>
               <TabsTrigger value="ts">{t("policies.editor.ts")}</TabsTrigger>
             </TabsList>
-            <TabsContent value="form" className="mt-4">
+            <TabsContent value="form">
               <PolicyForm
                 draft={state.draft}
                 fields={fields}
@@ -250,7 +261,7 @@ function Editor({
                 onChange={state.setDraft}
               />
             </TabsContent>
-            <TabsContent value="ejson" className="mt-4">
+            <TabsContent value="ejson">
               <EjsonView
                 key={revision}
                 collection={collection}
@@ -259,7 +270,7 @@ function Editor({
                 onChange={state.setDraft}
               />
             </TabsContent>
-            <TabsContent value="ts" className="mt-4 grid gap-2">
+            <TabsContent value="ts" className="grid gap-2">
               <p className="text-sm text-muted-foreground">
                 {t("policies.editor.tsHint", { name: collection })}
               </p>
@@ -278,7 +289,7 @@ function Editor({
           </Tabs>
           <LintPanel collection={collection} draft={state.draft} />
         </div>
-        <div className="grid content-start gap-6">
+        <div className="grid min-w-0 content-start gap-6 xl:sticky xl:top-4 xl:self-start">
           <Simulator
             collection={collection}
             draft={state.draft}
@@ -287,7 +298,7 @@ function Editor({
           />
         </div>
       </div>
-      <div className="sticky bottom-0 mt-6 flex flex-wrap items-center justify-between gap-2 border-t bg-background py-3">
+      <div className="sticky bottom-3 z-10 mt-8 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-background/95 px-4 py-2.5 shadow-lg">
         <span className="text-sm text-muted-foreground">
           {state.dirty ? t("policies.editor.draft") : null}
           {permissions.publishPolicies ? null : t("policies.publish.noPermission")}
@@ -310,11 +321,11 @@ function Editor({
         </div>
       </div>
       {check.errors.length > 0 && permissions.publishPolicies ? (
-        <p className="text-sm text-destructive">{t("policies.publish.blocked")}</p>
+        <p className="mt-2 text-sm text-destructive">{t("policies.publish.blocked")}</p>
       ) : null}
       {showDiff ? (
-        <section aria-labelledby="diff-title" className="mt-4 grid gap-2">
-          <h2 id="diff-title" className="font-semibold">
+        <section aria-labelledby="diff-title" className="mt-8 grid gap-3">
+          <h2 id="diff-title" className="text-base font-semibold">
             {t("policies.diff.title")}
           </h2>
           <DiffView
@@ -324,8 +335,8 @@ function Editor({
           />
         </section>
       ) : null}
-      <section aria-labelledby="history-title" className="mt-8 grid gap-3">
-        <h2 id="history-title" className="font-semibold">
+      <section aria-labelledby="history-title" className="mt-12 grid gap-3">
+        <h2 id="history-title" className="text-base font-semibold">
           {t("policies.history.title")}
         </h2>
         <PolicyHistory

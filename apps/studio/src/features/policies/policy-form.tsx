@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/button.tsx"
 import { Checkbox } from "../../components/ui/checkbox.tsx"
 import { Input } from "../../components/ui/input.tsx"
 import { Label } from "../../components/ui/label.tsx"
+import { NativeSelect } from "../../components/ui/native-select.tsx"
 import { Switch } from "../../components/ui/switch.tsx"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.tsx"
 import { t } from "../../i18n/index.ts"
@@ -294,11 +295,10 @@ function FieldRulesEditor({
               <Label htmlFor={`${rowId}-mode`} className="text-xs">
                 {t("policies.editor.ruleMode")}
               </Label>
-              <select
+              <NativeSelect
                 id={`${rowId}-mode`}
                 value={mode}
                 disabled={readOnly}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
                 onChange={(event) =>
                   write(
                     entries.map((entry, i) =>
@@ -311,7 +311,7 @@ function FieldRulesEditor({
               >
                 <option value="only">{t("policies.editor.ruleOnly")}</option>
                 <option value="omit">{t("policies.editor.ruleOmit")}</option>
-              </select>
+              </NativeSelect>
             </div>
             <div className="grid gap-1">
               <Label htmlFor={`${rowId}-fields`} className="text-xs">

@@ -9,11 +9,33 @@ export const policies = {
     exposed: "Exposed",
     realtime: "Realtime",
     unpublished: "Not published",
+    access: "Data API",
+    summary:
+      "{guarded} of {total} collections guarded by live policies, {closed} exposed with none.",
     open: "Edit policies of {name}",
     empty: "No collections found in the app database.",
   },
+  access: {
+    title: "Who can do what",
+    description: "Worked out from the draft as you edit. The service role bypasses every policy.",
+    role: "Role",
+    withAuthenticated: "with authenticated",
+    grants: "by {names}",
+    limits: "narrowed by {names}",
+    reach: {
+      all: "All documents",
+      matching: "Matching documents",
+      none: "No access",
+    },
+    short: {
+      all: "All",
+      matching: "Matching",
+      none: "None",
+    },
+  },
   editor: {
     back: "All collections",
+    rules: "Rules",
     draft: "Draft (unpublished)",
     upToDate: "Matches published version {version}",
     noPublished: "Nothing published yet",
