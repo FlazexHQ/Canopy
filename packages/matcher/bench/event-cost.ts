@@ -20,7 +20,7 @@ import { benchDocument, runtimeName, SCENARIOS } from "./scenarios.ts"
  *
  * The `gate` section, checked by `packages/testing/scripts/bench-gate.ts` against `bench/event-baseline.json`,
  * holds the Rust over TypeScript ratio of events per second per scenario, per event (`rust per event ÷ ts`,
- * floored at 3) and batched (`rust batched ÷ ts`, reported). The WebAssembly build, when it loads, is measured
+ * floored at 3) and batched (`rust batched ÷ ts`, floored at 3). The WebAssembly build, when it loads, is measured
  * after the others and only reported: per event on the first `CANOPY_BENCH_WASM_EVENTS` events (default 20000,
  * since each call costs tens of microseconds), and batched on all of them.
  *
