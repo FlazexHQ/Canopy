@@ -23,7 +23,24 @@ function vectors<T>(crate: string, file: string): T {
   return JSON.parse(readFileSync(url, "utf8")) as T
 }
 
-const engines: readonly NativeEngine[] = [loadNativeEngine("native"), loadNativeEngine("wasm")]
+/**
+ * The builds of the Rust port under test. A checkout without them (no Rust toolchain) reports these suites as
+ * skipped; when `CANOPY_TEST_ENGINE` names a Rust engine, a missing build fails instead.
+ */
+const required = (process.env["CANOPY_TEST_ENGINE"] ?? "ts") !== "ts"
+
+function built(kind: "native" | "wasm"): NativeEngine | undefined {
+  try {
+    return loadNativeEngine(kind)
+  } catch (error: unknown) {
+    if (required) throw error
+    return undefined
+  }
+}
+
+const engines = [built("native"), built("wasm")].filter(
+  (engine): engine is NativeEngine => engine !== undefined,
+)
 
 function outcome<T>(run: () => T): { value: T } | { error: string; name: string } {
   try {
@@ -37,6 +54,10 @@ function outcome<T>(run: () => T): { value: T } | { error: string; name: string 
 function text(result: Compiled): string {
   return result.kind === "filter" ? canonicalString(result.filter) : result.kind
 }
+
+describe.runIf(engines.length === 0)("the Rust port", () => {
+  it.skip("needs a build: bun --filter @canopy/native build:native", () => undefined)
+})
 
 describe.each(engines.map((engine) => [engine.kind, engine] as const))(
   "the %s engine",
@@ -189,8 +210,8 @@ function recording(): { hooks: EngineHooks; log: string[] } {
   }
 }
 
-describe("the Rust policy engine behind the TypeScript API", () => {
-  const engine = loadNativeEngine("native")
+describe.skipIf(engines.length === 0)("the Rust policy engine behind the TypeScript API", () => {
+  const engine = engines[0] as NativeEngine
   const cases = vectors<{ cases: SetCase[] }>("canopy-policy", "policy.json").cases.filter(
     (test) => test.kind === "set" && test.requests !== undefined,
   )
