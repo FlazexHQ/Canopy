@@ -76,7 +76,7 @@ jobs:
           "$RUNNER_TEMP/zigbuild/bin/pip" install --quiet --only-binary :all: --require-hashes -r "$RUNNER_TEMP/zigbuild.txt"
           echo "$RUNNER_TEMP/zigbuild/bin" >> "$GITHUB_PATH"
       - if: matrix.name == 'linux'
-        run: cargo zigbuild --version && python3 -m ziglang version
+        run: cargo-zigbuild --version && python3 -m ziglang version
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
