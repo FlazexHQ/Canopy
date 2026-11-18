@@ -60,11 +60,17 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add ${{ matrix.targets }} ${{ matrix.rustup }}
-      - name: Restore the Cargo registry and build output (saved from master only)
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          shared-key: release-${{ matrix.name }}
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-release-${{ matrix.name }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-release-${{ matrix.name }}-${{ runner.os }}-${{ runner.arch }}-
       - if: matrix.name == 'linux'
         name: Install Zig and cargo-zigbuild from PyPI, pinned by hash
         run: |
@@ -87,6 +93,16 @@ jobs:
           args=()
           for target in ${{ matrix.targets }}; do args+=(--target "$target"); done
           bun packages/native/scripts/build.ts "${args[@]}" ${{ matrix.flags }} --pack
+      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
+        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-packs-${{ matrix.name }}

@@ -43,15 +43,31 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1-threads
-      - name: Restore the Cargo registry and build output (saved from master only)
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          shared-key: native
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
       - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
         run: bun --filter @canopy/native build:native
+      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
+        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - name: Differential suites (6000 filters on 12000 documents, at least 1M cases per operator, each decided by MongoDB, TypeScript and Rust)
         run: bun --bun vitest run --project matcher --project policy
         env:
@@ -159,15 +175,31 @@ jobs:
           node-version: "24"
       - name: Install the toolchain pinned in rust-toolchain.toml
         run: rustup toolchain install
-      - name: Restore the Cargo registry and build output (saved from master only)
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          shared-key: native
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
       - name: Build the addon (release), so the benchmarks also measure the Rust core
         run: bun --filter @canopy/native build:native --native-only
+      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
+        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - name: Scale benchmark at 100k documents, 3 alternating rounds
         working-directory: packages/rest
         run: npm run bench:scale
@@ -315,17 +347,33 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add wasm32-wasip1-threads
-      - name: Restore the Cargo registry and build output (saved from master only)
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          shared-key: native
-          save-if: ${{ github.ref == 'refs/heads/master' }}
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
       - name: Build the packages, the addon of this platform and the WebAssembly fallback
         shell: bash
         run: |
           bun run build
           bun --filter @canopy/native build:native
+      - name: Save the Cargo registry and build output (master only, so pull requests reuse it)
+        if: github.ref == 'refs/heads/master' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
       - name: Without --allow-ffi the loader takes WebAssembly without asking, with it the addon
         shell: bash
         run: |
