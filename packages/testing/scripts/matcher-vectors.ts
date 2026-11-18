@@ -34,7 +34,7 @@ const runs = Number(values.runs)
 const seed = Number(values.seed)
 const uri = process.env["CANOPY_TEST_MONGODB_URI"]
 if (uri === undefined) {
-  process.stderr.write("CANOPY_TEST_MONGODB_URI must name a MongoDB replica set\n")
+  process.stderr.write("CANOPY_TEST_MONGODB_URI must name a MongoDB server\n")
   process.exit(1)
 }
 
