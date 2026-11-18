@@ -1,10 +1,10 @@
+import { selectEngine } from "@canopy/native"
 import {
   type ContextDefinitions,
   explainAccess,
   formatAccessReport,
   OPERATIONS,
   type Operation,
-  PolicyEngine,
   toFilter,
 } from "@canopy/policy"
 import { isDocument, ValidationError } from "@canopy/protocol"
@@ -81,7 +81,7 @@ export function registerPolicies(route: RouteFn, deps: AdminDeps): void {
     const engine =
       body.definition === undefined
         ? options.engine()
-        : new PolicyEngine(
+        : selectEngine(config.server.engine).createPolicyEngine(
             (await policies.check(definitionFromInput(collection, body.definition))).set,
           )
     const as = await impersonate(body.as, collection, engine)

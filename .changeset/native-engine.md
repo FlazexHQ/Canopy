@@ -14,3 +14,6 @@ The realtime engine, the `canopy-realtime` sidecar and the server take an `engin
 in the config, or `CANOPY_ENGINE`): `ts` (the default) keeps the TypeScript packages, `native` and `wasm`
 evaluate policies and match change events in Rust. Both give equal results; `native` and `wasm` refuse to
 start when their build cannot load instead of running another implementation.
+
+Studio's policy simulation of a draft definition evaluates it on the configured engine too, so "view as user"
+answers exactly as the server will once the draft is saved.
