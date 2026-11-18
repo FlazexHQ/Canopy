@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["7.0.45", "8.0.34"]
+        mongo: ["8.0.34"]
     env:
       CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
@@ -130,12 +130,12 @@ jobs:
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   linux-arm64:
-    name: Linux arm64 (Bun and Node.js 24, MongoDB 7.0)
-    # MongoDB 8 does not start on the 7.0.0 kernel of the arm64 runners yet (SERVER-121912), 7.0 does.
-    runs-on: ubuntu-24.04-arm
+    name: Linux arm64 (Bun and Node.js 24, MongoDB 8.0)
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04-arm runners (SERVER-121912).
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 30
     env:
-      CANOPY_MONGO_IMAGE: mongo:7.0.45
+      CANOPY_MONGO_IMAGE: mongo:8.0.34
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -351,7 +351,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["7.0.45", "8.0.34"]
+        mongo: ["8.0.34"]
     env:
       CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
     steps:
@@ -365,8 +365,8 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Integration and differential tests (Node, with coverage on MongoDB 8.0)
-        run: node node_modules/vitest/vitest.mjs run ${{ matrix.mongo == '8.0.34' && '--coverage --testTimeout=60000' || '' }}
+      - name: Integration and differential tests (Node, with coverage)
+        run: node node_modules/vitest/vitest.mjs run --coverage --testTimeout=60000
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
           CANOPY_REQUIRE_MONGODB: "1"
