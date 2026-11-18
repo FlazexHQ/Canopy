@@ -292,6 +292,11 @@ export interface CollectionInput {
   readonly typeName?: string
   /** GraphQL relations by field name, resolved under the target collection's policies. */
   readonly relations?: Readonly<Record<string, RelationInput>>
+  /**
+   * Allows `$search` and `$vectorSearch` as the first stage of Data API aggregations on this collection. It
+   * needs an Atlas Search or MongoDB Search index; policies filter the results. @default false
+   */
+  readonly search?: Value<boolean>
 }
 
 /** A resolved GraphQL relation. */
@@ -307,6 +312,8 @@ export interface ResolvedCollection {
   readonly idType: IdType
   readonly typeName?: string
   readonly relations?: Readonly<Record<string, ResolvedRelation>>
+  /** Whether aggregations may start with `$search` or `$vectorSearch`. */
+  readonly search?: boolean
 }
 
 /** Realtime settings. */

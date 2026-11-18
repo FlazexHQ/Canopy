@@ -63,6 +63,8 @@ export interface RestHandlerOptions {
   /** How the `{id}` segment is read per collection. Collections without an entry use `auto`. */
   readonly idTypes?: Readonly<Record<string, IdType>>
   readonly readLimits?: Partial<ReadLimits>
+  /** Collections whose aggregations may start with `$search` or `$vectorSearch`. */
+  readonly search?: readonly string[]
   readonly writeLimits?: Partial<WriteLimits>
   readonly queryLimits?: QueryLimits
   /** The Canopy meta database, which holds idempotency records. Defaults to `canopy`. */
@@ -133,6 +135,7 @@ export function createRestHandler(options: RestHandlerOptions): RestHandler {
     policies: options.policies,
     ...(options.readLimits === undefined ? {} : { limits: options.readLimits }),
     ...(options.queryLimits === undefined ? {} : { queryLimits: options.queryLimits }),
+    ...(options.search === undefined ? {} : { search: options.search }),
   })
   const writes = new WritePath({
     ...(options.onWrite === undefined ? {} : { onWrite: options.onWrite }),

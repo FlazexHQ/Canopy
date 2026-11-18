@@ -152,6 +152,7 @@ export interface ReadPathOptions {
     readonly policies: PolicyEngine | (() => PolicyEngine);
     readonly limits?: Partial<ReadLimits>;
     readonly queryLimits?: QueryLimits;
+    readonly search?: readonly string[];
 }
 
 export interface RestHandler {
@@ -170,6 +171,7 @@ export interface RestHandlerOptions {
     readonly basePath?: string;
     readonly idTypes?: Readonly<Record<string, IdType>>;
     readonly readLimits?: Partial<ReadLimits>;
+    readonly search?: readonly string[];
     readonly writeLimits?: Partial<WriteLimits>;
     readonly queryLimits?: QueryLimits;
     readonly metaDatabase?: string;

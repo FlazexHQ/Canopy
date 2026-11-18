@@ -136,8 +136,9 @@ See [triggers and scheduled jobs](/guides/webhooks/).
 
 ## `collections`
 
-Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`, and
-GraphQL `relations: { <field>: { to, local, foreign, many } }`.
+Per collection: `idType` (`auto`, `objectId`, `string`, `uuid` or `number`), the GraphQL `typeName`,
+GraphQL `relations: { <field>: { to, local, foreign, many } }`, and `search: true` to allow `$search` and
+`$vectorSearch` in Data API aggregations ([search](/guides/rest/#search)).
 
 ## Reading variables
 

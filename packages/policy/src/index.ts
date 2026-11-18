@@ -1,4 +1,9 @@
-export { DEFAULT_PIPELINE_LIMITS, type PipelineLimits, securePipeline } from "./aggregate.ts"
+export {
+  DEFAULT_PIPELINE_LIMITS,
+  type PipelineLimits,
+  type SecurePipelineOptions,
+  securePipeline,
+} from "./aggregate.ts"
 export {
   type ContextChange,
   type ContextDatabase,

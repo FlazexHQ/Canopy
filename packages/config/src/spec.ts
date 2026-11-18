@@ -241,6 +241,7 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
         t: "record",
         of: obj({ to: str, local: str, foreign: str, many: bool }),
       },
+      search: bool,
     }),
   },
   cors: obj({ origins: { t: "origins" } }),

@@ -522,6 +522,9 @@ async function buildData(
           contexts,
           schemas,
           readLimits: { defaultLimit: restConfig.defaultLimit, maxLimit: restConfig.maxLimit },
+          search: Object.entries(config.collections)
+            .filter(([, collection]) => collection.search === true)
+            .map(([name]) => name),
           maxBodyBytes: restConfig.maxBodyBytes,
           mutationTtlSeconds: Math.round(restConfig.mutationTtlMs / 1000),
           idTypes: Object.fromEntries(

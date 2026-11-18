@@ -131,6 +131,7 @@ export interface CollectionInput {
     readonly idType?: IdType;
     readonly typeName?: string;
     readonly relations?: Readonly<Record<string, RelationInput>>;
+    readonly search?: Value<boolean>;
 }
 
 export type Command = "start" | "dev" | "realtime" | "gen" | "policies" | "doctor" | "print";
@@ -331,6 +332,7 @@ export interface ResolvedCollection {
     readonly idType: IdType;
     readonly typeName?: string;
     readonly relations?: Readonly<Record<string, ResolvedRelation>>;
+    readonly search?: boolean;
 }
 
 export interface ResolvedConfig {

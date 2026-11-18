@@ -454,6 +454,11 @@ export interface Resolves<T> {
 
 const Role: { readonly Anon: "anon"; readonly Authenticated: "authenticated"; readonly Public: "public"; readonly Service: "service"; }
 
+export interface SecurePipelineOptions {
+    readonly search?: boolean;
+    readonly maxSearchResults?: number;
+}
+
 export interface StoredCollectionPolicies {
     readonly _id: string;
     readonly version: number;
@@ -585,7 +590,7 @@ function resolveClause(clause: Readonly<Record<string, unknown>>, ctx: RequestCo
 
 const restrict: PolicyBuilders<Registered>
 
-function securePipeline(engine: PolicyEngine, collection: string, pipeline: unknown, ctx: RequestContext, limits?: PipelineLimits): Stage[]
+function securePipeline(engine: PolicyEngine, collection: string, pipeline: unknown, ctx: RequestContext, limits?: PipelineLimits, options?: SecurePipelineOptions): Stage[]
 
 function selectValues(doc: unknown, path: string): unknown[]
 

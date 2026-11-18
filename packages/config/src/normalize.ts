@@ -372,6 +372,7 @@ export function normalize(
         idType: (typeof idType === "string" ? idType : "auto") as IdType,
         ...(typeof typeName === "string" ? { typeName } : {}),
         ...(Object.keys(relations).length === 0 ? {} : { relations }),
+        ...(entry["search"] === true ? { search: true } : {}),
       }
     }
   }

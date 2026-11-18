@@ -332,9 +332,13 @@ to do with the number of documents.
   `$facet` (each branch is sanitized recursively), `$densify`, `$fill`, `$setWindowFields`, `$sample` (size
   capped), `$lookup` (rewritten), `$unionWith` (rewritten).
 - **Rejected stages:** `$out`, `$merge`, `$currentOp`, `$listSessions`, `$listLocalSessions`, `$collStats`,
-  `$indexStats`, `$planCacheStats`, `$changeStream`, `$graphLookup` (1.0), and `$search`/`$vectorSearch` (they
-  must be the first stage, so a policy can't be put in front of them; a dedicated search endpoint is planned
-  after 1.0).
+  `$indexStats`, `$planCacheStats`, `$changeStream`, `$graphLookup` (1.0), `$searchMeta`, and
+  `$search`/`$vectorSearch` anywhere but first.
+- **Search (opt in per collection):** with `collections.<name>.search`, `$search` or `$vectorSearch` may be the
+  first stage; the prefix below follows it, so the policy filters the search results. Every path, sort,
+  highlight and vector filter field must be readable; `queryString`, `moreLikeThis` and wildcard paths need
+  every field readable; unknown operators and options are refused. Hidden documents still take places in
+  `$vectorSearch.limit` (fewer results, never hidden ones). Design: plan 002, F3.
 - **Rejected expressions** anywhere in the pipeline: `$function`, `$accumulator`, `$where`. System variables
   other than `$$NOW`, `$$ROOT`, `$$CURRENT` and `$$REMOVE` are rejected too.
 - **Prefix:** `[{ $match: USING(read) }, <field-rule stage>]` is placed before the user's stages.
@@ -592,8 +596,8 @@ Inserts return `{ ok: true, document: null }` because `anon` can't read leads.
   confidentiality, not authorization. Documentation and `canopy doctor` will say so plainly.
 - `$ctx` supports single-collection equality lookups only in 1.0.
 - Time-based visibility in realtime is periodic (§12).
-- No pipeline-style updates for non-service callers, and no `$graphLookup`, `$search` or `$vectorSearch` for
-  DLS-constrained callers in 1.0.
+- No pipeline-style updates for non-service callers, and no `$graphLookup` for DLS-constrained callers in
+  1.0. Search stages are only allowed first, on collections that opt in (§9.2).
 - **Future work:** sandboxed policy functions (WASM), masking or partial redaction of fields, request-attribute
-  conditions such as IP range (MFA level already works through the `aal` claim), and DLS-aware search
-  endpoints.
+  conditions such as IP range (MFA level already works through the `aal` claim), and search that applies
+  the policy before ranking.
