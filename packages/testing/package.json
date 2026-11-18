@@ -35,6 +35,8 @@
     "vitest": "catalog:"
   },
   "devDependencies": {
+    "@canopy/matcher": "workspace:*",
+    "@canopy/policy": "workspace:*",
     "@canopy/query": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
