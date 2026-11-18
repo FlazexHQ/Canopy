@@ -47,6 +47,8 @@ function attempt(specifiers, errors) {
 }
 
 function load() {
+  const embedded = globalThis[Symbol.for("canopy.native.binding")]
+  if (embedded !== undefined) return { binding: embedded, from: "embedded" }
   const wanted = readEnv("CANOPY_NATIVE_ENGINE") ?? "auto"
   const errors = []
   const target = NATIVE_TARGETS[`${process.platform}-${process.arch}${libc()}`]
