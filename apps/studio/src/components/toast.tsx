@@ -1,5 +1,14 @@
 import { XIcon } from "lucide-react"
-import { createContext, type ReactNode, useCallback, useContext, useMemo, useState } from "react"
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 import { t } from "../i18n/index.ts"
 import { cn } from "../lib/utils.ts"
 
@@ -19,14 +28,28 @@ let nextId = 1
 /** Shows short confirmations in a polite live region; errors use an assertive one. */
 export function Toaster({ children }: { readonly children: ReactNode }) {
   const [toasts, setToasts] = useState<readonly ToastEntry[]>([])
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>())
+  useEffect(() => {
+    const pending = timers.current
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer)
+      pending.clear()
+    }
+  }, [])
   const dismiss = useCallback((id: number) => {
+    const timer = timers.current.get(id)
+    if (timer !== undefined) clearTimeout(timer)
+    timers.current.delete(id)
     setToasts((all) => all.filter((toast) => toast.id !== id))
   }, [])
   const push = useCallback(
     (toast: ToastInput) => {
       const id = nextId++
       setToasts((all) => [...all.slice(-3), { ...toast, id }])
-      setTimeout(() => dismiss(id), toast.variant === "error" ? 10_000 : 5_000)
+      timers.current.set(
+        id,
+        setTimeout(() => dismiss(id), toast.variant === "error" ? 10_000 : 5_000),
+      )
     },
     [dismiss],
   )
