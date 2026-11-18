@@ -169,6 +169,8 @@ Rule from here on: no new feature package merges while a P0 item is open.
 
 ### F. Product gaps (P2, each needs a short design first)
 
+The designs are in [plan 002](002-product-gaps.md).
+
 | ID | Item | Note |
 |----|------|------|
 | F1 | Storage: uploads with DLS style policies on file metadata documents, S3 compatible backends first, GridFS for small deployments, signed URLs, resumable uploads | The largest gap against the comparison, and the feature most apps need next after auth |
@@ -206,6 +208,7 @@ and F12 (same files). C2 before C4 and C5. D1 before any public demo instance.
 - From the earlier plan, still open: read back of every inserted document on bulk insert, and whether SDK
   mutations may use the transaction free fast path.
 - Whether storage (F1) moves ahead of Phase 5 (F4). Recommendation: yes, storage first.
+- Decided: one project per deployment until 1.0 (F6, [ADR 0013](../docs/adr/0013-one-project-per-deployment.md)).
 
 ## 7. Considered and not planned
 
@@ -285,6 +288,7 @@ noted.
 | B4 | Done | `packages/testing/scripts/install-test.ts` packs the 22 published packages with `bun pm pack`, installs the tarballs with Bun, npm, pnpm and Yarn (a manager that is not installed runs through `bun x`) and imports all 35 entry points under Node, and checks declaration files and `bin` targets. Run locally with all four managers; it fails when a `files` list drops `dist`. CI job `install` on Linux, Windows and macOS |
 | G2 | Done | `.github/pull_request_template.md` has the phase gate, the repository rules and the DLS invariants |
 | G5 | Done | Spike records S1, S2, S4, S5, S6 and S9 in `docs/spikes/` and the roadmap table updated. S1 and S5 are answered by the implementation but not measured. ADR 0008 and ADR 0012 stay Proposed: roadmap Q4 is still "pending S6" and there is no license decision |
+| F6 | Done | Decided: one project per deployment until 1.0, recorded as [ADR 0013](../docs/adr/0013-one-project-per-deployment.md) with what keeps the door open. Designs for F1, F2, F3 and F5 in [plan 002](002-product-gaps.md) |
 | B (binaries) | Done | Found while measuring S9: both standalone executables stopped at startup since the passkey commit (tsyringe before `reflect-metadata` in Bun's bundle) and `canopy --version` failed in them; fixed, and the CI smoke steps now run `--version` and a WebSocket round trip |
 
 Known failures on this machine before and after the work, all 5 s timeouts of tests that spawn a process
