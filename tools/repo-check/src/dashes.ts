@@ -16,6 +16,7 @@ const SPACED_HYPHEN = /(?<=\S) -(?= \S)/g
 
 const SCRIPT_EXTENSIONS = new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"])
 const MARKDOWN_EXTENSIONS = new Set([".md", ".mdx"])
+const RUST_EXTENSIONS = new Set([".rs"])
 
 /**
  * Finds forbidden dashes in plain text: every em dash and en dash, and every hyphen used as a dash
@@ -43,10 +44,20 @@ export function findDashesInScript(text: string, fileName = "file.ts"): DashFind
   return collect(text, literalAndCommentRanges(text, fileName), false)
 }
 
+/**
+ * Finds forbidden dashes in Rust source. Spaced hyphens are reported only inside comments (doc comments
+ * included) and string literals (raw and byte strings included), so the subtraction operator is not
+ * affected. Em and en dashes are reported everywhere.
+ */
+export function findDashesInRust(text: string): DashFinding[] {
+  return collect(text, rustLiteralAndCommentRanges(text), false)
+}
+
 /** Picks the scanner that fits the file extension of `path`. */
 export function findDashes(path: string, text: string): DashFinding[] {
   const extension = extensionOf(path)
   if (SCRIPT_EXTENSIONS.has(extension)) return findDashesInScript(text, path)
+  if (RUST_EXTENSIONS.has(extension)) return findDashesInRust(text)
   if (MARKDOWN_EXTENSIONS.has(extension)) return findDashesInMarkdown(text)
   return findDashesInText(text)
 }
@@ -154,6 +165,66 @@ function withoutCodeSpans(text: string, start: number, end: number): Range[] {
   }
   ranges.push({ start: cursor, end })
   return ranges
+}
+
+function rustLiteralAndCommentRanges(text: string): Range[] {
+  const ranges: Range[] = []
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    const next = text[i + 1]
+    if (ch === "/" && next === "/") {
+      const end = text.indexOf("\n", i)
+      const stop = end === -1 ? text.length : end
+      ranges.push({ start: i, end: stop })
+      i = stop
+    } else if (ch === "/" && next === "*") {
+      const start = i
+      let depth = 1
+      i += 2
+      while (i < text.length && depth > 0) {
+        if (text[i] === "/" && text[i + 1] === "*") {
+          depth++
+          i += 2
+        } else if (text[i] === "*" && text[i + 1] === "/") {
+          depth--
+          i += 2
+        } else {
+          i++
+        }
+      }
+      ranges.push({ start, end: i })
+    } else if (ch === '"') {
+      const start = i
+      i++
+      while (i < text.length && text[i] !== '"') i += text[i] === "\\" ? 2 : 1
+      i++
+      ranges.push({ start, end: Math.min(i, text.length) })
+    } else if ((ch === "r" || (ch === "b" && next === "r")) && !isIdentifierChar(text[i - 1])) {
+      const open = /^b?r(#*)"/.exec(text.slice(i, i + 260))
+      if (open === null) {
+        i++
+        continue
+      }
+      const closing = `"${open[1]}`
+      const close = text.indexOf(closing, i + open[0].length)
+      const end = close === -1 ? text.length : close + closing.length
+      ranges.push({ start: i, end })
+      i = end
+    } else if (ch === "'") {
+      const literal = CHAR_LITERAL.exec(text.slice(i, i + 14))
+      i += literal === null ? 1 : literal[0].length
+    } else {
+      i++
+    }
+  }
+  return ranges
+}
+
+const CHAR_LITERAL = /^'(?:\\(?:x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]{1,6}\}|.)|[^\\'\n])'/u
+
+function isIdentifierChar(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_]/.test(ch)
 }
 
 function literalAndCommentRanges(text: string, fileName: string): Range[] {
