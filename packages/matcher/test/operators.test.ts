@@ -246,6 +246,16 @@ describe("compileProjection", () => {
 })
 
 describe("applyUpdate", () => {
+  it("refuses to pad an array by more than MongoDB allows", () => {
+    expect(() => applyUpdate({ _id: 1, a: [] }, { $set: { "a.1500001": 1 } })).toThrow(
+      "can't backfill more than 1500000 elements",
+    )
+    expect(applyUpdate({ _id: 1, a: [] }, { $set: { "a.2": 1 } })).toEqual({
+      _id: 1,
+      a: [null, null, 1],
+    })
+  })
+
   it("applies operators without modifying the input", () => {
     const doc = { _id: 1, n: 1, tags: ["a"], nested: { x: 1 } }
     const out = applyUpdate(doc, {

@@ -36,6 +36,7 @@ export const UPDATE_OPERATORS: readonly string[] = [
 ]
 
 const OPERATORS = new Set(UPDATE_OPERATORS)
+const MAX_PADDING = 1_500_000
 const CREATING = new Set([
   "$rename-to",
   "$set",
@@ -510,6 +511,9 @@ function writeSlot(
       )
     }
     const index = Number(key)
+    if (index > container.length + MAX_PADDING) {
+      fail(`can't backfill more than ${MAX_PADDING} elements`)
+    }
     while (container.length < index) container.push(null)
     container[index] = value
     return
