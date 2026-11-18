@@ -58,6 +58,7 @@ export default defineConfig({
             "operations/backup-and-restore",
             "operations/key-rotation",
             "operations/change-stream-history",
+            "operations/core-engine",
             "operations/upgrades",
           ],
         },
