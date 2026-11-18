@@ -497,7 +497,7 @@ Decisions needed from the maintainers. Each has a recommendation and a deadline.
 
 ## 8. After 1.0
 
-- **Storage:** S3-compatible file storage with DLS on objects (GridFS optional).
+- **Storage:** File storage with DLS on objects, on local disk, Cloudflare R2 or AWS S3, with image transformations.
 - **Server functions, database triggers, webhooks and cron:** sandboxed, running with a DLS context.
 - **Broadcast and presence:** ephemeral realtime channels, as in Supabase Broadcast/Presence.
 - **Search:** DLS-aware endpoints over Atlas Search and Vector Search, and MongoDB Community search where

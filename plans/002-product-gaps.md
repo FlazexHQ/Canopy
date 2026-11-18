@@ -138,15 +138,56 @@ the condition in `filter`.
 
 ```ts
 storage: {
-  backend: { kind: "gridfs" }, // or { kind: "s3", endpoint, region, bucket, accessKeyId, secretAccessKey }
+  backend: { kind: "local", root: "./storage" },
+  // or { kind: "r2", accountId, bucket, accessKeyId, secretAccessKey, jurisdiction?: "eu" | "fedramp" }
+  // or { kind: "s3", region, bucket, accessKeyId, secretAccessKey, endpoint?, forcePathStyle?, sessionToken? }
   maxFileSize: "50mb",          // per simple upload; resumable uploads up to maxUploadSize
   buckets: { avatars: { public: true, allowedTypes: ["image/*"] }, documents: {} },
+  images: { enabled: true, maxDimension: 2500, maxSourceSize: "25mb" },
 }
 ```
 
-GridFS stores contents in the meta database (`canopy.storage.files` and `canopy.storage.chunks`), so the app
-database is untouched. The S3 backend speaks the S3 REST API with Signature Version 4 over `fetch`, so it
-works with AWS S3, MinIO, Cloudflare R2 and other compatible stores without an SDK dependency.
+**Backends.** Three, decided by the maintainer on 2026-11-18 (GridFS, the first default, is removed):
+
+| Kind | Where contents live | When |
+|---|---|---|
+| `local` (default) | Files on disk under `root`: `<root>/objects/<bucket>/<id>`, parts of resumable uploads under `<root>/uploads/<upload id>/<part>`, image variants under `<root>/objects/<bucket>/<id>.variants/` | One server, or several sharing one volume. No account, nothing to install |
+| `r2` | A Cloudflare R2 bucket through its S3 API at `https://<accountId>[.<jurisdiction>].r2.cloudflarestorage.com`, region `auto` | No egress fees; the natural pair for the Cloudflare edge tier (F4) |
+| `s3` | An AWS S3 bucket, virtual host addressing at `https://<bucket>.s3.<region>.amazonaws.com` by default. `endpoint` (with path addressing by default) points it at any other S3 compatible store, such as MinIO | AWS deployments and self hosted object stores |
+
+`r2` and `s3` share one client that speaks the S3 REST API with Signature Version 4 over `fetch`, so there is
+no SDK dependency; `r2` only fixes the endpoint and the region. R2 requires every part of a multipart upload
+but the last to have the same size, which resumable uploads already enforce (8 MiB parts).
+
+The local backend writes each file to a temporary name in the same folder and renames it into place, so a
+reader never sees half a file and a crash leaves at most a temporary file, which the hourly sweep removes.
+Keys are chosen by Canopy (`<bucket>/<ObjectId>`), never by callers, and are still checked to stay inside
+`root`. It works the same on Windows, Linux and macOS: paths come from `node:path`, names are lower case hex,
+and nothing relies on POSIX permission bits (the folder must not be served by anything else). `root` is
+resolved against the working directory; the server creates it at startup and fails fast when it cannot write
+there.
+
+**Image transformations** (Supabase calls them that) work on every backend:
+`GET /render/image/object/:bucket/*path`, `/render/image/public/...` and `/render/image/signed/...?token=`, with
+the same policies as the plain reads, and the query parameters `width`, `height`, `resize` (`cover`, the
+default, `contain` or `fill`), `quality` (20 to 100, default 80) and `format` (`origin`, the default, `webp`,
+`avif`, `jpeg` or `png`). The client asks with `download(path, { transform })` and
+`publicUrl(path, { transform })`.
+
+- Library: `@napi-rs/image` (MIT, Rust image codecs behind Node API with prebuilt binaries for Windows,
+  Linux glibc and musl and macOS on x64 and arm64, and a WebAssembly fallback). `sharp` was rejected because
+  its libvips binaries are LGPL 3.0, outside the license policy. It is loaded only when the first
+  transformation is asked for, so a server that never transforms never loads it.
+- Limits, all refused with `400` before any decoding: only `image/jpeg`, `image/png`, `image/webp`,
+  `image/avif`, `image/gif` and `image/bmp` sources; sources up to `maxSourceSize`; width and height from 1 to
+  `maxDimension`; sources up to 50 megapixels (read from the header, against decompression bombs). At most two
+  transformations run at once per server, and identical ones in flight share one result.
+- Variants are cached in the backend under `<key>.variants/<hash of the parameters>` and recorded in
+  `canopy.storage_variants` (`{ _id: variant key, key, size, contentType, createdAt }`), so a cache hit needs
+  no backend round trip to find out, and replacing or deleting a file deletes its variants. The etag of a
+  variant is the etag of the source with the parameter hash, so `If-None-Match` works.
+- Responses carry the same sandboxing CSP and `nosniff` as plain files. `images.enabled: false` answers 404 on
+  every render route.
 
 **Metadata documents and policies.** Every stored file has a metadata document in `canopy.storage_objects`:
 `{ bucket, path, size, contentType, etag, owner, metadata, createdAt, updatedAt }`, unique on
@@ -187,7 +228,8 @@ A file that the caller may not read answers `404`, as for documents. Bucket limi
 **Resumable uploads** follow the S3 multipart model: the server answers the part size (8 MiB, at least the
 5 MiB S3 needs), the client sends numbered parts in any order and can ask which parts arrived, and completion
 assembles them. Upload sessions live in `canopy.storage_uploads` with a 24 hour TTL and belong to the caller
-who created them. GridFS keeps parts as temporary files and concatenates them on completion.
+who created them. The local backend keeps parts as files of their own and concatenates them on completion;
+R2 and S3 use their native multipart uploads.
 
 **Signed URLs** are HMAC SHA-256 tokens over `(bucket, path, expiry)` with a key derived from the master key
 (a key per process without one, development only). They grant reading one path until they expire.
@@ -196,6 +238,17 @@ who created them. GridFS keeps parts as temporary files and concatenates them on
 failure), `download`, `remove`, `list`, `createSignedUrl` and `publicUrl`.
 
 ## Order
+
+Storage backends and image transformations (F1b), after F1:
+
+1. Plan update (this section).
+2. The local backend, replacing GridFS, with tests on every platform CI runs; the config section and the
+   server wiring with `local`, `r2` and `s3`; the R2 endpoint and AWS virtual host addressing in the S3
+   client.
+3. Image transformations: the render routes, limits, the variant cache and its cleanup, meta migration 6
+   for `canopy.storage_variants`.
+4. The client options, docs, changeset and the plan status row.
+
 
 F6, then F2 and F5 (one delivery queue), then F3, then F1. Each lands as its own commit with tests, docs and
 a changeset.
