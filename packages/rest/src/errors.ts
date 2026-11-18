@@ -18,7 +18,8 @@ import {
 const DUPLICATE_KEY = 11000
 const DOCUMENT_VALIDATION_FAILURE = 121
 const MAX_TIME_EXPIRED = 50
-const SEARCH_NOT_ENABLED = 31082
+/** SearchNotEnabled (MongoDB 8.0 and newer) and "$search stage is only allowed on MongoDB Atlas" (7.0). */
+const SEARCH_NOT_ENABLED = new Set([31082, 6047401])
 /** BadValue, FailedToParse, TypeMismatch, NoQueryExecutionPlans and invalid regular expressions. */
 const REJECTED_QUERY = new Set([2, 9, 14, 291, 51091])
 
@@ -44,7 +45,7 @@ export function fromDriverError(error: unknown, service: boolean): CanopyError {
         ...(service && reason !== undefined ? { details: { reason } } : {}),
       })
     }
-    if (code === SEARCH_NOT_ENABLED)
+    if (code !== undefined && SEARCH_NOT_ENABLED.has(code))
       return new CanopyError(
         ErrorCode.Unavailable,
         "Search is not available on this MongoDB deployment; it needs Atlas, an Atlas local deployment or MongoDB Search",
