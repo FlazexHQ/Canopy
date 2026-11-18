@@ -1,4 +1,4 @@
-import { compileFilter } from "@canopy/matcher"
+import type { CoreEngine } from "@canopy/native"
 import type { ContextResolver, PolicyEngine } from "@canopy/policy"
 import { type ClusterTime, ZERO_CT } from "@canopy/protocol"
 import type { EchoWaiter } from "./echo.ts"
@@ -15,6 +15,8 @@ type Subscriber = ObserverOutcome["subscribers"][number]
 
 /** Options of {@link Fanout}. */
 export interface FanoutOptions {
+  /** Compiles the resolved policy clauses events are checked against. */
+  readonly core: CoreEngine
   readonly engine: () => PolicyEngine
   readonly pool: ObserverPool
   readonly reader: MongoSnapshotReader
@@ -124,7 +126,7 @@ export class Fanout {
     if (origin === undefined) return undefined
     if (origin.matcher === undefined) {
       try {
-        origin.matcher = compileFilter(origin.filter)
+        origin.matcher = this.options.core.compileFilter(origin.filter)
       } catch {
         origin.matcher = null
       }
@@ -141,7 +143,7 @@ export class Fanout {
       let matched = false
       if (policy.applies && policy.resolved !== undefined) {
         try {
-          matched = compileFilter(policy.resolved).matches(doc)
+          matched = this.options.core.compileFilter(policy.resolved).matches(doc)
         } catch {
           matched = false
         }

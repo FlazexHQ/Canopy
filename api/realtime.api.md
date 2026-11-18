@@ -230,7 +230,7 @@ export interface Logger {
 
 class MongoSnapshotReader implements SnapshotReader {
   constructor(client: MongoClient, db: Db, options: { concurrency: number; metrics?: RealtimeMetrics; maxTimeMS?: number; }): MongoSnapshotReader
-  read(query: { readonly coll: string; readonly filter: Record<string, unknown>; readonly sort: Readonly<Record<string, 1 | -1>> | undefined; readonly limit: number | undefined; }): Promise<{ docs: Doc[]; ct: ClusterTime; }>
+  read(query: SnapshotQuery): Promise<{ docs: Doc[]; ct: ClusterTime; }>
   lookup(coll: string, ids: readonly unknown[]): Promise<Map<string, Doc>>
 }
 
@@ -496,6 +496,7 @@ export interface RealtimeOptions {
     readonly traceCapacity?: number;
     readonly span?: <T>(name: string, attributes: Readonly<Record<string, string | number | boolean>>, run: () => T) => T;
     readonly logVariableIssues?: boolean;
+    readonly engine?: EngineKind;
 }
 
 export interface RealtimeSocket {

@@ -1,4 +1,5 @@
-import { type CompiledFilter, compileFilter } from "@canopy/matcher"
+import type { CompiledFilter } from "@canopy/matcher"
+import type { CoreEngine } from "@canopy/native"
 import type { RequestContext } from "@canopy/policy"
 import type { RealtimeMetrics } from "./metrics.ts"
 import {
@@ -22,6 +23,8 @@ export interface ObserverOrigin {
 
 /** Options of an {@link ObserverPool}. */
 export interface ObserverPoolOptions {
+  /** Compiles the filters of observers. */
+  readonly core: CoreEngine
   readonly reader: MongoSnapshotReader
   readonly limits: ObserverLimits
   readonly metrics: RealtimeMetrics
@@ -81,7 +84,7 @@ export class ObserverPool {
     if (plan.type === "polling") {
       observer = new PollingObserver(plan.key, plan.query, reader, this.registry, limits)
     } else {
-      const matcher = compileFilter(plan.query.filter)
+      const matcher = this.options.core.compileFilter(plan.query.filter)
       observer =
         plan.type === "window"
           ? new WindowObserver(plan.key, plan.query, matcher, reader, this.registry, limits)

@@ -80,6 +80,16 @@ export default collection("todos", {
 })`,
     guides: [["concepts/document-level-security", "Document Level Security"]],
   },
+  native: {
+    about:
+      "Set `server.engine` (or `CANOPY_ENGINE`) to `native` to run the policy engine and the event matcher in Rust. A prebuilt addon is installed for each platform, and WebAssembly is the fallback everywhere else, so no Rust toolchain is needed.",
+    snippet: `import { selectEngine } from "@canopy/native"
+
+const core = selectEngine("native")
+const open = core.compileFilter({ status: "open", total: { $gte: 100 } })
+open.matches({ status: "open", total: 120 }) // true, decided in Rust`,
+    guides: [["reference/configuration", "Configuration"]],
+  },
   schema: {
     about:
       "`canopy gen types` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",

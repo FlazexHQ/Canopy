@@ -1,0 +1,36 @@
+[package]
+name = "canopy-native"
+description = "The Node-API port of the Canopy core: the policy engine, the event matcher, query canonicalization and the EJSON codec for Bun, Node and Deno, built natively and for wasm32-wasip1-threads."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+include = ["/src/**/*.rs", "/build.rs", "/Cargo.toml"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+canopy-matcher = { path = "../../crates/canopy-matcher" }
+canopy-policy = { path = "../../crates/canopy-policy" }
+canopy-protocol = { path = "../../crates/canopy-protocol" }
+canopy-query = { path = "../../crates/canopy-query" }
+napi = { version = "3.16.2", default-features = false, features = ["napi4"] }
+napi-derive = "3.7.1"
+
+[build-dependencies]
+napi-build = "2.6.0"
+
+[lints.rust]
+missing_docs = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"

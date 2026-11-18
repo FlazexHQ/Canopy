@@ -28,6 +28,12 @@ export type IdType = "auto" | "objectId" | "string" | "uuid" | "number"
 /** Log levels. */
 export type LogLevel = "debug" | "info" | "warn" | "error"
 
+/**
+ * Which implementation of the core evaluates policies and matches change events: `ts` (the TypeScript
+ * packages), `native` (the Rust core as a Node-API addon) or `wasm` (the Rust core as WebAssembly).
+ */
+export type Engine = "ts" | "native" | "wasm"
+
 /** Tokens from any OIDC or JWKS identity provider. */
 export interface ExternalAuthInput {
   readonly kind: "external"
@@ -563,6 +569,12 @@ export interface CanopyConfigInput {
      * allowlist, the audit log and built in auth see the client address behind them.
      */
     readonly trustedProxies?: Value<readonly string[]>
+    /**
+     * Which implementation of the core evaluates policies and matches change events (`CANOPY_ENGINE`).
+     * `native` and `wasm` run the Rust core and refuse to start when its build cannot load.
+     * @default "ts"
+     */
+    readonly engine?: Value<Engine>
   }
   readonly log?: { readonly level?: Value<LogLevel> }
   /** Where `canopy gen types` writes, relative to the config file. */
@@ -796,6 +808,7 @@ export interface ResolvedConfig {
     readonly adminListen: string | undefined
     readonly nodeId: string
     readonly trustedProxies: readonly string[]
+    readonly engine: Engine
   }
   readonly log: { readonly level: LogLevel }
   readonly types: { readonly out: string; readonly role: string | undefined }

@@ -106,6 +106,7 @@ export interface CanopyConfigInput {
         readonly adminListen?: Value<string>;
         readonly nodeId?: Value<string>;
         readonly trustedProxies?: Value<readonly string[]>;
+        readonly engine?: Value<Engine>;
     };
     readonly log?: {
         readonly level?: Value<LogLevel>;
@@ -162,6 +163,8 @@ export interface CronSchedule {
 }
 
 export type EmailTransportInput = SmtpTransportInput | ResendTransportInput | PostmarkTransportInput | SesTransportInput | LogTransportInput;
+
+export type Engine = "ts" | "native" | "wasm";
 
 export type EnvKind = "string" | "int" | "bool" | "list" | "url" | "duration";
 
@@ -437,6 +440,7 @@ export interface ResolvedConfig {
         readonly adminListen: string | undefined;
         readonly nodeId: string;
         readonly trustedProxies: readonly string[];
+        readonly engine: Engine;
     };
     readonly log: {
         readonly level: LogLevel;

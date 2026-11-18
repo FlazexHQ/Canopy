@@ -41,6 +41,21 @@ function problems(run: () => unknown): { path: string; message: string }[] {
 }
 
 describe("resolveConfig", () => {
+  it("runs the TypeScript core unless the engine is set, from the file or CANOPY_ENGINE", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.server.engine).toBe("ts")
+    expect(
+      resolve({ mongodb: { uri: URI }, server: { engine: "wasm" } }).config.server.engine,
+    ).toBe("wasm")
+    expect(
+      resolve(undefined, { MONGODB_URI: URI, CANOPY_ENGINE: "native" }).config.server.engine,
+    ).toBe("native")
+    expect(
+      problems(() => resolve(undefined, { MONGODB_URI: URI, CANOPY_ENGINE: "rust" })).map(
+        (problem) => problem.path,
+      ),
+    ).toEqual(["server.engine"])
+  })
+
   it("applies secure defaults and takes the database from the URI path", () => {
     const { config } = resolve({ mongodb: { uri: URI } })
     expect(config.mongodb).toEqual({
@@ -74,6 +89,7 @@ describe("resolveConfig", () => {
       adminListen: undefined,
       nodeId: "n1",
       trustedProxies: [],
+      engine: "ts",
     })
     expect(config.cors).toBeUndefined()
   })

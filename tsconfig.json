@@ -25,6 +25,8 @@
     { "path": "packages/query/test" },
     { "path": "packages/policy" },
     { "path": "packages/policy/test" },
+    { "path": "packages/native" },
+    { "path": "packages/native/test" },
     { "path": "packages/schema" },
     { "path": "packages/schema/test" },
     { "path": "packages/config" },

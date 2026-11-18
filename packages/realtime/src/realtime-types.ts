@@ -1,4 +1,5 @@
 import type { Authenticator, JwtAuthOptions, KeyOptions, Principal, RateLimits } from "@canopy/auth"
+import type { EngineKind } from "@canopy/native"
 import type { ContextResolver, PolicySet } from "@canopy/policy"
 import type { ClusterTime, SubMessage } from "@canopy/protocol"
 import type { MongoClient } from "mongodb"
@@ -117,6 +118,12 @@ export interface RealtimeOptions {
    * variable and the kind of issue but never the value. For development; off by default.
    */
   readonly logVariableIssues?: boolean
+  /**
+   * Which implementation evaluates policies and matches change events: `ts` (the TypeScript packages, the
+   * default), `native` (the Rust core as a Node-API addon) or `wasm` (the Rust core as WebAssembly). Both
+   * give equal results; `native` and `wasm` refuse to start when their build cannot load.
+   */
+  readonly engine?: EngineKind
 }
 
 /** A connection, for the realtime inspector. */

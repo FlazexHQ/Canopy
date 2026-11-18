@@ -4,6 +4,7 @@ import type { ResolveOptions } from "./resolution.ts"
 import { get, isLocalHost, isPlainObject, quoted, type Resolver } from "./resolver.ts"
 import { isDevelopmentKey, ROOT_FIELDS, TRIGGER_OPERATIONS } from "./spec.ts"
 import type {
+  Engine,
   Environment,
   FullDocumentMode,
   GraphqlIntrospection,
@@ -572,6 +573,7 @@ export function normalize(
       adminListen: at<string | undefined>("server.adminListen"),
       nodeId: at<string>("server.nodeId"),
       trustedProxies: at<string[]>("server.trustedProxies"),
+      engine: at<Engine>("server.engine"),
     },
     log: { level: at<LogLevel>("log.level") },
     types: {

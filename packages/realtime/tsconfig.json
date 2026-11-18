@@ -13,6 +13,7 @@
     { "path": "../matcher" },
     { "path": "../query" },
     { "path": "../policy" },
+    { "path": "../native" },
     { "path": "../auth" },
     { "path": "../config" }
   ]

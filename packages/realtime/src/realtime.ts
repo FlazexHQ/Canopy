@@ -1,9 +1,10 @@
 import { Authenticator, type Principal, resolveClientAddress } from "@canopy/auth"
+import { type CoreEngine, selectEngine } from "@canopy/native"
 import {
   ContextResolver,
   driverContextReader,
   onceVariableIssue,
-  PolicyEngine,
+  type PolicyEngine,
   type PolicySet,
   usesNow,
 } from "@canopy/policy"
@@ -52,6 +53,7 @@ import { Subscriptions } from "./subscriptions.ts"
  */
 export class Realtime {
   readonly metrics: RealtimeMetrics = new RealtimeMetrics()
+  private readonly core: CoreEngine
   private engine: PolicyEngine
   private readonly options: RealtimeOptions
   private readonly limits: RealtimeLimits
@@ -88,6 +90,7 @@ export class Realtime {
     })
     const auth = options.authenticator ?? new Authenticator(options.auth, options.keys)
     this.source = source
+    this.core = selectEngine(options.engine)
     this.engine = this.createEngine(set)
     const engine = (): PolicyEngine => this.engine
     const db = options.mongo.db(options.database)
@@ -104,6 +107,7 @@ export class Realtime {
       metrics: this.metrics,
     })
     this.pool = new ObserverPool({
+      core: this.core,
       reader: this.reader,
       limits: {
         maxTrackedDocs: this.limits.maxTrackedDocs,
@@ -125,6 +129,7 @@ export class Realtime {
       onRefreshed: (state, reason) => this.subscriptions.rebindChanged(state, reason),
     })
     this.subscriptions = new Subscriptions({
+      core: this.core,
       engine,
       sessions: this.sessions,
       contexts: this.sessionContexts,
@@ -158,6 +163,7 @@ export class Realtime {
       }),
     })
     this.fanout = new Fanout({
+      core: this.core,
       engine,
       pool: this.pool,
       reader: this.reader,
@@ -236,7 +242,7 @@ export class Realtime {
   }
 
   private buildEngine(set: PolicySet): PolicyEngine {
-    return new PolicyEngine(set, {
+    return this.core.createPolicyEngine(set, {
       onVariableIssue: (issue) => {
         this.metrics.variableErrors.inc({ coll: issue.collection, kind: issue.kind })
         if (this.options.logVariableIssues === true) this.variableIssueLog(issue)

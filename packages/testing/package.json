@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "@canopy/client": "workspace:*",
+    "@canopy/native": "workspace:*",
+    "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
     "fast-check": "catalog:",
     "mongodb": "catalog:",
@@ -36,7 +38,6 @@
   },
   "devDependencies": {
     "@canopy/matcher": "workspace:*",
-    "@canopy/policy": "workspace:*",
     "@canopy/query": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"

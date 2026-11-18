@@ -32,6 +32,7 @@ export {
   type ConfigFunction,
   defineConfig,
   type EmailTransportInput,
+  type Engine,
   type Environment,
   type ExternalAuthInput,
   type FirebaseInput,

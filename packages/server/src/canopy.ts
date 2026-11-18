@@ -18,8 +18,14 @@ import {
   resolveConfig,
 } from "@canopy/config"
 import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
+import { selectEngine } from "@canopy/native"
 import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
-import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
+import {
+  ContextResolver,
+  onceVariableIssue,
+  type PolicyEngine,
+  type PolicySet,
+} from "@canopy/policy"
 import {
   CloseCode,
   DiagnosticError,
@@ -568,6 +574,7 @@ async function buildData(
         checkpoints: realtimeConfig.checkpoints,
         resumeWindowMs: realtimeConfig.resumeWindowMs,
         nodeId: config.server.nodeId,
+        engine: config.server.engine,
         contexts,
         logger,
         traceCapacity: 256,
@@ -578,13 +585,12 @@ async function buildData(
       }),
     )
   } else {
+    const core = selectEngine(config.server.engine)
     const load = (set: PolicySet): PolicyEngine =>
       tracing === undefined
-        ? new PolicyEngine(set, variableHooks)
-        : tracing.span(
-            "canopy.policy.load",
-            { version: set.version },
-            () => new PolicyEngine(set, variableHooks),
+        ? core.createPolicyEngine(set, variableHooks)
+        : tracing.span("canopy.policy.load", { version: set.version }, () =>
+            core.createPolicyEngine(set, variableHooks),
           )
     let current = load(await source.load())
     standalone = current

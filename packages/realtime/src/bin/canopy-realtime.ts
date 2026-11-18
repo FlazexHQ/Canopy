@@ -67,6 +67,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
     checkpoints: realtime.checkpoints,
     resumeWindowMs: realtime.resumeWindowMs,
     nodeId: config.server.nodeId,
+    engine: config.server.engine,
     logger,
     logVariableIssues: config.environment === "development",
     ...(config.rateLimits === false
