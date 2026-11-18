@@ -211,9 +211,12 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
     const version = String(info["version"] ?? "0")
     const major = Number(version.split(".")[0])
     report(
-      major >= 7
+      major >= Number.parseInt(MIN_FEATURE_COMPATIBILITY_VERSION, 10)
         ? { status: "ok", message: `MongoDB ${version}` }
-        : { status: "fail", message: `MongoDB ${version} is too old; 7.0 or newer is required` },
+        : {
+            status: "fail",
+            message: `MongoDB ${version} is too old; ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer is required`,
+          },
     )
     try {
       const fcv = await admin.command({ getParameter: 1, featureCompatibilityVersion: 1 })

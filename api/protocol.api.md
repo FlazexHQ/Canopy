@@ -218,7 +218,7 @@ class Long {
   toJSON(): string
 }
 
-const MIN_FEATURE_COMPATIBILITY_VERSION: "7.0"
+const MIN_FEATURE_COMPATIBILITY_VERSION: "8.0"
 
 class MaxKey {
   get _bsontype(): "MaxKey"
