@@ -162,8 +162,9 @@ const signed = await avatars.createSignedUrl("alice.png", 3600, { transform: { h
 
 A transformation needs the same right to read as the file itself. Each variant is rendered once, stored in the
 backend next to its source and served from there afterwards; replacing or deleting the file deletes its
-variants. Sources over `images.maxSourceSize` (25 MiB) or 50 megapixels are refused before they are decoded,
-and a server renders at most two images at once. Set `images: { enabled: false }` (or
+variants. At most 25 variants of one file are kept; further sizes are rendered but not stored, so requests for
+many sizes cannot fill the backend. Sources over `images.maxSourceSize` (25 MiB) or 50 megapixels are refused
+before they are decoded, and a server renders at most two images at once. Set `images: { enabled: false }` (or
 `CANOPY_STORAGE_IMAGES=false`) to turn the routes off.
 
 ## Large files

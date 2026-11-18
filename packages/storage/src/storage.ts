@@ -529,6 +529,11 @@ export class Storage {
       createdAt: new Date(),
     }
     try {
+      const cached = await this.variants.countDocuments(
+        { key: object.key },
+        { limit: images.maxVariants },
+      )
+      if (cached >= images.maxVariants) return { ...variant, body: rendered.body }
       await this.backend.put(variantKey, rendered.body, rendered.contentType)
       await this.variants.replaceOne({ _id: variantKey }, variant, { upsert: true })
       if ((await this.objects.countDocuments({ key: object.key }, { limit: 1 })) === 0)

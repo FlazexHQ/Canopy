@@ -553,6 +553,51 @@ suite("storage over HTTP on the local backend", () => {
     expect(await storedFiles()).toBe(before - 3)
   })
 
+  it("caches at most maxVariants variants of a file and still serves the others", async () => {
+    const capped = createStorageHandler({
+      storage: new Storage({
+        client,
+        metaDatabase: `${dbName}_meta`,
+        policies: () => engine,
+        backend: await localBackend({ root }),
+        buckets: { docs: { public: false, maxFileSize: MIB, allowedTypes: [] } },
+        signer: new UrlSigner("a master key of enough length for tests"),
+        images: new ImageRenderer({ maxVariants: 2 }),
+      }),
+      authenticator: new Authenticator(
+        { jwks: { keys: [] }, issuer: ISSUER },
+        { secret: [SECRET] },
+      ),
+      policies: () => engine,
+      contexts: new ContextResolver({ reader: async () => [] }),
+    })
+    const send = (method: string, path: string, body?: Uint8Array) =>
+      capped.fetch(
+        new Request(`http://canopy.test/storage/v1/${path}`, {
+          method,
+          headers: { apikey: SECRET, "content-type": "image/png" },
+          ...(body === undefined ? {} : { body }),
+        }),
+      )
+    const source = await Transformer.fromRgbaPixels(
+      new Uint8Array(30 * 30 * 4).fill(50),
+      30,
+      30,
+    ).png()
+    expect((await send("POST", "object/docs/capped.png", source)).status).toBe(201)
+    const stored = await meta.collection("storage_objects").findOne({ path: "capped.png" })
+    const variants = meta.collection("storage_variants")
+    for (const width of [4, 5, 6, 7]) {
+      const response = await send("GET", `render/image/object/docs/capped.png?width=${width}`)
+      expect(response.status).toBe(200)
+      const body = new Uint8Array(await response.arrayBuffer())
+      expect((await new Transformer(body).metadata()).width).toBe(width)
+    }
+    expect(await variants.countDocuments({ key: stored?.["key"] })).toBe(2)
+    expect((await send("DELETE", "object/docs/capped.png")).status).toBe(204)
+    expect(await variants.countDocuments({ key: stored?.["key"] })).toBe(0)
+  })
+
   it("serves no transformations when they are off", async () => {
     const off = createStorageHandler({
       storage: new Storage({

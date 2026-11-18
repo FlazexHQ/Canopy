@@ -29,6 +29,11 @@ export interface ImageLimits {
   readonly maxPixels?: number
   /** How many transformations run at once. @default 2 */
   readonly concurrency?: number
+  /**
+   * How many variants of one file are cached. Further transformations are rendered but not stored, so
+   * requests for many sizes cannot fill the backend. @default 25
+   */
+  readonly maxVariants?: number
 }
 
 /** The media types that can be transformed, with the format each is encoded in for `origin`. */
@@ -146,12 +151,18 @@ export class ImageRenderer {
       maxSourceSize: limits.maxSourceSize ?? 25 * 1024 * 1024,
       maxPixels: limits.maxPixels ?? 50_000_000,
       concurrency: limits.concurrency ?? 2,
+      maxVariants: limits.maxVariants ?? 25,
     }
   }
 
   /** The largest width or height a transformation may ask for. */
   get maxDimension(): number {
     return this.limits.maxDimension
+  }
+
+  /** How many variants of one file are cached. */
+  get maxVariants(): number {
+    return this.limits.maxVariants
   }
 
   /** Throws `InvalidQueryError` when a source of this type and size cannot be transformed. */

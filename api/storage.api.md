@@ -23,11 +23,13 @@ export interface ImageLimits {
     readonly maxSourceSize?: number;
     readonly maxPixels?: number;
     readonly concurrency?: number;
+    readonly maxVariants?: number;
 }
 
 class ImageRenderer {
   constructor(limits?: ImageLimits): ImageRenderer
   get maxDimension(): number
+  get maxVariants(): number
   accepts(contentType: string, size: number): void
   render(source: Uint8Array, contentType: string, transform: ImageTransform): Promise<{ readonly body: Uint8Array; readonly contentType: string; }>
 }
