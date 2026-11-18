@@ -1,6 +1,6 @@
 import { Authenticator } from "@canopy/auth"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type CommandStartedEvent, type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -45,7 +45,7 @@ suite("REST search stages against MongoDB", () => {
     rest = createRestHandler({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([orders, open])),
+      policies: testPolicyEngine(createPolicySet([orders, open])),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [] },

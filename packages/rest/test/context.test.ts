@@ -7,10 +7,9 @@ import {
   context,
   createPolicySet,
   ctx,
-  PolicyEngine,
 } from "@canopy/policy"
 import { ErrorCode } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -101,7 +100,7 @@ suite("context lookups in the REST API", () => {
       client,
       database: dbName,
       metaDatabase: metaName,
-      policies: new PolicyEngine(createPolicySet([tasks], contexts)),
+      policies: testPolicyEngine(createPolicySet([tasks], contexts)),
       authenticator,
       contexts: contextResolver,
     })

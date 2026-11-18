@@ -1,10 +1,10 @@
+import { testPolicyEngine } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
 import {
   allow,
   auth,
   collection,
   createPolicySet,
-  PolicyEngine,
   type RequestContext,
   STORAGE_COLLECTION,
   toFilter,
@@ -21,7 +21,7 @@ describe("the storage.objects policy collection", () => {
     exposed: true,
     policies: [allow.read("authenticated").where({ owner: auth("sub") })],
   })
-  const engine = new PolicyEngine(createPolicySet([objects]))
+  const engine = testPolicyEngine(createPolicySet([objects]))
 
   it("grants storage reads but is never exposed as an app collection", () => {
     expect(engine.hasGrant(STORAGE_COLLECTION, "read", alice)).toBe(true)

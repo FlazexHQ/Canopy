@@ -1,6 +1,6 @@
 import { Authenticator } from "@canopy/auth"
 import { applyUpdate, compileFilter, compileRegex } from "@canopy/matcher"
-import { allow, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, collection, createPolicySet } from "@canopy/policy"
 import {
   CanopyError,
   canonicalString,
@@ -10,7 +10,7 @@ import {
   stringify,
 } from "@canopy/protocol"
 import { parseFilter, parseProjection, parseSort, parseUpdate } from "@canopy/query"
-import { hostile, MONGODB_URI } from "@canopy/testing"
+import { hostile, MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -164,7 +164,7 @@ suite("fuzzing the Data API over HTTP", () => {
       client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(createPolicySet([todos])),
+      policies: testPolicyEngine(createPolicySet([todos])),
       authenticator: new Authenticator(undefined, { publishable: ["pk_fuzz"] }),
     })
   })

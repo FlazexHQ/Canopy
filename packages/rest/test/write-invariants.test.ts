@@ -1,7 +1,7 @@
 import { compileFilter } from "@canopy/matcher"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { CanopyError } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -64,7 +64,7 @@ suite("write path invariants against MongoDB", () => {
       client,
       database: dbName,
       metaDatabase: metaName,
-      policies: new PolicyEngine(createPolicySet([boards, pages])),
+      policies: testPolicyEngine(createPolicySet([boards, pages])),
       limits: { maxBulk: 20 },
     })
     await writes.ensureIndexes()

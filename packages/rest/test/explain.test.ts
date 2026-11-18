@@ -1,15 +1,6 @@
 import { Authenticator } from "@canopy/auth"
-import {
-  allow,
-  auth,
-  collection,
-  context,
-  createPolicySet,
-  ctx,
-  PolicyEngine,
-  restrict,
-} from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, collection, context, createPolicySet, ctx, restrict } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -88,7 +79,7 @@ suite("POST /{coll}/_explain", () => {
     rest = createRestHandler({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([tasks], lookups)),
+      policies: testPolicyEngine(createPolicySet([tasks], lookups)),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [SECRET] },

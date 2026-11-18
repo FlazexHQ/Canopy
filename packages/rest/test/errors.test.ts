@@ -1,6 +1,6 @@
-import { allow, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, collection, createPolicySet } from "@canopy/policy"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
-import { describeWithMongo } from "@canopy/testing"
+import { describeWithMongo, testPolicyEngine } from "@canopy/testing"
 import { BSON, MongoServerError } from "mongodb"
 import { beforeAll, describe, expect, it } from "vitest"
 import { type Caller, fromDriverError, ReadPath } from "../src/index.ts"
@@ -71,7 +71,7 @@ describeWithMongo("read time limit", (db) => {
     const reads = new ReadPath({
       client: db().client,
       database: db().collection("orders").dbName,
-      policies: new PolicyEngine(createPolicySet([orders])),
+      policies: testPolicyEngine(createPolicySet([orders])),
       limits: { maxTimeMS: 1 },
     })
     const error: unknown = await reads

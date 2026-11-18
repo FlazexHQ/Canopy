@@ -1,3 +1,4 @@
+import { testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { describe, expect, it } from "vitest"
 import {
@@ -11,7 +12,6 @@ import {
   formatAccessReport,
   OPERATIONS,
   onceVariableIssue,
-  PolicyEngine,
   toFilter,
 } from "../src/index.ts"
 import { employees, invoices, posts, secrets, todos } from "./fixtures.ts"
@@ -26,7 +26,7 @@ const coerced = collection("accounts", {
       .named("own account"),
   ],
 })
-const engine = new PolicyEngine(
+const engine = testPolicyEngine(
   createPolicySet([todos, invoices, posts, employees, secrets, coerced]),
 )
 
@@ -216,7 +216,7 @@ describe("explainAccess", () => {
 describe("onceVariableIssue", () => {
   it("reports each distinct issue once, without values, through the engine hook", () => {
     const messages: string[] = []
-    const hooked = new PolicyEngine(createPolicySet([todos, coerced]), {
+    const hooked = testPolicyEngine(createPolicySet([todos, coerced]), {
       onVariableIssue: onceVariableIssue((message) => messages.push(message)),
     })
     const secret = explainContext({ claims: { sub: "SECRET_VALUE" }, now: NOW })

@@ -10,6 +10,7 @@ import {
   SUBPROTOCOL,
   unbatch,
 } from "@canopy/protocol"
+import { TEST_ENGINE } from "@canopy/testing"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import WebSocket from "ws"
@@ -63,6 +64,7 @@ export async function startEngine(
   const client = new MongoClient(uri)
   await client.connect()
   const realtime = await createRealtime({
+    engine: TEST_ENGINE,
     mongo: client,
     database: dbName,
     metaDatabase: `${dbName}_meta`,

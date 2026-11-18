@@ -7,11 +7,11 @@ import {
   ContextResolver,
   collection,
   createPolicySet,
-  PolicyEngine,
+  type PolicyEngine,
 } from "@canopy/policy"
 import { createRealtime, type Realtime } from "@canopy/realtime"
 import { createRestHandler, mongoContextReader, SchemaCache } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
 import { createClient as createWsClient } from "graphql-ws"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -69,7 +69,7 @@ suite("GraphQL rate limits against MongoDB", () => {
       { publishable: [PUBLISHABLE], secret: [SECRET] },
     )
     const set = createPolicySet([todos])
-    policies = new PolicyEngine(set)
+    policies = testPolicyEngine(set)
     rest = createRestHandler({
       client,
       database: dbName,
@@ -78,6 +78,7 @@ suite("GraphQL rate limits against MongoDB", () => {
       authenticator,
     })
     realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo: client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,

@@ -1,5 +1,6 @@
 import { applyUpdate, compileFilter } from "@canopy/matcher"
 import { parseUpdate } from "@canopy/query"
+import { testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { describe, expect, it } from "vitest"
 import {
@@ -9,7 +10,7 @@ import {
   checkImplied,
   collection,
   createPolicySet,
-  PolicyEngine,
+  type PolicyEngine,
   type PolicyItem,
   type RequestContext,
   restrict,
@@ -29,7 +30,7 @@ const alice: RequestContext = {
 }
 
 function engineFor(...policies: readonly PolicyItem[]): PolicyEngine {
-  return new PolicyEngine(createPolicySet([collection("todos", { exposed: true, policies })]))
+  return testPolicyEngine(createPolicySet([collection("todos", { exposed: true, policies })]))
 }
 
 /** Whether an update by `ctx` of the given shape may skip its check under these policies. */

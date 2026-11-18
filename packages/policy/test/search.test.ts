@@ -1,11 +1,11 @@
 import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { testPolicyEngine } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
 import {
   allow,
   auth,
   collection,
   createPolicySet,
-  PolicyEngine,
   type RequestContext,
   securePipeline,
 } from "../src/index.ts"
@@ -17,7 +17,7 @@ const orders = collection("orders", {
 })
 const open = collection("open", { exposed: true, policies: [allow.read("public")] })
 
-const engine = new PolicyEngine(createPolicySet([orders, open]))
+const engine = testPolicyEngine(createPolicySet([orders, open]))
 
 const alice: RequestContext = {
   roles: new Set(["authenticated"]),

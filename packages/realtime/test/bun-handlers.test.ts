@@ -1,7 +1,7 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { CloseCode, type SequencedMessage, SUBPROTOCOL } from "@canopy/protocol"
 import { WritePath } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
@@ -50,6 +50,7 @@ suite("bunHandlers on Bun.serve (run with bun --bun vitest)", () => {
     await mongo.connect()
     const policies = [todos]
     realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
@@ -68,7 +69,7 @@ suite("bunHandlers on Bun.serve (run with bun --bun vitest)", () => {
         client: mongo,
         database: dbName,
         metaDatabase: `${dbName}_meta`,
-        policies: new PolicyEngine(createPolicySet(policies)),
+        policies: testPolicyEngine(createPolicySet(policies)),
       }),
     })
     const handlers = bunHandlers(realtime, {

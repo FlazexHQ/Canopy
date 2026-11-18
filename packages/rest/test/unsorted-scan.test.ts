@@ -1,5 +1,5 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { type Caller, type ReadLimits, ReadPath } from "../src/index.ts"
@@ -36,7 +36,7 @@ suite("finds without a sort on unindexed filters", () => {
     new ReadPath({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([items])),
+      policies: testPolicyEngine(createPolicySet([items])),
       limits,
     })
 

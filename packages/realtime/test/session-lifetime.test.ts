@@ -1,6 +1,6 @@
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { encodeMessage } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { createRealtime, type Realtime, type RealtimeSocket } from "../src/index.ts"
@@ -98,6 +98,7 @@ suite("session lifetime", () => {
 
   const start = async (): Promise<void> => {
     realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo: client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,

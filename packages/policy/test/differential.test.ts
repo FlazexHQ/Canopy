@@ -1,16 +1,16 @@
 import { compileFilter } from "@canopy/matcher"
 import { stringify } from "@canopy/protocol"
-import { DIFF_RUNS, describeWithMongo } from "@canopy/testing"
+import { DIFF_RUNS, describeWithMongo, testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import type { Document } from "mongodb"
 import { beforeAll, expect, it } from "vitest"
-import { createPolicySet, PolicyEngine, type RequestContext, toFilter } from "../src/index.ts"
+import { createPolicySet, type RequestContext, toFilter } from "../src/index.ts"
 import { invoices, posts, todos } from "./fixtures.ts"
 
 const SEED = Number(process.env["CANOPY_DIFF_SEED"] ?? "20261106")
 
 describeWithMongo("differential: compiled policies against MongoDB", (db) => {
-  const engine = new PolicyEngine(createPolicySet([todos, invoices, posts]))
+  const engine = testPolicyEngine(createPolicySet([todos, invoices, posts]))
   const ids = fc.constantFrom("u1", "u2", "o1", "o2", "t1", "t2")
   const doc = fc.record(
     {

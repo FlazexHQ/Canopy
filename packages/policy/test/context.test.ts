@@ -1,5 +1,6 @@
 import { compileFilter } from "@canopy/matcher"
 import { ObjectId } from "@canopy/protocol"
+import { testPolicyEngine } from "@canopy/testing"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   allow,
@@ -14,7 +15,6 @@ import {
   contextNames,
   createPolicySet,
   ctx,
-  PolicyEngine,
   type RequestContext,
   selectValues,
   toFilter,
@@ -308,7 +308,7 @@ describe("ContextResolver", () => {
       ],
       contexts,
     )
-    const engine = new PolicyEngine(set)
+    const engine = testPolicyEngine(set)
     const names = engine.contextNames(["tasks"], new Set(["authenticated"]))
     expect(names).toEqual(["projectIds"])
     const resolved = await resolver.resolve(set.contexts, names, user("alice"))
@@ -361,7 +361,7 @@ describe("context helpers", () => {
         teamIds: { from: "teams", where: { userId: auth("sub") }, select: "t", max: 5, ttl: "1m" },
       },
     )
-    const engine = new PolicyEngine(set)
+    const engine = testPolicyEngine(set)
     expect(engine.contextNames(["tasks"], new Set(["authenticated"]))).toEqual(["projectIds"])
     expect(engine.contextNames(undefined, new Set(["authenticated", "admin"]))).toEqual([
       "projectIds",

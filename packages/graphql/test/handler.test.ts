@@ -1,18 +1,11 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { Authenticator } from "@canopy/auth"
-import {
-  allow,
-  auth,
-  ContextResolver,
-  collection,
-  createPolicySet,
-  PolicyEngine,
-} from "@canopy/policy"
+import { allow, auth, ContextResolver, collection, createPolicySet } from "@canopy/policy"
 import { sha256Hex } from "@canopy/protocol"
 import { createRealtime, type Realtime } from "@canopy/realtime"
 import { createRestHandler, mongoContextReader, SchemaCache } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
 import { createClient as createWsClient } from "graphql-ws"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, type Document, MongoClient } from "mongodb"
@@ -94,7 +87,7 @@ suite("GraphQL endpoint against MongoDB", () => {
       { publishable: [PUBLISHABLE], secret: [SECRET] },
     )
     const set = createPolicySet([todos, users])
-    const engine = new PolicyEngine(set)
+    const engine = testPolicyEngine(set)
     const rest = createRestHandler({
       client,
       database: dbName,
@@ -109,6 +102,7 @@ suite("GraphQL endpoint against MongoDB", () => {
       return find(caller, request, options)
     }
     realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo: client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,

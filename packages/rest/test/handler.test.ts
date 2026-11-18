@@ -2,9 +2,9 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { Authenticator } from "@canopy/auth"
 import { compileSort } from "@canopy/matcher"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { CanopyError, ctToBigInt, ErrorCode, toCt } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -109,7 +109,7 @@ suite("REST read endpoints against MongoDB", () => {
     rest = createRestHandler({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([todos, posts, hidden])),
+      policies: testPolicyEngine(createPolicySet([todos, posts, hidden])),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [SECRET] },

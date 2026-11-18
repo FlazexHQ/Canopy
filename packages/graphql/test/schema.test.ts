@@ -1,14 +1,8 @@
-import {
-  allow,
-  auth,
-  collection,
-  createPolicySet,
-  PolicyEngine,
-  type RequestContext,
-} from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, type RequestContext } from "@canopy/policy"
 import { ObjectId } from "@canopy/protocol"
 import type { FindRequest, WriteRequest, WriteResult } from "@canopy/rest"
 import type { CollectionSchema, ObjectShape, ScalarType, Shape } from "@canopy/schema"
+import { testPolicyEngine } from "@canopy/testing"
 import { type GraphQLObjectType, type GraphQLSchema, graphql, printSchema } from "graphql"
 import { describe, expect, it } from "vitest"
 import { buildSchema, type RelationSpec, type RequestServices } from "../src/index.ts"
@@ -29,7 +23,7 @@ const users = collection("users", {
 })
 const audit = collection("audit", { exposed: true, policies: [allow.read("auditor")] })
 
-const engine = new PolicyEngine(createPolicySet([todos, users, audit]))
+const engine = testPolicyEngine(createPolicySet([todos, users, audit]))
 
 const scalar = (type: ScalarType): Shape => ({ kind: "scalar", type })
 const shape = (

@@ -4,15 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Authenticator } from "@canopy/auth"
 import { createStorage } from "@canopy/client"
-import {
-  allow,
-  auth,
-  ContextResolver,
-  collection,
-  createPolicySet,
-  PolicyEngine,
-} from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, ContextResolver, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { Transformer } from "@napi-rs/image"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -58,7 +51,7 @@ suite("storage over HTTP on the local backend", () => {
   let meta: Db
   let handler: StorageHandler
   let root: string
-  let engine = new PolicyEngine(createPolicySet([objects]))
+  let engine = testPolicyEngine(createPolicySet([objects]))
   const tokens: Record<"alice" | "bob", string> = { alice: "", bob: "" }
 
   beforeAll(async () => {
@@ -417,7 +410,7 @@ suite("storage over HTTP on the local backend", () => {
     ).toBe(200)
     const before = await storedFiles()
     const lenient = engine
-    engine = new PolicyEngine(createPolicySet([strict]))
+    engine = testPolicyEngine(createPolicySet([strict]))
     try {
       expect((await call("POST", `uploads/${id}/complete`, "alice")).status).toBe(403)
     } finally {

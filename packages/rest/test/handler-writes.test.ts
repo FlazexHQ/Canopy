@@ -1,7 +1,7 @@
 import { Authenticator } from "@canopy/auth"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { ctToBigInt, ErrorCode } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -82,7 +82,7 @@ suite("REST write endpoints against MongoDB", () => {
       client,
       database: dbName,
       metaDatabase: metaName,
-      policies: new PolicyEngine(createPolicySet([todos, notes, strict])),
+      policies: testPolicyEngine(createPolicySet([todos, notes, strict])),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [SECRET] },

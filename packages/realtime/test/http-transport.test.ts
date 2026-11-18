@@ -1,9 +1,9 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { ErrorCode } from "@canopy/protocol"
 import { WritePath } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { createHttpTransport, type HttpTransport, toNodeHandler } from "../src/index.ts"
@@ -92,7 +92,7 @@ suite("SSE and long-poll transports", () => {
         client: writer,
         database: dbName,
         metaDatabase: `${dbName}_meta`,
-        policies: new PolicyEngine(set),
+        policies: testPolicyEngine(set),
       }),
     })
     http = createHttpTransport(engine.realtime, { keepAliveMs: 200 })

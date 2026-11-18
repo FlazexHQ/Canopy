@@ -1,7 +1,7 @@
 import { Authenticator } from "@canopy/auth"
-import { allow, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, collection, createPolicySet } from "@canopy/policy"
 import { ctToBigInt } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createRestHandler, type RestHandler } from "../src/index.ts"
@@ -20,7 +20,7 @@ suite("reads before the app database exists", () => {
       client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(
+      policies: testPolicyEngine(
         createPolicySet([collection("items", { exposed: true, policies: [allow.read("anon")] })]),
       ),
       authenticator: new Authenticator(undefined, { publishable: ["pk"] }),
