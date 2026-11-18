@@ -3,12 +3,16 @@
  * dependencies and peer dependencies, then the dependencies and optional dependencies of those, through
  * node_modules (peers of third party packages are the app's choice and are not followed). Each must be
  * MIT, Apache 2.0, a BSD license or ISC (an SPDX `OR` expression passes when one side does), or be listed
- * in `EXCEPTIONS` with the reason it was accepted. Run from the repository root after `bun install`:
+ * in `EXCEPTIONS` with the reason it was accepted. The platform packages of `@canopy/native` are packed at
+ * release time and are not workspace members, so the dependencies of its WebAssembly package (`WASM_TARGET`)
+ * are resolved from `packages/native` and checked the same way. Run from the repository root after
+ * `bun install`:
  *
  *   bun packages/testing/scripts/licenses.ts
  */
 import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { basename, dirname, join, resolve } from "node:path"
+import { WASM_TARGET } from "../../native/src/targets.ts"
 
 const ALLOWED = new Set([
   "MIT",
@@ -97,6 +101,35 @@ function main(): void {
     via: readManifest(dir).name ?? dir,
     own: true,
   }))
+  const visit = (
+    from: string,
+    via: string,
+    names: Iterable<string>,
+    required: Set<string>,
+  ): void => {
+    for (const name of names) {
+      const dir = locate(from, name)
+      if (dir === undefined) {
+        if (required.has(name)) missing.push(`${name} (from ${via})`)
+        continue
+      }
+      const found = readManifest(dir)
+      if (name.startsWith("@canopy/")) {
+        if (!seen.has(dir)) {
+          seen.set(dir, { license: "workspace", via })
+          queue.push({ dir, via: name, own: true })
+        }
+        continue
+      }
+      const id = `${found.name ?? name}@${found.version ?? "?"}`
+      if (seen.has(id)) continue
+      seen.set(id, { license: licenseOf(found), via })
+      queue.push({ dir, via: id, own: false })
+    }
+  }
+  const native = join(packagesDir, "native")
+  const wasm = `${readManifest(native).name ?? "native"}-${WASM_TARGET.suffix}`
+  visit(realpathSync(native), wasm, WASM_TARGET.dependencies, new Set(WASM_TARGET.dependencies))
   while (queue.length > 0) {
     const next = queue.shift()
     if (next === undefined) break
@@ -106,25 +139,7 @@ function main(): void {
       ...manifest.optionalDependencies,
       ...manifest.dependencies,
     }
-    for (const name of Object.keys(names)) {
-      const dir = locate(next.dir, name)
-      if (dir === undefined) {
-        if (manifest.dependencies?.[name] !== undefined) missing.push(`${name} (from ${next.via})`)
-        continue
-      }
-      const found = readManifest(dir)
-      if (name.startsWith("@canopy/")) {
-        if (!seen.has(dir)) {
-          seen.set(dir, { license: "workspace", via: next.via })
-          queue.push({ dir, via: name, own: true })
-        }
-        continue
-      }
-      const id = `${found.name ?? name}@${found.version ?? "?"}`
-      if (seen.has(id)) continue
-      seen.set(id, { license: licenseOf(found), via: next.via })
-      queue.push({ dir, via: id, own: false })
-    }
+    visit(next.dir, next.via, Object.keys(names), new Set(Object.keys(manifest.dependencies ?? {})))
   }
 
   const refused = [...seen]

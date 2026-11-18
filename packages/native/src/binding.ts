@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { hostTarget } from "./targets.ts"
 
 /** A filter compiled by the Rust matcher. */
 export interface BindingFilter {
@@ -92,31 +92,7 @@ export interface Binding {
 /** Which build of the Rust port to load: the native addon, its WebAssembly fallback, or the first that loads. */
 export type BindingKind = "native" | "wasm" | "auto"
 
-const TARGETS: Readonly<Record<string, string>> = {
-  "win32-x64": "win32-x64-msvc",
-  "win32-arm64": "win32-arm64-msvc",
-  "darwin-x64": "darwin-x64",
-  "darwin-arm64": "darwin-arm64",
-  "linux-x64-gnu": "linux-x64-gnu",
-  "linux-x64-musl": "linux-x64-musl",
-  "linux-arm64-gnu": "linux-arm64-gnu",
-  "linux-arm64-musl": "linux-arm64-musl",
-}
-
 const require = createRequire(import.meta.url)
-
-function libc(): string {
-  if (process.platform !== "linux") return ""
-  try {
-    const report = process.report?.getReport() as { header?: { glibcVersionRuntime?: string } }
-    if (report?.header !== undefined) return report.header.glibcVersionRuntime ? "-gnu" : "-musl"
-  } catch {}
-  try {
-    return readFileSync("/usr/bin/ldd", "utf8").includes("musl") ? "-musl" : "-gnu"
-  } catch {
-    return "-gnu"
-  }
-}
 
 interface DenoPermissions {
   readonly permissions?: { querySync?(descriptor: { name: string }): { state: string } }
@@ -162,7 +138,7 @@ export function loadBinding(kind: BindingKind = "auto"): Binding {
   const errors: unknown[] = []
   let binding: Binding | undefined
   if (embedded !== undefined && kind !== "wasm") binding = embedded as Binding
-  const target = TARGETS[`${process.platform}-${process.arch}${libc()}`]
+  const target = hostTarget()?.suffix
   if (binding === undefined && kind !== "wasm" && target !== undefined && nativeAllowed()) {
     binding = attempt([`../canopy-native.${target}.node`, `@canopy/native-${target}`], errors)
   }
