@@ -314,13 +314,20 @@ class BetterAuthProvider implements BuiltinAuth {
           target: { type: "session", id: session.id },
           details: { method: signInMethod(path) },
         }),
-      sessionEnded: (session) => {
-        void this.revoke({ kind: "session", sub: session.userId, sid: session.id })
+      sessionEnded: async (session) => {
         this.audit.record({
           action: "auth.session_ended",
           actor: { type: "user", id: session.userId },
           target: { type: "session", id: session.id },
         })
+        try {
+          await this.revoke({ kind: "session", sub: session.userId, sid: session.id })
+        } catch (error: unknown) {
+          this.logger.error(
+            { err: error, sid: session.id },
+            "recording the revocation of an ended session failed",
+          )
+        }
       },
       rehash: async (legacy, hash) => {
         await authDb

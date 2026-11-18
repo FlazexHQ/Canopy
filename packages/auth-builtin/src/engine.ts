@@ -80,7 +80,8 @@ export interface EngineHooks {
     session: { readonly id: string; readonly userId: string },
     path: string | undefined,
   ): void
-  sessionEnded(session: { readonly id: string; readonly userId: string }): void
+  /** Settles once the session's revocation is recorded, so the request that ended it answers after that. */
+  sessionEnded(session: { readonly id: string; readonly userId: string }): Promise<void>
   userCreated(user: { readonly id: string }, path: string | undefined): void
   /** Replaces an imported password hash with a native one after a successful sign in. */
   rehash(legacy: string, hash: string): Promise<void>
