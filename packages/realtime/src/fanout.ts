@@ -4,6 +4,7 @@ import { type ClusterTime, ZERO_CT } from "@canopy/protocol"
 import type { EchoWaiter } from "./echo.ts"
 import type { Doc, NormalizedEvent } from "./event.ts"
 import type { EventLog } from "./event-log.ts"
+import { matchesDocument } from "./match.ts"
 import type { RealtimeMetrics } from "./metrics.ts"
 import type { ObserverPool } from "./observer-pool.ts"
 import type { Observer } from "./observers.ts"
@@ -131,7 +132,7 @@ export class Fanout {
         origin.matcher = null
       }
     }
-    if (origin.matcher === null || !origin.matcher.matches(doc)) return undefined
+    if (origin.matcher === null || !matchesDocument(origin.matcher, doc)) return undefined
     const engine = this.options.engine()
     const coll = observer.query.coll
     const explanation = engine.explain(coll, "read", origin.context, "using")
@@ -143,7 +144,7 @@ export class Fanout {
       let matched = false
       if (policy.applies && policy.resolved !== undefined) {
         try {
-          matched = this.options.core.compileFilter(policy.resolved).matches(doc)
+          matched = matchesDocument(this.options.core.compileFilter(policy.resolved), doc)
         } catch {
           matched = false
         }

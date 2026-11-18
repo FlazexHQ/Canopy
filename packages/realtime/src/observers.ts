@@ -14,6 +14,7 @@ import {
   ZERO_CT,
 } from "@canopy/protocol"
 import { type Doc, docKey, type NormalizedEvent } from "./event.ts"
+import { matchesDocument } from "./match.ts"
 
 /** A query an observer keeps current. */
 export interface ObservedQuery {
@@ -381,7 +382,7 @@ export class FilterObserver extends Observer {
     let after: boolean
     if (event.op === "delete") after = false
     else if (event.post === undefined || event.post === null) return
-    else after = this.matcher.matches(event.post)
+    else after = matchesDocument(this.matcher, event.post)
     if (after && event.post !== null && event.post !== undefined) {
       const doc = this.query.readable(event.post)
       if (before === undefined) {
@@ -493,7 +494,7 @@ export class WindowObserver extends Observer {
       if (removed !== undefined) this.hooks.memberRemoved(this, removed.key)
     }
     const post = event.op === "delete" ? null : (event.post as Doc)
-    if (post !== null && this.matcher.matches(post)) {
+    if (post !== null && matchesDocument(this.matcher, post)) {
       const doc = this.query.readable(post)
       const entry: Ranked = {
         key: event.key,
