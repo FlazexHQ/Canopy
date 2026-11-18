@@ -352,6 +352,7 @@
         "@canopy/protocol": "workspace:*",
       },
       "devDependencies": {
+        "@canopy/native": "workspace:*",
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
         "bson": "catalog:",

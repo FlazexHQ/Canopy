@@ -13,6 +13,7 @@
   "include": ["*.ts"],
   "references": [
     { "path": "packages/testing" },
+    { "path": "packages/testing/test" },
     { "path": "packages/node-http" },
     { "path": "packages/storage" },
     { "path": "packages/storage/test" },

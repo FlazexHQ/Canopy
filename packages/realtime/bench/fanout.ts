@@ -3,6 +3,7 @@ import { writeFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { encodeMessage } from "@canopy/protocol"
+import { TEST_ENGINE } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { createRealtime, type Realtime, type RealtimeSocket } from "../src/index.ts"
@@ -18,7 +19,9 @@ import { createRealtime, type Realtime, type RealtimeSocket } from "../src/index
  *
  * Environment: `CANOPY_BENCH_MONGODB_URI` (or `CANOPY_TEST_MONGODB_URI`), `CANOPY_BENCH_DOCS` (default
  * 1000000), `CANOPY_BENCH_SECONDS` (write phase per scenario, default 8), `CANOPY_BENCH_ONLY` (scenarios
- * whose name contains one of these `|` separated parts) and `CANOPY_BENCH_OUT`.
+ * whose name contains one of these `|` separated parts), `CANOPY_TEST_ENGINE` (the engine that evaluates
+ * policies and matches events: `ts`, the default, `native` or `wasm`; recorded as `engine` in the output) and
+ * `CANOPY_BENCH_OUT`.
  */
 const URI =
   process.env["CANOPY_BENCH_MONGODB_URI"] ??
@@ -318,6 +321,7 @@ async function runWriter(dbName: string, scenario: Scenario): Promise<WriterRepo
 }
 
 async function main(): Promise<void> {
+  log(`engine: ${TEST_ENGINE}`)
   const client = new MongoClient(URI, { maxPoolSize: 200 })
   await client.connect()
   const dbName = `canopy_fanout_${process.pid}`
@@ -335,6 +339,7 @@ async function main(): Promise<void> {
     checkpoints: "off",
     observerLingerMs: 0,
     heartbeatMs: 60_000,
+    engine: TEST_ENGINE,
   })
   const signToken = async (sub: string, roles: string[]): Promise<string> =>
     new SignJWT({ roles })
@@ -525,7 +530,7 @@ async function main(): Promise<void> {
       ]),
     ),
   }
-  const text = `${JSON.stringify({ runtime, mongodb: String(buildInfo["version"]), docs: DOCS, owners: OWNERS, hot: HOT, seconds: SECONDS, results, gate }, null, 2)}\n`
+  const text = `${JSON.stringify({ runtime, engine: TEST_ENGINE, mongodb: String(buildInfo["version"]), docs: DOCS, owners: OWNERS, hot: HOT, seconds: SECONDS, results, gate }, null, 2)}\n`
   if (OUT === undefined) process.stdout.write(text)
   else await writeFile(OUT, text)
 }
