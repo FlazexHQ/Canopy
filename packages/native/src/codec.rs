@@ -1,4 +1,4 @@
-//! The EJSON codec: EJSON text to and from BSON, and canonical EJSON.
+//! The EJSON codec: EJSON text to and from BSON.
 
 use canopy_protocol::bson::{decode_document, encode_document};
 use canopy_protocol::ejson::{DecodeOptions, canonical_string, parse, stringify};
@@ -43,10 +43,4 @@ pub fn bson_to_ejson(bytes: &[u8], canonical: bool) -> Result<String> {
     let document = Value::Document(decode_document(bytes).map_err(|error| thrown(&error))?);
     let text = if canonical { canonical_string(&document) } else { stringify(&document) };
     text.map_err(|error| thrown(&error))
-}
-
-/// Rewrites EJSON text (relaxed or canonical) as canonical EJSON.
-#[napi(js_name = "canonicalEjson", catch_unwind)]
-pub fn canonical_ejson(text: String) -> Result<String> {
-    canonical(&value_of(&text)?)
 }

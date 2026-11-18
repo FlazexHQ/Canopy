@@ -1,7 +1,6 @@
 //! MongoDB filters compiled once and matched against BSON or EJSON documents, one or a batch per call.
 
 use canopy_matcher::{CompiledFilter, compile_filter};
-use canopy_protocol::bson::decode_document;
 use canopy_protocol::{CanopyError, ErrorCode, RawDocument, Value};
 use napi::Error;
 use napi::bindgen_prelude::{External, Uint8Array, Uint8ArraySlice};
@@ -67,13 +66,6 @@ impl Filter {
         Ok(Filter { compiled: compile(&value_of(&text)?)? })
     }
 
-    /// Compiles a filter given as one BSON document.
-    #[napi(factory, js_name = "fromBson", catch_unwind)]
-    pub fn from_bson(bytes: &[u8]) -> Result<Filter> {
-        let document = decode_document(bytes).map_err(|error| thrown(&error))?;
-        Ok(Filter { compiled: compile(&Value::Document(document))? })
-    }
-
     /// Matches one document given as BSON. Throws when the bytes are not one well formed document or when the
     /// matcher cannot decide.
     #[napi(catch_unwind)]
@@ -109,40 +101,6 @@ impl Filter {
     pub fn match_concatenated(&self, documents: &[u8]) -> Result<Uint8Array> {
         Ok(Uint8Array::new(
             split(documents)?.into_iter().map(|document| decide(&self.compiled, document)).collect(),
-        ))
-    }
-}
-
-/// Several filters matched against one document per call, the shape of a change event checked against every
-/// candidate subscription.
-#[napi]
-pub struct FilterSet {
-    filters: Vec<CompiledFilter>,
-}
-
-#[napi]
-impl FilterSet {
-    /// Compiles each filter given as EJSON text.
-    #[napi(factory, js_name = "fromEjson", catch_unwind)]
-    pub fn from_ejson(texts: Vec<String>) -> Result<FilterSet> {
-        let filters = texts.iter().map(|text| compile(&value_of(text)?)).collect::<Result<Vec<_>>>()?;
-        Ok(FilterSet { filters })
-    }
-
-    /// Matches one BSON document against every filter. Returns one byte per filter, as `Filter.matchMany`
-    /// does. Throws when the bytes are not one well formed document.
-    #[napi(js_name = "matchDocument", catch_unwind)]
-    pub fn match_document(&self, document: &[u8]) -> Result<Uint8Array> {
-        let raw = RawDocument::new(document).map_err(|error| thrown(&error))?;
-        Ok(Uint8Array::new(
-            self.filters
-                .iter()
-                .map(|filter| match filter.matches_raw(raw) {
-                    Ok(true) => MATCH,
-                    Ok(false) => NO_MATCH,
-                    Err(_) => UNDECIDED,
-                })
-                .collect(),
         ))
     }
 }

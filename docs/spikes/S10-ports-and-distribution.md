@@ -40,8 +40,10 @@ The measurements set three rules for the real `@canopy/native`:
 
 ## Method
 
-`docs/spikes/S10-prototype/` is outside both workspaces: a standalone Cargo project (empty `[workspace]`
-section, its own `Cargo.lock`) and its own `package.json` (the root `bun.lock` does not change). Nothing under
+The prototype lived in `docs/spikes/S10-prototype/` until `packages/native` replaced it; it was removed
+afterwards and stays in the history at commit `d4db762`. It sat outside both workspaces: a standalone Cargo
+project (empty `[workspace]` section, its own `Cargo.lock`) and its own `package.json` (the root `bun.lock`
+does not change). Nothing under
 `crates/` needed a change: the wrapper uses `canopy_matcher::compile_filter`, `CompiledFilter::matches_raw`,
 `canopy_protocol::RawDocument` and the EJSON and BSON codecs as they are.
 

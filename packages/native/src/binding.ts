@@ -16,11 +16,6 @@ interface BindingFilterHandle {
   readonly __filter: unique symbol
 }
 
-/** Several filters compiled by the Rust matcher. */
-interface BindingFilterSet {
-  matchDocument(document: Uint8Array): Uint8Array
-}
-
 /** A variable that made its policy drop out, as the Rust engine reports it. */
 interface BindingVariableIssue {
   readonly kind: "missing" | "shape" | "coercion"
@@ -79,16 +74,11 @@ export interface Binding {
   engine(): "native" | "wasm"
   ejsonToBson(text: string): Uint8Array
   bsonToEjson(bytes: Uint8Array, canonical: boolean): string
-  canonicalEjson(text: string): string
   canonicalQuery(key: BindingQueryKey): string
   queryHash(key: BindingQueryKey): string
   matchBson(filter: BindingFilterHandle, document: Uint8Array): number
   readonly Filter: {
     fromEjson(text: string): BindingFilter
-    fromBson(bytes: Uint8Array): BindingFilter
-  }
-  readonly FilterSet: {
-    fromEjson(texts: readonly string[]): BindingFilterSet
   }
   readonly PolicyEngine: new (
     collections: readonly string[],
