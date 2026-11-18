@@ -25,7 +25,8 @@
   ],
   "scripts": {
     "build": "tsc -b",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@canopy/client": "workspace:*",
