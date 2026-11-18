@@ -96,6 +96,7 @@
   "trustedDependencies": [],
   "scripts": {
     "build": "tsc -b",
+    "build:native": "turbo run build:native",
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean",
     "lint": "biome check .",
