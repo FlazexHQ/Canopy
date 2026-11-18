@@ -18,6 +18,8 @@ const LIST_OPERATORS = new Set(["$in", "$nin", "$all"])
 const DURATION =
   /^([+-])?P(?:(\d+)Y)?(?:(\d+)M)?(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?$/
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const ISO_DATE =
+  /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:Z|([+-])(\d{2}):(\d{2})))?$/
 
 class Unresolvable {
   readonly issue: VariableIssue
@@ -52,6 +54,37 @@ export function shiftDate(date: Date, duration: string): Date {
   return new Date(out.getTime() + sign * ms)
 }
 
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31
+}
+
+/**
+ * Reads `YYYY-MM-DD` (midnight UTC) or `YYYY-MM-DDTHH:mm[:ss[.fraction]]` with `Z` or a `±HH:mm` offset, as
+ * milliseconds since the epoch, or NaN. Other forms are refused: without an offset JavaScript reads a time in
+ * the local time zone, and the formats `Date.parse` accepts beyond ISO 8601 differ between engines.
+ */
+function isoDateMs(text: string): number {
+  const match = ISO_DATE.exec(text)
+  if (match === null) return Number.NaN
+  const part = (index: number): number => Number(match[index] ?? 0)
+  const [year, month, day, hour, minute, second] = [1, 2, 3, 4, 5, 6].map(part) as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ]
+  const offset = (part(9) * 60 + part(10)) * (match[8] === "-" ? -1 : 1)
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth(year, month)) return Number.NaN
+  if (hour > 23 || minute > 59 || second > 59 || part(9) > 23 || part(10) > 59) return Number.NaN
+  const date = new Date(0)
+  date.setUTCFullYear(year, month - 1, day)
+  date.setUTCHours(hour, minute, second, Number((match[7] ?? "").slice(0, 3).padEnd(3, "0")))
+  return date.getTime() - offset * 60_000
+}
+
 function isScalar(value: unknown): boolean {
   if (value === null || value === undefined) return false
   if (Array.isArray(value)) return false
@@ -80,13 +113,14 @@ function coerce(value: unknown, as: string | undefined, variable: string): unkno
       if (value === "true" || value === "false") return value === "true"
       return fail()
     case "date": {
-      const date =
+      const date = new Date(
         typeof value === "number"
-          ? new Date(value * 1000)
+          ? value * 1000
           : typeof value === "string"
-            ? new Date(value)
-            : undefined
-      if (date === undefined || Number.isNaN(date.getTime())) return fail()
+            ? isoDateMs(value)
+            : Number.NaN,
+      )
+      if (Number.isNaN(date.getTime())) return fail()
       return date
     }
     case "uuid": {

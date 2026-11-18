@@ -181,6 +181,41 @@ describe("variables fail closed", () => {
     expect(local.using("c", "read", user({ sub: "not-hex" }))).toEqual({ kind: "deny" })
   })
 
+  it("coerces dates from epoch seconds and from ISO 8601 text that does not depend on the time zone", () => {
+    const set = createPolicySet([
+      collection("c", {
+        exposed: true,
+        policies: [allow.read("authenticated").where({ at: auth("t", "date") })],
+      }),
+    ])
+    const local = new PolicyEngine(set)
+    const at = (t: unknown): Compiled => local.using("c", "read", user({ t }))
+    const filter = (iso: string): Compiled => ({ kind: "filter", filter: { at: new Date(iso) } })
+    expect(at(1_700_000_000)).toEqual(filter("2023-11-14T22:13:20.000Z"))
+    expect(at("2026-11-06T12:00:00Z")).toEqual(filter("2026-11-06T12:00:00.000Z"))
+    expect(at("2026-11-06T12:00:00.1239+05:30")).toEqual(filter("2026-11-06T06:30:00.123Z"))
+    expect(at("2026-11-06T12:00-01:00")).toEqual(filter("2026-11-06T13:00:00.000Z"))
+    expect(at("2024-02-29")).toEqual(filter("2024-02-29T00:00:00.000Z"))
+    expect(at("0001-01-01")).toEqual(filter("0001-01-01T00:00:00.000Z"))
+    for (const bad of [
+      "2026-11-06T12:00:00",
+      "Fri Nov 06 2026",
+      "2026/11/06",
+      "1 March 2022",
+      "2021-02-29",
+      "2021-02-31T00:00:00Z",
+      "2026-11-06T24:00:00Z",
+      "2026-11-06T12:00:60Z",
+      "2026-11-06T12:00:00+24:00",
+      "+002026-11-06T12:00:00Z",
+      "",
+      1e13,
+      Number.NaN,
+      true,
+    ])
+      expect(at(bad), String(bad)).toEqual({ kind: "deny" })
+  })
+
   it("resolves $now with ISO 8601 offsets", () => {
     expect(shiftDate(NOW, "-P7D").toISOString()).toBe("2026-10-30T12:00:00.000Z")
     expect(shiftDate(NOW, "-PT24H").toISOString()).toBe("2026-11-05T12:00:00.000Z")
