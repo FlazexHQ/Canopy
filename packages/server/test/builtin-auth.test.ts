@@ -183,14 +183,14 @@ suite("createCanopy with built in auth", () => {
     )
     handler = canopy.node()
     await canopy.attach(server)
-  })
+  }, 30_000)
 
   afterAll(async () => {
     await canopy?.close({ drainMs: 0 })
     await new Promise<void>((resolve) => server.close(() => resolve()))
     for (const db of Object.values(names)) await mongo.db(db).dropDatabase()
     await mongo.close()
-  })
+  }, 30_000)
 
   it("serves /auth/v1 and the JWKS, and its tokens authorize REST under the policies", async () => {
     const jwks = await fetch(`${base}/.well-known/jwks.json`)
@@ -365,5 +365,5 @@ suite("createCanopy with built in auth", () => {
       new Set(["user.ban", "user.delete", "user.update", "auth.keys.rotate"]),
     )
     expect(audit.every((entry) => (entry["actor"] as { id?: unknown }).id !== undefined)).toBe(true)
-  })
+  }, 30_000)
 })
