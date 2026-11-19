@@ -49,7 +49,10 @@ export function canopyPlugin<DB extends Schema<DB> = DefaultSchema>(
   }
 }
 
-/** Returns the provided client. Pass the schema to get it back typed: `useCanopy<Database>()`. */
+/**
+ * Returns the provided client, typed by the registered schema. Code that cannot rely on it passes the
+ * schema's types: `useCanopy<SchemaTypes<typeof schema>>()`.
+ */
 export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = inject(CANOPY, undefined)
   if (client === undefined)

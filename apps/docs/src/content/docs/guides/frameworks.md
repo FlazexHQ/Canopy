@@ -5,7 +5,8 @@ description: Framework bindings for live queries, connection status and mutation
 
 Every binding wraps the same client: queries are shared between components, optimistic writes show at once,
 and the subscription ends when the last component using it unmounts. All four pass the protocol conformance
-vectors.
+vectors. Once your `canopy.schema.ts` registers its schema (see [Schema in code](/guides/schema/)), the hooks
+and accessors below are typed by it with no type argument.
 
 ## React
 
@@ -13,10 +14,12 @@ vectors.
 bun add @canopy/client @canopy/react
 ```
 
+<!-- snippet: registered -->
+
 ```tsx
 import { CanopyProvider, createReactDb, useCanopyStatus, useDocument } from "@canopy/react"
 
-const db = createReactDb<Database>(canopy)
+const db = createReactDb(canopy)
 
 function Todos() {
   const todos = db.todos.useQuery({ done: false }, { sort: { createdAt: -1 }, limit: 50 })
@@ -31,7 +34,7 @@ function Todos() {
 }
 
 function Todo({ id }: { id: string }) {
-  const { data } = useDocument<Database, "todos">("todos", id)
+  const { data } = useDocument("todos", id)
   return <h1>{data?.title}</h1>
 }
 
@@ -64,7 +67,7 @@ createApp(App).use(canopyPlugin(canopy)).mount("#app")
 import { ref } from "vue"
 import { useCanopy, useMutation, useQuery } from "@canopy/vue"
 
-const canopy = useCanopy<Database>()
+const canopy = useCanopy()
 const showDone = ref(false)
 const { data, status } = useQuery(() => canopy.from("todos").find({ done: showDone.value }))
 const finish = useMutation((id: string) => canopy.update("todos", id, { $set: { done: true } }))
@@ -90,7 +93,7 @@ bun add @canopy/client @canopy/svelte
 <script lang="ts">
   import { createQuery, getCanopy } from "@canopy/svelte"
 
-  const canopy = getCanopy<Database>()
+  const canopy = getCanopy()
   const todos = createQuery(canopy.from("todos").find({ done: false }))
 </script>
 
@@ -109,6 +112,7 @@ connection status.
 bun add @canopy/client @canopy/solid
 ```
 
+<!-- snippet: registered -->
 <!-- snippet: /** @jsxImportSource solid-js */ -->
 <!-- snippet: declare const root: HTMLElement -->
 
@@ -118,7 +122,7 @@ import { createSignal, For } from "solid-js"
 import { render } from "solid-js/web"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const [showDone, setShowDone] = createSignal(false)
   const todos = createQuery(() => canopy.from("todos").find({ done: showDone() }))
   return <For each={todos.data()}>{(todo) => <p>{todo.title}</p>}</For>

@@ -7,6 +7,7 @@ A live query keeps every document of its result current. For a feed that grows a
 limit instead of fetching pages: the new query shares the cache with the old one, so documents already loaded
 stay on screen while the extra ones arrive.
 
+<!-- snippet: registered -->
 <!-- snippet: declare function Post(props: { post: object }): null -->
 <!-- snippet: declare function LoadMore(props: { onVisible: () => void }): null -->
 <!-- snippet: declare function Spinner(): null -->
@@ -18,7 +19,7 @@ import { useMemo, useState } from "react"
 const PAGE = 30
 
 function Feed() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const [limit, setLimit] = useState(PAGE)
   const query = useMemo(
     () => canopy.from("posts").find({ published: true }).sort({ createdAt: -1 }).limit(limit),

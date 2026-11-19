@@ -17,7 +17,10 @@ export function setCanopy<DB extends Schema<DB> = DefaultSchema>(client: CanopyC
   setContext(KEY, client)
 }
 
-/** Returns the client from {@link setCanopy}. Pass the schema to get it back typed. */
+/**
+ * Returns the client from {@link setCanopy}, typed by the registered schema. Code that cannot rely on it
+ * passes the schema's types: `getCanopy<SchemaTypes<typeof schema>>()`.
+ */
 export function getCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = getContext<CanopyClient<DB> | undefined>(KEY)
   if (client === undefined)

@@ -4,6 +4,8 @@
 
 React bindings for the Canopy client: CanopyProvider, useQuery, useCanopyStatus and createReactDb.
 
+The hooks are typed by the schema your `canopy.schema.ts` registers, with no type argument.
+
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.
 
@@ -17,12 +19,14 @@ bun add @canopy/react @canopy/client
 
 ## Use
 
+<!-- snippet: registered -->
+
 ```tsx
 import { CanopyProvider, useCanopy, useQuery } from "@canopy/react"
 import { useMemo } from "react"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const query = useMemo(() => canopy.from("todos").find({ done: false }).limit(50), [canopy])
   const { data, status } = useQuery(query)
   if (status === "loading") return <p>Loading</p>

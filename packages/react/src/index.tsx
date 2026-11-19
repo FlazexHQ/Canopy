@@ -60,8 +60,8 @@ export function CanopyProvider<DB extends Schema<DB> = DefaultSchema>({
 }
 
 /**
- * Returns the client from the nearest {@link CanopyProvider}. Pass the schema the client was created with
- * to get it back typed: `useCanopy<Database>()`.
+ * Returns the client from the nearest {@link CanopyProvider}, typed by the registered schema. Code that
+ * cannot rely on it passes the schema's types: `useCanopy<SchemaTypes<typeof schema>>()`.
  */
 export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = useContext(ClientContext)
@@ -226,9 +226,9 @@ export type ReactDb<DB extends Schema<DB> = DefaultSchema> = {
 
 /**
  * Builds typed hooks per collection from a client: `db.todos.useQuery({ done: false }, { sort: { createdAt: -1 } })`.
- * The types come from the client (`createClient<Database>(...)`); an untyped client can be typed here
- * instead, with `createReactDb<Database>(client)`. The filter and options are compared by value, so inline
- * objects do not resubscribe on every render.
+ * The types come from the client, which a registered `canopy.schema.ts` types; an untyped client can be
+ * typed here instead, with `createReactDb<SchemaTypes<typeof schema>>(client)`. The filter and options are
+ * compared by value, so inline objects do not resubscribe on every render.
  */
 export function createReactDb<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB> | CanopyClient<UntypedSchema>,

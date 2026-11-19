@@ -2,8 +2,10 @@
  * Type checks the TypeScript snippets of the documentation: every ```ts and ```tsx block of the README files
  * and of the docs site (except the generated API reference), each as its own module, against the sources of
  * the workspace packages and the installed third party packages. Snippets may use the names of
- * {@link CONTEXT} without declaring them (a `canopy` client typed with the `Database` of `./canopy.gen.ts`, an
- * `id`, `render` and the like) and import the collections of `./canopy.schema.ts`, and `// @ts-expect-error` marks a line that is meant not to compile. HTML
+ * {@link CONTEXT} without declaring them (a `canopy` client typed by the example `./canopy.schema.ts`, an `id`,
+ * `render` and the like), import the collections of `./canopy.schema.ts` or the `Database` that
+ * `canopy gen types` writes to `./canopy.gen.ts`, and `// @ts-expect-error` marks a line that is meant not to
+ * compile. HTML
  * comments right above a block, which the rendered page does not show, adjust it:
  * `<!-- snippet: not checked -->` skips a deliberately incomplete block (code of another platform, a fragment
  * of a larger object), and any other `<!-- snippet: ... -->` is code put before the block, such as
@@ -25,6 +27,7 @@ import ts from "typescript"
 
 const root = resolve(process.argv[2] ?? ".")
 const SKIP = "not checked"
+const REGISTERED = "registered"
 const DIRECTIVE = /^\s*<!--\s*snippet:\s*(.*?)\s*-->\s*$/
 
 /** The generated types file snippets import, as `canopy gen types` would write it for the examples. */
@@ -61,16 +64,20 @@ export type Database = DocumentSchema<{ todos: Todo; posts: Post; orders: Order 
 
 /**
  * The schema file snippets import, as `canopy pull` would write it, without its `Register` block: snippets
- * share one program, so registering a schema would type every other snippet's client too.
+ * share one program, so registering a schema would type every other snippet's client too. The global
+ * `canopy` and the `Todo` and `Order` types of {@link CONTEXT} come from it.
  */
 const SCHEMA = `import { collection, defineSchema, t } from "@canopy/schema/define"
 
 export const todos = collection("todos", {
+  _id: t.string().generate(() => crypto.randomUUID()),
   title: t.string(),
   done: t.bool().default(false),
   tags: t.array(t.string()).optional(),
-  due: t.date().nullable(),
-  ownerId: t.string(),
+  due: t.date().nullable().optional(),
+  ownerId: t.string().optional(),
+  createdAt: t.date().optional(),
+  archived: t.bool().optional(),
 })
 
 export const notes = collection("notes", {
@@ -79,18 +86,35 @@ export const notes = collection("notes", {
   body: t.object({ text: t.string(), format: t.enum(["md", "plain"]) }),
 })
 
-export const schema = defineSchema(todos, notes)
+export const posts = collection("posts", {
+  _id: t.string(),
+  title: t.string(),
+  body: t.string(),
+  authorId: t.string(),
+  published: t.bool(),
+  createdAt: t.date(),
+})
+
+export const orders = collection("orders", {
+  _id: t.string(),
+  status: t.enum(["open", "paid", "shipped"]),
+  total: t.double(),
+  ownerId: t.string(),
+  createdAt: t.date(),
+})
+
+export const schema = defineSchema(todos, notes, posts, orders)
 `
 
 /** The names snippets may use without declaring them. */
-const CONTEXT = `import type { CanopyClient } from "@canopy/client"
+const CONTEXT = `import type { CanopyClient, Doc, SchemaTypes } from "@canopy/client"
 import type { CanopyAuth } from "@canopy/client/auth"
-import type { Database as Generated, Order as GeneratedOrder, Todo as GeneratedTodo } from "./canopy.gen.ts"
+import type { schema } from "./canopy.schema.ts"
 
 declare global {
-  type Database = Generated
-  type Order = GeneratedOrder
-  type Todo = GeneratedTodo
+  type Database = SchemaTypes<typeof schema>
+  type Order = Doc<"orders", typeof schema>
+  type Todo = Doc<"todos", typeof schema>
   const canopy: CanopyClient<Database>
   const auth: CanopyAuth
   const id: string
@@ -105,6 +129,21 @@ declare global {
 
 export {}
 `
+
+/** The schema file of the program for `<!-- snippet: registered -->` blocks: the same file, registered. */
+const REGISTERED_SCHEMA = `${SCHEMA}
+declare module "@canopy/client" {
+  interface Register {
+    schema: typeof schema
+  }
+}
+`
+
+/** The names registered snippets may use: the same, with `canopy` typed by the registered schema. */
+const REGISTERED_CONTEXT = CONTEXT.replace(
+  "const canopy: CanopyClient<Database>",
+  "const canopy: CanopyClient",
+)
 
 /** Modules snippets import that the repository does not install, and globals of the build tools. */
 const AMBIENT = `interface ImportMeta {
@@ -154,6 +193,8 @@ interface Snippet {
   readonly code: string
   /** Lines of code put before the block. */
   readonly setup: readonly string[]
+  /** Whether the block is checked in the program that registers the example schema. */
+  readonly registered: boolean
 }
 
 function markdownFiles(dir: string): string[] {
@@ -206,7 +247,8 @@ function snippetsOf(file: string): Snippet[] {
         line: index + 1,
         lang: open[2] === "tsx" ? "tsx" : "ts",
         code: body.join("\n"),
-        setup,
+        setup: setup.filter((line) => line !== REGISTERED),
+        registered: setup.includes(REGISTERED),
       })
     index = end
   }
@@ -250,28 +292,13 @@ function workspacePaths(): Record<string, string[]> {
   return paths
 }
 
-function main(): void {
-  const snippets = sources().flatMap(snippetsOf)
-  const out = join(root, "node_modules", ".cache", "canopy-snippets")
-  rmSync(out, { recursive: true, force: true })
-  mkdirSync(out, { recursive: true })
-  const installed = packageDirs()
+/** Maps the third party packages snippets import to their installed types or sources. */
+function installedPaths(
+  snippets: readonly Snippet[],
+  installed: ReadonlyMap<string, string>,
+): Record<string, string[]> {
   const paths = workspacePaths()
-  const files: string[] = []
-  writeFileSync(join(out, "canopy.gen.ts"), GENERATED)
-  writeFileSync(join(out, "canopy.schema.ts"), SCHEMA)
-  writeFileSync(
-    join(out, "todo-list.tsx"),
-    "export function TodoList(): null {\n  return null\n}\n",
-  )
-  const context = join(out, "context.ts")
-  writeFileSync(context, CONTEXT)
-  const ambient = join(out, "ambient.d.ts")
-  writeFileSync(ambient, AMBIENT)
-  for (const [index, snippet] of snippets.entries()) {
-    const path = join(out, `snippet-${index}.${snippet.lang}`)
-    writeFileSync(path, [...snippet.setup, snippet.code, "export {}", ""].join("\n"))
-    files.push(path)
+  for (const snippet of snippets) {
     for (const match of snippet.code.matchAll(
       /from\s+["']([^"'.][^"']*)["']|import\(\s*["']([^"'.][^"']*)["']\s*\)/g,
     )) {
@@ -287,6 +314,36 @@ function main(): void {
       paths[name] = [dir]
       paths[`${name}/*`] = [`${dir}/*`]
     }
+  }
+  return paths
+}
+
+/** The diagnostics of one program of snippets, as `file:line  message` lines. */
+function check(
+  snippets: readonly Snippet[],
+  out: string,
+  schema: string,
+  context: string,
+  paths: Record<string, string[]>,
+  installed: ReadonlyMap<string, string>,
+): string[] {
+  rmSync(out, { recursive: true, force: true })
+  mkdirSync(out, { recursive: true })
+  const files: string[] = []
+  writeFileSync(join(out, "canopy.gen.ts"), GENERATED)
+  writeFileSync(join(out, "canopy.schema.ts"), schema)
+  writeFileSync(
+    join(out, "todo-list.tsx"),
+    "export function TodoList(): null {\n  return null\n}\n",
+  )
+  const contextFile = join(out, "context.ts")
+  writeFileSync(contextFile, context)
+  const ambient = join(out, "ambient.d.ts")
+  writeFileSync(ambient, AMBIENT)
+  for (const [index, snippet] of snippets.entries()) {
+    const path = join(out, `snippet-${index}.${snippet.lang}`)
+    writeFileSync(path, [...snippet.setup, snippet.code, "export {}", ""].join("\n"))
+    files.push(path)
   }
   const options: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2023,
@@ -308,24 +365,19 @@ function main(): void {
     options.typeRoots = [dirname(nodeTypes)]
     options.types = ["node"]
   }
-  const program = ts.createProgram([...files, context, ambient], options)
+  const program = ts.createProgram([...files, contextFile, ambient], options)
   const checked = new Set([
     ...files,
-    context,
+    contextFile,
     ambient,
     join(out, "canopy.gen.ts"),
     join(out, "canopy.schema.ts"),
   ])
-  const diagnostics = ts
-    .getPreEmitDiagnostics(program)
-    .filter((diagnostic) =>
-      diagnostic.file === undefined ? true : checked.has(resolve(diagnostic.file.fileName)),
-    )
-  const byFile = new Map<string, string[]>()
-  for (const diagnostic of diagnostics) {
+  const lines: string[] = []
+  for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
     const fileName = diagnostic.file === undefined ? "" : resolve(diagnostic.file.fileName)
-    const index = files.indexOf(fileName)
-    const snippet = snippets[index]
+    if (diagnostic.file !== undefined && !checked.has(fileName)) continue
+    const snippet = snippets[files.indexOf(fileName)]
     const where =
       snippet === undefined
         ? relative(root, fileName) || "(program)"
@@ -340,17 +392,37 @@ function main(): void {
                 snippet.setup.length,
             )
           }`
-    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
-    const list = byFile.get(where) ?? []
-    list.push(message)
-    byFile.set(where, list)
+    lines.push(`${where}  ${ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")}`)
   }
-  for (const [where, messages] of byFile)
-    for (const message of messages) process.stderr.write(`${where}  ${message}\n`)
-  if (diagnostics.length > 0) {
-    process.stderr.write(
-      `\n${diagnostics.length} errors in ${byFile.size} places of ${snippets.length} snippets.\n`,
-    )
+  return lines
+}
+
+function main(): void {
+  const snippets = sources().flatMap(snippetsOf)
+  const cache = join(root, "node_modules", ".cache")
+  const installed = packageDirs()
+  const paths = installedPaths(snippets, installed)
+  const errors = [
+    ...check(
+      snippets.filter((snippet) => !snippet.registered),
+      join(cache, "canopy-snippets"),
+      SCHEMA,
+      CONTEXT,
+      paths,
+      installed,
+    ),
+    ...check(
+      snippets.filter((snippet) => snippet.registered),
+      join(cache, "canopy-snippets-registered"),
+      REGISTERED_SCHEMA,
+      REGISTERED_CONTEXT,
+      paths,
+      installed,
+    ),
+  ]
+  for (const line of errors) process.stderr.write(`${line}\n`)
+  if (errors.length > 0) {
+    process.stderr.write(`\n${errors.length} errors in ${snippets.length} snippets.\n`)
     process.exit(1)
   }
   process.stdout.write(`${snippets.length} snippets type check.\n`)

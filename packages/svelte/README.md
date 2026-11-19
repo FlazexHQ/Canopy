@@ -4,7 +4,7 @@
 
 Svelte 5 bindings for the Canopy client: createQuery returns a rune friendly reactive object that is also a store.
 
-For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store.
+For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store. Queries are typed by the schema your `canopy.schema.ts` registers.
 
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.
@@ -19,11 +19,13 @@ bun add @canopy/svelte @canopy/client
 
 ## Use
 
+<!-- snippet: registered -->
+
 ```ts
 import { createQuery, getCanopy, setCanopy } from "@canopy/svelte"
 
 setCanopy(canopy)
-const todos = createQuery(getCanopy<Database>().from("todos").find({ done: false }).limit(50))
+const todos = createQuery(getCanopy().from("todos").find({ done: false }).limit(50))
 // in the markup: {#each todos.data as todo (todo._id)}<p>{todo.title}</p>{/each}
 ```
 

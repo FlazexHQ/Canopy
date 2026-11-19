@@ -296,12 +296,15 @@ await canopy.insert("todos", { title: "Write docs", done: false })`,
   },
   react: {
     with: ["@canopy/client"],
+    about:
+      "The hooks are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
     lang: "tsx",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { CanopyProvider, useCanopy, useQuery } from "@canopy/react"
 import { useMemo } from "react"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const query = useMemo(() => canopy.from("todos").find({ done: false }).limit(50), [canopy])
   const { data, status } = useQuery(query)
   if (status === "loading") return <p>Loading</p>
@@ -325,11 +328,14 @@ export function App() {
   },
   vue: {
     with: ["@canopy/client"],
+    about:
+      "The composables are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { canopyPlugin, useCanopy, useQuery } from "@canopy/vue"
 import { createApp, defineComponent, h } from "vue"
 
 const Todos = defineComponent(() => {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const { data } = useQuery(() => canopy.from("todos").find({ done: false }).limit(50))
   return () =>
     h(
@@ -344,23 +350,26 @@ createApp(Todos).use(canopyPlugin(canopy)).mount("#app")`,
   svelte: {
     with: ["@canopy/client"],
     about:
-      "For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store.",
+      "For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store. Queries are typed by the schema your `canopy.schema.ts` registers.",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { createQuery, getCanopy, setCanopy } from "@canopy/svelte"
 
 setCanopy(canopy)
-const todos = createQuery(getCanopy<Database>().from("todos").find({ done: false }).limit(50))
+const todos = createQuery(getCanopy().from("todos").find({ done: false }).limit(50))
 // in the markup: {#each todos.data as todo (todo._id)}<p>{todo.title}</p>{/each}`,
     guides: [["guides/frameworks", "Framework bindings"]],
   },
   solid: {
     with: ["@canopy/client"],
     lang: "tsx",
-    setup: ["<!-- snippet: /** @jsxImportSource solid-js */ -->"],
+    about:
+      "The primitives are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
+    setup: ["<!-- snippet: registered -->", "<!-- snippet: /** @jsxImportSource solid-js */ -->"],
     snippet: `import { CanopyProvider, createQuery, useCanopy } from "@canopy/solid"
 import { For } from "solid-js"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const todos = createQuery(canopy.from("todos").find({ done: false }).limit(50))
   return <For each={todos.data()}>{(todo) => <p>{todo.title}</p>}</For>
 }

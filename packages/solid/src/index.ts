@@ -36,7 +36,10 @@ export function CanopyProvider<DB extends Schema<DB>>(props: CanopyProviderProps
   })
 }
 
-/** Returns the client from {@link CanopyContext}. Pass the schema to get it back typed. */
+/**
+ * Returns the client from {@link CanopyContext}, typed by the registered schema. Code that cannot rely on it
+ * passes the schema's types: `useCanopy<SchemaTypes<typeof schema>>()`.
+ */
 export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = useContext(CanopyContext)
   if (client === undefined) throw new Error("useCanopy needs <CanopyProvider client={client}>")
