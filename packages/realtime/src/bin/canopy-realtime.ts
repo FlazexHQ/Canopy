@@ -6,6 +6,7 @@ import { loadConfig } from "@canopy/config/load"
 import { jsonLogger, onShutdown, parseBinaryArgs, UsageError } from "@canopy/config/process"
 import { serveMetrics, tryPathname } from "@canopy/node-http"
 import { MongoClient } from "mongodb"
+import { runGateway } from "../gateway.ts"
 import { createHttpTransport, type HttpTransport } from "../http-transport.ts"
 import { type Logger, redacting } from "../logger.ts"
 import { readinessCheck } from "../readiness.ts"
@@ -17,7 +18,9 @@ import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../trans
  * The `canopy-realtime` sidecar, which runs next to an existing app. Configured by a config file
  * (`--config <file>`, or `canopy.config.ts` / `canopy/canopy.config.ts` found from the working directory)
  * and the well known variables: `MONGODB_URI`, `CANOPY_DB`, `CANOPY_POLICIES`, `CANOPY_JWT_*`,
- * `CANOPY_PUBLISHABLE_KEYS`, `PORT`, `METRICS_PORT` and the others of the configuration reference.
+ * `CANOPY_PUBLISHABLE_KEYS`, `PORT`, `METRICS_PORT` and the others of the configuration reference. With
+ * `CANOPY_REALTIME_SERVER=gateway` it resolves the same configuration and runs the native `canopy-gateway`
+ * instead of the TypeScript engine.
  */
 
 const USAGE = `Usage: canopy-realtime [--config <file>]
@@ -115,6 +118,10 @@ async function load(): Promise<ResolvedConfig> {
 async function main(): Promise<void> {
   const config = await load()
   const logger = redacting(jsonLogger(config.log.level))
+  if (process.env["CANOPY_REALTIME_SERVER"] === "gateway") {
+    const code = await runGateway(config, logger, (stop) => onShutdown(stop))
+    process.exit(code)
+  }
   const options = realtimeOptions(config, logger)
   const settings = config.realtime
   if (settings === false) return
