@@ -42,9 +42,14 @@ describe("fuzzing the trust boundary parsers", () => {
       fc.property(hostile.text, (text) => {
         const value = refusedOrDone(() => parse(text))
         if (value === undefined) return
-        expect(canonicalString(parse(stringify(value)))).toBe(canonicalString(value))
+        const canonical = canonicalString(value)
+        expect(canonicalString(parse(canonical))).toBe(canonical)
+        // Relaxed EJSON writes a 64 bit integer that fits a double as a plain number, so reading it back
+        // gives another numeric type by design; the relaxed text itself must still come back unchanged.
+        const relaxed = stringify(value)
+        expect(stringify(parse(relaxed))).toBe(relaxed)
       }),
-      { numRuns: RUNS },
+      { numRuns: RUNS, examples: [['{"$numberLong":"-0"}'], ['{"a":{"$numberLong":"5"}}']] },
     )
   })
 
