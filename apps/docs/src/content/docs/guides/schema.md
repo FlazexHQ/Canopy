@@ -10,7 +10,12 @@ definition. The file is ordinary source code: you edit it, review it and commit 
 
 ## Write the first version with `canopy pull`
 
+The file imports its builders from `@canopy/schema`, so the app depends on it next to the client, and the
+`canopy` command comes from `@canopy/cli`:
+
 ```bash
+bun add @canopy/client @canopy/schema
+bun add -d @canopy/cli
 bunx canopy pull
 ```
 
