@@ -59,6 +59,8 @@ Commands:
   logout <url>           Remove the stored admin token of a project
   gen types              Generate the Database types from validators, config and sampled documents
   pull                   Write an editable collection schema from MongoDB
+  schema diff            Compare the schema file with MongoDB and exit 1 on drift
+  schema push            Apply collection validators from the schema file (asks first)
   config print           Print the resolved config with secrets masked
   realtime enable-images <collection...>
                          Turn on change stream pre and post images (asks first)
@@ -78,12 +80,13 @@ Options:
   --out <file>           gen types: the file to write (default: the config's types.out, else src/canopy.gen.ts)
                          pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)
   --js                   pull: emit JavaScript
+  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)
   --collection <name>    pull: add one collection to the schema file
   --check                gen types: fail when the file is out of date instead of writing it
   --watch                gen types: regenerate when policies or collections change, until Ctrl+C
   --types                dev: regenerate the types file too (on by default once the file exists)
-  --infer-enums          gen types, pull: turn low cardinality string fields into literal unions
-  --sample <n>           gen types, pull: documents sampled per collection (default 1000)
+  --infer-enums          gen types, pull, schema diff: turn low cardinality string fields into literal unions
+  --sample <n>           gen types, pull, schema diff: documents sampled per collection (default 1000)
   --sources              config print: show where each value came from
   --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),
                          otherwise from the official binaries (downloaded once, data in .canopy/mongodb)
@@ -116,7 +119,7 @@ Options:
                          ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).
                          production and development also set CANOPY_ENV
   --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,
-                         admin tokens revoke: apply without asking
+                         admin tokens revoke, schema push: apply without asking
   --from <system>        auth import: firebase, auth0, cognito or csv
   --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and
                          --mem-cost (the project's password hash parameters) imports password hashes

@@ -24,6 +24,7 @@ import {
 import { messageOf } from "./output.ts"
 import { pull } from "./pull.ts"
 import { realtimeImages } from "./realtime-images.ts"
+import { runSchema } from "./schema-diff.ts"
 
 /** Commands that set up and inspect a project: init, dev, doctor, types, config, realtime images and indexes. */
 export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
@@ -42,6 +43,14 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
   pull: {
     flags: ["out", "js", "collection", "force", "infer-enums", "sample"],
     handler: { kind: "app", load: "gen", run: pull },
+  },
+  "schema diff": {
+    flags: ["file", "sample", "infer-enums"],
+    handler: { kind: "config", load: "policies", run: runSchema },
+  },
+  "schema push": {
+    flags: ["file", "yes"],
+    handler: { kind: "config", load: "policies", run: runSchema },
   },
   "config print": {
     flags: ["sources"],
