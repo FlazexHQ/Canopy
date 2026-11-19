@@ -55,13 +55,21 @@ export class Fanout {
     this.options = options
   }
 
-  /** Applies one batch of events in order, then advances every observer past the batch. */
+  /**
+   * Applies one batch of events in order, then advances every observer past the batch. An update whose
+   * document an earlier event of the batch touched gets its post image even when no observer holds the
+   * document yet, because that earlier event can bring it into one before the update is applied.
+   */
   async process(events: NormalizedEvent[]): Promise<void> {
     const { pool, reader, resolver, metrics } = this.options
     const lookups = new Map<string, NormalizedEvent[]>()
+    const touched = new Set<string>()
     for (const event of events) {
+      const earlier = touched.has(event.key)
+      touched.add(event.key)
       if (event.op !== "update" || event.post !== undefined) continue
-      if (pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll)) continue
+      if (!earlier && pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll))
+        continue
       const list = lookups.get(event.coll) ?? []
       list.push(event)
       lookups.set(event.coll, list)

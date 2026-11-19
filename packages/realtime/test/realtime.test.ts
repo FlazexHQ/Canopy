@@ -299,6 +299,26 @@ suite("realtime engine against MongoDB", () => {
     engine.realtime.reloadPolicies(createPolicySet([todos, archive]))
   })
 
+  it("applies an update to a document an earlier event of the same batch brought in", async () => {
+    const coll = documents()
+    const client = await connect(bob)
+    await client.subscribe("s", "todos")
+    const session = engine.client.startSession()
+    try {
+      await session.withTransaction(async () => {
+        await coll.replaceOne({ _id: 5000 }, { ownerId: "bob", step: 1 }, { upsert: true, session })
+        await coll.updateOne({ _id: 5000 }, { $set: { step: 2 } }, { session })
+      })
+    } finally {
+      await session.endSession()
+    }
+    await coll.insertOne({ _id: 5001, ownerId: "bob", marker: true })
+    await client.until(() => client.ids("s").map(Number).includes(5001))
+    const held = [...client.view("s").values()].find((doc) => Number(doc["_id"]) === 5000)
+    expect(held).toEqual({ _id: 5000, ownerId: "bob", step: 2 })
+    await coll.deleteMany({ _id: { $in: [5000, 5001] } })
+  })
+
   it(
     "converges to the MongoDB result after random writes (seeded simulation)",
     async () => {
