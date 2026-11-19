@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { allow, auth, collection, ctx, restrict, toStored } from "@canopy/policy"
 import { canonicalString, toCanonical } from "@canopy/protocol"
 import { MONGODB_URI } from "@canopy/testing"
+import fc from "fast-check"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { findGatewayBinary } from "../src/gateway.ts"
@@ -37,6 +38,16 @@ const teamDocs = collection("teamdocs", {
   realtime: true,
   policies: [allow.read("authenticated").where({ team: { $in: ctx("teams") } })],
 })
+const sim = collection("sim", {
+  exposed: true,
+  realtime: true,
+  policies: [
+    allow.read("authenticated").where({ ownerId: auth("sub") }),
+    restrict.read("public").where({ hidden: { $ne: true } }),
+  ],
+})
+const SIM_SEEDS = Number(process.env["CANOPY_SIM_SEEDS"] ?? "5")
+
 const contexts = {
   teams: {
     from: "memberships",
@@ -78,7 +89,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
   const dir = await mkdtemp(join(tmpdir(), `canopy-${kind}-`))
   const policies = join(dir, "policies")
   await import("node:fs/promises").then((fs) => fs.mkdir(policies))
-  for (const def of [items, teamDocs]) {
+  for (const def of [items, teamDocs, sim]) {
     const stored = toCanonical(toStored(def, { version: 1 }))
     await writeFile(join(policies, `${def.collection}.json`), JSON.stringify(stored))
   }
@@ -310,5 +321,112 @@ for (const kind of servers) {
         seq + 1,
       )
     })
+
+    it(
+      "converges to the MongoDB result after random writes (seeded simulation)",
+      async () => {
+        const coll = server.db.collection<{
+          _id: number
+          ownerId?: string
+          rank?: number
+          done?: boolean
+          hidden?: boolean
+          marker?: boolean
+        }>("sim")
+        const users = ["alice", "bob"] as const
+        const queries: Record<string, unknown>[] = [
+          {},
+          { filter: { done: true } },
+          { filter: { rank: { $gte: 3 } } },
+          { sort: { rank: -1 }, limit: 3 },
+        ]
+        const write = fc.oneof(
+          fc.record({
+            op: fc.constant("insert" as const),
+            id: fc.nat(30),
+            owner: fc.constantFrom(...users),
+            rank: fc.nat(5),
+            done: fc.boolean(),
+            hidden: fc.boolean(),
+          }),
+          fc.record({
+            op: fc.constant("update" as const),
+            id: fc.nat(30),
+            rank: fc.nat(5),
+            done: fc.boolean(),
+          }),
+          fc.record({
+            op: fc.constant("move" as const),
+            id: fc.nat(30),
+            owner: fc.constantFrom(...users),
+          }),
+          fc.record({ op: fc.constant("hide" as const), id: fc.nat(30), hidden: fc.boolean() }),
+          fc.record({ op: fc.constant("delete" as const), id: fc.nat(30) }),
+        )
+        for (let seed = 0; seed < SIM_SEEDS; seed += 1) {
+          await coll.deleteMany({})
+          const writes =
+            fc.sample(fc.array(write, { minLength: 20, maxLength: 60 }), { numRuns: 1, seed })[0] ??
+            []
+          const clients = await Promise.all(users.map((user) => connect({ sub: user })))
+          const apply = async (w: (typeof writes)[number]): Promise<void> => {
+            if (w.op === "insert")
+              await coll.replaceOne(
+                { _id: w.id },
+                { ownerId: w.owner, rank: w.rank, done: w.done, hidden: w.hidden },
+                { upsert: true },
+              )
+            else if (w.op === "update")
+              await coll.updateOne({ _id: w.id }, { $set: { rank: w.rank, done: w.done } })
+            else if (w.op === "move")
+              await coll.updateOne({ _id: w.id }, { $set: { ownerId: w.owner } })
+            else if (w.op === "hide")
+              await coll.updateOne({ _id: w.id }, { $set: { hidden: w.hidden } })
+            else await coll.deleteOne({ _id: w.id })
+          }
+          const half = Math.floor(writes.length / 2)
+          const subscribing = clients.flatMap((client) =>
+            queries.map((q, index) => client.subscribe(`q${index}`, "sim", q)),
+          )
+          await Promise.all([...writes.slice(0, half).map(apply), ...subscribing])
+          for (const w of writes.slice(half)) await apply(w)
+          for (const [index, client] of clients.entries()) {
+            const marker = 1000 + seed * 10 + index
+            await coll.insertOne({
+              _id: marker,
+              ownerId: users[index] ?? "",
+              marker: true,
+              rank: -1,
+            })
+            await client.until(() => client.ids("q0").map(Number).includes(marker), 15_000)
+            await coll.deleteOne({ _id: marker })
+            await client.until(() => !client.ids("q0").map(Number).includes(marker), 15_000)
+          }
+          for (const [index, client] of clients.entries()) {
+            const user = users[index] ?? ""
+            for (const [qi, q] of queries.entries()) {
+              const visible = {
+                $and: [
+                  (q["filter"] as object | undefined) ?? {},
+                  { ownerId: user },
+                  { hidden: { $ne: true } },
+                ],
+              }
+              let cursor = coll.find(visible)
+              if (q["sort"] !== undefined)
+                cursor = cursor.sort({ rank: -1, _id: 1 }).limit(Number(q["limit"]))
+              else cursor = cursor.sort({ _id: 1 })
+              const expected = (await cursor.toArray()).map((doc) => canonicalString(doc)).sort()
+              const got = [...client.view(`q${qi}`).values()]
+                .map((doc) => canonicalString(doc))
+                .sort()
+              expect(got, `seed ${seed}, ${user}, query ${JSON.stringify(q)}`).toEqual(expected)
+            }
+            client.bye()
+          }
+        }
+      },
+      120_000 + SIM_SEEDS * 5000,
+    )
   })
 }
