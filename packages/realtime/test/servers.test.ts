@@ -428,5 +428,10 @@ for (const kind of servers) {
       },
       120_000 + SIM_SEEDS * 5000,
     )
+
+    it("sent only frames the protocol decoder accepts", () => {
+      expect(open.length).toBeGreaterThan(0)
+      expect(open.flatMap((client) => client.invalid)).toEqual([])
+    })
   })
 }

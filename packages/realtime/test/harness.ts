@@ -102,6 +102,11 @@ export class TestClient {
   readonly docs = new Map<string, Record<string, unknown>>()
   readonly members = new Map<string, Set<string>>()
   readonly ready = new Set<string>()
+  /**
+   * Frames of a type the protocol does not define, which a client ignores: a conforming server sends none.
+   * Malformed frames of a known type make the decoder throw, which fails the test run.
+   */
+  readonly invalid: string[] = []
   closeCode: number | undefined
   private readonly socket: WebSocket
   private readonly waiters: { test: () => boolean; resolve: () => void }[] = []
@@ -109,8 +114,12 @@ export class TestClient {
   private constructor(socket: WebSocket) {
     this.socket = socket
     socket.on("message", (data) => {
-      const message = decodeServerMessage(data.toString())
-      if (message === undefined) return
+      const text = data.toString()
+      const message = decodeServerMessage(text)
+      if (message === undefined) {
+        this.invalid.push(text)
+        return
+      }
       for (const part of unbatch(message)) {
         if (part.t === "pong") continue
         this.messages.push(part)

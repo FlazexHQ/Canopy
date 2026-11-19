@@ -84,6 +84,10 @@ jobs:
           CANOPY_DIFF_RUNS: "500"
       - name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
         run: bun --bun vitest run --project realtime -t "seeded simulation" --testTimeout 14400000
+      - name: Realtime chaos (server kill and primary step down, on both engines; alone, since the step down disturbs other suites)
+        run: bun --bun vitest run --project realtime test/chaos.test.ts
+        env:
+          CANOPY_CHAOS: "1"
       - name: Echo correlation between writes and change events (100k mutations)
         run: bun --bun vitest run --project rest -t "echo correlation" --testTimeout 14400000
         env:
