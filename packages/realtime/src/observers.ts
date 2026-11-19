@@ -100,6 +100,8 @@ export abstract class Observer {
   private readonly waiting = new Set<ObserverListener>()
   protected state: "idle" | "loading" | "live" | "failed" = "idle"
   protected ct: ClusterTime = ZERO_CT
+  /** The cluster time of the last snapshot, which already contains every event at or before it. */
+  private loadedAt: ClusterTime = ZERO_CT
   private buffered: NormalizedEvent[] = []
   private failure: CanopyError | undefined
   private refreshing = false
@@ -235,6 +237,7 @@ export abstract class Observer {
               ct,
             )
             this.ct = maxCt(this.ct, ct)
+            this.loadedAt = ct
             for (const event of pending) {
               if (compareCt(event.ct, ct) > 0) {
                 this.applyEvent(event)
@@ -294,13 +297,18 @@ export abstract class Observer {
     for (const listener of all) listener.failed(error)
   }
 
-  /** Routes an event to the observer. */
+  /**
+   * Routes an event to the observer. A snapshot can be read at a later cluster time than the change stream
+   * has delivered, so events at or before the snapshot can still arrive after it: they are already in the
+   * state and are skipped, which keeps the state from moving back to an older version.
+   */
   apply(event: NormalizedEvent): void {
     if (this.state === "failed" || this.state === "idle") return
     if (this.state === "loading" || this.refreshing) {
       this.buffered.push(event)
       return
     }
+    if (compareCt(event.ct, this.loadedAt) <= 0) return
     this.applyEvent(event)
     this.ct = maxCt(this.ct, event.ct)
   }

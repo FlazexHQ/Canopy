@@ -1,6 +1,9 @@
+import { compileFilter } from "@canopy/matcher"
 import { allow, auth, collection } from "@canopy/policy"
 import { MONGODB_URI } from "@canopy/testing"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { docKey, type NormalizedEvent } from "../src/event.ts"
+import { FilterObserver, type MembershipHooks, type SnapshotReader } from "../src/observers.ts"
 import {
   type Keys,
   makeKeys,
@@ -224,5 +227,51 @@ suite("observer lifecycle with a lingering registry", () => {
       .slice(before)
       .filter((m) => m.t === "added" || m.t === "changed" || m.t === "removed")
     expect(after.map((m) => [m.t, (m as { id?: unknown }).id])).toEqual([["changed", 1050]])
+  })
+})
+
+describe("an observer whose snapshot is later than the delivered events", () => {
+  it("skips the events its snapshot already contains, so its documents never go back", async () => {
+    const reader: SnapshotReader = {
+      read: () => Promise.resolve({ docs: [{ _id: 13, done: false }], ct: "579" }),
+    } as unknown as SnapshotReader
+    const hooks: MembershipHooks = { memberAdded() {}, memberRemoved() {}, buffering() {} }
+    const observer = new FilterObserver(
+      "todos:all",
+      { coll: "todos", filter: {}, sort: undefined, limit: undefined, readable: (doc) => doc },
+      compileFilter({}),
+      reader,
+      hooks,
+      { maxTrackedDocs: 100, maxBuffer: 10, requeryIntervalMs: 50, pollMinMs: 50, pollMaxMs: 500 },
+    )
+    const seen: unknown[] = []
+    observer.attach({
+      added: (_key, _id, doc) => seen.push(["added", doc]),
+      changed: (_key, _id, doc) => seen.push(["changed", doc]),
+      removed: (_key, id) => seen.push(["removed", id]),
+      ready: () => seen.push(["ready"]),
+      failed: (error) => seen.push(["failed", error.code]),
+    })
+    await sleep(0)
+    const event = (ct: string, post: Record<string, unknown>): NormalizedEvent => ({
+      ct,
+      token: undefined,
+      wallTime: undefined,
+      coll: "todos",
+      op: "replace",
+      id: 13,
+      key: docKey("todos", 13),
+      pre: undefined,
+      post,
+      diff: undefined,
+    })
+    observer.apply(event("577", { _id: 13, done: true }))
+    observer.apply(event("579", { _id: 13, done: true }))
+    observer.apply(event("580", { _id: 13, done: true, rank: 1 }))
+    expect(seen).toEqual([
+      ["added", { _id: 13, done: false }],
+      ["ready"],
+      ["changed", { _id: 13, done: true, rank: 1 }],
+    ])
   })
 })
