@@ -146,8 +146,28 @@ const canopy = createClient({ url, publishableKey, schema })
 const titles = canopy.from("todos").find({ done: false }).fields({ title: 1 })
 ```
 
+## Keep the database and the file in step
+
+```bash
+bunx canopy schema diff        # exits 1 and lists each difference when MongoDB drifted
+bunx canopy schema push        # writes the declared collections' validators, after asking
+```
+
+`canopy schema diff` compares the file with each collection's validator, or with sampled documents when a
+collection has none, and is the check to run in CI. A declared type wider than the stored values is fine;
+a field the database has and the file does not declare is a difference. `canopy dev` runs the same
+comparison when collections change and warns instead of changing anything.
+
+`canopy schema push` converts each declared collection to a `$jsonSchema` validator and applies it with
+`createCollection` or `collMod`. It is an explicit admin action: it shows what it will change, asks first
+(`--yes` skips the question), never runs at startup and never touches a collection the file does not declare.
+
+Static types describe a collection, not what one role may do: Document Level Security still decides every
+request at runtime.
+
 ## Moving from `canopy gen types`
 
 `canopy gen types` and `createClient<Database>()` keep working for now; `gen types` prints a notice that
-points here. To move, run `canopy pull`, register the schema, pass it to `createClient`, and replace
-`Database["todos"]["Document"]` with `Doc<"todos">`.
+points here. To move, run `canopy pull`, register the schema, pass it to `createClient`, replace
+`Database["todos"]["Document"]` with `Doc<"todos">`, and replace `canopy gen types --check` in CI with
+`canopy schema diff`.
