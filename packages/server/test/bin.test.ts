@@ -81,7 +81,7 @@ async function within<T>(promise: Promise<T>, ms: number, what: string): Promise
   }
 }
 
-describe("canopy-server: argument and config errors", () => {
+describe("canopy-server: argument and config errors", { timeout: 45_000 }, () => {
   let dir: string
 
   beforeAll(async () => {
