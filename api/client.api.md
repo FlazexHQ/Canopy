@@ -54,12 +54,12 @@ export interface CachedDocument {
     readonly ct: ClusterTime;
 }
 
-class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
+class CanopyClient<in out DB extends Schema<DB> = DefaultSchema, out Auth extends TokenSource | undefined = TokenSource | undefined> {
   readonly store: Store
   readonly updateEngine: Promise<void>
   readonly storage: StorageApi
-  constructor<in out DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ClientOptions): CanopyClient<DB>
-  get auth(): TokenSource | undefined
+  constructor<in out DB extends Schema<DB> = import("./types.ts").UntypedSchema, out Auth extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions): CanopyClient<DB, Auth>
+  get auth(): Auth
   get staleMutations(): readonly StaleMutation[]
   onStaleMutations(listener: (mutations: readonly StaleMutation[]) => void): () => void
   onMutationError(listener: (error: Error, mutationId: string) => void): () => void
@@ -765,9 +765,9 @@ export interface WriteOptions<Doc = Document> {
 
 function cacheKey(coll: string, id: unknown): string
 
-function createClient<S extends SchemaConstraint>(options: ClientOptions & { readonly schema: S; }): CanopyClient<SchemaTypes<S>>
-function createClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ClientOptions & SchemaOption): CanopyClient<DB>
-function createClient<DB extends Schema<DB>>(options: ClientOptions): CanopyClient<DB>
+function createClient<S extends SchemaConstraint, A extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions & { readonly schema: S; readonly auth?: A; }): CanopyClient<SchemaTypes<S>, A>
+function createClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema, A extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions & SchemaOption & { readonly auth?: A; }): CanopyClient<DB, A>
+function createClient<DB extends Schema<DB>, A extends TokenSource | undefined>(options: ClientOptions): CanopyClient<DB, A>
 
 function createStorage(options: StorageClientOptions): StorageApi
 

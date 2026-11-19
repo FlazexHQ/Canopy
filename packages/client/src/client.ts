@@ -67,7 +67,10 @@ function backoff(attempt: number, maxMs: number): number {
  * The Canopy client: a document cache with live queries over `canopy.v1`, automatic reconnection
  * with full jitter backoff, resume by sequence number and resync reconciliation.
  */
-export class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
+export class CanopyClient<
+  in out DB extends Schema<DB> = DefaultSchema,
+  out Auth extends TokenSource | undefined = TokenSource | undefined,
+> {
   readonly store: Store = new Store()
   /**
    * Settles once the update engine is loaded. It is a separate chunk, fetched right after the client is
@@ -150,9 +153,12 @@ export class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
     this.connect()
   }
 
-  /** The token source passed as `auth`, such as the `createAuth()` handle. */
-  get auth(): TokenSource | undefined {
-    return this.options.auth
+  /**
+   * The token source passed as `auth`, with its own type: the `createAuth()` handle keeps its sign in
+   * methods, and another provider's token source is returned as given.
+   */
+  get auth(): Auth {
+    return this.options.auth as Auth
   }
 
   /** Starts a fresh session as the current user: the server refuses `auth` frames that switch subject. */
@@ -720,16 +726,22 @@ function withoutId(doc: Record<string, unknown>, original: object): Document {
  * `createClient({ url, publishableKey, schema })`. Once the schema is registered through `Register`, the
  * option is required.
  */
-export function createClient<S extends SchemaConstraint>(
-  options: ClientOptions & { readonly schema: S },
-): CanopyClient<SchemaTypes<S>>
+export function createClient<
+  S extends SchemaConstraint,
+  A extends TokenSource | undefined = TokenSource | undefined,
+>(
+  options: ClientOptions & { readonly schema: S; readonly auth?: A },
+): CanopyClient<SchemaTypes<S>, A>
 /**
  * Creates a client and starts connecting, typed by the registered schema, untyped, or with an explicit
  * database type such as a `Database` interface from `canopy gen types`.
  */
-export function createClient<DB extends Schema<DB> = DefaultSchema>(
-  options: ClientOptions & SchemaOption,
-): CanopyClient<DB>
-export function createClient<DB extends Schema<DB>>(options: ClientOptions): CanopyClient<DB> {
-  return new CanopyClient<DB>(options)
+export function createClient<
+  DB extends Schema<DB> = DefaultSchema,
+  A extends TokenSource | undefined = TokenSource | undefined,
+>(options: ClientOptions & SchemaOption & { readonly auth?: A }): CanopyClient<DB, A>
+export function createClient<DB extends Schema<DB>, A extends TokenSource | undefined>(
+  options: ClientOptions,
+): CanopyClient<DB, A> {
+  return new CanopyClient<DB, A>(options)
 }

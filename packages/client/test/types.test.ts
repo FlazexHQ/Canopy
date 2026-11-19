@@ -1,4 +1,5 @@
 import { describe, expectTypeOf, it } from "vitest"
+import { type CanopyAuth, createAuth } from "../src/auth.ts"
 import type {
   CanopyClient,
   DeepPartial,
@@ -11,9 +12,11 @@ import type {
   Projected,
   Projection,
   QueryState,
+  TokenSource,
   UntypedSchema,
   UpdateFilter,
 } from "../src/index.ts"
+import { createClient } from "../src/index.ts"
 import type { ServerClient } from "../src/server.ts"
 
 interface TodoDocument {
@@ -177,6 +180,21 @@ describe("client types", () => {
     expectTypeOf<ReturnType<typeof dynamic>>().toEqualTypeOf<
       DeepPartial<TodoDocument> | undefined
     >()
+  })
+
+  it("keeps the type of the auth handle it was given", () => {
+    const builtIn = () =>
+      createClient({ url: "u", publishableKey: "pk", auth: createAuth({ url: "u" }) })
+    const minimal = () =>
+      createClient({ url: "u", publishableKey: "pk", auth: { getToken: () => "t" } })
+    const none = () => createClient({ url: "u", publishableKey: "pk" })
+    expectTypeOf<ReturnType<typeof builtIn>["auth"]>().toEqualTypeOf<CanopyAuth>()
+    expectTypeOf<ReturnType<typeof builtIn>["auth"]["signInWithPassword"]>().toBeFunction()
+    expectTypeOf<ReturnType<typeof minimal>["auth"]>().toEqualTypeOf<{ getToken: () => string }>()
+    expectTypeOf<ReturnType<typeof none>["auth"]>().toEqualTypeOf<TokenSource | undefined>()
+    const typed = () =>
+      createClient<Database>({ url: "u", publishableKey: "pk", auth: createAuth({ url: "u" }) })
+    expectTypeOf<ReturnType<typeof typed>>().toExtend<CanopyClient<Database>>()
   })
 
   it("resolves paths and their values", () => {
