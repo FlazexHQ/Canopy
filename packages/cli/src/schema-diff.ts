@@ -1,14 +1,19 @@
-import { existsSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, watch } from "node:fs"
+import { basename, dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { isDeepStrictEqual } from "node:util"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
-import { type CollectionSchema, diffSchemas, toValidator } from "@canopy/schema"
+import {
+  type CollectionSchema,
+  diffSchemas,
+  type SchemaDifference,
+  toValidator,
+} from "@canopy/schema"
 import { type SchemaDefinition, toCollectionSchemas } from "@canopy/schema/define"
 import { type Db, MongoClient } from "mongodb"
 import { loadCollectionSchemas } from "./gen-types.ts"
 import { appTarget, type Configured } from "./invocation.ts"
-import { confirmed, messageOf } from "./output.ts"
+import { confirmed, messageOf, type Output } from "./output.ts"
 
 function plainObject(value: unknown): value is Record<string, unknown> {
   if (typeof value !== "object" || value === null) return false
@@ -30,20 +35,33 @@ function isSchema(value: unknown): value is SchemaDefinition {
   )
 }
 
-async function readDeclared(call: Configured) {
+/** Finds the project's schema declaration, preferring TypeScript. */
+export function findSchemaFile(cwd: string): string | undefined {
+  return ["canopy.schema.ts", "canopy.schema.js"].find((name) => existsSync(resolve(cwd, name)))
+}
+
+function schemaFile(call: Configured): string {
   const option = call.flags.get("file")
   if (option === true || option === "")
     throw new CanopyError(ErrorCode.ConfigInvalid, "--file needs a path")
-  const file =
-    option ??
-    ["canopy.schema.ts", "canopy.schema.js"].find((name) => existsSync(resolve(call.cwd, name)))
+  const file = option ?? findSchemaFile(call.cwd)
   if (file === undefined)
     throw new CanopyError(
       ErrorCode.ConfigInvalid,
       "Cannot find canopy.schema.ts or canopy.schema.js",
     )
+  return file
+}
+
+let version = 0
+
+async function readDeclared(file: string, cwd: string, fresh = false) {
   try {
-    const module: unknown = await import(pathToFileURL(resolve(call.cwd, file)).href)
+    const path = resolve(cwd, file)
+    const url = pathToFileURL(path).href
+    // Bun preserves the version query on absolute paths when reloading a module.
+    const specifier = fresh && "Bun" in globalThis ? path : url
+    const module: unknown = await import(fresh ? `${specifier}?v=${++version}` : url)
     if (
       typeof module !== "object" ||
       module === null ||
@@ -54,11 +72,125 @@ async function readDeclared(call: Configured) {
         ErrorCode.ConfigInvalid,
         "Expected a schema export containing collection definitions with a name and an object shape",
       )
-    return { file, declared: toCollectionSchemas(module.schema) }
+    return toCollectionSchemas(module.schema)
   } catch (error: unknown) {
     throw new CanopyError(ErrorCode.ConfigInvalid, `Cannot load ${file}: ${messageOf(error)}`, {
       cause: error,
     })
+  }
+}
+
+type SchemaOptions = Parameters<typeof loadCollectionSchemas>[0]
+
+async function compareDeclared(
+  declared: CollectionSchema[],
+  client: MongoClient,
+  options: SchemaOptions,
+): Promise<SchemaDifference[]> {
+  return diffSchemas(declared, await loadCollectionSchemas(options, client))
+}
+
+/** Reads the current schema declaration and compares it to MongoDB. */
+export async function schemaDrift(
+  file: string,
+  cwd: string,
+  client: MongoClient,
+  options: SchemaOptions,
+): Promise<SchemaDifference[]> {
+  return compareDeclared(await readDeclared(file, cwd, true), client, options)
+}
+
+/** Formats a warning or recovery when the set of reported differences changes. */
+export function driftReport(
+  file: string,
+  database: string,
+  previous: ReadonlySet<string>,
+  differences: readonly SchemaDifference[],
+) {
+  const messages = new Set(differences.map(({ message }) => message))
+  const errors: string[] = []
+  const logs: string[] = []
+  if (messages.size === 0) {
+    if (previous.size > 0) logs.push(`schema  ${file} matches ${database} again`)
+  } else if (
+    messages.size !== previous.size ||
+    [...messages].some((message) => !previous.has(message))
+  ) {
+    errors.push(`schema  ${file} differs from ${database}:`)
+    for (const message of messages) errors.push(`  ${message}`)
+    errors.push(`schema  run canopy schema push or edit ${file}`)
+  }
+  return { messages, errors, logs }
+}
+
+/** Reports changes in schema drift until the signal aborts. */
+export async function watchSchemaDrift(
+  options: { file: string; cwd: string; mongodbUri: string; database: string },
+  out: Output,
+  signal: AbortSignal,
+): Promise<number> {
+  const { cwd, file, database } = options
+  if (signal.aborted) return 0
+  try {
+    await using client = new MongoClient(options.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
+    await client.connect()
+    if (signal.aborted) return 0
+    const events = ["create", "modify", "drop", "rename", "dropDatabase"]
+    await using stream = client
+      .db(database)
+      .watch([{ $match: { operationType: { $in: events } } }], {
+        showExpandedEvents: true,
+      })
+    let previous = new Set<string>()
+    let queue = Promise.resolve()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const run = (): void => {
+      queue = queue.then(async () => {
+        if (signal.aborted) return
+        try {
+          const differences = await schemaDrift(file, cwd, client, { database })
+          if (signal.aborted) return
+          const report = driftReport(file, database, previous, differences)
+          for (const line of report.errors) out.error(line)
+          for (const line of report.logs) out.log(line)
+          previous = report.messages
+        } catch (error: unknown) {
+          out.error(`schema  ${messageOf(error)}`)
+        }
+      })
+    }
+    const soon = (): void => {
+      if (signal.aborted) return
+      clearTimeout(timer)
+      timer = setTimeout(run, 200)
+    }
+    const path = resolve(cwd, file)
+    const watcher = watch(dirname(path), (_event, name) => {
+      if (name === null || name === basename(path)) soon()
+    })
+    try {
+      watcher.on("error", (error: unknown) =>
+        out.error(`schema  file watcher: ${messageOf(error)}`),
+      )
+      stream.on("error", (error: unknown) =>
+        out.error(`schema  change stream: ${messageOf(error)}`),
+      )
+      stream.on("change", soon)
+      run()
+      await new Promise<void>((done) => {
+        if (signal.aborted) done()
+        else signal.addEventListener("abort", () => done(), { once: true })
+      })
+    } finally {
+      watcher.close()
+      stream.off("change", soon)
+      clearTimeout(timer)
+      await queue
+    }
+    return 0
+  } catch (error: unknown) {
+    out.error(`schema  ${messageOf(error)}`)
+    return 1
   }
 }
 
@@ -94,7 +226,8 @@ async function push(call: Configured, db: Db, declared: CollectionSchema[]): Pro
 export async function runSchema(call: Configured): Promise<number> {
   const { flags, out } = call
   try {
-    const { file, declared } = await readDeclared(call)
+    const file = schemaFile(call)
+    const declared = await readDeclared(file, call.cwd)
     const sample = flags.get("sample")
     if (
       sample !== undefined &&
@@ -109,16 +242,12 @@ export async function runSchema(call: Configured): Promise<number> {
     if (app === undefined) return 1
     await using client = new MongoClient(app.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
     if (call.name === "schema push") return await push(call, client.db(app.database), declared)
-    const actual = await loadCollectionSchemas(
-      {
-        database: app.database,
-        ...(call.dirGiven ? { dir: call.dir } : {}),
-        ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
-        inferEnums: flags.has("infer-enums"),
-      },
-      client,
-    )
-    const differences = diffSchemas(declared, actual)
+    const differences = await compareDeclared(declared, client, {
+      database: app.database,
+      ...(call.dirGiven ? { dir: call.dir } : {}),
+      ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
+      inferEnums: flags.has("infer-enums"),
+    })
     if (differences.length === 0) {
       out.log(`no drift between ${file} and ${app.database}`)
       return 0

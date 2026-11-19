@@ -10,6 +10,7 @@ import type { Logger } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "@canopy/server"
 import { watchTypes } from "./gen-types.ts"
 import { messageOf, type Output } from "./output.ts"
+import { findSchemaFile, watchSchemaDrift } from "./schema-diff.ts"
 
 /** Options of `canopy dev`. */
 export interface DevOptions {
@@ -50,6 +51,8 @@ interface Running {
   readonly canopy: Canopy
   readonly server: Server
   readonly url: string
+  readonly schemaStop: AbortController
+  readonly schemaWatch: Promise<number> | undefined
 }
 
 async function listen(server: Server, port: number): Promise<number> {
@@ -70,6 +73,7 @@ function summary(
   cwd: string,
   generated: boolean,
   setupToken: string | undefined,
+  schemaFile: string | undefined,
 ): string[] {
   const ws = url.replace(/^http/, "ws")
   const set = canopy.policies.set
@@ -108,6 +112,8 @@ function summary(
     if (setupToken !== undefined)
       lines.push(`            no owner yet: claim it in Studio with the setup token ${setupToken}`)
   }
+  if (schemaFile !== undefined)
+    lines.push(`  Schema    ${schemaFile}  (warns when MongoDB drifts from it)`)
   lines.push("")
   lines.push(
     "Watching the config and env files (restart) and the policies (hot reload). Ctrl+C stops.",
@@ -172,10 +178,25 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
       await canopy.attach(server)
       const port = await listen(server, options.port ?? config.server.port)
       const url = `http://localhost:${port}`
-      for (const line of summary(config, canopy, url, options.cwd, generated, setupToken))
+      const file = findSchemaFile(options.cwd)
+      for (const line of summary(config, canopy, url, options.cwd, generated, setupToken, file))
         out.log(line)
       options.onReady?.(url)
-      return { canopy, server, url }
+      const schemaStop = new AbortController()
+      const schemaWatch =
+        file === undefined
+          ? undefined
+          : watchSchemaDrift(
+              {
+                cwd: options.cwd,
+                file,
+                mongodbUri: config.mongodb.uri,
+                database: config.mongodb.database,
+              },
+              out,
+              AbortSignal.any([signal, schemaStop.signal]),
+            )
+      return { canopy, server, url, schemaStop, schemaWatch }
     } catch (error: unknown) {
       out.error(`error  Canopy did not start: ${messageOf(error)}`)
       await canopy?.close({ drainMs: 0 })
@@ -184,6 +205,8 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   }
   const stop = async (running: Running | undefined): Promise<void> => {
     if (running === undefined) return
+    running.schemaStop.abort()
+    await running.schemaWatch
     await running.canopy.close({ drainMs: 0 })
     running.server.closeAllConnections()
     await new Promise<void>((done) => running.server.close(() => done()))

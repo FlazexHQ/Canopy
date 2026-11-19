@@ -150,6 +150,7 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     const typed = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     await mkdir(join(typed, "src"))
     await writeFile(join(typed, "src", "canopy.gen.ts"), "// stale\n")
+    await writeFile(join(typed, "canopy.schema.js"), "export const schema = {}")
     const untyped = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     for (const root of [typed, untyped]) {
       const lines: string[] = []
@@ -171,8 +172,16 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
         )
         expect(text).toContain("export interface Database")
         expect(lines.some((line) => line.startsWith("  Types     src"))).toBe(true)
+        expect(lines).toContain("  Schema    canopy.schema.js  (warns when MongoDB drifts from it)")
+        expect(
+          await until(
+            async () => lines.includes(`schema  canopy.schema.js differs from ${database}:`),
+            (warned) => warned,
+          ),
+        ).toBe(true)
       } else {
         expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
+        expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
       }
       stop.abort()
       expect(await running).toBe(0)

@@ -1,11 +1,13 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import type { SchemaDifference } from "@canopy/schema"
 import { MONGODB_URI } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { run } from "../src/cli.ts"
 import * as schemaLoader from "../src/gen-types.ts"
+import { driftReport, schemaDrift } from "../src/schema-diff.ts"
 
 const source = `import { collection, defineSchema, t } from "@canopy/schema/define"
 export const schema = defineSchema(collection("notes", { body: t.string() }))`
@@ -42,6 +44,18 @@ async function invoke(command: "diff" | "push", ...flags: string[]) {
 }
 
 describe("schema files", () => {
+  it("compares the latest declaration after the file is edited", async () => {
+    const file = "canopy.schema.ts"
+    const path = join(dir, file)
+    vi.spyOn(schemaLoader, "loadCollectionSchemas").mockResolvedValue([])
+    await using client = new MongoClient("mongodb://localhost/app")
+    await writeFile(path, source)
+    expect(await schemaDrift(file, dir, client, { database: "app" })).toMatchObject([
+      { kind: "collection-missing", collection: "notes" },
+    ])
+    await writeFile(path, "export const schema = {}")
+    expect(await schemaDrift(file, dir, client, { database: "app" })).toEqual([])
+  })
   it.each(["diff", "push"] as const)(
     "reports both missing defaults before connecting for %s",
     async (command) => {
@@ -111,6 +125,52 @@ describe("schema files", () => {
         `1 differences; edit ${file} or run canopy schema push`,
       ],
     })
+  })
+})
+
+describe("schema drift output", () => {
+  const file = "canopy.schema.ts"
+  const notes: SchemaDifference = {
+    collection: "notes",
+    kind: "collection-missing",
+    message: "notes is in the schema file but not in the database",
+  }
+  const tags: SchemaDifference = {
+    collection: "tags",
+    kind: "collection-undeclared",
+    message: "tags is in the database but not in the schema file",
+  }
+  const report = (previous: string[], differences: SchemaDifference[]) =>
+    driftReport(file, "app", new Set(previous), differences)
+
+  it("stays silent on a clean start and reports recovery once", () => {
+    expect(report([], [])).toMatchObject({ errors: [], logs: [] })
+    const recovered = report([notes.message], [])
+    expect(recovered).toEqual({
+      errors: [],
+      logs: ["schema  canopy.schema.ts matches app again"],
+      messages: new Set(),
+    })
+  })
+
+  it("warns on new or changed drift and ignores reordering", () => {
+    const first = report([], [notes, tags])
+    expect(first).toEqual({
+      errors: [
+        "schema  canopy.schema.ts differs from app:",
+        `  ${notes.message}`,
+        `  ${tags.message}`,
+        "schema  run canopy schema push or edit canopy.schema.ts",
+      ],
+      logs: [],
+      messages: new Set([notes.message, tags.message]),
+    })
+    expect(report([...first.messages], [tags, notes])).toMatchObject({ errors: [], logs: [] })
+    expect(report([notes.message], [tags]).errors).toEqual([
+      "schema  canopy.schema.ts differs from app:",
+      `  ${tags.message}`,
+      "schema  run canopy schema push or edit canopy.schema.ts",
+    ])
   })
 })
 
