@@ -47,6 +47,13 @@ export type RestrictMode = "remove" | "optional";
 
 export type ScalarType = "string" | "double" | "int" | "long" | "decimal" | "bool" | "date" | "objectId" | "binData" | "uuid" | "null" | "timestamp" | "regex" | "minKey" | "maxKey" | "javascript";
 
+export interface SchemaDifference {
+    readonly collection: string;
+    readonly path?: string;
+    readonly kind: "collection-missing" | "collection-undeclared" | "field-missing" | "field-undeclared" | "type" | "required";
+    readonly message: string;
+}
+
 export type SchemaSource = "validator" | "config" | "inferred";
 
 export type Shape = {
@@ -67,6 +74,8 @@ export type Shape = {
     readonly of: readonly Shape[];
 };
 
+function diffSchemas(declared: readonly CollectionSchema[], actual: readonly CollectionSchema[]): SchemaDifference[]
+
 function emitSchemaFile(schemas: readonly CollectionSchema[], options?: EmitOptions): string
 
 function fromJsonSchema(schema: unknown): Shape
@@ -80,6 +89,8 @@ function members(shape: Shape): readonly Shape[]
 function restrictShape(shape: ObjectShape, access: FieldAccess, mode?: RestrictMode): ObjectShape
 
 function toJsonSchema(shape: Shape): Record<string, unknown>
+
+function toValidator(shape: Shape): Record<string, unknown>
 
 function union(shapes: readonly Shape[]): Shape
 ```
