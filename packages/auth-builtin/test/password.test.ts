@@ -106,8 +106,9 @@ describeMongo("email and password", () => {
     await signUpVerified(h, h.client(), "taken2@example.com", "taken password 2")
     const known: number[] = []
     const unknown: number[] = []
+    const gaps: number[] = []
     const bodies = new Set<string>()
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 16; i++) {
       const a = await h.client().post("/auth/v1/sign-up/email", {
         email: i % 2 === 0 ? "taken@example.com" : "taken2@example.com",
         password: "another password",
@@ -124,11 +125,14 @@ describeMongo("email and password", () => {
       bodies.add(b.text)
       known.push(a.ms)
       unknown.push(b.ms)
+      gaps.push(b.ms - a.ms)
     }
     expect([...bodies]).toEqual([JSON.stringify({ token: null, user: null, verification: "sent" })])
     expect(median(known)).toBeGreaterThanOrEqual(78)
     expect(median(unknown)).toBeGreaterThanOrEqual(78)
-    expect(Math.abs(median(known) - median(unknown))).toBeLessThan(20)
+    // Each pair is sent back to back, so load on the machine slows both of its requests alike and the
+    // median gap within pairs stays near zero unless one kind of address is answered more slowly.
+    expect(Math.abs(median(gaps))).toBeLessThan(20)
   }, 30_000)
 
   it("answers sign in and reset requests the same way for unknown addresses and wrong passwords", async () => {
