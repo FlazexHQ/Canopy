@@ -254,6 +254,7 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         shards: number(&doc, &["server", "shards"])
             .map(whole)
             .and_then(|n| usize::try_from(n).ok())
+            .or_else(|| env("CANOPY_GATEWAY_SHARDS").and_then(|value| value.parse().ok()))
             .filter(|n| *n > 0)
             .unwrap_or_else(|| {
                 std::thread::available_parallelism().map_or(2, std::num::NonZero::get).clamp(1, 4)

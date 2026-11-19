@@ -1,5 +1,5 @@
-use std::cell::RefCell;
-use std::collections::HashMap;
+use std::cell::{Cell, RefCell};
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -16,7 +16,7 @@ use hyper::header::{
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
@@ -28,6 +28,8 @@ use crate::core::{Command, EngineSender, ShardMessage};
 /// Bytes queued for a connection beyond which it is a slow consumer.
 const HARD_QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const PROTOCOL: &str = "canopy.v1+json";
+/// Queue slots a connection keeps after a burst.
+const IDLE_QUEUE_CAPACITY: usize = 8;
 
 /// What the shards share.
 pub(crate) struct Shared {
@@ -44,12 +46,42 @@ enum Out {
     Close(u16, String),
 }
 
-struct ConnHandle {
-    tx: mpsc::UnboundedSender<Out>,
-    queued: Rc<RefCell<usize>>,
+/// The frames waiting for one connection. The shard is single threaded, so a plain queue and a wakeup replace a
+/// channel, which would allocate a block of slots per connection up front.
+#[derive(Default)]
+struct Queue {
+    items: RefCell<VecDeque<Out>>,
+    bytes: Cell<usize>,
+    wake: Notify,
 }
 
-type Registry = Rc<RefCell<HashMap<ConnId, ConnHandle>>>;
+impl Queue {
+    fn push(&self, out: Out) {
+        let was_empty = {
+            let mut items = self.items.borrow_mut();
+            let was_empty = items.is_empty();
+            items.push_back(out);
+            was_empty
+        };
+        if was_empty {
+            self.wake.notify_one();
+        }
+    }
+
+    fn pop(&self) -> Option<Out> {
+        self.items.borrow_mut().pop_front()
+    }
+
+    /// Gives back the memory of a burst once the queue is drained, so an idle connection holds none.
+    fn settle(&self) {
+        let mut items = self.items.borrow_mut();
+        if items.is_empty() && items.capacity() > IDLE_QUEUE_CAPACITY {
+            items.shrink_to_fit();
+        }
+    }
+}
+
+type Registry = Rc<RefCell<HashMap<ConnId, Rc<Queue>>>>;
 
 fn weight(out: &Out) -> usize {
     match out {
@@ -84,17 +116,13 @@ pub(crate) fn start_shard(
                             ShardMessage::Session { conn, batch } => (conn, Out::Session(batch)),
                             ShardMessage::Close { conn, code, reason } => (conn, Out::Close(code, reason)),
                         };
-                        let Some(handle) = registry.get(&conn) else { continue };
-                        let size = weight(&out);
-                        let over = {
-                            let mut queued = handle.queued.borrow_mut();
-                            *queued += size;
-                            *queued > HARD_QUEUE_BYTES
-                        };
-                        if over {
+                        let Some(queue) = registry.get(&conn) else { continue };
+                        let bytes = queue.bytes.get() + weight(&out);
+                        queue.bytes.set(bytes);
+                        if bytes > HARD_QUEUE_BYTES {
                             let _ = engine.send(Command::Slow { conn });
                         }
-                        let _ = handle.tx.send(out);
+                        queue.push(out);
                     }
                 }
             }
@@ -239,9 +267,8 @@ async fn flush(socket: &mut Socket, batch: bool, pending: &mut Vec<String>) -> R
 
 async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry, peer: String, shard: usize) {
     let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
-    let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
-    let queued = Rc::new(RefCell::new(0usize));
-    registry.borrow_mut().insert(conn, ConnHandle { tx, queued: Rc::clone(&queued) });
+    let queue = Rc::new(Queue::default());
+    registry.borrow_mut().insert(conn, Rc::clone(&queue));
     if shared.engine.send(Command::Open { conn, address: peer, shard }).is_err() {
         registry.borrow_mut().remove(&conn);
         return;
@@ -262,27 +289,23 @@ async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry,
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 Some(Ok(_)) => {}
             },
-            out = rx.recv() => {
-                let Some(out) = out else { break };
-                let mut size = weight(&out);
-                let mut open = write(&mut socket, out, &mut batch, &mut pending).await;
+            () = queue.wake.notified() => {
+                let mut size = 0usize;
+                let mut open = Ok(true);
                 while matches!(open, Ok(true)) {
-                    match rx.try_recv() {
-                        Ok(more) => {
-                            size += weight(&more);
-                            open = write(&mut socket, more, &mut batch, &mut pending).await;
-                        }
-                        Err(_) => break,
-                    }
+                    let Some(out) = queue.pop() else { break };
+                    size += weight(&out);
+                    open = write(&mut socket, out, &mut batch, &mut pending).await;
                 }
-                {
-                    let mut current = queued.borrow_mut();
-                    *current = current.saturating_sub(size);
-                }
+                queue.bytes.set(queue.bytes.get().saturating_sub(size));
+                queue.settle();
                 let flushed = match open {
                     Ok(true) => flush(&mut socket, batch, &mut pending).await.is_ok() && socket.flush().await.is_ok(),
                     _ => false,
                 };
+                if pending.capacity() > IDLE_QUEUE_CAPACITY {
+                    pending.shrink_to_fit();
+                }
                 if !flushed {
                     break;
                 }

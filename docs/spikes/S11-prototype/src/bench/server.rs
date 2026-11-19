@@ -97,6 +97,9 @@ impl Server {
             "gateway" => {
                 let mut command = sidecar("bun", &launch);
                 command.env("CANOPY_REALTIME_SERVER", "gateway");
+                if let Some(shards) = launch.shards {
+                    command.env("CANOPY_GATEWAY_SHARDS", shards.to_string());
+                }
                 command
             }
             "node" => sidecar(launch.node.unwrap_or("node"), &launch),

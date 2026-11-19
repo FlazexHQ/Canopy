@@ -47,6 +47,9 @@ closing standard input drains the server and stops it.
 `CANOPY_GATEWAY_MUTATIONS_URL` (or `mutations.url`) is the REST base URL writes are forwarded to, for example
 `http://127.0.0.1:8080/rest/v1`. Without it, `mut` frames are refused, as on the sidecar.
 
+`CANOPY_GATEWAY_SHARDS` (or `server.shards`) sets the number of I/O shards, by default the number of cores up to
+four.
+
 ## Not yet supported
 
 - The SSE and long polling fallback transports: the gateway serves WebSockets only.
