@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { collection as defineCollection, t } from "@canopy/schema/define"
 import { type Canopy, createCanopy, defineConfig } from "@canopy/server"
 import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
@@ -44,6 +45,8 @@ const items = collection("items", {
   realtime: true,
   policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
 })
+
+const totals = defineCollection("totals", { _id: t.string(), n: t.int() })
 
 suite("the REST reader against the composed server", () => {
   const name = `canopy_rest_reader_${process.pid}_${Math.floor(Math.random() * 1e6)}`
@@ -191,6 +194,18 @@ suite("the REST reader against the composed server", () => {
       .catch((reason: unknown) => reason)
     expect(other).toBeInstanceOf(NotFoundError)
     expect(typeof (other as NotFoundError).details?.["requestId"]).toBe("string")
+  })
+
+  it("reads distinct values and aggregates only the caller's documents", async () => {
+    const ranks = await reader("alice").from("items").distinct("rank")
+    expect([...ranks.data].sort()).toEqual([1, 2, 3])
+    expect((await reader("bob").from("items").distinct("title")).data).toEqual(["b1"])
+    const total = await reader("alice")
+      .from("items")
+      .aggregate([{ $group: { _id: "$ownerId", n: { $sum: 1 } } }], {
+        decode: totals,
+      })
+    expect(total.data).toEqual([{ _id: "alice", n: 3 }])
   })
 
   it("keeps the server's typed error for an invalid query", async () => {

@@ -1,3 +1,4 @@
+import { collection, t } from "@canopy/schema/define"
 import { describe, expect, expectTypeOf, it, vi } from "vitest"
 import {
   type CanopyError,
@@ -5,6 +6,7 @@ import {
   isCanopyError,
   NotFoundError,
   ObjectId,
+  ValidationError,
 } from "../src/index.ts"
 import { createRestClient, type RestPage } from "../src/rest/index.ts"
 
@@ -309,5 +311,77 @@ describe("the REST entry point", () => {
     } finally {
       if (original !== undefined) Object.defineProperty(globalThis, "WebSocket", original)
     }
+  })
+})
+
+describe("REST distinct and aggregate", () => {
+  interface Tagged {
+    _id: ObjectId
+    tags: string[]
+    rank: number | null
+  }
+  type Tags = DocumentSchema<{ tagged: Tagged }>
+
+  it("reads distinct values of a typed path", async () => {
+    const { fetch, sent } = fakeFetch(json({ data: ["a", "b"], ct: "5" }))
+    const rest = createRestClient<Tags>({ url: "http://canopy.test", publishableKey: "pk", fetch })
+    const tags = await rest.from("tagged").distinct("tags", { rank: { $gt: 1 } })
+    expect(tags).toEqual({ data: ["a", "b"], ct: "5" })
+    expect(sent[0]).toMatchObject({
+      url: "http://canopy.test/rest/v1/tagged/_distinct",
+      method: "POST",
+      body: { field: "tags", filter: { rank: { $gt: { $numberInt: "1" } } } },
+    })
+    expectTypeOf(tags.data).toEqualTypeOf<readonly string[]>()
+    const ranks = () => rest.from("tagged").distinct("rank")
+    expectTypeOf<Awaited<ReturnType<typeof ranks>>["data"]>().toEqualTypeOf<
+      readonly (number | null)[]
+    >()
+    const unknownField = () =>
+      // @ts-expect-error not a path of the documents
+      rest.from("tagged").distinct("tag")
+    void unknownField
+  })
+
+  it("returns aggregation output as unknown without a decoder", async () => {
+    const { fetch, sent } = fakeFetch(json({ data: [{ _id: "a", n: 2 }], ct: "6" }))
+    const rest = createRestClient<Tags>({ url: "http://canopy.test", publishableKey: "pk", fetch })
+    const pipeline = [{ $unwind: "$tags" }, { $group: { _id: "$tags", n: { $sum: 1 } } }]
+    const result = await rest.from("tagged").aggregate(pipeline)
+    expect(result.data).toEqual([{ _id: "a", n: 2 }])
+    expectTypeOf(result.data).toEqualTypeOf<readonly unknown[]>()
+    expect(sent[0]?.url).toBe("http://canopy.test/rest/v1/tagged/_aggregate")
+    expect(sent[0]?.body).toEqual({
+      pipeline: [
+        { $unwind: "$tags" },
+        { $group: { _id: "$tags", n: { $sum: { $numberInt: "1" } } } },
+      ],
+    })
+  })
+
+  it("checks aggregation output with a Standard Schema decoder", async () => {
+    const counts = collection("counts", { _id: t.string(), n: t.int() })
+    const { fetch } = fakeFetch(
+      json({ data: [{ _id: "a", n: 2 }], ct: "7" }),
+      json({
+        data: [
+          { _id: "a", n: 2 },
+          { _id: "b", n: "two" },
+        ],
+        ct: "7",
+      }),
+    )
+    const rest = createRestClient<Tags>({ url: "http://canopy.test", publishableKey: "pk", fetch })
+    const typed = await rest.from("tagged").aggregate([], { decode: counts })
+    expect(typed.data).toEqual([{ _id: "a", n: 2 }])
+    expectTypeOf(typed.data).toEqualTypeOf<readonly { _id: string; n: number }[]>()
+    const error = await rest
+      .from("tagged")
+      .aggregate([], { decode: counts })
+      .catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(ValidationError)
+    expect((error as Error).message).toBe(
+      "Output document 1 does not match: Expected int, got a string at n",
+    )
   })
 })

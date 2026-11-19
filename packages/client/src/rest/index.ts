@@ -5,15 +5,20 @@ import { type RestCollection, restCollection } from "./read.ts"
 import { type RestToken, type RestTransport, tokenGetter } from "./request.ts"
 
 export type {
+  AggregateOptions,
   CountMode,
   CountOptions,
+  DecodeIssue,
+  DistinctValue,
   FindByIdOptions,
+  OutputDecoder,
   PageOptions,
   RestCollection,
   RestCount,
   RestDocument,
   RestPage,
   RestQuery,
+  RestValues,
 } from "./read.ts"
 export type { RestToken } from "./request.ts"
 

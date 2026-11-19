@@ -919,6 +919,11 @@ function reactNativeLifecycle(options: ReactNativeLifecycleOptions): LifecycleSo
 ## @canopy/client/rest
 
 ```ts
+export interface AggregateOptions<T = unknown> {
+    readonly decode?: OutputDecoder<T>;
+    readonly signal?: AbortSignal;
+}
+
 export type CountMode = "exact" | "estimated";
 
 export interface CountOptions {
@@ -926,9 +931,34 @@ export interface CountOptions {
     readonly signal?: AbortSignal;
 }
 
+export interface DecodeIssue {
+    readonly message: string;
+    readonly path?: readonly (PropertyKey | {
+        readonly key: PropertyKey;
+    })[];
+}
+
+export type DistinctValue<V> = Exclude<V extends readonly (infer E)[] ? E : V, undefined>;
+
 export interface FindByIdOptions<F> {
     readonly fields?: F & ConsistentProjection<F>;
     readonly signal?: AbortSignal;
+}
+
+export interface OutputDecoder<T> {
+    readonly "~standard": {
+        readonly validate: (value: unknown) => {
+            readonly value: T;
+            readonly issues?: undefined;
+        } | {
+            readonly issues: readonly DecodeIssue[];
+        } | Promise<{
+            readonly value: T;
+            readonly issues?: undefined;
+        } | {
+            readonly issues: readonly DecodeIssue[];
+        }>;
+    };
 }
 
 export interface PageOptions {
@@ -954,6 +984,15 @@ export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc> {
     readonly name: string;
     findById<const F extends Projection<Doc> = never>(id: IdOf<Doc>, options?: FindByIdOptions<F>): Promise<RestDocument<ProjectedResult<Doc, F>>>;
     count(filter?: Filter<Doc>, options?: CountOptions): Promise<RestCount>;
+    distinct<P extends Path<Doc>>(field: P, filter?: Filter<Doc>, options?: {
+        readonly signal?: AbortSignal;
+    }): Promise<RestValues<DistinctValue<PathValue<Doc, P>>>>;
+    aggregate(pipeline: readonly Document[], options?: {
+        readonly signal?: AbortSignal;
+    }): Promise<RestValues<unknown>>;
+    aggregate<T>(pipeline: readonly Document[], options: AggregateOptions<T> & {
+        readonly decode: OutputDecoder<T>;
+    }): Promise<RestValues<T>>;
 }
 
 export interface RestCount {
@@ -988,6 +1027,11 @@ export interface RestQuery<Doc = Document, Out = Doc> {
 }
 
 export type RestToken = string | null | undefined | (() => RestTokenValue | Promise<RestTokenValue>);
+
+export interface RestValues<T> {
+    readonly data: readonly T[];
+    readonly ct: ClusterTime;
+}
 
 function createRestClient<S extends SchemaConstraint>(options: RestClientOptions & { readonly schema: S; }): RestClient<SchemaTypes<S>>
 function createRestClient<DB extends Schema<DB> = import("../types.ts").UntypedSchema>(options: RestClientOptions & SchemaOption): RestClient<DB>

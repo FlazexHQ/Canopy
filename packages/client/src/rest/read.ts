@@ -4,11 +4,14 @@ import {
   isClusterTime,
   isDocument,
   ProtocolError,
+  ValidationError,
 } from "@canopy/protocol"
 import type {
   ConsistentProjection,
   Filter,
   IdOf,
+  Path,
+  PathValue,
   ProjectedResult,
   Projection,
   Sort,
@@ -42,6 +45,47 @@ export interface RestDocument<T> {
 export interface RestCount {
   readonly data: { readonly count: number; readonly exact: boolean }
   readonly ct: ClusterTime
+}
+
+/** Values read at one cluster time, from `distinct` or `aggregate`. */
+export interface RestValues<T> {
+  readonly data: readonly T[]
+  readonly ct: ClusterTime
+}
+
+/** One problem a {@link OutputDecoder} found. */
+export interface DecodeIssue {
+  readonly message: string
+  readonly path?: readonly (PropertyKey | { readonly key: PropertyKey })[]
+}
+
+/**
+ * A Standard Schema validator of aggregation output, such as a collection definition from
+ * `@canopy/schema/define`: an aggregation pipeline can change the documents' shape, so its output is only
+ * typed once it is checked.
+ */
+export interface OutputDecoder<T> {
+  readonly "~standard": {
+    readonly validate: (
+      value: unknown,
+    ) =>
+      | { readonly value: T; readonly issues?: undefined }
+      | { readonly issues: readonly DecodeIssue[] }
+      | Promise<
+          | { readonly value: T; readonly issues?: undefined }
+          | { readonly issues: readonly DecodeIssue[] }
+        >
+  }
+}
+
+/** The values `distinct` returns for a field: the elements of an array field, each value once. */
+export type DistinctValue<V> = Exclude<V extends readonly (infer E)[] ? E : V, undefined>
+
+/** Options of {@link RestCollection.aggregate}. */
+export interface AggregateOptions<T = unknown> {
+  /** Checks each output document; without it the documents are `unknown`. */
+  readonly decode?: OutputDecoder<T>
+  readonly signal?: AbortSignal
 }
 
 /** Options of {@link RestQuery.page}. */
@@ -95,6 +139,25 @@ export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc> {
   ): Promise<RestDocument<ProjectedResult<Doc, F>>>
   /** Counts the documents matching `filter` that the caller may read. */
   count(filter?: Filter<Doc>, options?: CountOptions): Promise<RestCount>
+  /** The distinct values of `field` among the documents matching `filter` that the caller may read. */
+  distinct<P extends Path<Doc>>(
+    field: P,
+    filter?: Filter<Doc>,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<RestValues<DistinctValue<PathValue<Doc, P>>>>
+  /**
+   * Runs an aggregation pipeline under the caller's policies. The output is `unknown`, since a pipeline can
+   * change the documents' shape, unless `decode` checks it: a document it rejects fails the call with a
+   * `ValidationError`.
+   */
+  aggregate(
+    pipeline: readonly Document[],
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<RestValues<unknown>>
+  aggregate<T>(
+    pipeline: readonly Document[],
+    options: AggregateOptions<T> & { readonly decode: OutputDecoder<T> },
+  ): Promise<RestValues<T>>
 }
 
 interface QuerySpec {
@@ -156,6 +219,44 @@ function readCount(value: unknown): RestCount {
     throw protocol("data.count is not a count")
   if (typeof exact !== "boolean") throw protocol("data.exact is not a boolean")
   return { data: { count, exact }, ct: clusterTime(body) }
+}
+
+function readValues(value: unknown): RestValues<unknown> {
+  const body = envelope(value)
+  const data = body["data"]
+  if (!Array.isArray(data)) throw protocol("data is not a list")
+  return { data, ct: clusterTime(body) }
+}
+
+function issuePath(issue: DecodeIssue): string {
+  return (issue.path ?? [])
+    .map((part) => String(typeof part === "object" ? part.key : part))
+    .join(".")
+}
+
+async function decodeAll<T>(values: readonly unknown[], decoder: OutputDecoder<T>): Promise<T[]> {
+  const out: T[] = []
+  for (const [index, value] of values.entries()) {
+    const result = await decoder["~standard"].validate(value)
+    if (result.issues !== undefined) {
+      const [first] = result.issues
+      const where = first === undefined ? "" : issuePath(first)
+      throw new ValidationError(
+        `Output document ${index} does not match: ${first?.message ?? "invalid"}${where === "" ? "" : ` at ${where}`}`,
+        {
+          details: {
+            index,
+            issues: result.issues.map((issue) => ({
+              message: issue.message,
+              path: issuePath(issue),
+            })),
+          },
+        },
+      )
+    }
+    out.push(result.value)
+  }
+  return out
 }
 
 /** Validates a read by ID. */
@@ -239,6 +340,37 @@ class RestReader {
         signal: options.signal,
       }),
     )
+  }
+
+  async distinct(
+    field: string,
+    filter: object = {},
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<RestValues<unknown>> {
+    return readValues(
+      await send(this.transport, {
+        method: "POST",
+        path: `${collectionPath(this.name)}/_distinct`,
+        body: { field, filter },
+        signal: options.signal,
+      }),
+    )
+  }
+
+  async aggregate(
+    pipeline: readonly Document[],
+    options: AggregateOptions<unknown> = {},
+  ): Promise<RestValues<unknown>> {
+    const result = readValues(
+      await send(this.transport, {
+        method: "POST",
+        path: `${collectionPath(this.name)}/_aggregate`,
+        body: { pipeline },
+        signal: options.signal,
+      }),
+    )
+    if (options.decode === undefined) return result
+    return { data: await decodeAll(result.data, options.decode), ct: result.ct }
   }
 
   async count(filter: object = {}, options: CountOptions = {}): Promise<RestCount> {
