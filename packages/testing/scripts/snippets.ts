@@ -3,7 +3,7 @@
  * and of the docs site (except the generated API reference), each as its own module, against the sources of
  * the workspace packages and the installed third party packages. Snippets may use the names of
  * {@link CONTEXT} without declaring them (a `canopy` client typed with the `Database` of `./canopy.gen.ts`, an
- * `id`, `render` and the like), and `// @ts-expect-error` marks a line that is meant not to compile. HTML
+ * `id`, `render` and the like) and import the collections of `./canopy.schema.ts`, and `// @ts-expect-error` marks a line that is meant not to compile. HTML
  * comments right above a block, which the rendered page does not show, adjust it:
  * `<!-- snippet: not checked -->` skips a deliberately incomplete block (code of another platform, a fragment
  * of a larger object), and any other `<!-- snippet: ... -->` is code put before the block, such as
@@ -57,6 +57,29 @@ export interface Order {
 }
 
 export type Database = DocumentSchema<{ todos: Todo; posts: Post; orders: Order }>
+`
+
+/**
+ * The schema file snippets import, as `canopy pull` would write it, without its `Register` block: snippets
+ * share one program, so registering a schema would type every other snippet's client too.
+ */
+const SCHEMA = `import { collection, defineSchema, t } from "@canopy/schema/define"
+
+export const todos = collection("todos", {
+  title: t.string(),
+  done: t.bool().default(false),
+  tags: t.array(t.string()).optional(),
+  due: t.date().nullable(),
+  ownerId: t.string(),
+})
+
+export const notes = collection("notes", {
+  _id: t.string(),
+  title: t.string(),
+  body: t.object({ text: t.string(), format: t.enum(["md", "plain"]) }),
+})
+
+export const schema = defineSchema(todos, notes)
 `
 
 /** The names snippets may use without declaring them. */
@@ -236,6 +259,7 @@ function main(): void {
   const paths = workspacePaths()
   const files: string[] = []
   writeFileSync(join(out, "canopy.gen.ts"), GENERATED)
+  writeFileSync(join(out, "canopy.schema.ts"), SCHEMA)
   writeFileSync(
     join(out, "todo-list.tsx"),
     "export function TodoList(): null {\n  return null\n}\n",
@@ -285,7 +309,13 @@ function main(): void {
     options.types = ["node"]
   }
   const program = ts.createProgram([...files, context, ambient], options)
-  const checked = new Set([...files, context, ambient, join(out, "canopy.gen.ts")])
+  const checked = new Set([
+    ...files,
+    context,
+    ambient,
+    join(out, "canopy.gen.ts"),
+    join(out, "canopy.schema.ts"),
+  ])
   const diagnostics = ts
     .getPreEmitDiagnostics(program)
     .filter((diagnostic) =>

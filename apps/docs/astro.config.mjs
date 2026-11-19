@@ -35,6 +35,7 @@ export default defineConfig({
             "guides/rest",
             "guides/graphql",
             "guides/client",
+            "guides/schema",
             "guides/frameworks",
             "guides/server-rendering",
             "guides/react-native",
