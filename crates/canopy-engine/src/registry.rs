@@ -42,15 +42,15 @@ fn scalar_key(value: ValueRef<'_>) -> Option<IndexKey> {
 }
 
 fn conjuncts<'a>(filter: &'a Document, out: &mut Vec<(&'a str, &'a Value)>) {
-    if filter.len() == 1 {
-        if let Some(Value::Array(parts)) = filter.get("$and") {
-            for part in parts {
-                if let Value::Document(part) = part {
-                    conjuncts(part, out);
-                }
+    if filter.len() == 1
+        && let Some(Value::Array(parts)) = filter.get("$and")
+    {
+        for part in parts {
+            if let Value::Document(part) = part {
+                conjuncts(part, out);
             }
-            return;
         }
+        return;
     }
     out.extend(filter.iter());
 }
@@ -165,11 +165,6 @@ impl Registry {
         self.observers.get_mut(&id)
     }
 
-    /// Every observer.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (ObserverId, &Observer)> {
-        self.observers.iter().map(|(id, observer)| (*id, observer))
-    }
-
     /// Every observer id, in creation order.
     pub(crate) fn ids(&self) -> Vec<ObserverId> {
         let mut ids: Vec<ObserverId> = self.observers.keys().copied().collect();
@@ -232,19 +227,19 @@ impl Registry {
             index.polling.remove(&id);
             index.unindexed.remove(&id);
             index.buffering.remove(&id);
-            if let Some(Some((field, keys))) = self.conjuncts.get(&id) {
-                if let Some(by_key) = index.by_value.get_mut(field) {
-                    for key in keys {
-                        if let Some(set) = by_key.get_mut(key) {
-                            set.remove(&id);
-                            if set.is_empty() {
-                                by_key.remove(key);
-                            }
+            if let Some(Some((field, keys))) = self.conjuncts.get(&id)
+                && let Some(by_key) = index.by_value.get_mut(field)
+            {
+                for key in keys {
+                    if let Some(set) = by_key.get_mut(key) {
+                        set.remove(&id);
+                        if set.is_empty() {
+                            by_key.remove(key);
                         }
                     }
-                    if by_key.is_empty() {
-                        index.by_value.remove(field);
-                    }
+                }
+                if by_key.is_empty() {
+                    index.by_value.remove(field);
                 }
             }
             for field in self.paths.get(&id).into_iter().flatten() {
@@ -351,10 +346,10 @@ impl Registry {
         for (field, by_key) in &index.by_value {
             let Some(value) = document.get(field) else { continue };
             let mut look = |value: ValueRef<'_>| {
-                if let Some(key) = scalar_key(value) {
-                    if let Some(set) = by_key.get(&key) {
-                        out.extend(set.iter());
-                    }
+                if let Some(key) = scalar_key(value)
+                    && let Some(set) = by_key.get(&key)
+                {
+                    out.extend(set.iter());
                 }
             };
             match value {

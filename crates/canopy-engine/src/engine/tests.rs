@@ -352,7 +352,7 @@ fn a_silent_connection_without_hello_is_closed() {
     h.engine.tick(h.now + 9_999);
     h.pump();
     assert!(h.closes.is_empty());
-    h.engine.tick(h.now + 10_000);
+    h.engine.tick(h.now + 10_000 + super::SWEEP_MS);
     h.pump();
     assert_eq!(h.closes, vec![(1, close::HELLO_TIMEOUT)]);
 }

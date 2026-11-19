@@ -395,10 +395,8 @@ impl Session {
         entry.subs.insert(Arc::clone(sub));
         let entry_id = entry.id.clone();
         if *merged == *entry.doc {
-            if !known {
-                if let Some(head) = added_head(coll, &entry_id, None, ct) {
-                    self.send(Arc::from(head), Some(subs_tail(sub)), out);
-                }
+            if !known && let Some(head) = added_head(coll, &entry_id, None, ct) {
+                self.send(Arc::from(head), Some(subs_tail(sub)), out);
             }
             return;
         }

@@ -131,7 +131,9 @@ impl Server {
                 .system
                 .processes()
                 .iter()
-                .find(|(_, process)| process.parent() == Some(parent))
+                .find(|(_, process)| {
+                    process.parent() == Some(parent) && process.name().to_string_lossy().starts_with("canopy-gateway")
+                })
                 .map(|(pid, _)| pid.as_u32());
             server.pid = child.ok_or("the canopy-gateway process was not found")?;
         }

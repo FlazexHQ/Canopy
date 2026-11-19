@@ -693,10 +693,10 @@ impl Observer {
 
     fn schedule_requery(&mut self, now_ms: u64) {
         let interval = self.limits.requery_interval_ms;
-        if let Members::Window { requery_at, last_requery, .. } = &mut self.members {
-            if requery_at.is_none() {
-                *requery_at = Some((*last_requery + interval).max(now_ms));
-            }
+        if let Members::Window { requery_at, last_requery, .. } = &mut self.members
+            && requery_at.is_none()
+        {
+            *requery_at = Some((*last_requery + interval).max(now_ms));
         }
     }
 
@@ -847,11 +847,11 @@ impl Observer {
             }
             return;
         }
-        if let Some(index) = index {
-            if let Members::Window { known, .. } = &mut self.members {
-                let removed = known.remove(index);
-                self.log.removed.push(removed.key);
-            }
+        if let Some(index) = index
+            && let Members::Window { known, .. } = &mut self.members
+        {
+            let removed = known.remove(index);
+            self.log.removed.push(removed.key);
         }
         let image = match &event.post {
             Post::Doc(image) if event.op != Op::Delete && self.matches(image) => Some(Arc::clone(image)),

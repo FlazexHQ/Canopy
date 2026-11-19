@@ -197,6 +197,10 @@ struct ContextRequest {
     lookups: Vec<(String, String, u64)>,
 }
 
+/// How often the timers are swept: hello and heartbeat deadlines, token expiry, resume windows, lingering
+/// observers, window re-reads, polling, echo deadlines and context lookup expiry.
+const SWEEP_MS: u64 = 50;
+
 /// How long a failed context lookup waits before it is resolved again.
 const CONTEXT_RETRY_MS: u64 = 5000;
 
@@ -244,6 +248,8 @@ pub struct Engine {
     watched: Vec<String>,
     next_id: u64,
     next_time_refresh: u64,
+    next_sweep: u64,
+    timed: HashSet<ObserverId>,
     closing: bool,
     drain_until: Option<u64>,
     out: Vec<Output>,
@@ -258,6 +264,8 @@ impl Engine {
         let policy = PolicyEngine::new(set);
         let mut engine = Engine {
             next_time_refresh: config.time_policy_refresh_ms,
+            next_sweep: 0,
+            timed: HashSet::new(),
             config,
             policy,
             conns: HashMap::new(),
@@ -916,6 +924,7 @@ impl Engine {
         self.metrics.subscriptions += 1;
         let mut notes = std::mem::take(&mut self.notes);
         if let Some(observer) = self.registry.get_mut(observer) {
+            observer.advance(self.position);
             observer.attach(listener, &mut notes);
         }
         self.after_observer(observer, notes, now);
@@ -946,6 +955,7 @@ impl Engine {
 
     fn destroy_observer(&mut self, id: ObserverId) {
         self.lingering.remove(&id);
+        self.timed.remove(&id);
         if let Some(observer) = self.registry.remove(id) {
             self.metrics.observer_destroyed(observer.kind());
         }
@@ -955,6 +965,11 @@ impl Engine {
     /// Applies the membership log of an observer, sends the read it asked for, and delivers its notes.
     fn after_observer(&mut self, id: ObserverId, mut notes: Vec<Note>, now: u64) {
         self.registry.sync(id);
+        if self.registry.get(id).and_then(Observer::due).is_some() {
+            self.timed.insert(id);
+        } else {
+            self.timed.remove(&id);
+        }
         let read = self.registry.get_mut(id).and_then(Observer::take_read);
         if let Some(read) = read {
             let request = self.id();
@@ -1095,13 +1110,12 @@ impl Engine {
                     continue;
                 }
             };
-            if !force {
-                if let Some((value, expires)) = self.ctx_cache.get(&query.key) {
-                    if *expires > now {
-                        resolved.push((name, value.clone(), query.key.clone(), *expires));
-                        continue;
-                    }
-                }
+            if !force
+                && let Some((value, expires)) = self.ctx_cache.get(&query.key)
+                && *expires > now
+            {
+                resolved.push((name, value.clone(), query.key.clone(), *expires));
+                continue;
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let limit = query.limit.clamp(1.0, f64::from(u32::MAX)) as u32;
@@ -1168,10 +1182,10 @@ impl Engine {
                 }
             }
         }
-        if let Some(state) = self.sessions.get_mut(&sid) {
-            if state.ctx_loading == Some(id) {
-                state.ctx_loading = None;
-            }
+        if let Some(state) = self.sessions.get_mut(&sid)
+            && state.ctx_loading == Some(id)
+        {
+            state.ctx_loading = None;
         }
         let queued =
             self.sessions.get_mut(&sid).map(|state| std::mem::take(&mut state.ctx_queue)).unwrap_or_default();
@@ -1246,6 +1260,7 @@ impl Engine {
             self.metrics.resync(&format!("rebind_{reason}"));
             let mut notes = std::mem::take(&mut self.notes);
             if let Some(target) = self.registry.get_mut(observer) {
+                target.advance(self.position);
                 target.attach(listener, &mut notes);
             }
             self.after_observer(observer, notes, now);
@@ -1359,10 +1374,10 @@ impl Engine {
         for id in ids {
             self.drop_sub(sid, &id, now);
         }
-        if let Some(state) = self.sessions.remove(sid) {
-            if let Some(token) = state.inflight {
-                self.mutations.remove(&token);
-            }
+        if let Some(state) = self.sessions.remove(sid)
+            && let Some(token) = state.inflight
+        {
+            self.mutations.remove(&token);
         }
         self.acks.retain(|_, ack| ack.sid != sid);
         self.metrics.sessions_closed += 1;
@@ -1452,10 +1467,10 @@ impl Engine {
         now: u64,
     ) {
         let Some(sid) = self.mutations.remove(&request) else { return };
-        if let Some(state) = self.sessions.get_mut(&sid) {
-            if state.inflight == Some(request) {
-                state.inflight = None;
-            }
+        if let Some(state) = self.sessions.get_mut(&sid)
+            && state.inflight == Some(request)
+        {
+            state.inflight = None;
         }
         match result {
             Err(error) => {
@@ -1512,13 +1527,11 @@ impl Engine {
             res.push_str(",\"insertedIds\":");
             res.push_str(&ids);
         }
-        if !echo {
-            if let Some(documents) = &outcome.documents {
-                let docs = relaxed(&Value::Array(documents.iter().cloned().map(Value::Document).collect()))
-                    .unwrap_or_else(|_| "[]".to_owned());
-                res.push_str(",\"docs\":");
-                res.push_str(&docs);
-            }
+        if !echo && let Some(documents) = &outcome.documents {
+            let docs = relaxed(&Value::Array(documents.iter().cloned().map(Value::Document).collect()))
+                .unwrap_or_else(|_| "[]".to_owned());
+            res.push_str(",\"docs\":");
+            res.push_str(&docs);
         }
         res.push('}');
         let head = Head::new("ack")
@@ -1642,11 +1655,6 @@ impl Engine {
             touched.insert(event.coll.clone());
         }
         self.position = last;
-        for id in self.registry.ids() {
-            if let Some(observer) = self.registry.get_mut(id) {
-                observer.advance(last);
-            }
-        }
         let settled = self.echo.processed(seen.iter().map(|(key, ct)| (key.as_str(), *ct)));
         self.settle_acks(settled);
         self.invalidate_contexts(&touched, now);
@@ -1694,11 +1702,6 @@ impl Engine {
     /// The stream advanced to `ct` without events.
     pub fn progress(&mut self, ct: Ct) {
         self.position = self.position.max(ct);
-        for id in self.registry.ids() {
-            if let Some(observer) = self.registry.get_mut(id) {
-                observer.advance(ct);
-            }
-        }
         let settled = self.echo.advance(ct);
         self.settle_acks(settled);
     }
@@ -1771,6 +1774,10 @@ impl Engine {
     /// Runs every timer due at `now`: hello timeouts, heartbeats, token expiry, resume windows, observer
     /// lingers and re-reads, echo deadlines, time based policies and the drain.
     pub fn tick(&mut self, now: u64) {
+        if now < self.next_sweep {
+            return;
+        }
+        self.next_sweep = now + SWEEP_MS;
         let silence = 2 * self.config.heartbeat_ms + 10_000;
         let mut hello_late = Vec::new();
         let mut silent = Vec::new();
@@ -1861,7 +1868,9 @@ impl Engine {
                 self.destroy_observer(id);
             }
         }
-        for id in self.registry.ids() {
+        let mut timed: Vec<ObserverId> = self.timed.iter().copied().collect();
+        timed.sort_unstable();
+        for id in timed {
             let due = self.registry.get(id).and_then(Observer::due).is_some_and(|at| at <= now);
             if due {
                 if let Some(observer) = self.registry.get_mut(id) {
@@ -1923,13 +1932,7 @@ impl Engine {
 
     /// The earliest time [`Engine::tick`] has work, so the transport can sleep until then.
     pub fn next_due(&self) -> Option<u64> {
-        let mut due: Vec<u64> = Vec::new();
-        due.extend(self.echo.next_deadline());
-        due.extend(self.lingering.values().copied());
-        due.extend(self.registry.iter().filter_map(|(_, o)| o.due()));
-        due.extend(self.drain_until);
-        due.push(self.next_time_refresh);
-        due.into_iter().min()
+        Some(self.next_sweep)
     }
 }
 

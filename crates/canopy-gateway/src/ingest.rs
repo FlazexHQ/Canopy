@@ -131,7 +131,8 @@ impl Ingest {
         stream: &mut ChangeStream<RawDocumentBuf>,
         token: &mut Option<ResumeToken>,
     ) -> End {
-        let (tx, mut rx) = mpsc::channel::<Result<(RawDocumentBuf, Option<ResumeToken>), Error>>(MAX_BATCH * 2);
+        let (tx, mut rx) =
+            mpsc::channel::<Result<(RawDocumentBuf, Option<ResumeToken>), Error>>(MAX_BATCH * 2);
         let reader = async {
             loop {
                 match stream.next().await {

@@ -28,13 +28,13 @@ pub fn equality_fields(filter: &Value) -> Vec<String> {
 fn collect_equality(filter: &Value, out: &mut Vec<String>) {
     let Value::Document(filter) = filter else { return };
     for (key, value) in js_fields(filter) {
-        if key == "$and" {
-            if let Value::Array(parts) = value {
-                for part in parts {
-                    out.extend(equality_fields(part));
-                }
-                continue;
+        if key == "$and"
+            && let Value::Array(parts) = value
+        {
+            for part in parts {
+                out.extend(equality_fields(part));
             }
+            continue;
         }
         if key.starts_with('$') || key == "_id" {
             continue;
