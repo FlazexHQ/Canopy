@@ -15,7 +15,7 @@ import {
 } from "@canopy/schema"
 import { type SchemaDefinition, toCollectionSchemas } from "@canopy/schema/define"
 import { type Db, MongoClient } from "mongodb"
-import { loadCollectionSchemas } from "./gen-types.ts"
+import { loadCollectionSchemas } from "./collection-schemas.ts"
 import { appTarget, type Configured } from "./invocation.ts"
 import { confirmed, messageOf, type Output } from "./output.ts"
 

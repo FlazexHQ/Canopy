@@ -4,7 +4,7 @@
 
 Collection schemas for Canopy: inference from sampled documents, MongoDB $jsonSchema validators, field rules per role and TypeScript generation.
 
-`canopy gen types` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.
+`canopy pull` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.
 
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.

@@ -138,6 +138,21 @@ export interface Collection<Doc = Document, Insert = Doc> extends Query<Doc, Doc
     deleteMany(filter: Filter<Doc>): MutationHandle;
 }
 
+class CollectionBuilder<in out Doc = Document, in out Insert = Doc> extends QueryBuilder<
+  Doc,
+  Doc
+> {
+  constructor<in out Doc = Document, in out Insert = Doc>(client: AnyClient, collection: string): CollectionBuilder<Doc, Insert>
+  get name(): string
+  insert(doc: Insert): MutationHandle<IdOf<Doc>>
+  insertMany(docs: readonly Insert[]): MutationHandle
+  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
+  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle
+  deleteMany(filter: Filter<Doc>): MutationHandle
+}
+
 export interface CollectionDefinitionLike {
     readonly name: string;
     prepare(doc: object): Record<string, unknown>;
@@ -449,20 +464,12 @@ export interface Query<Doc = Document, Out = Doc> extends LiveQuery<Out> {
     fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): Query<Doc, ProjectedResult<Doc, F>>;
 }
 
-class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = Doc> implements LiveQuery<Out> {
-  constructor<in out Doc = Document, in out Insert = Doc, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>, derived?: boolean): QueryBuilder<Doc, Insert, Out>
-  get name(): string
-  find(filter: Filter<Doc>): QueryBuilder<Doc, Insert, Out>
-  sort(sort: Sort<Doc>): QueryBuilder<Doc, Insert, Out>
-  limit(limit: number): QueryBuilder<Doc, Insert, Out>
-  fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): QueryBuilder<Doc, Insert, ProjectedResult<Doc, F>>
-  insert(doc: Insert): MutationHandle<IdOf<Doc>>
-  insertMany(docs: readonly Insert[]): MutationHandle
-  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
-  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
-  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle
-  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle
-  deleteMany(filter: Filter<Doc>): MutationHandle
+class QueryBuilder<in out Doc = Document, out Out = Doc> implements LiveQuery<Out> {
+  constructor<in out Doc = Document, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>): QueryBuilder<Doc, Out>
+  find(filter: Filter<Doc>): QueryBuilder<Doc, Out>
+  sort(sort: Sort<Doc>): QueryBuilder<Doc, Out>
+  limit(limit: number): QueryBuilder<Doc, Out>
+  fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): QueryBuilder<Doc, ProjectedResult<Doc, F>>
   getState(): QueryState<Out>
   subscribe(listener: (state: QueryState<Out>) => void): () => void
 }

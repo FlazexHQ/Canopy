@@ -315,8 +315,7 @@ type Change = Patch<'todos'>;
 - `canopy schema diff` compares the file with each collection's validator and a sample (and exits non zero on
   drift, for CI); `canopy dev` warns on drift; `canopy schema push` applies the file as a `$jsonSchema`
   validator, an explicit, audited admin action.
-- `canopy gen types` and its `Database` interface keep working for one release, with a deprecation notice that
-  points at `canopy pull`.
+- Run `canopy pull` to migrate from a generated `Database` interface to a schema file.
 
 ## 13. Drop-in mode (writes through your existing API)
 

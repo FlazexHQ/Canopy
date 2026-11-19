@@ -57,7 +57,6 @@ Commands:
   migrate                Bring the meta database up to date (--status lists the migrations)
   login <url>            Verify an admin token and store it for a remote project in the OS keychain
   logout <url>           Remove the stored admin token of a project
-  gen types              Generate the Database types from validators, config and sampled documents
   pull                   Write an editable collection schema from MongoDB
   schema diff            Compare the schema file with MongoDB and exit 1 on drift
   schema push            Apply collection validators from the schema file (asks first)
@@ -77,17 +76,12 @@ Options:
   --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)
   --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)
   --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)
-  --out <file>           gen types: the file to write (default: the config's types.out, else src/canopy.gen.ts)
-                         pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)
+  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)
   --js                   pull: emit JavaScript
   --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)
   --collection <name>    pull: add one collection to the schema file
-  --check                gen types: fail when the file is out of date instead of writing it
-  --watch                gen types: regenerate when policies or collections change, until Ctrl+C
-  --types                dev: regenerate the deprecated types file too (on by default once the file
-                         exists, unless a canopy.schema file declares the schema)
-  --infer-enums          gen types, pull, schema diff: turn low cardinality string fields into literal unions
-  --sample <n>           gen types, pull, schema diff: documents sampled per collection (default 1000)
+  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions
+  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)
   --sources              config print: show where each value came from
   --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),
                          otherwise from the official binaries (downloaded once, data in .canopy/mongodb)
@@ -110,7 +104,7 @@ Options:
                          create: the token's name
   --email <email>        admin create: the admin's email
   --role <role>          schema diff: report fields the role cannot read or write on insert
-                         gen types: make fields this role cannot read optional; admin create, admin
+                         admin create, admin
                          tokens create: the role (a token's defaults to yours and may not be higher)
   --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)
   --all                  admin tokens list: every admin's tokens (owners and admins)

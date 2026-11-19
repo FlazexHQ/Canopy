@@ -31,7 +31,7 @@ import type {
 } from "./client-types.ts"
 import { LiveQueries } from "./live-queries.ts"
 import { Outbox } from "./outbox.ts"
-import { type AnyClient, type Collection, QueryBuilder } from "./query-builder.ts"
+import { type AnyClient, type Collection, CollectionBuilder } from "./query-builder.ts"
 import {
   type DefaultSchema,
   definitionOf,
@@ -413,12 +413,10 @@ export class CanopyClient<
   from<C extends CollectionName<DB>>(
     collection: C,
   ): Collection<DocumentOf<DB, C>, InsertOf<DB, C>> {
-    return new QueryBuilder(
-      this as unknown as AnyClient,
-      collection,
-      {},
-      {},
-    ) as unknown as Collection<DocumentOf<DB, C>, InsertOf<DB, C>>
+    return new CollectionBuilder(this as unknown as AnyClient, collection) as unknown as Collection<
+      DocumentOf<DB, C>,
+      InsertOf<DB, C>
+    >
   }
 
   /**

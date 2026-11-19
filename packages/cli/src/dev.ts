@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { existsSync, watch } from "node:fs"
+import { watch } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { basename, dirname, relative } from "node:path"
@@ -8,7 +8,6 @@ import { loadConfig } from "@canopy/config/load"
 import { lintPolicies } from "@canopy/policy"
 import type { Logger } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "@canopy/server"
-import { watchTypes } from "./gen-types.ts"
 import { messageOf, type Output } from "./output.ts"
 import { findSchemaFile, watchSchemaDrift } from "./schema-diff.ts"
 
@@ -22,12 +21,6 @@ export interface DevOptions {
   readonly port?: number
   /** Called with the base URL each time the server (re)starts. */
   readonly onReady?: (url: string) => void
-  /**
-   * Regenerate the deprecated `types.out` file as schemas and policies change. On by default once the file
-   * exists, unless the project declares its schema in a schema file, which `canopy dev` checks for drift
-   * instead.
-   */
-  readonly types?: boolean
 }
 
 /** Development keys for a session without configured keys. */
@@ -132,8 +125,6 @@ function summary(
  * publishable and a secret key are generated for the session. Runs until `signal` aborts.
  */
 export async function dev(options: DevOptions, out: Output, signal: AbortSignal): Promise<number> {
-  const typesStop = new AbortController()
-  signal.addEventListener("abort", () => typesStop.abort(), { once: true })
   let session: { publishable: string; secret: string } | undefined
   let generated = false
   const load = async (env: Readonly<Record<string, string | undefined>>): Promise<ResolvedConfig> =>
@@ -220,32 +211,6 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   if (first === undefined) return 1
   let running = await start(first)
   if (running === undefined) return 1
-  const schemaFile = findSchemaFile(options.cwd)
-  const typesFile = relative(options.cwd, first.types.out)
-  const hasTypesFile = existsSync(first.types.out)
-  const regenerate = options.types === true || (schemaFile === undefined && hasTypesFile)
-  const types = regenerate
-    ? watchTypes(
-        {
-          mongodbUri: first.mongodb.uri,
-          database: first.mongodb.database,
-          out: first.types.out,
-          ...("dir" in first.policies ? { dir: first.policies.dir } : {}),
-          ...(first.types.role === undefined ? {} : { role: first.types.role }),
-        },
-        out,
-        typesStop.signal,
-      )
-    : undefined
-  if (types !== undefined)
-    out.log(`  Types     ${typesFile}  (regenerated when schemas or policies change)`)
-  if (hasTypesFile || types !== undefined)
-    out.log(
-      schemaFile === undefined
-        ? `${typesFile} is deprecated: run canopy pull to write a canopy.schema.ts, then delete ${typesFile}`
-        : `${typesFile} is deprecated and ${types === undefined ? "no longer regenerated" : "still regenerated because of --types"}: ${schemaFile} declares the schema, so delete ${typesFile}`,
-    )
-
   const configFile = first.file
   const watched = configFile === undefined ? options.cwd : dirname(configFile)
   const isWatched = (name: string): boolean =>
@@ -278,8 +243,6 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   watcher.close()
   if (timer !== undefined) clearTimeout(timer)
   await queue
-  typesStop.abort()
-  await types
   await stop(running)
   return 0
 }

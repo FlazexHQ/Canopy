@@ -21,8 +21,6 @@ import type {
 
 export type AnyClient = CanopyClient<UntypedSchema>
 
-const warned = new Set<string>()
-
 /**
  * An immutable description of a live read: `todos.find({ done: false }).sort({ at: -1 }).limit(20)`. Each
  * method returns a new query; the server subscription opens when the query is first read or subscribed to.
@@ -63,19 +61,15 @@ export interface Collection<Doc = Document, Insert = Doc> extends Query<Doc, Doc
 }
 
 /**
- * The runtime of {@link Collection} and {@link Query}. `Doc` is the collection's document type, `Insert`
- * what inserts accept, and `Out` the documents the query returns (narrowed by `fields`). Prefer the
- * `Collection` and `Query` types: the write methods of a derived query are deprecated, because they ignore
- * the query and write to the whole collection.
+ * The runtime of {@link Query}: an immutable live read. `Doc` is the collection's document type and `Out`
+ * the documents the query returns (narrowed by `fields`). It has no write methods, so a write can never take
+ * its scope from a read: writes belong to {@link CollectionBuilder}.
  */
-export class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = Doc>
-  implements LiveQuery<Out>
-{
-  private readonly client: AnyClient
-  private readonly collection: string
+export class QueryBuilder<in out Doc = Document, out Out = Doc> implements LiveQuery<Out> {
+  protected readonly client: AnyClient
+  protected readonly collection: string
   private readonly filter: Document
   private readonly options: LiveQueryOptions<Doc>
-  private readonly derived: boolean
   private cached: LiveQuery<Out> | undefined
 
   constructor(
@@ -83,142 +77,41 @@ export class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = 
     collection: string,
     filter: Document,
     options: LiveQueryOptions<Doc>,
-    derived = false,
   ) {
     this.client = client
     this.collection = collection
     this.filter = filter
     this.options = options
-    this.derived = derived
-  }
-
-  /** The collection's name. */
-  get name(): string {
-    return this.collection
   }
 
   private with<Next = Out>(
     filter: Document,
     options: LiveQueryOptions<Doc>,
-  ): QueryBuilder<Doc, Insert, Next> {
-    return new QueryBuilder<Doc, Insert, Next>(this.client, this.collection, filter, options, true)
+  ): QueryBuilder<Doc, Next> {
+    return new QueryBuilder<Doc, Next>(this.client, this.collection, filter, options)
   }
 
-  private warnDerived(method: string): void {
-    if (!this.derived || warned.has(method)) return
-    warned.add(method)
-    console.warn(
-      `Canopy: ${method}() on a query derived with find, sort, fields or limit is deprecated. It ignores the query and writes to the whole collection; call it on client.from("${this.collection}") instead.`,
-    )
-  }
-
-  find(filter: Filter<Doc>): QueryBuilder<Doc, Insert, Out> {
+  /** Sets the filter. A second `find` replaces the first; it does not combine with it. */
+  find(filter: Filter<Doc>): QueryBuilder<Doc, Out> {
     return this.with(asDocument(filter), this.options)
   }
 
-  sort(sort: Sort<Doc>): QueryBuilder<Doc, Insert, Out> {
+  sort(sort: Sort<Doc>): QueryBuilder<Doc, Out> {
     return this.with(this.filter, { ...this.options, sort })
   }
 
-  limit(limit: number): QueryBuilder<Doc, Insert, Out> {
+  limit(limit: number): QueryBuilder<Doc, Out> {
     return this.with(this.filter, { ...this.options, limit })
   }
 
   /** Narrows the returned fields. The result type follows a literal projection. */
   fields<const F extends Projection<Doc>>(
     fields: F & ConsistentProjection<F>,
-  ): QueryBuilder<Doc, Insert, ProjectedResult<Doc, F>> {
+  ): QueryBuilder<Doc, ProjectedResult<Doc, F>> {
     return this.with<ProjectedResult<Doc, F>>(this.filter, {
       ...this.options,
       fields: fields as Projection<Doc>,
     })
-  }
-
-  /**
-   * Inserts a document into this collection.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  insert(doc: Insert): MutationHandle<IdOf<Doc>> {
-    this.warnDerived("insert")
-    return this.client.insert(this.collection, asDocument(doc as object)) as MutationHandle<
-      IdOf<Doc>
-    >
-  }
-
-  /**
-   * Inserts several documents into this collection.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  insertMany(docs: readonly Insert[]): MutationHandle {
-    this.warnDerived("insertMany")
-    return this.client.insertMany(
-      this.collection,
-      docs.map((doc) => asDocument(doc as object)),
-    )
-  }
-
-  /**
-   * Updates one document of this collection.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle {
-    this.warnDerived("update")
-    return this.client.update(
-      this.collection,
-      id,
-      asDocument(update),
-      options as WriteOptions | undefined,
-    )
-  }
-
-  /**
-   * Replaces one document of this collection.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle {
-    this.warnDerived("replace")
-    return this.client.replace(
-      this.collection,
-      id,
-      asDocument(doc as object),
-      options as ReplaceOptions | undefined,
-    )
-  }
-
-  /**
-   * Deletes one document of this collection.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle {
-    this.warnDerived("delete")
-    return this.client.delete(this.collection, id, options as WriteOptions | undefined)
-  }
-
-  /**
-   * Updates every visible document of this collection matching `filter`.
-   * Only `filter` selects documents: a derived query's own filter, sort and limit are ignored.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle {
-    this.warnDerived("updateMany")
-    return this.client.updateMany(this.collection, asDocument(filter), asDocument(update))
-  }
-
-  /**
-   * Deletes every visible document of this collection matching `filter`.
-   * Only `filter` selects documents: a derived query's own filter, sort and limit are ignored.
-   *
-   * @deprecated On a query derived with find, sort, fields or limit: call it on the collection.
-   */
-  deleteMany(filter: Filter<Doc>): MutationHandle {
-    this.warnDerived("deleteMany")
-    return this.client.deleteMany(this.collection, asDocument(filter))
   }
 
   private live(): LiveQuery<Out> {
@@ -236,5 +129,73 @@ export class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = 
 
   subscribe(listener: (state: QueryState<Out>) => void): () => void {
     return this.live().subscribe(listener)
+  }
+}
+
+/**
+ * The runtime of {@link Collection}: the whole collection as a live read, plus its writes. `find`, `sort`,
+ * `fields` and `limit` return a read-only {@link QueryBuilder}.
+ */
+export class CollectionBuilder<in out Doc = Document, in out Insert = Doc> extends QueryBuilder<
+  Doc,
+  Doc
+> {
+  constructor(client: AnyClient, collection: string) {
+    super(client, collection, {}, {})
+  }
+
+  /** The collection's name. */
+  get name(): string {
+    return this.collection
+  }
+
+  /** Inserts a document; its `_id` (given or generated) is on the handle at once. */
+  insert(doc: Insert): MutationHandle<IdOf<Doc>> {
+    return this.client.insert(this.collection, asDocument(doc as object)) as MutationHandle<
+      IdOf<Doc>
+    >
+  }
+
+  /** Inserts several documents in one mutation. */
+  insertMany(docs: readonly Insert[]): MutationHandle {
+    return this.client.insertMany(
+      this.collection,
+      docs.map((doc) => asDocument(doc as object)),
+    )
+  }
+
+  /** Updates one document; `where` makes it a compare and set. */
+  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle {
+    return this.client.update(
+      this.collection,
+      id,
+      asDocument(update),
+      options as WriteOptions | undefined,
+    )
+  }
+
+  /** Replaces one document. */
+  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle {
+    return this.client.replace(
+      this.collection,
+      id,
+      asDocument(doc as object),
+      options as ReplaceOptions | undefined,
+    )
+  }
+
+  /** Deletes one document. */
+  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle {
+    return this.client.delete(this.collection, id, options as WriteOptions | undefined)
+  }
+
+  /** Updates every visible document matching `filter`. */
+  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle {
+    return this.client.updateMany(this.collection, asDocument(filter), asDocument(update))
+  }
+
+  /** Deletes every visible document matching `filter`. */
+  deleteMany(filter: Filter<Doc>): MutationHandle {
+    return this.client.deleteMany(this.collection, asDocument(filter))
   }
 }

@@ -25,7 +25,6 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | `canopy policies explain <collection>`   | Shows how policies decide an operation (`--as`, `--roles`, `--op`, `--filter`, `--ctx`) |
 | `canopy pull [--js] [--collection <name>]` | Writes `canopy.schema.ts` from validators, config and sampled documents; refuses to overwrite edits without `--force` ([guide](/guides/schema/)) |
 | `canopy schema diff [--file <path>]`     | Compares the schema file with MongoDB and exits 1 on drift                              |
-| `canopy gen types [--check \| --watch]` | Deprecated: generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`); use `canopy pull` |
 | `canopy config print [--sources]`        | Prints the resolved config, secrets masked                                              |
 
 ## Database changes

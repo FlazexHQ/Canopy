@@ -46,7 +46,7 @@ export type {
   WebSocketLike,
   WriteOptions,
 } from "./client-types.ts"
-export { type Collection, type Query, QueryBuilder } from "./query-builder.ts"
+export { type Collection, CollectionBuilder, type Query, QueryBuilder } from "./query-builder.ts"
 export type {
   CollectionDefinitionLike,
   DefaultSchema,

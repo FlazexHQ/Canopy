@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { emitSchemaFile } from "@canopy/schema"
 import { MongoClient } from "mongodb"
-import { loadCollectionSchemas } from "./gen-types.ts"
+import { loadCollectionSchemas } from "./collection-schemas.ts"
 import { type AppTarget, type Configured, text } from "./invocation.ts"
 import { messageOf } from "./output.ts"
 

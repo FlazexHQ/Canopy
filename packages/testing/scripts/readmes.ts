@@ -104,7 +104,7 @@ open.matchesEjson('{"status": "open", "total": 120}') // true, decided in Rust`,
   },
   schema: {
     about:
-      "`canopy gen types` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",
+      "`canopy pull` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",
     snippet: `import { generateTypes, inferSchema } from "@canopy/schema"
 
 const todos = inferSchema("todos", [{ _id: "a", title: "Write docs", done: false }])

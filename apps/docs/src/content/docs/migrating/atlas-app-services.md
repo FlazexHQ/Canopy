@@ -20,7 +20,7 @@ feature at a time while the App Services app keeps running.
 | API keys                                          | Publishable and secret keys                                                                             |
 | Functions and HTTPS endpoints                     | Your own server, with Canopy [embedded](/start/embedded/) in it or beside it                            |
 | Triggers                                          | Change streams in your own worker; Canopy does not run user code                                        |
-| Schemas (JSON Schema)                             | Collection validators, which `canopy gen types` turns into TypeScript                                   |
+| Schemas (JSON Schema)                             | Collection validators, which `canopy pull` turns into a typed schema                                   |
 
 ## 1. Connect Canopy to the cluster
 

@@ -12,5 +12,5 @@ it. MongoDB refuses the write and Canopy passes the refusal on.
 
 - Compare the document with the validator: `db.getCollectionInfos({ name: "<collection>" })` in `mongosh`
   shows it.
-- `canopy gen types` generates TypeScript types for the collection, so the compiler catches many of these
+- `canopy pull` creates a typed schema for the collection, so the compiler catches many of these
   writes.

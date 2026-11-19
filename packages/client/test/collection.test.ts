@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { type Collection, createClient, type Document, QueryBuilder } from "../src/index.ts"
+import { CollectionBuilder, createClient, type Document, QueryBuilder } from "../src/index.ts"
 import { Server, ServerSocket } from "./support.ts"
 
 afterEach(() => {
@@ -44,22 +44,36 @@ describe("collections and read queries", () => {
     client.close()
   })
 
-  it("warns once per method when a derived query writes, and writes only by the explicit filter", async () => {
+  it("gives a derived query no write methods, so plain JavaScript cannot write through it", async () => {
     const { client, socket } = await connected()
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
-    const derived = client.from("notes").find({ done: true }).limit(1) as unknown as Collection
-    expect(derived).toBeInstanceOf(QueryBuilder)
-    void derived.updateMany({ shared: true }, { $set: { a: 1 } })
-    void derived.updateMany({ shared: true }, { $set: { a: 2 } })
-    expect(socket.of("mut").map((message) => (message["args"] as Document)["filter"])).toEqual([
-      { shared: true },
-      { shared: true },
-    ])
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0]?.[0])).toContain(
-      "updateMany() on a query derived with find, sort, fields or limit is deprecated",
-    )
-    expect(String(warn.mock.calls[0]?.[0])).toContain('client.from("notes")')
+    const todos = client.from("todos")
+    expect(todos).toBeInstanceOf(CollectionBuilder)
+    const methods = [
+      "insert",
+      "insertMany",
+      "update",
+      "replace",
+      "delete",
+      "updateMany",
+      "deleteMany",
+    ]
+    for (const derived of [
+      todos.find({ done: true }),
+      todos.sort({ title: 1 }),
+      todos.limit(1),
+      todos.fields({ title: 1 }),
+      todos.find({ done: true }).limit(1).sort({ title: -1 }),
+    ]) {
+      expect(derived).toBeInstanceOf(QueryBuilder)
+      expect(derived).not.toBeInstanceOf(CollectionBuilder)
+      const untyped = derived as unknown as Record<string, unknown>
+      for (const method of methods) expect(untyped[method]).toBeUndefined()
+      expect(() =>
+        (untyped["updateMany"] as (...args: unknown[]) => unknown)({}, { $set: { done: false } }),
+      ).toThrow(TypeError)
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(socket.of("mut")).toEqual([])
     client.close()
   })
 })

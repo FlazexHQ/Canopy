@@ -8,7 +8,7 @@ import { MONGODB_URI } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { run } from "../src/cli.ts"
-import * as schemaLoader from "../src/gen-types.ts"
+import * as schemaLoader from "../src/collection-schemas.ts"
 import { driftReport, roleReport, schemaDrift } from "../src/schema-diff.ts"
 
 const source = `import { collection, defineSchema, t } from "@canopy/schema/define"

@@ -173,7 +173,6 @@ read, or cannot write on insert, under the field rules of your policies.
 
 ## Moving from `canopy gen types`
 
-`canopy gen types` and `createClient<Database>()` keep working for now; `gen types` prints a notice that
-points here. To move, run `canopy pull`, register the schema, pass it to `createClient`, replace
+To migrate an existing generated types file, run `canopy pull`, register the schema, pass it to `createClient`, replace
 `Database["todos"]["Document"]` with `Doc<"todos">`, and replace `canopy gen types --check` in CI with
 `canopy schema diff`.

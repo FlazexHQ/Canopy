@@ -12,17 +12,6 @@ export interface DoctorOptions {
     readonly dir?: string;
 }
 
-export interface GenTypesOptions {
-    readonly mongodbUri: string;
-    readonly database: string;
-    readonly dir?: string;
-    readonly role?: string;
-    readonly out: string;
-    readonly check?: boolean;
-    readonly inferEnums?: boolean;
-    readonly sampleSize?: number;
-}
-
 export interface Output {
     log(line: string): void;
     error(line: string): void;
@@ -39,8 +28,6 @@ export interface PolicyTestOptions extends PolicyCommandOptions {
 }
 
 function doctor(options: DoctorOptions, out: Output): Promise<number>
-
-function genTypes(options: GenTypesOptions, out: Output): Promise<number>
 
 function policiesLint(options: PolicyCommandOptions, out: Output): Promise<number>
 

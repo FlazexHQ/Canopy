@@ -6,7 +6,7 @@ import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { run } from "../src/cli.ts"
-import * as schemaLoader from "../src/gen-types.ts"
+import * as schemaLoader from "../src/collection-schemas.ts"
 import { appendCollection, lineDiff } from "../src/pull.ts"
 
 function capture() {

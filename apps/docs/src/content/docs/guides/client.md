@@ -81,8 +81,7 @@ const typed = createClient({ url, publishableKey, schema })
 typed.from("todos").find({ done: "yes" })
 ```
 
-`canopy gen types` and `createClient<Database>()` still work, and are deprecated in favour of the schema
-file.
+Existing handwritten `Database` types still work with `createClient<Database>()`.
 
 ## One-off reads over HTTP
 
