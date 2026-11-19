@@ -418,7 +418,7 @@ suite("realtime engine against MongoDB", () => {
                 }))
                 .filter((w) => w.id === id)
               const received = client.messages.filter(
-                (m) => "c" in m && "id" in m && Number(canonicalString(m.id)) === id,
+                (m) => "c" in m && "id" in m && canonicalString(m.id) === canonicalString(id),
               )
               return `document ${id}: writes ${JSON.stringify(written)}; messages ${received.map((m) => canonicalString(m)).join(" ")}`
             })
