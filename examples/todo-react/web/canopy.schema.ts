@@ -5,7 +5,7 @@ import { collection, defineSchema, t } from "@canopy/schema/define"
  * The todos collection, declared once. The client, the React hooks and the helper types (`Doc<"todos">`,
  * `Id<"todos">`) are typed from it, and the server test checks it against the collection's validator.
  */
-export const todos = collection("todos", {
+const todos = collection("todos", {
   title: t.string(),
   done: t.bool(),
   shared: t.bool(),
