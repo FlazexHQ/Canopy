@@ -1,4 +1,5 @@
 import type { ClusterTime, Document, MutationOp, MutMessage, SubQuery } from "@canopy/protocol"
+import type { SchemaDefinitionLike } from "./register.ts"
 import type { QueryState } from "./store.ts"
 import type { Filter, Projection, Sort } from "./types.ts"
 
@@ -107,6 +108,12 @@ export interface ClientOptions {
    * `string` when the caller always supplies it.
    */
   readonly idTypes?: Readonly<Record<string, "objectId" | "uuid" | "string">>
+  /**
+   * The app's schema from `defineSchema()` in `canopy.schema.ts`. Inserts take their defaults and the `_id`
+   * generator from it (overriding `idTypes` for its collections), so an optimistic ID always has the type
+   * the schema declares.
+   */
+  readonly schema?: SchemaDefinitionLike
   /** Mutations sent before their acks arrive. Defaults to 32. */
   readonly maxInFlight?: number
   /**

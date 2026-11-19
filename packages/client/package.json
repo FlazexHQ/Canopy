@@ -66,6 +66,7 @@
     "@canopy/policy": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@canopy/schema": "workspace:*",
     "@canopy/server": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",

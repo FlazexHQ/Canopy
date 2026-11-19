@@ -32,6 +32,13 @@ import type {
 import { LiveQueries } from "./live-queries.ts"
 import { Outbox } from "./outbox.ts"
 import { type AnyClient, QueryBuilder } from "./query-builder.ts"
+import {
+  type DefaultSchema,
+  definitionOf,
+  type SchemaDefinitionLike,
+  type SchemaOption,
+  type SchemaTypes,
+} from "./register.ts"
 import { createStorage, type StorageApi } from "./storage.ts"
 import { type Layer, Store } from "./store.ts"
 import { TokenRefresher } from "./token-refresh.ts"
@@ -43,7 +50,6 @@ import type {
   IdOf,
   InsertOf,
   Schema,
-  UntypedSchema,
   UpdateFilter,
 } from "./types.ts"
 
@@ -59,7 +65,7 @@ function backoff(attempt: number, maxMs: number): number {
  * The Canopy client: a document cache with live queries over `canopy.v1`, automatic reconnection
  * with full jitter backoff, resume by sequence number and resync reconciliation.
  */
-export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
+export class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
   readonly store: Store = new Store()
   /**
    * Settles once the update engine is loaded. It is a separate chunk, fetched right after the client is
@@ -239,13 +245,27 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     return new ObjectId()
   }
 
-  /** Inserts a document. The optimistic copy, with a client generated `_id`, is visible at once. */
+  /**
+   * The document an insert stores. With a schema, the collection's definition fills in defaults and
+   * generates the `_id` its builder declares; otherwise `idTypes` picks the generator.
+   */
+  private prepare(collection: string, doc: object): Document {
+    const definition = definitionOf(this.options.schema, collection)
+    if (definition !== undefined) return asDocument(definition.prepare(doc))
+    const given = asDocument(doc)["_id"]
+    return { ...asDocument(doc), _id: given === undefined ? this.newId(collection) : given }
+  }
+
+  /**
+   * Inserts a document. The optimistic copy, with its defaults and a client generated `_id`, is visible at
+   * once.
+   */
   insert<C extends CollectionName<DB>>(
     collection: C,
     doc: InsertOf<DB, C>,
   ): MutationHandle<IdOf<DocumentOf<DB, C>>> {
-    const id = asDocument(doc)["_id"] ?? this.newId(collection)
-    const full = { ...doc, _id: id }
+    const full = this.prepare(collection, doc)
+    const id = full["_id"]
     return this.outbox.mutate(
       collection,
       "insert",
@@ -260,10 +280,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     collection: C,
     docs: readonly InsertOf<DB, C>[],
   ): MutationHandle {
-    const full = docs.map((doc) => ({
-      ...asDocument(doc),
-      _id: asDocument(doc)["_id"] ?? this.newId(collection),
-    }))
+    const full = docs.map((doc) => this.prepare(collection, doc))
     return this.outbox.mutate(
       collection,
       "insertMany",
@@ -297,7 +314,11 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     replacement: InsertOf<DB, C>,
     options: ReplaceOptions<DocumentOf<DB, C>> = {},
   ): MutationHandle {
-    const doc = asDocument(replacement)
+    const definition = definitionOf(this.options.schema, collection)
+    const doc =
+      definition === undefined
+        ? asDocument(replacement)
+        : withoutId(definition.prepare({ ...replacement, _id: id }), replacement)
     return this.outbox.mutate(
       collection,
       "replace",
@@ -673,12 +694,33 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 }
 
+function withoutId(doc: Record<string, unknown>, original: object): Document {
+  if ("_id" in original) return asDocument(doc)
+  const { _id: _omitted, ...rest } = doc
+  return rest
+}
+
+/** The schemas `createClient` accepts: the registered one once a schema is registered, otherwise any. */
+type SchemaConstraint = SchemaOption extends { readonly schema: infer S }
+  ? Extract<S, SchemaDefinitionLike>
+  : SchemaDefinitionLike
+
 /**
- * Creates a client and starts connecting. Pass the generated `Database` type to check every query and
- * write against your collections: `createClient<Database>({ ... })`.
+ * Creates a client and starts connecting. Pass the schema from your `canopy.schema.ts` (`defineSchema()`) to
+ * type every query and write and to generate IDs and defaults from the same definition:
+ * `createClient({ url, publishableKey, schema })`. Once the schema is registered through `Register`, the
+ * option is required.
  */
-export function createClient<DB extends Schema<DB> = UntypedSchema>(
-  options: ClientOptions,
-): CanopyClient<DB> {
+export function createClient<S extends SchemaConstraint>(
+  options: ClientOptions & { readonly schema: S },
+): CanopyClient<SchemaTypes<S>>
+/**
+ * Creates a client and starts connecting, typed by the registered schema, untyped, or with an explicit
+ * database type such as a `Database` interface from `canopy gen types`.
+ */
+export function createClient<DB extends Schema<DB> = DefaultSchema>(
+  options: ClientOptions & SchemaOption,
+): CanopyClient<DB>
+export function createClient<DB extends Schema<DB>>(options: ClientOptions): CanopyClient<DB> {
   return new CanopyClient<DB>(options)
 }

@@ -11,7 +11,9 @@
     "tsBuildInfoFile": "../node_modules/.cache/test-types/.tsbuildinfo"
   },
   "include": ["."],
+  "exclude": ["registered"],
   "references": [
+    { "path": "../../schema" },
     { "path": ".." },
     { "path": "../../testing" },
     { "path": "../../realtime" },

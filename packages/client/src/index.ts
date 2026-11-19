@@ -46,6 +46,21 @@ export type {
   WriteOptions,
 } from "./client-types.ts"
 export { QueryBuilder } from "./query-builder.ts"
+export type {
+  CollectionDefinitionLike,
+  DefaultSchema,
+  Doc,
+  Id,
+  NewDoc,
+  Patch,
+  Register,
+  RegisteredSchema,
+  ResolvedSchema,
+  SchemaDefinitionLike,
+  SchemaOption,
+  SchemaTypes,
+  UntypedDefinition,
+} from "./register.ts"
 export {
   type BucketApi,
   createStorage,
