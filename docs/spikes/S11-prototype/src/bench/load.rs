@@ -22,7 +22,8 @@ static NEXT_LOCAL: AtomicU32 = AtomicU32::new(0);
 const PORTS_PER_ADDRESS: u32 = 39_000;
 
 fn next_local() -> SocketAddr {
-    let k = NEXT_LOCAL.fetch_add(1, Ordering::Relaxed);
+    let start = (std::process::id() % 7) * PORTS_PER_ADDRESS;
+    let k = start + NEXT_LOCAL.fetch_add(1, Ordering::Relaxed);
     let host = u8::try_from(2 + k / PORTS_PER_ADDRESS).unwrap_or(250);
     let port = u16::try_from(10_000 + k % PORTS_PER_ADDRESS).unwrap_or(10_000);
     SocketAddr::from((Ipv4Addr::new(127, 0, 0, host), port))
@@ -33,6 +34,7 @@ async fn connect(port: u16) -> Res<TcpStream> {
     let mut last = String::new();
     for _ in 0..200 {
         let socket = TcpSocket::new_v4()?;
+        let _ = socket.set_reuseaddr(true);
         if socket.bind(next_local()).is_err() {
             continue;
         }
