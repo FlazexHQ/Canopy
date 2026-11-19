@@ -16,6 +16,12 @@ export interface CollectionSchema {
 
 const EJSON_COMPONENTS: Readonly<Record<string, Record<string, unknown>>>
 
+export interface EmitOptions {
+    readonly js?: boolean;
+    readonly importFrom?: string;
+    readonly registerModule?: string;
+}
+
 export interface Field {
     readonly shape: Shape;
     readonly required: boolean;
@@ -61,6 +67,8 @@ export type Shape = {
     readonly of: readonly Shape[];
 };
 
+function emitSchemaFile(schemas: readonly CollectionSchema[], options?: EmitOptions): string
+
 function fromJsonSchema(schema: unknown): Shape
 
 function generateTypes(schemas: readonly CollectionSchema[], options?: GenerateOptions): string
@@ -74,4 +82,140 @@ function restrictShape(shape: ObjectShape, access: FieldAccess, mode?: RestrictM
 function toJsonSchema(shape: Shape): Record<string, unknown>
 
 function union(shapes: readonly Shape[]): Shape
+```
+
+## @canopy/schema/define
+
+```ts
+export interface AnyCollectionDefinition {
+    readonly name: string;
+    readonly fields: Fields;
+    readonly shape: ObjectShape;
+    readonly id: IdStrategy;
+    prepare(doc: object): Record<string, unknown>;
+    readonly "~standard": StandardProps<unknown, object>;
+    readonly "~types"?: {
+        readonly Document: object;
+        readonly Insert: object;
+        readonly Patch: object;
+    };
+}
+
+export interface Builder<T, Optional extends boolean = false, Filled extends boolean = false, AutoId extends boolean = false> extends FieldBuilder<T, Optional, Filled, AutoId> {
+    optional(): Builder<T, true, Filled, AutoId>;
+    nullable(): Builder<T | null, Optional, Filled, false>;
+    default(value: T): Builder<T, Optional, true>;
+    generate(create: () => T): Builder<T, Optional, true>;
+}
+
+export interface CollectionDefinition<N extends string = string, F extends Fields = Fields> extends AnyCollectionDefinition {
+    readonly name: N;
+    readonly fields: F;
+    readonly shape: ObjectShape;
+    readonly id: IdStrategy;
+    prepare(doc: object): Record<string, unknown>;
+    readonly "~standard": StandardProps<unknown, DocOf<F>>;
+    readonly "~types"?: CollectionTypesOf<F>;
+}
+
+export interface CollectionTypesOf<F extends Fields> {
+    readonly Document: DocOf<F>;
+    readonly Insert: NewDocOf<F>;
+    readonly Patch: PatchOf<F>;
+}
+
+export type DocOf<F> = Prettify<{
+    _id: TypeOf<IdBuilderOf<F>>;
+} & ObjectOf<Omit<F, "_id">>>;
+
+export interface FieldBuilder<T = unknown, Optional extends boolean = boolean, Filled extends boolean = boolean, AutoId extends boolean = boolean> {
+    readonly shape: Shape;
+    readonly isOptional: Optional;
+    readonly fill: (() => unknown) | undefined;
+    readonly fields: Fields | undefined;
+    readonly "~type"?: {
+        readonly value: T;
+        readonly filled: Filled;
+        readonly autoId: AutoId;
+    };
+}
+
+export type Fields = Readonly<Record<string, FieldBuilder>>;
+
+export type IdBuilderOf<F> = F extends {
+    readonly _id: infer B;
+} ? B : Builder<ObjectId, false, false, true>;
+
+export interface IdStrategy {
+    readonly shape: Shape;
+    readonly generated: boolean;
+}
+
+export type InsertObjectOf<F> = Prettify<{
+    [K in Exclude<keyof F, InsertOptionalKeys<F>>]: TypeOf<F[K]>;
+} & {
+    [K in InsertOptionalKeys<F>]?: TypeOf<F[K]>;
+}>;
+
+export type NewDocOf<F> = Prettify<(IdGenerated<IdBuilderOf<F>> extends true ? {
+    _id?: TypeOf<IdBuilderOf<F>>;
+} : {
+    _id: TypeOf<IdBuilderOf<F>>;
+}) & InsertObjectOf<Omit<F, "_id">>>;
+
+export type ObjectOf<F> = Prettify<{
+    [K in Exclude<keyof F, OptionalKeys<F>>]: TypeOf<F[K]>;
+} & {
+    [K in OptionalKeys<F>]?: TypeOf<F[K]>;
+}>;
+
+export type PatchOf<F> = Prettify<{
+    [K in Exclude<keyof F, "_id">]?: K extends OptionalKeys<F> ? TypeOf<F[K]> | null : TypeOf<F[K]>;
+}>;
+
+export type SchemaDefinition = {
+    readonly [name: string]: AnyCollectionDefinition;
+};
+
+export type SchemaOf<C extends readonly AnyCollectionDefinition[]> = {
+    readonly [D in C[number] as D["name"]]: D;
+};
+
+export interface StandardIssue {
+    readonly message: string;
+    readonly path?: readonly PropertyKey[];
+}
+
+export interface StandardProps<Input = unknown, Output = Input> {
+    readonly version: 1;
+    readonly vendor: string;
+    readonly validate: (value: unknown) => StandardResult<Output> | Promise<StandardResult<Output>>;
+    readonly types?: {
+        readonly input: Input;
+        readonly output: Output;
+    };
+}
+
+export type StandardResult<Output> = {
+    readonly value: Output;
+    readonly issues?: undefined;
+} | {
+    readonly issues: readonly StandardIssue[];
+};
+
+export type TypeOf<B> = B extends {
+    readonly "~type"?: {
+        readonly value: infer T;
+    };
+} ? T : never;
+
+function collection<const N extends string, const F extends Fields>(name: N, fields: F): CollectionDefinition<N, F>
+
+function defineSchema<const C extends readonly AnyCollectionDefinition[]>(...collections: C): SchemaOf<C>
+
+const t: { objectId(): Builder<ObjectId, false, false, true>; string(): Builder<string>; int(): Builder<number>; double(): Builder<number>; long(): Builder<number | Long>; decimal(): Builder<Decimal128>; bool(): Builder<boolean>; date(): Builder<Date>; uuid(): Builder<Binary, false, false, true>; binary(): Builder<Binary>; array<B extends FieldBuilder>(items: B): Builder<TypeOf<B>[]>; object<F extends Fields>(fields: F): Builder<ObjectOf<F>>; enum<const V extends readonly [string, ...string[]]>(values: V): Builder<V[number]>; union<B extends readonly [FieldBuilder, ...FieldBuilder[]]>(...members: B): Builder<TypeOf<B[number]>>; any(): Builder<unknown>; }
+
+function toCollectionSchema(definition: AnyCollectionDefinition): CollectionSchema
+
+function toCollectionSchemas(schema: SchemaDefinition): CollectionSchema[]
 ```
