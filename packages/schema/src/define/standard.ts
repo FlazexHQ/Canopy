@@ -1,4 +1,4 @@
-import { Binary, Decimal128, Long, ObjectId } from "@canopy/protocol"
+import { binaryParts, bsonTypeTag } from "@canopy/protocol"
 import type { Shape } from "../shape.ts"
 
 /** One problem Standard Schema validation found. */
@@ -40,30 +40,40 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null
 }
 
+/**
+ * Whether a value has a scalar type. BSON values are recognized by their type tag rather than `instanceof`, so
+ * documents decoded by the MongoDB driver's own copy of `bson` validate like values from this package.
+ */
 function scalarMatches(type: string, value: unknown, values?: readonly string[]): boolean {
+  const tag = bsonTypeTag(value)
   switch (type) {
     case "string":
       return typeof value === "string" && (values === undefined || values.includes(value))
     case "int":
       return (
-        Number.isInteger(value) && (value as number) >= INT32_MIN && (value as number) <= INT32_MAX
+        tag === "Int32" ||
+        (Number.isInteger(value) &&
+          (value as number) >= INT32_MIN &&
+          (value as number) <= INT32_MAX)
       )
     case "double":
-      return typeof value === "number"
+      return typeof value === "number" || tag === "Double"
     case "long":
-      return Number.isSafeInteger(value) || value instanceof Long
+      return Number.isSafeInteger(value) || tag === "Long"
     case "decimal":
-      return value instanceof Decimal128
+      return tag === "Decimal128"
     case "bool":
       return typeof value === "boolean"
     case "date":
       return value instanceof Date && !Number.isNaN(value.getTime())
     case "objectId":
-      return value instanceof ObjectId
-    case "uuid":
-      return value instanceof Binary && value.subType === 4 && value.bytes.length === 16
+      return tag === "ObjectId"
+    case "uuid": {
+      const parts = binaryParts(value)
+      return parts?.subType === 4 && parts.bytes.length === 16
+    }
     case "binData":
-      return value instanceof Binary
+      return tag === "Binary"
     case "null":
       return value === null
     default:
