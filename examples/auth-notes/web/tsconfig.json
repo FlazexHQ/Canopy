@@ -12,5 +12,5 @@
     "types": []
   },
   "include": ["."],
-  "references": [{ "path": "../../../packages/client" }]
+  "references": [{ "path": "../../../packages/client" }, { "path": "../../../packages/schema" }]
 }
