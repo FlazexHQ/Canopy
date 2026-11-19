@@ -1,5 +1,5 @@
 import type { Document } from "@canopy/protocol"
-import type { IdOf, UntypedSchema } from "./types.ts"
+import type { CollectionTypes, IdOf, UntypedSchema } from "./types.ts"
 
 /**
  * Registers the app's schema with the SDK. The schema file augments it once, and `createClient`, the REST
@@ -44,7 +44,9 @@ export type RegisteredSchema = Register extends {
 
 /** The client's per collection types (`Document` and `Insert`) of a schema definition. */
 export type SchemaTypes<S extends SchemaDefinitionLike> = {
-  readonly [K in keyof S]: NonNullable<S[K]["~types"]>
+  readonly [K in keyof S]: NonNullable<S[K]["~types"]> extends infer T extends CollectionTypes
+    ? T
+    : CollectionTypes
 }
 
 /** The client types used when no type argument is given: the registered schema's, or untyped. */

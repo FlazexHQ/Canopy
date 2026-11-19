@@ -548,7 +548,7 @@ export type SchemaOption = [
 };
 
 export type SchemaTypes<S extends SchemaDefinitionLike> = {
-    readonly [K in keyof S]: NonNullable<S[K]["~types"]>;
+    readonly [K in keyof S]: NonNullable<S[K]["~types"]> extends infer T extends CollectionTypes ? T : CollectionTypes;
 };
 
 export interface SharedConnection {

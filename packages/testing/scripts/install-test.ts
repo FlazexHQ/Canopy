@@ -1,8 +1,10 @@
 /**
  * Install test: packs every published package, installs the tarballs into a scratch project with each
  * package manager, and imports every entry point of every `exports` map (and checks the declaration files
- * and `bin` targets exist). It fails when an `exports` map or a `files` list points at something that is
- * not in the tarball, or when a dependency of a package is missing from its `package.json`.
+ * and `bin` targets exist), then compiles a TypeScript consumer that registers a schema against the installed
+ * declarations with both `bundler` and `nodenext` module resolution. It fails when an `exports` map or a
+ * `files` list points at something that is not in the tarball, when a dependency of a package is missing from
+ * its `package.json`, or when the installed declarations stop typing the consumer.
  *
  *   bun packages/testing/scripts/install-test.ts [--managers bun,npm,pnpm,yarn] [--build] [--keep]
  *
@@ -454,6 +456,76 @@ async function serve(dir: string, tarballs: Iterable<[string, string]>): Promise
   }
 }
 
+/**
+ * A TypeScript consumer of the packed declarations: it declares collections with `@canopy/schema/define`,
+ * registers the schema with the client and reads through `@canopy/client/rest`. The `@ts-expect-error` lines
+ * fail the compile when the registered types stop reaching the installed packages.
+ */
+const CONSUMER = `import { createClient, type Doc, type Id, type ObjectId } from "@canopy/client"
+import { createRestClient } from "@canopy/client/rest"
+import { collection, defineSchema, t } from "@canopy/schema/define"
+
+export const schema = defineSchema(
+  collection("todos", { title: t.string(), done: t.bool().default(false) }),
+  collection("notes", { _id: t.string(), body: t.string() }),
+)
+
+declare module "@canopy/client" {
+  interface Register {
+    schema: typeof schema
+  }
+}
+
+export type Todo = Doc<"todos">
+
+export function consume(): Promise<unknown> {
+  const client = createClient({ url: "http://localhost:3000", publishableKey: "pk", schema })
+  const id: Id<"todos"> = client.from("todos").insert({ title: "Ship" }).id
+  const objectId: ObjectId = id
+  void objectId
+  // @ts-expect-error notes take caller supplied string ids
+  void client.from("notes").insert({ body: "No id" })
+  // @ts-expect-error the schema option is required once a schema is registered
+  void createClient({ url: "http://localhost:3000", publishableKey: "pk" })
+  const rest = createRestClient({ url: "http://localhost:3000", publishableKey: "pk", schema })
+  return rest
+    .from("todos")
+    .find({ done: false })
+    .fields({ title: 1 })
+    .page()
+    .then((page) => {
+      const title: string | undefined = page.data[0]?.title
+      // @ts-expect-error the projection omits done
+      void page.data[0]?.done
+      return title
+    })
+}
+`
+
+/** The module resolution modes the consumer compiles under: bundlers, and Node.js with ESM. */
+const RESOLUTIONS = {
+  bundler: { module: "esnext", moduleResolution: "bundler" },
+  nodenext: { module: "nodenext", moduleResolution: "nodenext" },
+} as const
+
+function consumerConfig(resolution: keyof typeof RESOLUTIONS): string {
+  const config = {
+    compilerOptions: {
+      ...RESOLUTIONS[resolution],
+      target: "es2023",
+      lib: ["es2023", "dom", "dom.iterable"],
+      types: [],
+      strict: true,
+      noEmit: true,
+      skipLibCheck: false,
+      exactOptionalPropertyTypes: true,
+      noUncheckedIndexedAccess: true,
+    },
+    files: ["consumer.ts"],
+  }
+  return `${JSON.stringify(config, null, 2)}\n`
+}
+
 async function scratchProject(
   manager: Manager,
   directory: string,
@@ -492,6 +564,9 @@ async function scratchProject(
   else await writeFile(join(directory, ".npmrc"), `@${SCOPE}:registry=${registry}\n`)
   await writeFile(join(directory, "check.mjs"), checkScript(packages, tarballs.addons))
   await writeFile(join(directory, "fallback.mjs"), fallbackScript(tarballs.addons))
+  await writeFile(join(directory, "consumer.ts"), CONSUMER)
+  for (const resolution of Object.keys(RESOLUTIONS) as (keyof typeof RESOLUTIONS)[])
+    await writeFile(join(directory, `tsconfig.${resolution}.json`), consumerConfig(resolution))
 }
 
 /**
@@ -550,6 +625,13 @@ async function testManager(
     const checked = await run(node, ["check.mjs"], directory)
     process.stdout.write(`${manager}: ${lastLine(checked.output)}\n`)
     if (checked.code !== 0) return `${manager}: check failed\n${checked.output.trim()}`
+    const tsc = join(root, "node_modules", "typescript", "bin", "tsc")
+    for (const resolution of Object.keys(RESOLUTIONS)) {
+      const compiled = await run(node, [tsc, "-p", `tsconfig.${resolution}.json`], directory)
+      if (compiled.code !== 0)
+        return `${manager}: the consumer does not compile with ${resolution} resolution\n${compiled.output.trim()}`
+      process.stdout.write(`${manager}: the consumer compiles with ${resolution} resolution\n`)
+    }
     if (tarballs.addons.length > 0) {
       const fallback = await run(node, ["fallback.mjs"], directory)
       process.stdout.write(`${manager}: ${lastLine(fallback.output)}\n`)
