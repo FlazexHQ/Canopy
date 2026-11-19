@@ -83,6 +83,59 @@ function bearer(base: string, token: string): Client {
   }
 }
 
+/** Runs the admin doctor route against fake dependencies and returns its JSON report. */
+async function doctorReport(
+  hello: Record<string, unknown>,
+  searchIndexes: () => Promise<Record<string, unknown>[]>,
+): Promise<unknown> {
+  const route = vi.fn<RouteFn>()
+  const meta = {
+    collection: () => ({
+      find: () => ({
+        toArray: async () =>
+          META_MIGRATIONS.map(({ version }) => ({ _id: version, appliedAt: new Date() })),
+      }),
+    }),
+  }
+  registerOps(route, {
+    app: {
+      command: async (command: Record<string, unknown>) =>
+        "hello" in command ? hello : { version: "8.0" },
+      collection: () => ({
+        aggregate: () => ({
+          toArray: searchIndexes,
+          [Symbol.asyncDispose]: async () => {},
+        }),
+      }),
+    },
+    environment: "development",
+    config: {
+      collections: { notes: { search: true } },
+      mongodb: { metaDatabase: "canopy" },
+      masterKey: "test",
+      server: { adminListen: "localhost" },
+    },
+    options: {
+      client: { db: () => meta },
+      engine: () => ({ version: 1, set: { collections: new Map() } }),
+    },
+  } as unknown as AdminDeps)
+  const doctor = route.mock.calls.find(([method, path]) => method === "GET" && path === "doctor")
+  if (!doctor) throw new Error("GET doctor route is missing")
+  const response = await doctor[3]({
+    request: new Request("http://localhost/admin/v1/doctor"),
+  } as Context)
+  expect(response.status).toBe(200)
+  return response.json()
+}
+
+const BASE_CHECKS = [
+  { name: "meta-migrations", status: "ok", message: "The meta database is up to date" },
+  { name: "master-key", status: "ok", message: "Stored secrets are encrypted" },
+  { name: "admin-listener", status: "ok", message: "/admin is served only on localhost" },
+  { name: "policies", status: "ok", message: "Bundle 1, 0 collection(s)" },
+]
+
 describe("admin doctor search checks", () => {
   it.each([
     {
@@ -104,58 +157,43 @@ describe("admin doctor search checks", () => {
       ],
     },
   ])("returns the full report when search is $probe", async ({ probe, checks }) => {
-    const route = vi.fn<RouteFn>()
-    const meta = {
-      collection: () => ({
-        find: () => ({
-          toArray: async () =>
-            META_MIGRATIONS.map(({ version }) => ({ _id: version, appliedAt: new Date() })),
-        }),
-      }),
-    }
-    registerOps(route, {
-      app: {
-        command: async () => ({ version: "8.0", setName: "rs0" }),
-        collection: () => ({
-          aggregate: () => ({
-            toArray: async () => {
-              if (probe === "failed") throw new MongoNetworkError("private driver details")
-              return [{ name: "text", status: "BUILDING" }, { name: "vector" }]
-            },
-            [Symbol.asyncDispose]: async () => {},
-          }),
-        }),
-      },
-      environment: "development",
-      config: {
-        collections: { notes: { search: true } },
-        mongodb: { metaDatabase: "canopy" },
-        masterKey: "test",
-        server: { adminListen: "localhost" },
-      },
-      options: {
-        client: { db: () => meta },
-        engine: () => ({ version: 1, set: { collections: new Map() } }),
-      },
-    } as unknown as AdminDeps)
-    const doctor = route.mock.calls.find(([method, path]) => method === "GET" && path === "doctor")
-    if (!doctor) throw new Error("GET doctor route is missing")
-    const response = await doctor[3]({
-      request: new Request("http://localhost/admin/v1/doctor"),
-    } as Context)
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
+    const report = await doctorReport({ setName: "rs0" }, async () => {
+      if (probe === "failed") throw new MongoNetworkError("private driver details")
+      return [{ name: "text", status: "BUILDING" }, { name: "vector" }]
+    })
+    expect(report).toEqual({
       status: "warn",
       environment: "development",
       checks: [
         { name: "mongodb", status: "ok", message: "MongoDB 8.0" },
         { name: "replica-set", status: "ok", message: "Replica set rs0" },
-        { name: "meta-migrations", status: "ok", message: "The meta database is up to date" },
-        { name: "master-key", status: "ok", message: "Stored secrets are encrypted" },
-        { name: "admin-listener", status: "ok", message: "/admin is served only on localhost" },
-        { name: "policies", status: "ok", message: "Bundle 1, 0 collection(s)" },
+        ...BASE_CHECKS,
         ...checks,
       ],
+    })
+  })
+})
+
+describe("admin doctor topology", () => {
+  const ready = async () => [{ name: "text", status: "READY", queryable: true }]
+  const topology = async (hello: Record<string, unknown>) =>
+    ((await doctorReport(hello, ready)) as { checks: { name: string }[] }).checks.find(
+      (check) => check.name === "replica-set",
+    )
+
+  it("accepts a sharded cluster behind mongos", async () => {
+    expect(await topology({ msg: "isdbgrid" })).toEqual({
+      name: "replica-set",
+      status: "ok",
+      message: "Sharded cluster (mongos)",
+    })
+  })
+
+  it("fails a standalone server, which has no change streams or transactions", async () => {
+    expect(await topology({ isWritablePrimary: true })).toEqual({
+      name: "replica-set",
+      status: "fail",
+      message: "Change streams and transactions need a replica set or a sharded cluster",
     })
   })
 })

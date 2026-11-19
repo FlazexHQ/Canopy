@@ -22,7 +22,13 @@ export function registerOps(route: RouteFn, deps: AdminDeps): void {
       add("mongodb", "ok", `MongoDB ${String(build["version"])}`)
       if (typeof hello["setName"] === "string")
         add("replica-set", "ok", `Replica set ${hello["setName"]}`)
-      else add("replica-set", "fail", "Change streams and transactions need a replica set")
+      else if (hello["msg"] === "isdbgrid") add("replica-set", "ok", "Sharded cluster (mongos)")
+      else
+        add(
+          "replica-set",
+          "fail",
+          "Change streams and transactions need a replica set or a sharded cluster",
+        )
     } catch (error: unknown) {
       add("mongodb", "fail", error instanceof Error ? error.message : "MongoDB is unreachable")
     }
