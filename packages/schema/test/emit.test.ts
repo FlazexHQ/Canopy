@@ -68,6 +68,7 @@ describe("emitSchemaFile", () => {
     expect(
       emitSchemaFile(example),
     ).toBe(`// Written by canopy pull. This file is yours now: edit it, review it and commit it.
+import type {} from "@canopy/client"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 export const notes = collection("notes", {
@@ -197,6 +198,8 @@ declare module "@canopy/client" {
     expect(output).toContain('import { defineSchema } from "./builders.js"')
     expect(output).toContain("export const schema = defineSchema()")
     expect(output).toContain('declare module "./client.js"')
+    expect(output).toContain('import type {} from "./client.js"')
+    expect(emitSchemaFile([], { js: true })).not.toContain("import type")
     expect(emitSchemaFile([schema("docs", {})])).toContain(
       "import { collection, defineSchema } from",
     )

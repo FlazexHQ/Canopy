@@ -10,12 +10,14 @@
     "outDir": "node_modules/.cache/types",
     "tsBuildInfoFile": "node_modules/.cache/types/.tsbuildinfo"
   },
-  "include": ["src", "test", "e2e", "playwright.config.ts"],
+  "include": ["src", "test", "e2e", "playwright.config.ts", "web/canopy.schema.ts"],
   "references": [
     { "path": "../../packages/cli" },
+    { "path": "../../packages/client" },
     { "path": "../../packages/policy" },
     { "path": "../../packages/realtime" },
     { "path": "../../packages/rest" },
+    { "path": "../../packages/schema" },
     { "path": "../../packages/testing" }
   ]
 }

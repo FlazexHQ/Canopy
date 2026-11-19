@@ -186,6 +186,7 @@
         "@canopy/react": "workspace:*",
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",
+        "@canopy/schema": "workspace:*",
         "esbuild": "0.28.2",
         "jose": "6.2.14",
         "mongodb": "7.7.0",

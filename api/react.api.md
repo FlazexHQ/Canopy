@@ -42,7 +42,7 @@ export interface MutationFailure {
     clear(): void;
 }
 
-export type ReactDb<DB extends Schema<DB>> = {
+export type ReactDb<DB extends Schema<DB> = DefaultSchema> = {
     readonly [C in CollectionName<DB>]: CollectionHooks<DocumentOf<DB, C>, InsertOf<DB, C>>;
 };
 

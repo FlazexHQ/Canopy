@@ -134,14 +134,16 @@ export function emitSchemaFile(
     "defineSchema",
     ...(usesFields ? ["t"] : []),
   ]
+  const register = JSON.stringify(options.registerModule ?? "@canopy/client")
   blocks.unshift(
     "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\n" +
+      (options.js ? "" : `import type {} from ${register}\n`) +
       `import { ${imports.join(", ")} } from ${JSON.stringify(options.importFrom ?? "@canopy/schema/define")}`,
   )
   blocks.push(`export const schema = defineSchema(${names.join(", ")})`)
   if (!options.js)
     blocks.push(
-      `declare module ${JSON.stringify(options.registerModule ?? "@canopy/client")} {\n  interface Register {\n    schema: typeof schema\n  }\n}`,
+      `declare module ${register} {\n  interface Register {\n    schema: typeof schema\n  }\n}`,
     )
   return `${blocks.join("\n\n")}\n`
 }
