@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { run } from "../src/cli.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
+const notice = "canopy gen types is deprecated: run canopy pull to write a canopy.schema.ts"
 
 function capture() {
   const lines: string[] = []
@@ -79,7 +80,7 @@ suite("canopy gen types", () => {
     const { code, lines, errors } = await gen(out)
     expect(errors).toEqual([])
     expect(code).toBe(0)
-    expect(lines).toEqual([`wrote ${out} (2 collections)`])
+    expect(lines).toEqual([notice, `wrote ${out} (2 collections)`])
     const text = await readFile(out, "utf8")
     expect(text).toContain(`  notes: {
     Document: {
@@ -112,7 +113,7 @@ suite("canopy gen types", () => {
     expect((await gen(out)).code).toBe(0)
     const ok = await gen(out, "--check")
     expect(ok.code).toBe(0)
-    expect(ok.lines[0]).toContain("is up to date")
+    expect(ok.lines).toEqual([notice, `${out} is up to date (2 collections)`])
     await client.db(database).collection("todos").insertOne({ ownerId: "c", title: 1 })
     const stale = await gen(out, "--check")
     expect(stale.code).toBe(1)

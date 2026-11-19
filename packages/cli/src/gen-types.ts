@@ -36,13 +36,14 @@ function contextFor(role: string): RequestContext {
   }
 }
 
-/** Generates the types once: the text and the number of collections it covers. */
-async function generate(
-  options: GenTypesOptions,
+/** Loads selected collection schemas, optionally applying a role's field visibility. */
+export async function loadCollectionSchemas(
+  options: Pick<GenTypesOptions, "database" | "dir" | "sampleSize" | "inferEnums" | "role">,
   client: MongoClient,
-): Promise<{ readonly text: string; readonly count: number }> {
+  collection?: string,
+): Promise<CollectionSchema[]> {
   const set =
-    options.dir === undefined
+    options.dir === undefined || collection !== undefined
       ? undefined
       : await directoryPolicies(options.dir)
           .load()
@@ -58,9 +59,20 @@ async function generate(
   const names =
     exposed.length > 0
       ? exposed.map((def) => def.collection)
-      : (await db.listCollections({}, { nameOnly: true }).toArray())
+      : (
+          await db
+            .listCollections(collection === undefined ? {} : { name: collection }, {
+              nameOnly: true,
+            })
+            .toArray()
+        )
           .map((info) => info.name)
-          .filter((name) => !name.startsWith("system."))
+          .filter((name) => collection !== undefined || !name.startsWith("system."))
+  if (collection !== undefined && names.length === 0)
+    throw new CanopyError(
+      ErrorCode.NotFound,
+      `Collection ${collection} does not exist in the database`,
+    )
   const engine = set === undefined ? undefined : new PolicyEngine(set)
   const ctx = options.role === undefined ? undefined : contextFor(options.role)
   const schemas: CollectionSchema[] = []
@@ -75,6 +87,14 @@ async function generate(
         : { ...schema, shape: restrictShape(schema.shape, engine.readable(name, ctx), "optional") },
     )
   }
+  return schemas
+}
+
+async function generate(
+  options: GenTypesOptions,
+  client: MongoClient,
+): Promise<{ readonly text: string; readonly count: number }> {
+  const schemas = await loadCollectionSchemas(options, client)
   const text = generateTypes(schemas, {
     ...(options.role === undefined
       ? {}
@@ -108,6 +128,7 @@ function messageOf(error: unknown): string {
  * config, then inference). With `check`, exits 1 when the committed file is stale.
  */
 export async function genTypes(options: GenTypesOptions, out: Output): Promise<number> {
+  out.log("canopy gen types is deprecated: run canopy pull to write a canopy.schema.ts")
   const client = new MongoClient(options.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
   try {
     await client.connect()

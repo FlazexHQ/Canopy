@@ -22,6 +22,7 @@ import {
   startBinaryMongo,
 } from "./mongod-binary.ts"
 import { messageOf } from "./output.ts"
+import { pull } from "./pull.ts"
 import { realtimeImages } from "./realtime-images.ts"
 
 /** Commands that set up and inspect a project: init, dev, doctor, types, config, realtime images and indexes. */
@@ -37,6 +38,10 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
   "gen types": {
     flags: ["out", "role", "check", "infer-enums", "sample", "watch"],
     handler: { kind: "app", load: "gen", run: runGenTypes },
+  },
+  pull: {
+    flags: ["out", "js", "collection", "force", "infer-enums", "sample"],
+    handler: { kind: "app", load: "gen", run: pull },
   },
   "config print": {
     flags: ["sources"],
