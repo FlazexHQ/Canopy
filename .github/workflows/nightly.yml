@@ -225,6 +225,41 @@ jobs:
       - if: always()
         run: docker compose -f deploy/compose/sharded.yaml down --volumes
 
+  search:
+    name: Text and vector search with ready indexes (MongoDB Atlas Local 8.0, Node.js 24)
+    # mongodb-atlas-local runs mongod with mongot, so search indexes build and answer queries. The
+    # search-unavailable case runs in the main suite against the plain replica set.
+    if: github.event_name != 'push'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start MongoDB Atlas Local and wait until it is healthy
+        run: |
+          docker run -d --name atlas-local -p 27017:27017 \
+            mongodb/mongodb-atlas-local:8.0.21@sha256:89003da4870d6fc3bd9305be8e881ba4a756a0733c1a3f3ed2358284d8d2e652
+          for attempt in $(seq 1 90); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' atlas-local)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs atlas-local
+          exit 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Search suite (Node)
+        run: node node_modules/vitest/vitest.mjs run --project rest test/search-indexes.e2e.test.ts --testTimeout=120000
+        env:
+          CANOPY_TEST_SEARCH_URI: mongodb://localhost:27017/?directConnection=true
+      - if: failure()
+        run: docker logs atlas-local
+      - if: always()
+        run: docker rm -f atlas-local
+
   benchmark:
     name: Benchmarks against their baselines (MongoDB 8.0, Node.js 24)
     if: github.event_name != 'push'
