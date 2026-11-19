@@ -148,8 +148,16 @@ pub async fn open(port: u16, plan: &Plan) -> Res<(Socket, Outcome, f64)> {
 
 /// Reads frames until `stop` turns true, then says goodbye and closes.
 pub async fn read(mut socket: Socket, mut outcome: Outcome, mut stop: watch::Receiver<bool>) -> Outcome {
+    let mut heartbeat = tokio::time::interval_at(tokio::time::Instant::now() + Duration::from_secs(20), Duration::from_secs(20));
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                let ping = format!(r#"{{"t":"ping","ts":{}}}"#, now_ms().round());
+                if socket.send(Message::Text(ping.into())).await.is_err() {
+                    outcome.error.get_or_insert_with(|| "ping failed".to_owned());
+                    return outcome;
+                }
+            }
             message = socket.next() => match message {
                 Some(Ok(Message::Text(text))) => {
                     outcome.frames += 1;

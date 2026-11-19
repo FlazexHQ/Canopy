@@ -39,6 +39,7 @@ pub struct Launch<'a> {
     pub port: u16,
     pub jwks: &'a str,
     pub read_buffer: usize,
+    pub workers: Option<usize>,
 }
 
 fn sidecar(program: &str, launch: &Launch<'_>) -> Command {
@@ -83,6 +84,9 @@ impl Server {
                     .arg(launch.port.to_string())
                     .arg("--read-buffer")
                     .arg(launch.read_buffer.to_string());
+                if let Some(workers) = launch.workers {
+                    command.arg("--workers").arg(workers.to_string());
+                }
                 command
             }
             "bun" => sidecar("bun", &launch),
@@ -90,7 +94,7 @@ impl Server {
             other => return Err(format!("unknown server {other}").into()),
         };
         let label = match launch.kind {
-            "rust" => "rust gateway".to_owned(),
+            "rust" => format!("rust gateway, read buffer {}, workers {}", launch.read_buffer, launch.workers.map_or("all".to_owned(), |w| w.to_string())),
             kind => format!("{kind} sidecar, engine {}", launch.engine),
         };
         command.stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::inherit()).kill_on_drop(true);

@@ -46,7 +46,7 @@ pub struct Stats {
 
 struct Observer {
     matcher: CompiledFilter,
-    index: Option<(String, String)>,
+    index: Option<(String, Vec<String>)>,
     members: HashSet<String>,
     subscribers: Vec<(ConnId, Arc<str>)>,
     key: String,
@@ -69,6 +69,7 @@ pub struct Engine {
     by_key: HashMap<String, usize>,
     equality: HashMap<String, HashMap<String, Vec<usize>>>,
     scan: Vec<usize>,
+    holders: HashMap<String, Vec<usize>>,
     stats: Arc<Stats>,
     candidates: Vec<usize>,
     deltas: Vec<(ConnId, Delta)>,
@@ -80,33 +81,63 @@ fn is_operator_document(value: &Value) -> bool {
     matches!(value, Value::Document(doc) if doc.first_key().is_some_and(|key| key.starts_with('$')))
 }
 
-/// A top level equality with a scalar, usable as the observer's index key.
-fn index_key(filter: &Document) -> Option<(String, String)> {
-    for (field, value) in filter.iter() {
-        if field == "$and" {
-            if let Value::Array(parts) = value {
-                for part in parts {
-                    if let Value::Document(part) = part {
-                        if let Some(found) = index_key(part) {
-                            return Some(found);
-                        }
-                    }
+const MAX_IN_VALUES: usize = 32;
+
+fn conjuncts<'a>(filter: &'a Document, out: &mut Vec<(&'a str, &'a Value)>) {
+    if filter.len() == 1 {
+        if let Some(Value::Array(parts)) = filter.get("$and") {
+            for part in parts {
+                if let Value::Document(part) = part {
+                    conjuncts(part, out);
                 }
             }
-            continue;
-        }
-        if field.starts_with('$') || field.contains('.') || is_operator_document(value) {
-            continue;
-        }
-        match value {
-            Value::Document(_) | Value::Array(_) | Value::Null | Value::Regex(_) | Value::Undefined => continue,
-            _ => {}
-        }
-        if let Ok(text) = canonical_string(value) {
-            return Some((field.to_owned(), text));
+            return;
         }
     }
-    None
+    out.extend(filter.iter());
+}
+
+fn scalar_key(value: &Value) -> Option<String> {
+    match value {
+        Value::Document(_) | Value::Array(_) | Value::Null | Value::Regex(_) | Value::Undefined => None,
+        _ => canonical_string(value).ok(),
+    }
+}
+
+/// The equality conjunct to index an observer under, as the TypeScript registry picks it: a top level
+/// `field: value`, `field: {$eq: value}` or `field: {$in: [up to 32 values]}`. Policy conjuncts come last in
+/// the effective filter and single values are more selective than lists, so those are preferred.
+fn index_key(filter: &Document) -> Option<(String, Vec<String>)> {
+    let mut parts = Vec::new();
+    conjuncts(filter, &mut parts);
+    let mut best: Option<(String, Vec<String>)> = None;
+    for (field, value) in parts.into_iter().rev() {
+        if field.starts_with('$') || field.contains('.') {
+            continue;
+        }
+        let keys: Option<Vec<String>> = match value {
+            Value::Document(ops) if is_operator_document(value) => {
+                if ops.len() != 1 {
+                    None
+                } else if let Some(eq) = ops.get("$eq") {
+                    scalar_key(eq).map(|key| vec![key])
+                } else if let Some(Value::Array(list)) = ops.get("$in") {
+                    (list.len() <= MAX_IN_VALUES).then(|| list.iter().map(scalar_key).collect()).flatten()
+                } else {
+                    None
+                }
+            }
+            _ => scalar_key(value).map(|key| vec![key]),
+        };
+        let Some(keys) = keys.filter(|keys| !keys.is_empty()) else { continue };
+        if best.as_ref().is_none_or(|(_, current)| keys.len() < current.len()) {
+            best = Some((field.to_owned(), keys));
+        }
+        if best.as_ref().is_some_and(|(_, keys)| keys.len() == 1) {
+            break;
+        }
+    }
+    best
 }
 
 impl Engine {
@@ -119,6 +150,7 @@ impl Engine {
             by_key: HashMap::new(),
             equality: HashMap::new(),
             scan: Vec::new(),
+            holders: HashMap::new(),
             stats,
             candidates: Vec::new(),
             deltas: Vec::new(),
@@ -172,6 +204,10 @@ impl Engine {
             Some(&slot) => slot,
             None => {
                 let index = index_key(filter);
+                let slot_hint = self.free.last().copied().unwrap_or(self.observers.len());
+                for id in &ids {
+                    self.holders.entry(id.clone()).or_default().push(slot_hint);
+                }
                 let observer =
                     Observer { matcher, index: index.clone(), members: ids.into_iter().collect(), subscribers: Vec::new(), key: key.clone() };
                 let slot = match self.free.pop() {
@@ -185,7 +221,12 @@ impl Engine {
                     }
                 };
                 match index {
-                    Some((field, value)) => self.equality.entry(field).or_default().entry(value).or_default().push(slot),
+                    Some((field, values)) => {
+                        let buckets = self.equality.entry(field).or_default();
+                        for value in values {
+                            buckets.entry(value).or_default().push(slot);
+                        }
+                    }
                     None => self.scan.push(slot),
                 }
                 self.by_key.insert(key, slot);
@@ -206,13 +247,18 @@ impl Engine {
         }
         let Some(observer) = self.observers[slot].take() else { return };
         self.by_key.remove(&observer.key);
+        for id in &observer.members {
+            unhold(&mut self.holders, id, slot);
+        }
         match &observer.index {
-            Some((field, value)) => {
+            Some((field, values)) => {
                 if let Some(buckets) = self.equality.get_mut(field) {
-                    if let Some(bucket) = buckets.get_mut(value) {
-                        bucket.retain(|&s| s != slot);
-                        if bucket.is_empty() {
-                            buckets.remove(value);
+                    for value in values {
+                        if let Some(bucket) = buckets.get_mut(value) {
+                            bucket.retain(|&s| s != slot);
+                            if bucket.is_empty() {
+                                buckets.remove(value);
+                            }
                         }
                     }
                 }
@@ -237,8 +283,11 @@ impl Engine {
     }
 
 
-    fn collect_candidates(&mut self, document: RawDocument<'_>) {
+    fn collect_candidates(&mut self, document: RawDocument<'_>, id: &str) {
         self.candidates.clear();
+        if let Some(holding) = self.holders.get(id) {
+            self.candidates.extend_from_slice(holding);
+        }
         for (field, buckets) in &self.equality {
             let Some(value) = document.get(field) else { continue };
             let mut probe = |value: &Value| {
@@ -279,7 +328,7 @@ impl Engine {
         self.delta_at.clear();
         match full {
             Some(document) if operation != "delete" => {
-                self.collect_candidates(document);
+                self.collect_candidates(document, &id_key);
                 let candidates = std::mem::take(&mut self.candidates);
                 for &slot in &candidates {
                     let Some(Some(observer)) = self.observers.get_mut(slot) else { continue };
@@ -288,9 +337,11 @@ impl Engine {
                     match (inside, was) {
                         (true, false) => {
                             observer.members.insert(id_key.clone());
+                            self.holders.entry(id_key.clone()).or_default().push(slot);
                         }
                         (false, true) => {
                             observer.members.remove(&id_key);
+                            unhold(&mut self.holders, &id_key, slot);
                         }
                         (false, false) => continue,
                         (true, true) => {}
@@ -307,12 +358,7 @@ impl Engine {
                 self.candidates = candidates;
             }
             _ => {
-                let slots: Vec<usize> = self
-                    .observers
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(slot, observer)| observer.as_ref().filter(|o| o.members.contains(&id_key)).map(|_| slot))
-                    .collect();
+                let slots = self.holders.remove(&id_key).unwrap_or_default();
                 for slot in slots {
                     let Some(Some(observer)) = self.observers.get_mut(slot) else { continue };
                     observer.members.remove(&id_key);
@@ -360,6 +406,15 @@ impl Engine {
         for conn in std::mem::take(&mut self.dropped) {
             self.stats.overflows.fetch_add(1, Ordering::Relaxed);
             self.disconnect(conn);
+        }
+    }
+}
+
+fn unhold(holders: &mut HashMap<String, Vec<usize>>, id: &str, slot: usize) {
+    if let Some(holding) = holders.get_mut(id) {
+        holding.retain(|&s| s != slot);
+        if holding.is_empty() {
+            holders.remove(id);
         }
     }
 }

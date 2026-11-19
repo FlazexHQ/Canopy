@@ -83,6 +83,7 @@ struct Args {
     seconds: u32,
     shape: Shape,
     read_buffer: usize,
+    workers: Option<usize>,
     out: Option<PathBuf>,
 }
 
@@ -98,6 +99,7 @@ fn args() -> Res<Args> {
         seconds: 10,
         shape: Shape { docs: 200_000, owners: 10_000, hot: 200 },
         read_buffer: 4096,
+        workers: None,
         out: None,
     };
     let mut iter = std::env::args().skip(1);
@@ -119,6 +121,7 @@ fn args() -> Res<Args> {
             "--docs" => args.shape.docs = value.parse()?,
             "--owners" => args.shape.owners = value.parse()?,
             "--read-buffer" => args.read_buffer = value.parse()?,
+            "--workers" => args.workers = Some(value.parse()?),
             "--out" => args.out = Some(PathBuf::from(value)),
             _ => return Err(format!("unknown flag {flag}").into()),
         }
@@ -382,6 +385,7 @@ async fn main_async() -> Res<()> {
         port: args.port,
         jwks: &jwks,
         read_buffer: args.read_buffer,
+        workers: args.workers,
     })
     .await?;
     let mut results = Vec::new();
