@@ -171,6 +171,8 @@ function dpapiScript(verb: "Protect" | "Unprotect"): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "Add-Type -AssemblyName System.Security",
+    "[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)",
+    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)",
     "$text = [Console]::In.ReadToEnd().Trim()",
     `$bytes = [Security.Cryptography.ProtectedData]::${verb}(${input}, $null, 'CurrentUser')`,
     `[Console]::Out.Write(${output})`,
