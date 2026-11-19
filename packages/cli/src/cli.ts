@@ -84,7 +84,8 @@ Options:
   --collection <name>    pull: add one collection to the schema file
   --check                gen types: fail when the file is out of date instead of writing it
   --watch                gen types: regenerate when policies or collections change, until Ctrl+C
-  --types                dev: regenerate the types file too (on by default once the file exists)
+  --types                dev: regenerate the deprecated types file too (on by default once the file
+                         exists, unless a canopy.schema file declares the schema)
   --infer-enums          gen types, pull, schema diff: turn low cardinality string fields into literal unions
   --sample <n>           gen types, pull, schema diff: documents sampled per collection (default 1000)
   --sources              config print: show where each value came from

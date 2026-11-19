@@ -22,7 +22,11 @@ export interface DevOptions {
   readonly port?: number
   /** Called with the base URL each time the server (re)starts. */
   readonly onReady?: (url: string) => void
-  /** Regenerate `types.out` as schemas and policies change; on by default once the file exists. */
+  /**
+   * Regenerate the deprecated `types.out` file as schemas and policies change. On by default once the file
+   * exists, unless the project declares its schema in a schema file, which `canopy dev` checks for drift
+   * instead.
+   */
   readonly types?: boolean
 }
 
@@ -216,23 +220,30 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
   if (first === undefined) return 1
   let running = await start(first)
   if (running === undefined) return 1
-  const types =
-    options.types === true || existsSync(first.types.out)
-      ? watchTypes(
-          {
-            mongodbUri: first.mongodb.uri,
-            database: first.mongodb.database,
-            out: first.types.out,
-            ...("dir" in first.policies ? { dir: first.policies.dir } : {}),
-            ...(first.types.role === undefined ? {} : { role: first.types.role }),
-          },
-          out,
-          typesStop.signal,
-        )
-      : undefined
+  const schemaFile = findSchemaFile(options.cwd)
+  const typesFile = relative(options.cwd, first.types.out)
+  const hasTypesFile = existsSync(first.types.out)
+  const regenerate = options.types === true || (schemaFile === undefined && hasTypesFile)
+  const types = regenerate
+    ? watchTypes(
+        {
+          mongodbUri: first.mongodb.uri,
+          database: first.mongodb.database,
+          out: first.types.out,
+          ...("dir" in first.policies ? { dir: first.policies.dir } : {}),
+          ...(first.types.role === undefined ? {} : { role: first.types.role }),
+        },
+        out,
+        typesStop.signal,
+      )
+    : undefined
   if (types !== undefined)
+    out.log(`  Types     ${typesFile}  (regenerated when schemas or policies change)`)
+  if (hasTypesFile || types !== undefined)
     out.log(
-      `  Types     ${relative(options.cwd, first.types.out)}  (regenerated when schemas or policies change)`,
+      schemaFile === undefined
+        ? `${typesFile} is deprecated: run canopy pull to write a canopy.schema.ts, then delete ${typesFile}`
+        : `${typesFile} is deprecated and ${types === undefined ? "no longer regenerated" : "still regenerated because of --types"}: ${schemaFile} declares the schema, so delete ${typesFile}`,
     )
 
   const configFile = first.file

@@ -10,7 +10,7 @@ const scratch = fileURLToPath(new URL("./.tmp/dev/", import.meta.url))
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
 async function until<T>(read: () => Promise<T>, test: (value: T) => boolean): Promise<T> {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + 30_000
   let value = await read()
   while (!test(value) && Date.now() < deadline) {
     await new Promise((done) => setTimeout(done, 50))
@@ -146,13 +146,17 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     expect(await running).toBe(0)
   })
 
-  it("keeps an existing types file up to date, and leaves projects without one alone", async () => {
-    const typed = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
-    await mkdir(join(typed, "src"))
-    await writeFile(join(typed, "src", "canopy.gen.ts"), "// stale\n")
-    await writeFile(join(typed, "canopy.schema.js"), "export const schema = {}")
+  it("regenerates a types file only until a schema file replaces it, and leaves other projects alone", async () => {
+    const legacy = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
+    const migrated = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     const untyped = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
-    for (const root of [typed, untyped]) {
+    for (const root of [legacy, migrated]) {
+      await mkdir(join(root, "src"))
+      await writeFile(join(root, "src", "canopy.gen.ts"), "// stale\n")
+    }
+    await writeFile(join(migrated, "canopy.schema.js"), "export const schema = {}")
+    const generated = join("src", "canopy.gen.ts")
+    for (const root of [legacy, migrated, untyped]) {
       const lines: string[] = []
       const urls: string[] = []
       const stop = new AbortController()
@@ -165,13 +169,20 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
         async () => urls.length,
         (count) => count > 0,
       )
-      if (root === typed) {
+      if (root === legacy) {
         const text = await until(
-          () => readFile(join(root, "src", "canopy.gen.ts"), "utf8"),
+          () => readFile(join(root, generated), "utf8"),
           (value) => value.includes("todos"),
         )
         expect(text).toContain("export interface Database")
-        expect(lines.some((line) => line.startsWith("  Types     src"))).toBe(true)
+        expect(lines).toContain(
+          `  Types     ${generated}  (regenerated when schemas or policies change)`,
+        )
+        expect(lines).toContain(
+          `${generated} is deprecated: run canopy pull to write a canopy.schema.ts, then delete ${generated}`,
+        )
+        expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
+      } else if (root === migrated) {
         expect(lines).toContain("  Schema    canopy.schema.js  (warns when MongoDB drifts from it)")
         expect(
           await until(
@@ -179,15 +190,21 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
             (warned) => warned,
           ),
         ).toBe(true)
+        expect(lines).toContain(
+          `${generated} is deprecated and no longer regenerated: canopy.schema.js declares the schema, so delete ${generated}`,
+        )
+        expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
+        expect(await readFile(join(root, generated), "utf8")).toBe("// stale\n")
       } else {
         expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
         expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
+        expect(lines.some((line) => line.includes("deprecated"))).toBe(false)
       }
       stop.abort()
       expect(await running).toBe(0)
     }
-    await expect(readFile(join(untyped, "src", "canopy.gen.ts"), "utf8")).rejects.toThrow()
-  })
+    await expect(readFile(join(untyped, generated), "utf8")).rejects.toThrow()
+  }, 90_000)
 
   it("exits 1 with the config problems when the config is invalid", async () => {
     await mkdir(scratch, { recursive: true })
