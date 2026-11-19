@@ -3,6 +3,7 @@ import type { DefaultSchema, SchemaConstraint, SchemaOption, SchemaTypes } from 
 import type { CollectionName, DocumentOf, Schema } from "../types.ts"
 import { type RestCollection, restCollection } from "./read.ts"
 import { type RestToken, type RestTransport, tokenGetter } from "./request.ts"
+import { type RestBatchWriter, sendBatch } from "./write.ts"
 
 export type {
   AggregateOptions,
@@ -21,6 +22,23 @@ export type {
   RestValues,
 } from "./read.ts"
 export type { RestToken } from "./request.ts"
+export type {
+  BatchDelete,
+  BatchInsert,
+  BatchOperation,
+  BatchOptions,
+  BatchOutcome,
+  BatchReplace,
+  BatchResult,
+  BatchUpdate,
+  MergePatch,
+  PatchOptions,
+  RestAtomicBatch,
+  RestBatchOutcomes,
+  RestBatchWriter,
+  RestWrite,
+  RestWriter,
+} from "./write.ts"
 
 /** Options of {@link createRestClient}. */
 export interface RestClientOptions {
@@ -41,10 +59,11 @@ export interface RestClientOptions {
 }
 
 /**
- * A stateless client of the Data API: one-off reads with the caller's identity, under the same Document
- * Level Security as live queries, without a WebSocket or a document cache.
+ * A stateless client of the Data API: one-off reads, merge patches and batches with the caller's identity,
+ * under the same Document Level Security as live queries, without a WebSocket or a document cache. Optimistic
+ * writes with outbox replay stay on the realtime client.
  */
-export interface RestClient<DB extends Schema<DB> = DefaultSchema> {
+export interface RestClient<DB extends Schema<DB> = DefaultSchema> extends RestBatchWriter<DB> {
   /** One collection: `rest.from("todos").find({ done: false }).limit(20).page()`. */
   from<C extends CollectionName<DB>>(collection: C): RestCollection<DocumentOf<DB, C>>
 }
@@ -69,11 +88,11 @@ export function createRestClient<S extends SchemaConstraint>(
 export function createRestClient<DB extends Schema<DB> = DefaultSchema>(
   options: RestClientOptions & SchemaOption,
 ): RestClient<DB>
-export function createRestClient<DB extends Schema<DB>>(
-  options: RestClientOptions,
-): RestClient<DB> {
+export function createRestClient(options: RestClientOptions): object {
   const transport = transportOf(options)
   return {
-    from: (collection) => restCollection(transport, collection) as never,
+    from: (collection: string) => restCollection(transport, collection),
+    batch: (operations: readonly object[], batchOptions: Parameters<typeof sendBatch>[2]) =>
+      sendBatch(transport, operations, batchOptions),
   }
 }

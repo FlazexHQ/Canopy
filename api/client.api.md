@@ -924,6 +924,61 @@ export interface AggregateOptions<T = unknown> {
     readonly signal?: AbortSignal;
 }
 
+export interface BatchDelete<C extends string, Doc> {
+    readonly op: "delete";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly where?: Filter<Doc>;
+}
+
+export interface BatchInsert<C extends string, Insert> {
+    readonly op: "insert";
+    readonly c: C;
+    readonly doc: Insert;
+}
+
+export type BatchOperation<DB> = {
+    readonly [C in CollectionName<DB>]: BatchInsert<C, InsertOf<DB, C>> | BatchUpdate<C, DocumentOf<DB, C>> | BatchReplace<C, DocumentOf<DB, C>, InsertOf<DB, C>> | BatchDelete<C, DocumentOf<DB, C>>;
+}[CollectionName<DB>];
+
+export interface BatchOptions {
+    readonly atomic: boolean;
+    readonly idempotencyKey?: string;
+    readonly signal?: AbortSignal;
+}
+
+export type BatchOutcome = (BatchResult & {
+    readonly ok: true;
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}) | {
+    readonly ok: false;
+    readonly error: CanopyError;
+};
+
+export interface BatchReplace<C extends string, Doc, Insert> {
+    readonly op: "replace";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly doc: Insert;
+    readonly where?: Filter<Doc>;
+    readonly upsert?: boolean;
+}
+
+export interface BatchResult {
+    readonly data: Document | null;
+    readonly matched?: number;
+    readonly upserted?: boolean;
+}
+
+export interface BatchUpdate<C extends string, Doc> {
+    readonly op: "update";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly update: UpdateFilter<Doc>;
+    readonly where?: Filter<Doc>;
+}
+
 export type CountMode = "exact" | "estimated";
 
 export interface CountOptions {
@@ -944,6 +999,10 @@ export interface FindByIdOptions<F> {
     readonly fields?: F & ConsistentProjection<F>;
     readonly signal?: AbortSignal;
 }
+
+export type MergePatch<T> = {
+    readonly [K in Exclude<keyof T, "_id">]?: MergeValue<Exclude<T[K], undefined>> | (Record<never, never> extends Pick<T, K> ? null : never);
+};
 
 export interface OutputDecoder<T> {
     readonly "~standard": {
@@ -967,7 +1026,32 @@ export interface PageOptions {
     readonly signal?: AbortSignal;
 }
 
-export interface RestClient<DB extends Schema<DB> = DefaultSchema> {
+export interface PatchOptions<Doc> {
+    readonly where?: Filter<Doc>;
+    readonly idempotencyKey?: string;
+    readonly signal?: AbortSignal;
+}
+
+export interface RestAtomicBatch {
+    readonly results: readonly BatchResult[];
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}
+
+export interface RestBatchOutcomes {
+    readonly results: readonly BatchOutcome[];
+}
+
+export interface RestBatchWriter<DB> {
+    batch(operations: readonly BatchOperation<DB>[], options: BatchOptions & {
+        readonly atomic: true;
+    }): Promise<RestAtomicBatch>;
+    batch(operations: readonly BatchOperation<DB>[], options: BatchOptions & {
+        readonly atomic: false;
+    }): Promise<RestBatchOutcomes>;
+}
+
+export interface RestClient<DB extends Schema<DB> = DefaultSchema> extends RestBatchWriter<DB> {
     from<C extends CollectionName<DB>>(collection: C): RestCollection<DocumentOf<DB, C>>;
 }
 
@@ -980,7 +1064,7 @@ export interface RestClientOptions {
     readonly timeoutMs?: number;
 }
 
-export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc> {
+export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc>, RestWriter<Doc> {
     readonly name: string;
     findById<const F extends Projection<Doc> = never>(id: IdOf<Doc>, options?: FindByIdOptions<F>): Promise<RestDocument<ProjectedResult<Doc, F>>>;
     count(filter?: Filter<Doc>, options?: CountOptions): Promise<RestCount>;
@@ -1033,9 +1117,19 @@ export interface RestValues<T> {
     readonly ct: ClusterTime;
 }
 
+export interface RestWrite<T> {
+    readonly data: T | null;
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}
+
+export interface RestWriter<Doc = Document> {
+    patch(id: IdOf<Doc>, patch: MergePatch<Doc>, options?: PatchOptions<Doc>): Promise<RestWrite<Doc>>;
+}
+
 function createRestClient<S extends SchemaConstraint>(options: RestClientOptions & { readonly schema: S; }): RestClient<SchemaTypes<S>>
 function createRestClient<DB extends Schema<DB> = import("../types.ts").UntypedSchema>(options: RestClientOptions & SchemaOption): RestClient<DB>
-function createRestClient<DB extends Schema<DB>>(options: RestClientOptions): RestClient<DB>
+function createRestClient(options: RestClientOptions): object
 ```
 
 ## @canopy/client/rest-polling

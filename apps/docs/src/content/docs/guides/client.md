@@ -112,6 +112,36 @@ render(total.count, total.exact)
 A live subscription keeps a result current; a REST page is a snapshot at the cluster time in `ct`.
 Errors are the same typed `CanopyError` subclasses, with the server's request ID in `details.requestId`.
 
+The same client writes without a socket when a server job or a form post needs it. `patch` sends a JSON merge
+patch: named fields are set, subdocuments merge field by field, arrays are replaced and `null` removes an
+optional field. `batch` sends several writes in one request, and you choose whether they are atomic. An
+`idempotencyKey` makes either safe to retry after a lost response: the server answers a repeated key with the
+stored result and `replayed: true` instead of writing again.
+
+<!-- snippet: import { schema } from "./canopy.schema.ts" -->
+<!-- snippet: const rest = (await import("@canopy/client/rest")).createRestClient({ url, publishableKey, auth: { getToken }, schema }) -->
+
+```ts
+await rest.from("notes").patch(
+  "agenda",
+  { body: { text: "Ship it", format: "plain" } },
+  { where: { title: "Agenda" }, idempotencyKey: "note-agenda-001" },
+)
+
+const { results } = await rest.batch(
+  [
+    { op: "insert", c: "todos", doc: { title: "Write the notes", due: null } },
+    { op: "delete", c: "todos", id: "todo-old" },
+  ],
+  { atomic: true, idempotencyKey: "cleanup-2026-11-20" },
+)
+render(results)
+```
+
+With `atomic: true` every operation applies or none does, and a refused operation rejects the call. With
+`atomic: false` each operation applies on its own and `results` holds an `ok` outcome or a typed `error` per
+operation. Optimistic writes, the offline outbox and echo before ack stay with the realtime client.
+
 ## Connection status
 
 `canopy.connectionStatus` is `connecting`, `live`, `fallback` (on SSE or long polling), `reconnecting`,

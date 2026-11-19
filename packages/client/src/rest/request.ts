@@ -28,7 +28,7 @@ export interface RestTransport {
 
 /** One request to the Data API. */
 export interface RestCall {
-  readonly method: "GET" | "POST"
+  readonly method: "GET" | "POST" | "PATCH"
   /** The path below the base URL, already encoded. */
   readonly path: string
   readonly body?: unknown
@@ -79,7 +79,22 @@ export async function responseError(response: Response): Promise<CanopyError> {
   } catch {
     // Not JSON: fall through to the generic error for the status.
   }
-  const requestId = requestIdOf(response, body)
+  return problemError(body, response.status, requestIdOf(response, body))
+}
+
+/**
+ * The error of a Problem Details body, such as one operation's error in a batch: its Canopy code (as the
+ * matching subclass), detail message, hint, safe details and request ID, or `CANOPY_UNAVAILABLE` with the
+ * HTTP status when the body is not a Canopy problem.
+ */
+export function problemError(
+  problem: unknown,
+  status: number,
+  fallbackRequestId?: string,
+): CanopyError {
+  const body = isDocument(problem) ? problem : undefined
+  const fromBody = body?.["requestId"]
+  const requestId = typeof fromBody === "string" ? fromBody : fallbackRequestId
   const code = body?.["code"]
   if (body !== undefined && typeof code === "string" && isErrorCode(code)) {
     const detail = body["detail"]
@@ -88,18 +103,22 @@ export async function responseError(response: Response): Promise<CanopyError> {
     const options: CanopyErrorOptions = {
       details: {
         ...(isDocument(details) ? details : {}),
-        status: response.status,
+        status,
         ...(requestId === undefined ? {} : { requestId }),
       },
       ...(typeof hint === "string" ? { hint } : {}),
     }
+    const title = body?.["title"]
     return errorFromWire(
-      { code, msg: typeof detail === "string" ? detail : response.statusText },
+      {
+        code,
+        msg: typeof detail === "string" ? detail : typeof title === "string" ? title : `${status}`,
+      },
       options,
     )
   }
-  return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${response.status}`, {
-    details: { status: response.status, ...(requestId === undefined ? {} : { requestId }) },
+  return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${status}`, {
+    details: { status, ...(requestId === undefined ? {} : { requestId }) },
   })
 }
 

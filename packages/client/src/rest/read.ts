@@ -17,6 +17,7 @@ import type {
   Sort,
 } from "../types.ts"
 import { idSegment, type RestTransport, send } from "./request.ts"
+import { type PatchOptions, patchDocument, type RestWrite, type RestWriter } from "./write.ts"
 
 /** How a count is computed: `exact` counts matching documents, `estimated` may use collection metadata. */
 export type CountMode = "exact" | "estimated"
@@ -126,8 +127,8 @@ export interface RestQuery<Doc = Document, Out = Doc> {
   page(options?: PageOptions): Promise<RestPage<Out>>
 }
 
-/** One collection over REST: its queries, reads by ID and counts. */
-export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc> {
+/** One collection over REST: its queries, reads by ID, counts and merge patches. */
+export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc>, RestWriter<Doc> {
   readonly name: string
   /**
    * Reads one document by `_id`. Rejects with `NotFoundError` when it does not exist or the caller may not
@@ -323,6 +324,14 @@ class RestReader {
         signal: options.signal,
       }),
     )
+  }
+
+  patch(
+    id: unknown,
+    patch: object,
+    options: PatchOptions<Document> = {},
+  ): Promise<RestWrite<Document>> {
+    return patchDocument(this.transport, collectionPath(this.name), id, patch, options)
   }
 
   async findById(

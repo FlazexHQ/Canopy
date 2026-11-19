@@ -8,7 +8,7 @@ import {
   ObjectId,
   ValidationError,
 } from "../src/index.ts"
-import { createRestClient, type RestPage } from "../src/rest/index.ts"
+import { createRestClient, type RestClient, type RestPage } from "../src/rest/index.ts"
 
 interface Todo {
   _id: ObjectId
@@ -384,4 +384,146 @@ describe("REST distinct and aggregate", () => {
       "Output document 1 does not match: Expected int, got a string at n",
     )
   })
+})
+
+describe("REST merge patches", () => {
+  /** Type checks run by `tsc -b`; never called. */
+  function checks(rest: RestClient<Db>): void {
+    const todos = rest.from("todos")
+    void todos.patch(new ObjectId(), { title: "x" })
+    // @ts-expect-error null removes a field, and title is required
+    void todos.patch(new ObjectId(), { title: null })
+    // @ts-expect-error _id cannot change
+    void todos.patch(new ObjectId(), { _id: new ObjectId() })
+    // @ts-expect-error notes have string ids
+    void rest.from("notes").patch(new ObjectId(), { body: "x" })
+    type Patched = Awaited<ReturnType<typeof todos.patch>>["data"]
+    expectTypeOf<Patched>().toEqualTypeOf<Todo | null>()
+  }
+  void checks
+
+  it("sends a merge patch with its precondition and idempotency key, and reads the result", async () => {
+    const { fetch, sent } = fakeFetch(
+      json({ data: { _id: "n1", body: "new" }, ct: "7300000000000000009", replayed: false }),
+    )
+    const result = await client(fetch)
+      .from("notes")
+      .patch("n1", { body: "new" }, { where: { body: "old" }, idempotencyKey: "k-1" })
+    expect(result).toEqual({
+      data: { _id: "n1", body: "new" },
+      ct: "7300000000000000009",
+      replayed: false,
+    })
+    const [call] = sent
+    expect(call?.method).toBe("PATCH")
+    expect(call?.headers["content-type"]).toBe("application/merge-patch+json")
+    expect(call?.headers["idempotency-key"]).toBe("k-1")
+    expect(call?.body).toEqual({ body: "new" })
+    const url = new URL(call?.url ?? "")
+    expect(url.pathname).toBe(`/rest/v1/notes/${encodeURIComponent('"n1"')}`)
+    expect(url.searchParams.get("where")).toBe('{"body":"old"}')
+  })
+
+  it("rejects a result without a cluster time or a replay flag", async () => {
+    const { fetch } = fakeFetch(json({ data: null, ct: "7300000000000000009" }))
+    await expect(client(fetch).from("notes").patch("n1", { body: "x" })).rejects.toMatchObject({
+      code: "CANOPY_PROTOCOL_ERROR",
+    })
+  })
+})
+
+describe("REST batches", () => {
+  const ops = [
+    { op: "insert", c: "notes", doc: { _id: "n2", body: "two" } },
+    { op: "delete", c: "notes", id: "n9" },
+  ] as const
+
+  it("sends an atomic batch with one idempotency key and reads every result", async () => {
+    const { fetch, sent } = fakeFetch(
+      json({
+        data: [
+          { data: { _id: "n2", body: "two" }, matched: 0 },
+          { data: null, matched: 1 },
+        ],
+        ct: "7300000000000000010",
+        replayed: false,
+      }),
+    )
+    const result = await client(fetch).batch(ops, { atomic: true, idempotencyKey: "batch-one" })
+    expect(result).toEqual({
+      results: [
+        { data: { _id: "n2", body: "two" }, matched: 0 },
+        { data: null, matched: 1 },
+      ],
+      ct: "7300000000000000010",
+      replayed: false,
+    })
+    expect(sent[0]?.url).toBe("http://canopy.test/rest/v1/_batch")
+    expect(sent[0]?.headers["idempotency-key"]).toBe("batch-one")
+    expect(sent[0]?.body).toEqual({ atomic: true, ops })
+  })
+
+  it("gives each operation of a batch that is not atomic its own key and typed outcome", async () => {
+    const { fetch, sent } = fakeFetch(
+      json({
+        data: [
+          {
+            status: 200,
+            data: { _id: "n2", body: "two" },
+            ct: "7300000000000000011",
+            replayed: true,
+          },
+          {
+            status: 404,
+            error: { code: "CANOPY_NOT_FOUND", detail: "Document not found", requestId: "r-7" },
+          },
+        ],
+      }),
+    )
+    const result = await client(fetch).batch(ops, { atomic: false, idempotencyKey: "batch-two" })
+    expect(sent[0]?.headers["idempotency-key"]).toBeUndefined()
+    expect(sent[0]?.body).toEqual({
+      atomic: false,
+      ops: [
+        { ...ops[0], mid: "batch-two-0" },
+        { ...ops[1], mid: "batch-two-1" },
+      ],
+    })
+    const [first, second] = result.results
+    expect(first).toEqual({
+      ok: true,
+      data: { _id: "n2", body: "two" },
+      ct: "7300000000000000011",
+      replayed: true,
+    })
+    expect(second?.ok).toBe(false)
+    const error = second?.ok === false ? second.error : undefined
+    expect(error).toBeInstanceOf(NotFoundError)
+    expect(error?.message).toBe("Document not found")
+    expect(error?.details).toMatchObject({ status: 404, requestId: "r-7" })
+  })
+
+  it("rejects a result that does not have one entry per operation", async () => {
+    const { fetch } = fakeFetch(json({ data: [], ct: "7300000000000000010", replayed: false }))
+    await expect(client(fetch).batch(ops, { atomic: true })).rejects.toMatchObject({
+      code: "CANOPY_PROTOCOL_ERROR",
+    })
+  })
+
+  /** Type checks run by `tsc -b`; never called. */
+  function checks(rest: RestClient<Db>): void {
+    // @ts-expect-error notes have string ids
+    void rest.batch([{ op: "delete", c: "notes", id: new ObjectId() }], { atomic: true })
+    // @ts-expect-error not a collection of the schema
+    void rest.batch([{ op: "delete", c: "todo", id: "x" }], { atomic: false })
+    // @ts-expect-error a batch says whether it is atomic
+    void rest.batch(ops, {})
+    void rest.batch(
+      [{ op: "update", c: "todos", id: new ObjectId(), update: { $set: { done: true } } }],
+      {
+        atomic: true,
+      },
+    )
+  }
+  void checks
 })
