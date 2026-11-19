@@ -36,8 +36,9 @@ Scenarios:
 - `hot:<connections>:<writes/s>`: every connection is a `viewer` and subscribes `{hot: true}`, one shared query.
 
 Other flags: `--seconds` (write phase, default 10), `--docs` (default 200000), `--owners` (default 10000),
-`--port` (default 8090), `--engine ts|native|wasm` for the sidecar, `--read-buffer` for the gateway, and `--out`
-to append the results to a JSON file.
+`--port` (default 8090), `--engine ts|native|wasm` for the sidecar, `--read-buffer` (default 4096; 1024 is what
+the write up recommends), `--workers` and `--shards` (single threaded runtimes that own their connections) for
+the gateway, and `--out` to append the results to a JSON file.
 
 The client binds its sockets to `127.0.0.2` and up, on ports 10000 to 48999, so that one Windows machine can open
 50k connections without changing the dynamic port range.

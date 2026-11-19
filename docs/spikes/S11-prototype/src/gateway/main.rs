@@ -71,6 +71,7 @@ struct Args {
     queue: usize,
     read_buffer: usize,
     workers: usize,
+    shards: usize,
 }
 
 fn args() -> Res<Args> {
@@ -81,6 +82,7 @@ fn args() -> Res<Args> {
         queue: 1024,
         read_buffer: 4096,
         workers: std::thread::available_parallelism().map_or(4, std::num::NonZero::get),
+        shards: 0,
     };
     let mut iter = std::env::args().skip(1);
     while let Some(flag) = iter.next() {
@@ -92,6 +94,7 @@ fn args() -> Res<Args> {
             "--queue" => args.queue = value.parse()?,
             "--read-buffer" => args.read_buffer = value.parse()?,
             "--workers" => args.workers = value.parse()?,
+            "--shards" => args.shards = value.parse()?,
             _ => return Err(format!("unknown flag {flag}").into()),
         }
     }
@@ -197,20 +200,36 @@ async fn serve(args: Args) -> Res<()> {
         ready: AtomicBool::new(false),
         next: AtomicU64::new(1),
     });
+    let mut shards = Vec::new();
+    for index in 0..args.shards {
+        let (tx, mut rx) = mpsc::unbounded_channel::<std::net::TcpStream>();
+        let shared = Arc::clone(&shared);
+        std::thread::Builder::new().name(format!("shard-{index}")).spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread().enable_all().build() else { return };
+            runtime.block_on(async move {
+                while let Some(socket) = rx.recv().await {
+                    if let Ok(socket) = tokio::net::TcpStream::from_std(socket) {
+                        tokio::spawn(connection(socket, Arc::clone(&shared)));
+                    }
+                }
+            });
+        })?;
+        shards.push(tx);
+    }
     let listener = tokio::net::TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], args.port))).await?;
     let streaming = tokio::spawn(stream(Arc::clone(&shared)));
     let accepting = async {
+        let mut accepted = 0usize;
         loop {
             let (socket, _) = listener.accept().await?;
             let _ = socket.set_nodelay(true);
-            let shared = Arc::clone(&shared);
-            tokio::spawn(async move {
-                let service = service_fn(move |request| route(request, Arc::clone(&shared)));
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(TokioIo::new(socket), service)
-                    .with_upgrades()
-                    .await;
-            });
+            accepted += 1;
+            if shards.is_empty() {
+                tokio::spawn(connection(socket, Arc::clone(&shared)));
+            } else {
+                let socket = socket.into_std()?;
+                let _ = shards[accepted % shards.len()].send(socket);
+            }
         }
         #[allow(unreachable_code)]
         Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
@@ -223,6 +242,12 @@ async fn serve(args: Args) -> Res<()> {
     }
     report(&stats);
     Ok(())
+}
+
+/// Serves HTTP on one accepted socket, upgrading `/realtime/v1` to a WebSocket on the same runtime.
+async fn connection(socket: tokio::net::TcpStream, shared: Arc<Shared>) {
+    let service = service_fn(move |request| route(request, Arc::clone(&shared)));
+    let _ = hyper::server::conn::http1::Builder::new().serve_connection(TokioIo::new(socket), service).with_upgrades().await;
 }
 
 /// Resolves when standard input closes, so the bench can stop the gateway the same way on every platform.
