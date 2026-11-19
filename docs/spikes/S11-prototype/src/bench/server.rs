@@ -94,10 +94,19 @@ impl Server {
                 command
             }
             "bun" => sidecar("bun", &launch),
+            "gateway" => {
+                let mut command = sidecar("bun", &launch);
+                command.env("CANOPY_REALTIME_SERVER", "gateway");
+                if let Some(shards) = launch.shards {
+                    command.env("CANOPY_GATEWAY_SHARDS", shards.to_string());
+                }
+                command
+            }
             "node" => sidecar(launch.node.unwrap_or("node"), &launch),
             other => return Err(format!("unknown server {other}").into()),
         };
         let label = match launch.kind {
+            "gateway" => "canopy-gateway through canopy-realtime".to_owned(),
             "rust" => format!("rust gateway, read buffer {}, workers {}", launch.read_buffer, launch.workers.map_or("all".to_owned(), |w| w.to_string())) + &launch.shards.map_or(String::new(), |n| format!(", {n} shards")),
             kind => format!("{kind} sidecar, engine {}", launch.engine),
         };
@@ -117,6 +126,19 @@ impl Server {
                 return Err("the server did not become ready in 60 s".into());
             }
             tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+        if launch.kind == "gateway" {
+            server.system.refresh_processes(ProcessesToUpdate::All, true);
+            let parent = Pid::from_u32(server.pid);
+            let child = server
+                .system
+                .processes()
+                .iter()
+                .find(|(_, process)| {
+                    process.parent() == Some(parent) && process.name().to_string_lossy().starts_with("canopy-gateway")
+                })
+                .map(|(pid, _)| pid.as_u32());
+            server.pid = child.ok_or("the canopy-gateway process was not found")?;
         }
         Ok(server)
     }

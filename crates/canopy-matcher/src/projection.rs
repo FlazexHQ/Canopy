@@ -175,10 +175,10 @@ pub fn compile_projection(spec: &Value) -> Result<CompiledProjection, CanopyErro
             excluded.push(path.to_owned());
         }
     }
-    if spec.contains_key("_id") {
-        if let Some(nested) = included.iter().chain(&excluded).find(|path| path.starts_with("_id.")) {
-            return Err(CanopyError::invalid_query(format!("Path collision at {nested}")));
-        }
+    if spec.contains_key("_id")
+        && let Some(nested) = included.iter().chain(&excluded).find(|path| path.starts_with("_id."))
+    {
+        return Err(CanopyError::invalid_query(format!("Path collision at {nested}")));
     }
     if !included.is_empty() && !excluded.is_empty() {
         return Err(CanopyError::invalid_query("Cannot mix inclusion and exclusion in a projection"));

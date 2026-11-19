@@ -90,17 +90,17 @@ fn walk(
         Some(Item::Value(ValueRef::Array(items))) => {
             if is_array_index(part) {
                 let last = index + 1 == parts.len();
-                if let Some(element) = part.parse::<usize>().ok().and_then(|position| items.get(position)) {
-                    if walk(
+                if let Some(element) = part.parse::<usize>().ok().and_then(|position| items.get(position))
+                    && walk(
                         present(element).map(Item::Value),
                         parts,
                         index + 1,
                         expand_last && !last,
                         leaf,
                         true,
-                    )? {
-                        return Ok(true);
-                    }
+                    )?
+                {
+                    return Ok(true);
                 }
             }
             for element in items.iter() {

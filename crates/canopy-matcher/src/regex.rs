@@ -849,10 +849,10 @@ fn run(program: &[Inst], anchored: bool, input: &str) -> Result<bool, CanopyErro
             match &program[pc] {
                 Inst::Match => return Ok(true),
                 Inst::Char(test) => {
-                    if let Some(cp) = cp {
-                        if test(cp) {
-                            add(program, &mut seen, &mut stack, &cps, &mut next, pc + 1, at + 1, at + 1);
-                        }
+                    if let Some(cp) = cp
+                        && test(cp)
+                    {
+                        add(program, &mut seen, &mut stack, &cps, &mut next, pc + 1, at + 1, at + 1);
                     }
                 }
                 _ => {}

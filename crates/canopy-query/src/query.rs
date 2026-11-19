@@ -268,22 +268,22 @@ fn validate_update_value(
         }
         return Ok(());
     }
-    if let (true, Value::Document(spec)) = (op == "$push" || op == "$addToSet", value) {
-        if spec.contains_key("$each") {
-            for (key, _) in js_fields(spec) {
-                if !matches!(key, "$each" | "$position" | "$slice" | "$sort") {
-                    return fail(format!("Unknown {op} modifier {key}"));
-                }
+    if let (true, Value::Document(spec)) = (op == "$push" || op == "$addToSet", value)
+        && spec.contains_key("$each")
+    {
+        for (key, _) in js_fields(spec) {
+            if !matches!(key, "$each" | "$position" | "$slice" | "$sort") {
+                return fail(format!("Unknown {op} modifier {key}"));
             }
-            let Some(Value::Array(each)) = spec.get("$each") else { return fail("$each needs an array") };
-            if each.len() > limits.max_in_list {
-                return fail(format!("$each may not have more than {} values", limits.max_in_list));
-            }
-            for item in each {
-                validate_value_for_storage(item, limits, depth + 1)?;
-            }
-            return Ok(());
         }
+        let Some(Value::Array(each)) = spec.get("$each") else { return fail("$each needs an array") };
+        if each.len() > limits.max_in_list {
+            return fail(format!("$each may not have more than {} values", limits.max_in_list));
+        }
+        for item in each {
+            validate_value_for_storage(item, limits, depth + 1)?;
+        }
+        return Ok(());
     }
     if op == "$currentDate" || op == "$bit" {
         return Ok(());

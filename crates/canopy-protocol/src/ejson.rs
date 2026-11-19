@@ -252,7 +252,7 @@ fn uuid_bytes(text: &str) -> Option<Vec<u8>> {
             nibbles.push(hex_digit(*byte)?);
         }
     }
-    for pair in nibbles.chunks_exact(2) {
+    for pair in nibbles.as_chunks::<2>().0 {
         out.push((pair[0] << 4) | pair[1]);
     }
     Some(out)
@@ -503,7 +503,7 @@ fn base64_value(byte: u8) -> Option<u8> {
 pub fn forgiving_base64_decode(text: &str) -> Option<Vec<u8>> {
     let mut data: Vec<u8> =
         text.bytes().filter(|byte| !matches!(byte, b'\t' | b'\n' | b'\x0c' | b'\r' | b' ')).collect();
-    if data.len() % 4 == 0 {
+    if data.len().is_multiple_of(4) {
         if data.ends_with(b"==") {
             data.truncate(data.len() - 2);
         } else if data.ends_with(b"=") {

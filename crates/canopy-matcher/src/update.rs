@@ -181,12 +181,10 @@ pub fn apply_update(
 fn apply_replacement(document: &Document, replacement: &Document) -> Result<Document, CanopyError> {
     validate_document_storage(replacement, "")?;
     let id = document.get("_id");
-    if let (Some(new_id), Some(id)) = (replacement.get("_id"), id) {
-        if !values_equal(new_id, id) {
-            return fail(
-                "After applying the update, the (immutable) field '_id' was found to have been altered",
-            );
-        }
+    if let (Some(new_id), Some(id)) = (replacement.get("_id"), id)
+        && !values_equal(new_id, id)
+    {
+        return fail("After applying the update, the (immutable) field '_id' was found to have been altered");
     }
     let mut out = Document::with_capacity(replacement.len() + 1);
     if let Some(id) = id {
@@ -266,10 +264,10 @@ fn apply_operators(
     let mut out = document.clone();
     let settings = Settings { options, identifiers: &identifiers };
     apply_children(Container::Document(&mut out), &root, "", &settings)?;
-    if let Some(id) = document.get("_id") {
-        if !out.get("_id").is_some_and(|after| values_equal(after, id)) {
-            return fail("Performing an update on the path '_id' would modify the immutable field '_id'");
-        }
+    if let Some(id) = document.get("_id")
+        && !out.get("_id").is_some_and(|after| values_equal(after, id))
+    {
+        return fail("Performing an update on the path '_id' would modify the immutable field '_id'");
     }
     Ok(out)
 }

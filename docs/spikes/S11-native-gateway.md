@@ -5,6 +5,8 @@
   where the engine does the work (decoding, routing, matching, memory per subscription), and keeps up where the
   TypeScript engine falls seconds behind, but in a broadcast to thousands of sockets it spends about as much CPU
   per delivered frame as `Bun.serve`. Stage 3 starts with that write path, measured on Linux.
+  [Addendum](#addendum-stage-3-on-linux): the stage 3 gateway on Linux meets the performance gate of stage 3;
+  per delivered broadcast frame it matches `Bun.serve` but does not halve it.
 - **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes) (S11), [14 §4.3](../plan/14-native-core.md#43-the-native-gateway),
   [14 §8](../plan/14-native-core.md#8-stages-and-gates), and the open measurement of [S5](S5-websocket-server-choice.md)
 - **Prototype:** [`S11-prototype/`](S11-prototype/README.md)
@@ -172,3 +174,90 @@ S5 left open a per server comparison at 10k to 50k sockets. The tables above ans
 WebSocket server matters. The CPU model of [03 §13](../plan/03-realtime-engine.md#13-scaling-out) should take
 about 1.1 to 1.2 ms of engine CPU per event at 50k subscriptions for the TypeScript engine and 15 to 26 µs per
 delivered frame.
+
+## Addendum: stage 3 on Linux
+
+Measured on 2026-11-19 with the stage 3 gateway (`crates/canopy-gateway` on `canopy-engine`, started through
+`canopy-realtime` with `CANOPY_REALTIME_SERVER=gateway`) against the Bun sidecar on the TypeScript engine, with
+the same load driver and scenarios. Same machine as above, but everything runs on Linux: WSL2 (kernel 6.6,
+Ubuntu, 12 threads, 7.6 GB) with MongoDB 8.0.34 as a single node replica set inside it. Client, writer, server
+and MongoDB still share the machine, so this is not the reference hardware of the gate.
+
+### The stage 3 gate shape: 10k connections, 50k subscriptions, 1k updates/s
+
+| | `canopy-gateway` (4 shards) | Bun sidecar, TypeScript engine |
+|---|---|---|
+| Delivered and converged | 10,000 of 10,000; 9,750 of 9,750 | 10,000 of 10,000; 9,753 of 9,753 |
+| Delivery p50 / p99 | 2.6 / **21.4 ms** | 14.3 / 128.9 ms |
+| Plain change stream p50 / p99, same run | 2.2 / 19.3 ms | 2.8 / 62.4 ms |
+| Server CPU per event | **0.38 ms** (30 % of the TypeScript engine) | 1.26 ms |
+| Server CPU over the write phase | 29 % of one core | 95 % |
+| Memory per connection (5 subscriptions) | 102 KiB | 127 KiB |
+| Snapshot to `ready` p50 / p99 | 52 / 80 ms | 366 / 717 ms |
+| **Memory per idle connection** (10k / 50k, fresh server) | **6.7 / 6.2 KiB** | 8.1 KiB / not measurable |
+
+The first runs of the stage 3 gateway missed this shape badly: every engine step walked all observers to
+advance their position and swept every timer, so at 50k subscriptions it fell seconds behind and delivered
+nothing in time. Observers are now advanced when a subscription attaches, and timers are swept every 50 ms over
+the observers that have one. Idle connections cost 8.2 to 8.6 KiB until each connection's unbounded channel
+(which allocates a block of slots when created) was replaced by a queue that gives its memory back after a
+burst.
+
+Memory per connection with subscriptions is five times the prototype's 20 KiB because the real engine keeps
+what the prototype left out: a merge box per connection (the fields each client holds, with their cluster
+times) and the resume buffer of sent frames.
+
+### Broadcast: CPU per delivered frame
+
+`hot:5000:20` (5k connections on one query, 100k deliveries/s), CPU per delivery over the write phase:
+
+| | 1 shard | 2 shards | 4 shards | Bun sidecar |
+|---|---|---|---|---|
+| CPU per delivery | 10.8 µs | 11.9 µs | 13.8 µs | 11.0 to 12.1 µs |
+| Delivery p99 | 128 ms | 111 ms | 41 ms | 1,367 ms (and 955,000 of 1,000,000 delivered) |
+
+Sampled per thread from `/proc` during one run each:
+
+| | User | Kernel | Total |
+|---|---|---|---|
+| `canopy-gateway` (4 shards) | 5.0 µs (engine thread 1.7, shards 3.3) | 9.3 µs | 14.4 µs |
+| Bun sidecar | 4.0 µs | 7.1 µs | 11.0 µs |
+
+Two thirds of the cost of a broadcast frame is the kernel's loopback send, one `write` per frame and socket,
+for both servers. No user space change can bring the gateway to half of Bun's 11 µs while the kernel alone
+takes 7 to 9 µs. The engine thread spends 1.7 µs per delivery (the prototype 0.4 µs) on the merge box,
+sequencing and the resume buffer, which the prototype did not have.
+
+### Against the gates
+
+| Gate | Result |
+|---|---|
+| Stage 3: fan out p99 ≤ 25 ms at 10k connections, 50k subscriptions, 1k events/s | **Met on this machine**: 21.4 ms, with MongoDB's own change stream at 19.3 ms p99 in the same run. To be repeated on the reference hardware with the client on another host |
+| Stage 3: at most half the CPU of the TypeScript engine | **Met**: 30 % (0.38 against 1.26 ms per event) |
+| Stage 3: ≤ 8 KiB per idle connection | **Met**: 6.2 to 6.7 KiB |
+| S11 condition 1: broadcast CPU per delivery at most half of `Bun.serve`'s | **Not met**: equal to Bun with one shard, 15 % more with four. The gateway delivers every frame and keeps p99 near 40 ms where the sidecar falls seconds behind, but it is not cheaper per frame |
+
+As condition 1 foresaw, the gateway ships opt in, which is what stage 3 does in any case. Broadcast
+efficiency waits for writes that carry several frames per `write` call (coalescing per connection within a
+short window, at the cost of latency) or for hub mode in Phase 6.
+
+### Correctness gates of stage 3
+
+| Gate | Status |
+|---|---|
+| Protocol vectors | The vectors in `packages/protocol/vectors` script server frames for the client and run through the client. On the server side, the conformance suite (`packages/realtime/test/servers.test.ts`) runs the same scenarios on both servers and asserts that every frame they send is one the protocol's decoder accepts |
+| 10k simulation seeds | **Green on both servers**: 10,000 seeds plus the two regression seeds, run locally against MongoDB 8.0.34 (16 minutes), and nightly. The first local run found two bugs, below |
+| Chaos tests | `packages/realtime/test/chaos.test.ts` on both servers: `kill -9` of the server with writes while it is down, and a primary step down during writes (`CANOPY_CHAOS=1`, nightly). Not yet covered: killing the primary itself, Toxiproxy partitions and a tiny oplog |
+| DLS equivalence | The gateway is part of the DLS equivalence property in `packages/server/test/dls-equivalence.test.ts` |
+
+The first 10k seed run failed twice, and both failures are fixed and kept as regression seeds:
+
+- **Seed 1744, the gateway only:** a sorted window left short of its limit by deletes holds back an insert past
+  its known end until it reads again. Sweeping the timers every 50 ms (the fix for the gate shape above) had
+  delayed that re-read by up to 100 ms; due window re-reads and polling now run at their own times, as in the
+  TypeScript engine.
+- **Seed 1743, both engines, when it runs first:** its first insert creates the collection while the
+  subscriptions read their snapshots. Such a read has no snapshot time, so both servers took a cluster time T
+  and read again, but not at T: the creating insert could be missing from the result while its change event
+  was skipped as delivered. The second read is now pinned to T (`readConcern` `snapshot` with
+  `atClusterTime`). This was a bug of the TypeScript engine on `master` as well.

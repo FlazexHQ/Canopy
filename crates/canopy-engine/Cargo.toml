@@ -1,0 +1,17 @@
+[package]
+name = "canopy-engine"
+description = "Canopy's realtime engine without I/O: change events in, sequenced canopy.v1 frames out. Shared observers with equality, membership and path indexes, merge boxes, resume buffers and echo before ack."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+
+[lints]
+workspace = true

@@ -579,6 +579,10 @@ function directoryPolicies(dir: string): PolicySource
 
 function docKey(coll: string, id: unknown): string
 
+function findGatewayBinary(env?: NodeJS.ProcessEnv): string | undefined
+
+function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv): Record<string, unknown>
+
 function indexableConjunct(filter: Record<string, unknown>): IndexedConjunct | undefined
 
 function isBulk(op: MutMessage["op"]): boolean
@@ -599,9 +603,13 @@ function redacting(logger: Logger): Logger
 
 function referencedTopFields(filter: unknown, out?: Set<string>): Set<string>
 
+function runGateway(config: ResolvedConfig, logger: Logger, onStop: (stop: () => void) => void): Promise<number>
+
 const silentLogger: Logger
 
 function staticPolicies(set: PolicySet): PolicySource
+
+function storedPolicies(set: PolicySet): { stored: unknown[]; contexts: unknown; }
 
 function toCt(value: unknown): ClusterTime | undefined
 
