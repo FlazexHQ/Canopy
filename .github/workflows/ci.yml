@@ -70,6 +70,10 @@ jobs:
           key: cargo-crates-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
           restore-keys: cargo-crates-${{ runner.os }}-${{ runner.arch }}-
       - run: cargo fmt --all --check
+      - name: The cargo fuzz targets, a workspace of their own, are formatted and compile
+        run: |
+          cargo fmt --manifest-path fuzz/Cargo.toml --check
+          cargo check --locked --manifest-path fuzz/Cargo.toml
       - run: cargo clippy --locked --all-targets -- -D warnings
       - name: Unit tests and the filter vectors recorded from MongoDB
         run: cargo test --locked
