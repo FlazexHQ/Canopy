@@ -17,7 +17,7 @@ function canopyStatus<DB extends Schema<DB>>(client: CanopyClient<DB>): { readon
 
 function createQuery<T>(query: LiveQuery<T>): Query<T>
 
-function getCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB>
+function getCanopy<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(): CanopyClient<DB>
 
-function setCanopy<DB extends Schema<DB> = UntypedSchema>(client: CanopyClient<DB>): void
+function setCanopy<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(client: CanopyClient<DB>): void
 ```

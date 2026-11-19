@@ -1,4 +1,4 @@
-import { CanopyClient, type WebSocketLike } from "@canopy/client"
+import { CanopyClient, type LiveQuery, type WebSocketLike } from "@canopy/client"
 import { loadVectors, runVector } from "@canopy/testing/vectors"
 import { flushSync, mount, unmount } from "svelte"
 import { describe, expect, it } from "vitest"
@@ -83,7 +83,7 @@ describe("Svelte 5", () => {
       limits: {},
     })
     await flush()
-    const query = createQuery(client.live<string, { _id: number }>("todos", {}))
+    const query = createQuery(client.live("todos", {}) as LiveQuery<{ _id: number }>)
     expect(query.status).toBe("loading")
     expect(socket.sent.filter((m) => m["t"] === "sub")).toHaveLength(0)
     const target = document.createElement("div")
@@ -113,7 +113,7 @@ describe("Svelte 5", () => {
   it("shows a refused subscription as an error and keeps reading after it", async () => {
     const client = await connected()
     const socket = Socket.last as Socket
-    const query = createQuery(client.live<string, { _id: number }>("secrets", {}))
+    const query = createQuery(client.live("secrets", {}) as LiveQuery<{ _id: number }>)
     const target = document.createElement("div")
     const component = mount(Probe, { target, props: { query } })
     flushSync()

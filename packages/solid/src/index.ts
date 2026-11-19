@@ -1,11 +1,11 @@
 import type {
   CanopyClient,
   ConnectionStatus,
+  DefaultSchema,
   LiveQuery,
   QueryState,
   QueryStatus,
   Schema,
-  UntypedSchema,
 } from "@canopy/client"
 import {
   type Accessor,
@@ -37,7 +37,7 @@ export function CanopyProvider<DB extends Schema<DB>>(props: CanopyProviderProps
 }
 
 /** Returns the client from {@link CanopyContext}. Pass the schema to get it back typed. */
-export function useCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB> {
+export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = useContext(CanopyContext)
   if (client === undefined) throw new Error("useCanopy needs <CanopyProvider client={client}>")
   return client as unknown as CanopyClient<DB>
@@ -77,7 +77,7 @@ export function createQuery<T>(query: LiveQuery<T> | Accessor<LiveQuery<T>>): Qu
 }
 
 /** The connection status as a signal. */
-export function createCanopyStatus<DB extends Schema<DB> = UntypedSchema>(
+export function createCanopyStatus<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB> = useCanopy<DB>(),
 ): Accessor<ConnectionStatus> {
   const [status, setStatus] = createSignal(client.connectionStatus)

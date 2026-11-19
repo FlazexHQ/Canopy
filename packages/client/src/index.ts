@@ -36,6 +36,7 @@ export type {
   MutationResult,
   Persister,
   PersistScope,
+  ReadOptions,
   ReplaceOptions,
   SharedConnection,
   Snapshot,
@@ -45,7 +46,7 @@ export type {
   WebSocketLike,
   WriteOptions,
 } from "./client-types.ts"
-export { QueryBuilder } from "./query-builder.ts"
+export { type Collection, type Query, QueryBuilder } from "./query-builder.ts"
 export type {
   CollectionDefinitionLike,
   DefaultSchema,
@@ -86,6 +87,7 @@ export type {
   CollectionName,
   CollectionTypes,
   Condition,
+  ConsistentProjection,
   DeepPartial,
   DocumentOf,
   DocumentSchema,
@@ -99,6 +101,7 @@ export type {
   Path,
   PathValue,
   Projected,
+  ProjectedResult,
   Projection,
   RootOperators,
   Schema,

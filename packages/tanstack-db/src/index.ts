@@ -1,6 +1,7 @@
 import type {
   CanopyClient,
   CollectionName,
+  DefaultSchema,
   Document,
   DocumentOf,
   Filter,
@@ -13,7 +14,7 @@ import type { CollectionConfig, SyncConfig } from "@tanstack/db"
 
 /** Options of {@link canopyCollectionOptions}. */
 export interface CanopyCollectionOptions<
-  DB extends Schema<DB> = UntypedSchema,
+  DB extends Schema<DB> = DefaultSchema,
   C extends CollectionName<DB> = CollectionName<DB>,
 > {
   readonly client: CanopyClient<DB>
@@ -48,7 +49,7 @@ type Fields = Record<string, unknown>
  * transaction back with Canopy's typed error when the server refuses them.
  */
 export function canopyCollectionOptions<
-  DB extends Schema<DB> = UntypedSchema,
+  DB extends Schema<DB> = DefaultSchema,
   C extends CollectionName<DB> = CollectionName<DB>,
 >(options: CanopyCollectionOptions<DB, C>): CollectionConfig<DocumentOf<DB, C> & object, string> {
   type Doc = DocumentOf<DB, C> & object

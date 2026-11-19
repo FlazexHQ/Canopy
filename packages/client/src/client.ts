@@ -20,8 +20,8 @@ import type {
   ConnectionStatus,
   DehydratedState,
   LiveQuery,
-  LiveQueryOptions,
   MutationHandle,
+  ReadOptions,
   ReplaceOptions,
   StaleMutation,
   TokenSource,
@@ -31,7 +31,7 @@ import type {
 } from "./client-types.ts"
 import { LiveQueries } from "./live-queries.ts"
 import { Outbox } from "./outbox.ts"
-import { type AnyClient, QueryBuilder } from "./query-builder.ts"
+import { type AnyClient, type Collection, QueryBuilder } from "./query-builder.ts"
 import {
   type DefaultSchema,
   definitionOf,
@@ -49,6 +49,8 @@ import type {
   Filter,
   IdOf,
   InsertOf,
+  ProjectedResult,
+  Projection,
   Schema,
   UpdateFilter,
 } from "./types.ts"
@@ -397,20 +399,32 @@ export class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
     for (const listener of this.statusListeners) listener(status)
   }
 
-  /** Starts a query builder for a collection. */
+  /**
+   * A collection: its writes (`insert`, `update`, `updateMany` and the rest), and live reads that start with
+   * `find`, `sort`, `fields` or `limit`. A read query has no write methods, so the scope of a write is
+   * always its own filter or ID.
+   */
   from<C extends CollectionName<DB>>(
     collection: C,
-  ): QueryBuilder<DocumentOf<DB, C>, InsertOf<DB, C>> {
-    return new QueryBuilder(this as unknown as AnyClient, collection, {}, {})
+  ): Collection<DocumentOf<DB, C>, InsertOf<DB, C>> {
+    return new QueryBuilder(
+      this as unknown as AnyClient,
+      collection,
+      {},
+      {},
+    ) as unknown as Collection<DocumentOf<DB, C>, InsertOf<DB, C>>
   }
 
-  /** Returns a live query; identical queries share one server subscription. */
-  live<C extends CollectionName<DB>, Out = DocumentOf<DB, C>>(
+  /**
+   * Returns a live query; identical queries share one server subscription. A literal `fields` projection
+   * narrows the documents' type, as `from(c).fields(...)` does.
+   */
+  live<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(
     collection: C,
     where: Filter<DocumentOf<DB, C>>,
-    options: LiveQueryOptions<DocumentOf<DB, C>> = {},
-  ): LiveQuery<Out> {
-    return this.queries.live<Out>(collection, asDocument(where), {
+    options: ReadOptions<DocumentOf<DB, C>, F> = {},
+  ): LiveQuery<ProjectedResult<DocumentOf<DB, C>, F>> {
+    return this.queries.live(collection, asDocument(where), {
       sort: options.sort as Readonly<Record<string, 1 | -1>> | undefined,
       limit: options.limit,
       fields: options.fields as Readonly<Record<string, 0 | 1>> | undefined,

@@ -54,11 +54,11 @@ export interface CachedDocument {
     readonly ct: ClusterTime;
 }
 
-class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
+class CanopyClient<in out DB extends Schema<DB> = DefaultSchema> {
   readonly store: Store
   readonly updateEngine: Promise<void>
   readonly storage: StorageApi
-  constructor<in out DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
+  constructor<in out DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ClientOptions): CanopyClient<DB>
   get auth(): TokenSource | undefined
   get staleMutations(): readonly StaleMutation[]
   onStaleMutations(listener: (mutations: readonly StaleMutation[]) => void): () => void
@@ -73,8 +73,8 @@ class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   deleteMany<C extends CollectionName<DB>>(collection: C, where: Filter<DocumentOf<DB, C>>): MutationHandle
   get connectionStatus(): ConnectionStatus
   onStatus(listener: (status: ConnectionStatus) => void): () => void
-  from<C extends CollectionName<DB>>(collection: C): QueryBuilder<DocumentOf<DB, C>, InsertOf<DB, C>>
-  live<C extends CollectionName<DB>, Out = DocumentOf<DB, C>>(collection: C, where: Filter<DocumentOf<DB, C>>, options?: LiveQueryOptions<DocumentOf<DB, C>>): LiveQuery<Out>
+  from<C extends CollectionName<DB>>(collection: C): Collection<DocumentOf<DB, C>, InsertOf<DB, C>>
+  live<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(collection: C, where: Filter<DocumentOf<DB, C>>, options?: ReadOptions<DocumentOf<DB, C>, F>): LiveQuery<ProjectedResult<DocumentOf<DB, C>, F>>
   hydrate(state: DehydratedState): void
   devtools(): ClientInternals
   receive(text: string): void
@@ -115,6 +115,7 @@ export interface ClientOptions {
     readonly maxBackoffMs?: number;
     readonly sdk?: string;
     readonly idTypes?: Readonly<Record<string, "objectId" | "uuid" | "string">>;
+    readonly schema?: SchemaDefinitionLike;
     readonly maxInFlight?: number;
     readonly fallback?: FallbackSource;
     readonly fetch?: typeof fetch;
@@ -124,6 +125,27 @@ export interface ClientOptions {
     readonly mutationTtlMs?: number;
     readonly lifecycle?: boolean | LifecycleSource;
     readonly shared?: SharedConnection;
+}
+
+export interface Collection<Doc = Document, Insert = Doc> extends Query<Doc, Doc> {
+    readonly name: string;
+    insert(doc: Insert): MutationHandle<IdOf<Doc>>;
+    insertMany(docs: readonly Insert[]): MutationHandle;
+    update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle;
+    replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle;
+    delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle;
+    updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle;
+    deleteMany(filter: Filter<Doc>): MutationHandle;
+}
+
+export interface CollectionDefinitionLike {
+    readonly name: string;
+    prepare(doc: object): Record<string, unknown>;
+    readonly "~types"?: {
+        readonly Document: object;
+        readonly Insert: object;
+        readonly Patch: object;
+    };
 }
 
 export type CollectionName<DB> = keyof DB & string;
@@ -141,6 +163,18 @@ class ConflictError extends CanopyError {
 
 export type ConnectionStatus = "connecting" | "live" | "fallback" | "reconnecting" | "offline" | "closed";
 
+export type ConsistentProjection<F> = [
+    Flagged<Omit<F, "_id">, 1>
+] extends [
+    never
+] ? unknown : [
+    Flagged<Omit<F, "_id">, 0>
+] extends [
+    never
+] ? unknown : {
+    readonly "A projection cannot mix inclusion and exclusion": never;
+};
+
 class Decimal128 {
   readonly value: string
   constructor(value: string): Decimal128
@@ -153,10 +187,18 @@ export type DeepPartial<V> = V extends Leaf ? V : V extends readonly (infer E)[]
     [K in keyof V]?: DeepPartial<V[K]>;
 };
 
+export type DefaultSchema = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? UntypedSchema : SchemaTypes<Extract<RegisteredSchema, SchemaDefinitionLike>>;
+
 export interface DehydratedState {
     readonly canopy: 1;
     readonly queries: readonly unknown[];
 }
+
+export type Doc<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Document"];
 
 export type Document = Record<string, unknown>;
 
@@ -224,6 +266,8 @@ export type Filter<T> = {
 class ForbiddenError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): ForbiddenError
 }
+
+export type Id<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = IdOf<Doc<C, S>>;
 
 export type IdOf<Doc> = Doc extends {
     readonly _id: infer I;
@@ -329,6 +373,8 @@ export interface MutationResult {
     readonly insertedIds: readonly unknown[];
 }
 
+export type NewDoc<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Insert"];
+
 class NotFoundError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): NotFoundError
 }
@@ -345,6 +391,8 @@ class ObjectId {
   toJSON(): string
   equals(other: unknown): boolean
 }
+
+export type Patch<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Patch"];
 
 export type Path<T, D extends number = 4> = [
     D
@@ -380,16 +428,34 @@ export type Projected<T, F> = IsUnknown<T> extends true ? T : string extends key
     [K in Exclude<Extract<Head<Dotted<Flagged<F, 1>>>, keyof T>, Exclude<Flagged<F, 1>, Dotted<Flagged<F, 1>>>>]?: DeepPartial<T[K]>;
 }>;
 
+export type ProjectedResult<T, F> = [
+    F
+] extends [
+    never
+] ? T : [
+    F
+] extends [
+    undefined
+] ? T : Projection<T> extends F ? DeepPartial<T> : Projected<T, NonNullable<F>>;
+
 export type Projection<T> = {
     readonly [P in Path<T>]?: 0 | 1;
 };
 
+export interface Query<Doc = Document, Out = Doc> extends LiveQuery<Out> {
+    find(filter: Filter<Doc>): Query<Doc, Out>;
+    sort(sort: Sort<Doc>): Query<Doc, Out>;
+    limit(limit: number): Query<Doc, Out>;
+    fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): Query<Doc, ProjectedResult<Doc, F>>;
+}
+
 class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = Doc> implements LiveQuery<Out> {
-  constructor<in out Doc = Document, in out Insert = Doc, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>): QueryBuilder<Doc, Insert, Out>
+  constructor<in out Doc = Document, in out Insert = Doc, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>, derived?: boolean): QueryBuilder<Doc, Insert, Out>
+  get name(): string
   find(filter: Filter<Doc>): QueryBuilder<Doc, Insert, Out>
   sort(sort: Sort<Doc>): QueryBuilder<Doc, Insert, Out>
   limit(limit: number): QueryBuilder<Doc, Insert, Out>
-  fields<const F extends Projection<Doc>>(fields: F): QueryBuilder<Doc, Insert, Projected<Doc, F>>
+  fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): QueryBuilder<Doc, Insert, ProjectedResult<Doc, F>>
   insert(doc: Insert): MutationHandle<IdOf<Doc>>
   insertMany(docs: readonly Insert[]): MutationHandle
   update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
@@ -420,9 +486,28 @@ class RateLimitError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): RateLimitError
 }
 
+export interface ReadOptions<Doc = Document, F = never> {
+    readonly sort?: Sort<Doc>;
+    readonly limit?: number;
+    readonly fields?: F & ConsistentProjection<F>;
+}
+
+export interface Register {
+}
+
+export type RegisteredSchema = Register extends {
+    readonly schema: infer S extends SchemaDefinitionLike;
+} ? S : undefined;
+
 export interface ReplaceOptions<Doc = Document> extends WriteOptions<Doc> {
     readonly upsert?: boolean;
 }
+
+export type ResolvedSchema = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? UntypedDefinition : Extract<RegisteredSchema, SchemaDefinitionLike>;
 
 export interface ResumableUploadOptions extends UploadFileOptions {
     readonly onProgress?: (sent: number, total: number) => void;
@@ -442,14 +527,32 @@ export type Schema<DB> = {
     readonly [K in keyof DB]: CollectionTypes;
 };
 
+export type SchemaDefinitionLike = {
+    readonly [name: string]: CollectionDefinitionLike;
+};
+
+export type SchemaOption = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? {
+    readonly schema?: SchemaDefinitionLike;
+} : {
+    readonly schema: RegisteredSchema;
+};
+
+export type SchemaTypes<S extends SchemaDefinitionLike> = {
+    readonly [K in keyof S]: NonNullable<S[K]["~types"]>;
+};
+
 export interface SharedConnection {
     connect(url: string, protocol: string, WebSocketImpl: WebSocketConstructor): WebSocketLike;
 }
 
-export interface Snapshot {
+export interface Snapshot<T = Document> {
     readonly c: string;
     readonly q: SubQuery;
-    readonly docs: readonly Document[];
+    readonly docs: readonly T[];
     readonly ct: ClusterTime;
 }
 
@@ -544,6 +647,18 @@ export interface TokenSource {
 class UnauthorizedError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions, expired?: boolean): UnauthorizedError
 }
+
+export type UntypedDefinition = {
+    readonly [name: string]: {
+        readonly name: string;
+        prepare(doc: object): Record<string, unknown>;
+        readonly "~types"?: {
+            readonly Document: Document;
+            readonly Insert: Document;
+            readonly Patch: Document;
+        };
+    };
+};
 
 export type UntypedSchema = Record<string, {
     readonly Document: Document;
@@ -644,7 +759,9 @@ export interface WriteOptions<Doc = Document> {
 
 function cacheKey(coll: string, id: unknown): string
 
-function createClient<DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
+function createClient<S extends SchemaConstraint>(options: ClientOptions & { readonly schema: S; }): CanopyClient<SchemaTypes<S>>
+function createClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ClientOptions & SchemaOption): CanopyClient<DB>
+function createClient<DB extends Schema<DB>>(options: ClientOptions): CanopyClient<DB>
 
 function createStorage(options: StorageClientOptions): StorageApi
 
@@ -811,8 +928,8 @@ export interface CookieSource {
     }[];
 }
 
-export interface ServerClient<DB extends Schema<DB> = UntypedSchema> {
-    find<C extends CollectionName<DB>>(collection: C, filter?: Filter<DocumentOf<DB, C>>, options?: LiveQueryOptions<DocumentOf<DB, C>>): Promise<Snapshot>;
+export interface ServerClient<DB extends Schema<DB> = DefaultSchema> {
+    find<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(collection: C, filter?: Filter<DocumentOf<DB, C>>, options?: ReadOptions<DocumentOf<DB, C>, F>): Promise<Snapshot<ProjectedResult<DocumentOf<DB, C>, F>>>;
     token(): Promise<string | undefined>;
 }
 
@@ -826,7 +943,7 @@ export interface ServerClientOptions {
 
 export type ServerToken = string | null | undefined | (() => Promise<string | null | undefined>);
 
-function createServerClient<DB extends Schema<DB> = UntypedSchema>(options: ServerClientOptions): ServerClient<DB>
+function createServerClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ServerClientOptions): ServerClient<DB>
 
-function dehydrate(snapshots: readonly Snapshot[]): DehydratedState
+function dehydrate(snapshots: readonly Snapshot<unknown>[]): DehydratedState
 ```

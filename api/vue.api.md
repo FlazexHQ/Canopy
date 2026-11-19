@@ -19,13 +19,13 @@ export interface QueryRefs<T> {
     readonly state: ShallowRef<QueryState<T>>;
 }
 
-function canopyPlugin<DB extends Schema<DB> = UntypedSchema>(client: CanopyClient<DB>, state?: DehydratedState): { install(app: App): void; }
+function canopyPlugin<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(client: CanopyClient<DB>, state?: DehydratedState): { install(app: App): void; }
 
-function provideCanopy<DB extends Schema<DB> = UntypedSchema>(client: CanopyClient<DB>): void
+function provideCanopy<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(client: CanopyClient<DB>): void
 
-function useCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB>
+function useCanopy<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(): CanopyClient<DB>
 
-function useCanopyStatus<DB extends Schema<DB> = UntypedSchema>(client?: CanopyClient<DB>): ShallowRef<ConnectionStatus>
+function useCanopyStatus<DB extends Schema<DB> = import("@canopy/client").UntypedSchema>(client?: CanopyClient<DB>): ShallowRef<ConnectionStatus>
 
 function useMutation<Args extends unknown[]>(run: (...args: Args) => MutationHandle): MutationRefs<Args>
 

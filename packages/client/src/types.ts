@@ -266,3 +266,25 @@ export type Projected<T, F> =
               >]?: DeepPartial<T[K]>
             }
           >
+
+/**
+ * The documents a read returns for the projection `F`: the whole document without one, {@link Projected}
+ * for a literal projection, and a deep partial document for a projection only known at runtime.
+ */
+export type ProjectedResult<T, F> = [F] extends [never]
+  ? T
+  : [F] extends [undefined]
+    ? T
+    : Projection<T> extends F
+      ? DeepPartial<T>
+      : Projected<T, NonNullable<F>>
+
+/**
+ * Rejects a literal projection that mixes inclusion (`1`) and exclusion (`0`), which MongoDB refuses; only
+ * `_id` may differ from the other fields.
+ */
+export type ConsistentProjection<F> = [Flagged<Omit<F, "_id">, 1>] extends [never]
+  ? unknown
+  : [Flagged<Omit<F, "_id">, 0>] extends [never]
+    ? unknown
+    : { readonly "A projection cannot mix inclusion and exclusion": never }

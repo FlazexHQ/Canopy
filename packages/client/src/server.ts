@@ -9,8 +9,16 @@ import {
   type SubQuery,
   toCanonical,
 } from "@canopy/protocol"
-import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client-types.ts"
-import type { CollectionName, DocumentOf, Filter, Schema, UntypedSchema } from "./types.ts"
+import type { DehydratedState, ReadOptions, Snapshot } from "./client-types.ts"
+import type { DefaultSchema } from "./register.ts"
+import type {
+  CollectionName,
+  DocumentOf,
+  Filter,
+  ProjectedResult,
+  Projection,
+  Schema,
+} from "./types.ts"
 
 /** Where a server request gets the user's access token. */
 export type ServerToken = string | null | undefined | (() => Promise<string | null | undefined>)
@@ -36,16 +44,17 @@ export interface ServerClientOptions {
 }
 
 /** A client for server rendering: one-off DLS reads whose results hydrate the browser's live queries. */
-export interface ServerClient<DB extends Schema<DB> = UntypedSchema> {
+export interface ServerClient<DB extends Schema<DB> = DefaultSchema> {
   /**
    * Reads a query's current result as the request's user. Pass the same filter and options to
-   * `live()` or `useQuery()` in the browser, so the hydrated result seeds that live query.
+   * `live()` or `useQuery()` in the browser, so the hydrated result seeds that live query. A literal
+   * `fields` projection narrows the snapshot's documents, as it does for `live()`.
    */
-  find<C extends CollectionName<DB>>(
+  find<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(
     collection: C,
     filter?: Filter<DocumentOf<DB, C>>,
-    options?: LiveQueryOptions<DocumentOf<DB, C>>,
-  ): Promise<Snapshot>
+    options?: ReadOptions<DocumentOf<DB, C>, F>,
+  ): Promise<Snapshot<ProjectedResult<DocumentOf<DB, C>, F>>>
   /** The access token used for the request's reads, minted once from the cookies when needed. */
   token(): Promise<string | undefined>
 }
@@ -77,7 +86,7 @@ async function failure(response: Response): Promise<CanopyError> {
  * REST API with the user's token, so DLS applies exactly as in the browser, and returns snapshots with
  * their cluster time. Pass them through {@link dehydrate} to the page and `client.hydrate()` there.
  */
-export function createServerClient<DB extends Schema<DB> = UntypedSchema>(
+export function createServerClient<DB extends Schema<DB> = DefaultSchema>(
   options: ServerClientOptions,
 ): ServerClient<DB> {
   const base = options.url.replace(/\/$/, "")
@@ -104,7 +113,11 @@ export function createServerClient<DB extends Schema<DB> = UntypedSchema>(
   }
   return {
     token,
-    async find(collection, filter = {}, query = {}) {
+    async find(
+      collection: string,
+      filter: object = {},
+      query: ReadOptions<Document, unknown> = {},
+    ) {
       const q: SubQuery = {
         filter: filter as Document,
         ...(query.sort === undefined ? {} : { sort: query.sort as Document }),
@@ -126,10 +139,10 @@ export function createServerClient<DB extends Schema<DB> = UntypedSchema>(
       const body = decode(await response.json()) as { data: Document[]; ct: ClusterTime }
       return { c: collection, q, docs: body.data, ct: body.ct }
     },
-  }
+  } as unknown as ServerClient<DB>
 }
 
 /** Turns snapshots into plain JSON for the page; `client.hydrate()` reads it back in the browser. */
-export function dehydrate(snapshots: readonly Snapshot[]): DehydratedState {
+export function dehydrate(snapshots: readonly Snapshot<unknown>[]): DehydratedState {
   return { canopy: 1, queries: snapshots.map((snapshot) => toCanonical(snapshot)) }
 }

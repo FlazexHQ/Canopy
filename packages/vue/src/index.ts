@@ -1,6 +1,7 @@
 import type {
   CanopyClient,
   ConnectionStatus,
+  DefaultSchema,
   DehydratedState,
   LiveQuery,
   MutationHandle,
@@ -8,7 +9,6 @@ import type {
   QueryState,
   QueryStatus,
   Schema,
-  UntypedSchema,
 } from "@canopy/client"
 import {
   type App,
@@ -26,7 +26,7 @@ import {
 const CANOPY: InjectionKey<CanopyClient> = Symbol("canopy")
 
 /** Makes a client available to {@link useCanopy} and the composables below the component. */
-export function provideCanopy<DB extends Schema<DB> = UntypedSchema>(
+export function provideCanopy<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB>,
 ): void {
   provide(CANOPY, client as unknown as CanopyClient)
@@ -37,7 +37,7 @@ export function provideCanopy<DB extends Schema<DB> = UntypedSchema>(
  * `state`, the client is first hydrated with server rendered results (Nuxt: the payload `dehydrate()`
  * produced on the server).
  */
-export function canopyPlugin<DB extends Schema<DB> = UntypedSchema>(
+export function canopyPlugin<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB>,
   state?: DehydratedState,
 ): { install(app: App): void } {
@@ -50,7 +50,7 @@ export function canopyPlugin<DB extends Schema<DB> = UntypedSchema>(
 }
 
 /** Returns the provided client. Pass the schema to get it back typed: `useCanopy<Database>()`. */
-export function useCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB> {
+export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = inject(CANOPY, undefined)
   if (client === undefined)
     throw new Error("useCanopy needs canopyPlugin(client) or provideCanopy(client) above it")
@@ -104,7 +104,7 @@ export function useQuery<T>(query: MaybeRefOrGetter<LiveQuery<T>>): QueryRefs<T>
 }
 
 /** The connection status as a ref: `connecting`, `live`, `fallback`, `reconnecting`, `offline` or `closed`. */
-export function useCanopyStatus<DB extends Schema<DB> = UntypedSchema>(
+export function useCanopyStatus<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB> = useCanopy<DB>(),
 ): ShallowRef<ConnectionStatus> {
   const status = shallowRef(client.connectionStatus)

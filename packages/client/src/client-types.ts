@@ -1,7 +1,7 @@
 import type { ClusterTime, Document, MutationOp, MutMessage, SubQuery } from "@canopy/protocol"
 import type { SchemaDefinitionLike } from "./register.ts"
 import type { QueryState } from "./store.ts"
-import type { Filter, Projection, Sort } from "./types.ts"
+import type { ConsistentProjection, Filter, Projection, Sort } from "./types.ts"
 
 /**
  * The connection status an application sees. `fallback` means connected through a transport below
@@ -166,10 +166,10 @@ export interface SharedConnection {
 }
 
 /** The server rendered result of one live query, from `@canopy/client/server`. */
-export interface Snapshot {
+export interface Snapshot<T = Document> {
   readonly c: string
   readonly q: SubQuery
-  readonly docs: readonly Document[]
+  readonly docs: readonly T[]
   readonly ct: ClusterTime
 }
 
@@ -231,6 +231,16 @@ export interface LiveQueryOptions<Doc = Document> {
   readonly sort?: Sort<Doc>
   readonly limit?: number
   readonly fields?: Projection<Doc>
+}
+
+/**
+ * The options of a read whose projection is inferred: a literal `fields` narrows the result type, and one
+ * that mixes inclusion and exclusion does not compile.
+ */
+export interface ReadOptions<Doc = Document, F = never> {
+  readonly sort?: Sort<Doc>
+  readonly limit?: number
+  readonly fields?: F & ConsistentProjection<F>
 }
 
 /** A live query: a value that stays current. */

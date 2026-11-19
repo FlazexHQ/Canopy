@@ -76,6 +76,19 @@ function checks(client: CanopyClient): void {
 }
 void checks
 
+/** The read contract fixture: both expectations must be type errors. */
+export function checkReadContract(client: CanopyClient): string | undefined {
+  const open = client.from("todos").find({ done: false })
+  // @ts-expect-error A derived read query has no bulk write method.
+  void open.updateMany
+
+  const [todo] = client.live("todos", {}, { fields: { title: 1 } }).getState().data
+  if (todo === undefined) return undefined
+  // @ts-expect-error The projection omits done.
+  void todo.done
+  return todo.title
+}
+
 describe("a client with the registered schema", () => {
   it("generates the declared ObjectId and fills defaults before the optimistic apply", async () => {
     const { client, socket } = await connected()

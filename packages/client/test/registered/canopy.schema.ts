@@ -1,6 +1,6 @@
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
-export const todos = collection("todos", {
+const todos = collection("todos", {
   title: t.string(),
   done: t.bool().default(false),
   tags: t.array(t.string()).optional(),
@@ -8,15 +8,15 @@ export const todos = collection("todos", {
   ownerId: t.string(),
 })
 
-export const notes = collection("notes", {
+const notes = collection("notes", {
   _id: t.string(),
   title: t.string(),
   body: t.object({ text: t.string(), format: t.enum(["md", "plain"]) }),
 })
 
-export const events = collection("events", { _id: t.uuid(), at: t.date() })
+const events = collection("events", { _id: t.uuid(), at: t.date() })
 
-export const counters = collection("counters", { _id: t.int(), n: t.long() })
+const counters = collection("counters", { _id: t.int(), n: t.long() })
 
 export const schema = defineSchema(todos, notes, events, counters)
 

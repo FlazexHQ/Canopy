@@ -88,8 +88,7 @@ function expected(shape: Shape): string {
   }
 }
 
-/** Collects the problems of `value` against `shape`; an empty list means it matches. */
-export function check(
+function check(
   shape: Shape,
   value: unknown,
   path: readonly PropertyKey[] = [],
