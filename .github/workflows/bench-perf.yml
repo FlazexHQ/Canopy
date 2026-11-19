@@ -1,0 +1,58 @@
+name: Write path probe
+
+# Temporary: measures commands per request, CPU profiles and the one command prototypes on Linux.
+on:
+  push:
+    branches: [bench/perf-probe]
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.4.4
+  CANOPY_MONGO_IMAGE: mongo:8.0.34
+  CANOPY_BENCH_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+
+jobs:
+  probe:
+    name: Probe and prototypes (MongoDB 8.0, Node.js 24)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+      - run: bun install --frozen-lockfile
+      - name: Prototypes against today's paths and the driver, 4 alternating rounds
+        working-directory: packages/rest/bench
+        run: OUT="$GITHUB_WORKSPACE/protoload.json" node --conditions=@canopy/source protoload.ts 2>&1 | tee "$GITHUB_WORKSPACE/protoload.log"
+      - name: Page read under load, alternating
+        if: ${{ !cancelled() }}
+        working-directory: packages/rest/bench
+        run: node --conditions=@canopy/source pageload.ts 2>&1 | tee "$GITHUB_WORKSPACE/pageload.log"
+      - name: Commands per request, unloaded latency, loaded CPU and profiles
+        if: ${{ !cancelled() }}
+        working-directory: packages/rest/bench
+        env:
+          PROBE_SECONDS: "4"
+          PROBE_ROUNDS: "2"
+        run: PROBE_PROFILE="$GITHUB_WORKSPACE/profiles" PROBE_OUT="$GITHUB_WORKSPACE/probe.json" node --conditions=@canopy/source probe.ts 2>&1 | tee "$GITHUB_WORKSPACE/probe.log"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: perf-probe
+          path: |
+            protoload.json
+            protoload.log
+            pageload.log
+            probe.json
+            probe.log
+            profiles/
+          if-no-files-found: ignore
+      - if: always()
+        run: docker compose -f deploy/compose/dev.yaml down --volumes

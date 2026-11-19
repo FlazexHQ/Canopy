@@ -1,4 +1,4 @@
-import { and, checkImplied, projectReadable, toProjection } from "@canopy/policy"
+import { and, type Compiled, checkImplied, projectReadable, toProjection } from "@canopy/policy"
 import {
   CanopyError,
   type ClusterTime,
@@ -23,6 +23,103 @@ import { assertMutable, assertWritable, type Scope, violation } from "./write-sc
  * costs more than reading it back.
  */
 const PRECHECK_MAX_BYTES = 8 * 1024 * 1024
+
+const proto = (): boolean => (globalThis as { __proto?: boolean }).__proto === true
+
+/** PROTOTYPE: whether every conjunct of `c` holds for the literal values of `doc` (scalars, $eq, $in). */
+function literallyHolds(c: Compiled, doc: Record<string, unknown>): boolean {
+  if (c.kind === "all") return true
+  if (c.kind === "deny") return false
+  const parts: [string, unknown][] = []
+  const walk = (f: Record<string, unknown>): boolean => {
+    for (const [k, v] of Object.entries(f)) {
+      if (k === "$and" && Array.isArray(v)) {
+        for (const x of v)
+          if (typeof x !== "object" || x === null || !walk(x as Record<string, unknown>))
+            return false
+      } else if (k.startsWith("$") || k.includes(".")) return false
+      else parts.push([k, v])
+    }
+    return true
+  }
+  if (!walk(c.filter)) return false
+  const scalar = (x: unknown): boolean => typeof x === "string" || typeof x === "boolean"
+  for (const [k, cond] of parts) {
+    const have = doc[k]
+    if (!scalar(have)) return false
+    if (scalar(cond)) {
+      if (cond !== have) return false
+      continue
+    }
+    if (typeof cond !== "object" || cond === null) return false
+    const ops = Object.entries(cond as Record<string, unknown>)
+    if (ops.length !== 1) return false
+    const [op, arg] = ops[0] ?? []
+    if (op === "$eq" && scalar(arg)) {
+      if (arg !== have) return false
+      continue
+    }
+    if (op === "$in" && Array.isArray(arg) && arg.every(scalar)) {
+      if (!arg.includes(have)) return false
+      continue
+    }
+    return false
+  }
+  return true
+}
+
+/** PROTOTYPE: check implied for an update whose written check fields are `$set` to literals that satisfy it. */
+function literalUpdateImplied(
+  check: Compiled,
+  target: Compiled,
+  update: unknown,
+  written: readonly string[],
+): boolean {
+  if (check.kind === "all") return true
+  if (check.kind === "deny" || target.kind !== "filter") return false
+  if (typeof update !== "object" || update === null) return false
+  const ops = Object.keys(update)
+  if (ops.some((op) => op !== "$set" && op !== "$inc")) return false
+  const set = ((update as Record<string, unknown>)["$set"] ?? {}) as Record<string, unknown>
+  const flat = (f: Record<string, unknown>): Record<string, unknown>[] =>
+    Object.entries(f).flatMap(([k, v]) =>
+      k === "$and" && Array.isArray(v)
+        ? v.flatMap((x) => flat(x as Record<string, unknown>))
+        : [{ [k]: v }],
+    )
+  const required = new Set(flat(target.filter).map((x) => canonicalString(x)))
+  const writtenTop = new Set(written.map((w) => w.split(".")[0] ?? w))
+  const proves = (filter: Record<string, unknown>): boolean => {
+    for (const part of flat(filter)) {
+      const [field] = Object.keys(part)
+      if (field === undefined) return false
+      if (field === "$or") {
+        const branches = part["$or"]
+        if (
+          !Array.isArray(branches) ||
+          !branches.some(
+            (b) => typeof b === "object" && b !== null && proves(b as Record<string, unknown>),
+          )
+        ) {
+          if (!required.has(canonicalString(part)) || !untouched(part)) return false
+        }
+        continue
+      }
+      if (field.startsWith("$") || field.includes(".")) return false
+      if (!writtenTop.has(field)) {
+        if (!required.has(canonicalString(part))) return false
+        continue
+      }
+      if (!(field in set) || written.some((w) => w !== field && w.startsWith(`${field}.`)))
+        return false
+      if (!literallyHolds({ kind: "filter", filter: part }, set)) return false
+    }
+    return true
+  }
+  const untouched = (part: Record<string, unknown>): boolean =>
+    ![...writtenTop].some((w) => JSON.stringify(part).includes(`"${w}"`))
+  return proves(check.filter)
+}
 
 /** Runs a planned write in a session and reports what it did. */
 export type Run = (session: ClientSession) => Promise<Outcome>
@@ -113,7 +210,20 @@ function planInsert(
   const precheck = single && BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
   const ids = prepared.map((doc) => doc["_id"])
   const [first] = prepared
+  const usingRead = scope.engine.using(scope.name, "read", scope.ctx)
+  const literal =
+    single && first !== undefined && literallyHolds(check, docs[0] as Record<string, unknown>)
   const run: Run = async (session) => {
+    if (proto() && literal && first !== undefined) {
+      await scope.coll.insertOne(first, scope.writeOptions(session))
+      const ct = scope.fastTime(session)
+      if (!read) return withCt(inserted(ids, undefined), ct)
+      if (literallyHolds(usingRead, docs[0] as Record<string, unknown>)) {
+        const stored = BSON.deserialize(BSON.serialize(first), EXACT_BSON)
+        return withCt(inserted(ids, [projectReadable(scope.readable(), stored)] as never), ct)
+      }
+      return withCt(inserted(ids, await scope.verify(session, ids, undefined, "insert", read)), ct)
+    }
     const checked = precheck ? await scope.precheck(prepared, check, read) : undefined
     if (single && first !== undefined)
       await scope.coll.insertOne(first, scope.writeOptions(session))
@@ -170,7 +280,10 @@ function planUpdate(
   if ("id" in selector) {
     const id = toDriver(selector.id)
     const filter = scope.filter(target)
-    const implied = check.kind === "all" || checkImplied(check, target, parsed.writtenPaths)
+    const implied =
+      check.kind === "all" ||
+      checkImplied(check, target, parsed.writtenPaths) ||
+      (proto() && literalUpdateImplied(check, target, rawUpdate, parsed.writtenPaths))
     const effectiveCheck = implied ? undefined : check
     const finish = async (
       session: ClientSession,
@@ -198,7 +311,33 @@ function planUpdate(
         ...(documents === undefined ? {} : { documents }),
       }
     }
+    const visibleAfter =
+      read &&
+      implied &&
+      checkImplied(scope.engine.using(scope.name, "read", scope.ctx), target, parsed.writtenPaths)
     const run: Run = async (session) => {
+      if (proto() && visibleAfter && !session.inTransaction()) {
+        const projection = toProjection(scope.readable())
+        const doc = await scope.coll.findOneAndUpdate(filter, update, {
+          ...scope.writeOptions(session),
+          returnDocument: "after",
+          ...(projection === undefined ? {} : { projection }),
+          ...EXACT_BSON,
+        })
+        const ct = scope.fastTime(session)
+        if (doc === null) return withCt(await finish(session, 0, 0), ct)
+        return withCt(
+          {
+            matched: 1,
+            modified: 1,
+            deleted: 0,
+            insertedIds: [],
+            changedIds: [id],
+            documents: [projectReadable(scope.readable(), doc)] as never,
+          },
+          ct,
+        )
+      }
       const result = await scope.coll.updateOne(filter, update, scope.writeOptions(session))
       const ct = scope.fastTime(session)
       return withCt(await finish(session, result.matchedCount, result.modifiedCount), ct)
@@ -276,6 +415,46 @@ function planReplace(
   const atomicUpsert = insertCheck?.kind === "all"
   const id = toDriver(request.id)
   const replacement = toDriver({ ...doc, _id: request.id }) as Document
+  const stored = { _id: request.id, ...doc }
+  const literal = proto() && !upsert && literallyHolds(updateCheck, stored)
+  const usingRead = scope.engine.using(scope.name, "read", scope.ctx)
+  if (literal) {
+    const fastRun: Run = async (session) => {
+      const result = await scope.coll.replaceOne(
+        scope.filter(target),
+        replacement,
+        scope.writeOptions(session),
+      )
+      const ct = scope.fastTime(session)
+      if (result.matchedCount === 0) {
+        if (where.kind !== "all") await scope.assertNoConflict(session, visible)
+        return withCt(empty(), ct)
+      }
+      const modified = result.modifiedCount > 0
+      let documents: (ReturnedDocument | null)[] | undefined
+      if (read)
+        documents = literallyHolds(usingRead, stored)
+          ? [
+              projectReadable(
+                scope.readable(),
+                BSON.deserialize(BSON.serialize(toDriver(stored)), EXACT_BSON),
+              ) as ReturnedDocument,
+            ]
+          : await scope.verify(session, [id], undefined, "update", read)
+      return withCt(
+        {
+          matched: 1,
+          modified: result.modifiedCount,
+          deleted: 0,
+          insertedIds: [],
+          changedIds: modified ? [id] : [],
+          ...(documents === undefined ? {} : { documents }),
+        },
+        ct,
+      )
+    }
+    return { run: fastRun, fast: true }
+  }
   const run: Run = async (session) => {
     const result = await scope.coll.replaceOne(scope.filter(target), replacement, {
       ...scope.writeOptions(session),
