@@ -1,7 +1,8 @@
 # A small sharded cluster for the sharded checks: one config server, two shards (single member replica
 # sets) and a mongos on localhost:27017. Each healthcheck initiates its replica set or adds the shards, so
 # `docker compose -f deploy/compose/sharded.yaml up -d --wait` returns once the cluster accepts writes.
-# Connect with mongodb://localhost:27017 (no replicaSet parameter: mongos is a router).
+# Connect with mongodb://localhost:27017 (no replicaSet parameter: mongos is a router). The shards write a
+# no-op every second instead of every 10, so an idle shard does not hold back the change stream through mongos.
 name: canopy-sharded
 
 x-mongo: &mongo
@@ -47,6 +48,8 @@ services:
         "--bind_ip_all",
         "--wiredTigerCacheSizeGB",
         "0.25",
+        "--setParameter",
+        "periodicNoopIntervalSecs=1",
       ]
     healthcheck:
       test:
@@ -74,6 +77,8 @@ services:
         "--bind_ip_all",
         "--wiredTigerCacheSizeGB",
         "0.25",
+        "--setParameter",
+        "periodicNoopIntervalSecs=1",
       ]
     healthcheck:
       test:
