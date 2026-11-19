@@ -1,10 +1,13 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
-import { type Db, MongoClient } from "mongodb"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { type Db, MongoClient, MongoNetworkError } from "mongodb"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import type { AdminDeps, Context, RouteFn } from "../src/admin/routes/core.ts"
+import { registerOps } from "../src/admin/routes/ops.ts"
 import { base32Decode, totp } from "../src/admin/totp.ts"
 import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
+import { META_MIGRATIONS } from "../src/migrations.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const PASSWORD = "owner password long enough"
@@ -79,6 +82,83 @@ function bearer(base: string, token: string): Client {
       }),
   }
 }
+
+describe("admin doctor search checks", () => {
+  it.each([
+    {
+      probe: "failed",
+      checks: [
+        {
+          name: "search",
+          status: "warn",
+          message: "search: could not be checked: MongoDB is unavailable",
+        },
+      ],
+    },
+    {
+      probe: "available",
+      checks: [
+        { name: "search", status: "ok", message: "search: 1 collections, 0 indexes ready" },
+        { name: "search-index", status: "warn", message: "search index notes.text is BUILDING" },
+        { name: "search-index", status: "warn", message: "search index notes.vector is UNKNOWN" },
+      ],
+    },
+  ])("returns the full report when search is $probe", async ({ probe, checks }) => {
+    const route = vi.fn<RouteFn>()
+    const meta = {
+      collection: () => ({
+        find: () => ({
+          toArray: async () =>
+            META_MIGRATIONS.map(({ version }) => ({ _id: version, appliedAt: new Date() })),
+        }),
+      }),
+    }
+    registerOps(route, {
+      app: {
+        command: async () => ({ version: "8.0", setName: "rs0" }),
+        collection: () => ({
+          aggregate: () => ({
+            toArray: async () => {
+              if (probe === "failed") throw new MongoNetworkError("private driver details")
+              return [{ name: "text", status: "BUILDING" }, { name: "vector" }]
+            },
+            [Symbol.asyncDispose]: async () => {},
+          }),
+        }),
+      },
+      environment: "development",
+      config: {
+        collections: { notes: { search: true } },
+        mongodb: { metaDatabase: "canopy" },
+        masterKey: "test",
+        server: { adminListen: "localhost" },
+      },
+      options: {
+        client: { db: () => meta },
+        engine: () => ({ version: 1, set: { collections: new Map() } }),
+      },
+    } as unknown as AdminDeps)
+    const doctor = route.mock.calls.find(([method, path]) => method === "GET" && path === "doctor")
+    if (!doctor) throw new Error("GET doctor route is missing")
+    const response = await doctor[3]({
+      request: new Request("http://localhost/admin/v1/doctor"),
+    } as Context)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      status: "warn",
+      environment: "development",
+      checks: [
+        { name: "mongodb", status: "ok", message: "MongoDB 8.0" },
+        { name: "replica-set", status: "ok", message: "Replica set rs0" },
+        { name: "meta-migrations", status: "ok", message: "The meta database is up to date" },
+        { name: "master-key", status: "ok", message: "Stored secrets are encrypted" },
+        { name: "admin-listener", status: "ok", message: "/admin is served only on localhost" },
+        { name: "policies", status: "ok", message: "Bundle 1, 0 collection(s)" },
+        ...checks,
+      ],
+    })
+  })
+})
 
 suite("admin API", () => {
   const dbName = `canopy_admin_api_${process.pid}_${Math.floor(Math.random() * 1e6)}`
@@ -724,6 +804,7 @@ suite("admin API", () => {
     }
     expect(doctor.checks.find((c) => c.name === "replica-set")?.status).toBe("ok")
     expect(doctor.checks.find((c) => c.name === "meta-migrations")?.status).toBe("ok")
+    expect(doctor.checks.find((c) => c.name === "search")?.status).toBe("ok")
   })
 
   it("keeps sampled request logs with settings for sampling and retention", async () => {

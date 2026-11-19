@@ -24,6 +24,7 @@ import {
   mongoTarget,
 } from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
+import { fromDriverError, probeSearch, searchDiagnostics } from "@canopy/rest"
 import { MongoClient } from "mongodb"
 import { mongoBackend } from "./mongo-backend.ts"
 import type { Output } from "./output.ts"
@@ -158,6 +159,8 @@ export function sampledPaths(docs: readonly Record<string, unknown>[]): string[]
 
 /** Options of `canopy doctor`. */
 export interface DoctorOptions {
+  /** Collections configured to allow search aggregations. */
+  readonly search?: readonly string[]
   readonly mongodbUri: string
   readonly database: string
   readonly dir?: string
@@ -306,6 +309,16 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
       message:
         "DLS is enforced by Canopy, not inside mongod: clients holding MongoDB credentials bypass it",
     })
+    const search = options.search ?? []
+    try {
+      const capability = await probeSearch(db, search)
+      for (const check of searchDiagnostics(capability, search.length)) report(check)
+    } catch (error: unknown) {
+      report({
+        status: "warn",
+        message: `search: could not be checked: ${fromDriverError(error, false).message}`,
+      })
+    }
   } finally {
     await client.close()
   }

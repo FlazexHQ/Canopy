@@ -33,7 +33,17 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
     handler: {
       kind: "app",
       load: "doctor",
-      run: (call, app) => doctor({ ...app, ...(call.dirGiven ? { dir: call.dir } : {}) }, call.out),
+      run: (call, app) =>
+        doctor(
+          {
+            ...app,
+            ...(call.dirGiven ? { dir: call.dir } : {}),
+            search: Object.keys(call.config.collections).filter(
+              (name) => call.config.collections[name]?.search === true,
+            ),
+          },
+          call.out,
+        ),
     },
   },
   "gen types": {
