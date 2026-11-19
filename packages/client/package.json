@@ -69,6 +69,7 @@
   },
   "devDependencies": {
     "@canopy/policy": "workspace:*",
+    "@canopy/query": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
     "@canopy/schema": "workspace:*",
