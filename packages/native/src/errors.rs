@@ -1,6 +1,6 @@
 //! How Rust errors become JavaScript errors.
 
-use canopy_protocol::{CanopyError, ErrorCode};
+use canopy_protocol::CanopyError;
 use napi::Error;
 
 /// The stable `CANOPY_*` code carried as the `code` of every JavaScript error thrown by this addon. The message
@@ -19,8 +19,4 @@ pub(crate) type Result<T> = napi::Result<T, Code>;
 
 pub(crate) fn thrown(error: &CanopyError) -> Error<Code> {
     Error::new(Code(error.code().as_str()), format!("{}: {}", error.name(), error.message()))
-}
-
-pub(crate) fn invalid(message: impl Into<String>) -> Error<Code> {
-    thrown(&CanopyError::new(ErrorCode::InvalidQuery, message))
 }

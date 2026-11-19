@@ -13,9 +13,8 @@ crate-type = ["cdylib"]
 
 [dependencies]
 canopy-matcher = { path = "../../crates/canopy-matcher" }
-canopy-policy = { path = "../../crates/canopy-policy" }
+canopy-port = { path = "../../crates/canopy-port" }
 canopy-protocol = { path = "../../crates/canopy-protocol" }
-canopy-query = { path = "../../crates/canopy-query" }
 napi = { version = "3.16.2", default-features = false, features = ["napi4"] }
 napi-derive = "3.7.1"
 

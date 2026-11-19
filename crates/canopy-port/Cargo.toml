@@ -1,0 +1,17 @@
+[package]
+name = "canopy-port"
+description = "What every port of the Canopy core shares: requests, evaluations, filters, query keys and the EJSON codec across a language boundary as EJSON text and raw BSON, with every failure as a CanopyError."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+
+[lints]
+workspace = true

@@ -137,9 +137,8 @@ name = "canopy-native"
 version = "0.0.0"
 dependencies = [
  "canopy-matcher",
- "canopy-policy",
+ "canopy-port",
  "canopy-protocol",
- "canopy-query",
  "napi",
  "napi-build",
  "napi-derive",
@@ -150,6 +149,16 @@ name = "canopy-policy"
 version = "0.0.0"
 dependencies = [
  "canopy-matcher",
+ "canopy-protocol",
+ "canopy-query",
+]
+
+[[package]]
+name = "canopy-port"
+version = "0.0.0"
+dependencies = [
+ "canopy-matcher",
+ "canopy-policy",
  "canopy-protocol",
  "canopy-query",
 ]
