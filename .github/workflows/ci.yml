@@ -137,8 +137,10 @@ jobs:
         with:
           node-version: 24
       - run: bun install --frozen-lockfile
-      - name: Build the addon of this platform and the WebAssembly fallback
-        run: bun --filter @canopy/native build:native
+      - name: Build the addon of this platform, the WebAssembly fallback and the Workers and browser build
+        run: |
+          bun --filter @canopy/native build:native
+          bun --filter @canopy/wasm build:native
       - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
         run: cargo build --release --locked -p canopy-gateway
       - name: Save the Cargo registry and build output
@@ -245,8 +247,10 @@ jobs:
           key: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
           restore-keys: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
-      - name: Build and pack the addon of this platform and the WebAssembly fallback
-        run: bun --filter @canopy/native build:native --pack
+      - name: Build and pack the addon of this platform and the WebAssembly fallback, and build the Workers and browser build
+        run: |
+          bun --filter @canopy/native build:native --pack
+          bun --filter @canopy/wasm build:native
       - name: Save the Cargo registry and build output
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

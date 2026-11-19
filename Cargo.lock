@@ -176,6 +176,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-wasm"
+version = "0.0.0"
+dependencies = [
+ "canopy-matcher",
+ "canopy-port",
+ "canopy-protocol",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "cc"
 version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

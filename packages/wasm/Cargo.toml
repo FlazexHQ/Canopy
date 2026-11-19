@@ -1,0 +1,32 @@
+[package]
+name = "canopy-wasm"
+description = "The WebAssembly port of the Canopy core for Cloudflare Workers and browsers (wasm32-unknown-unknown through wasm-bindgen): the policy engine, the event matcher, query canonicalization and the EJSON codec."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+include = ["/src/**/*.rs", "/Cargo.toml"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+canopy-matcher = { path = "../../crates/canopy-matcher" }
+canopy-port = { path = "../../crates/canopy-port" }
+canopy-protocol = { path = "../../crates/canopy-protocol" }
+js-sys = "0.3"
+wasm-bindgen = "0.2"
+
+[lints.rust]
+missing_docs = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"

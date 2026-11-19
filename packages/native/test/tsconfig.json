@@ -11,5 +11,5 @@
     "tsBuildInfoFile": "../node_modules/.cache/test-types/.tsbuildinfo"
   },
   "include": [".", "../scripts"],
-  "references": [{ "path": ".." }]
+  "references": [{ "path": ".." }, { "path": "../../wasm" }]
 }

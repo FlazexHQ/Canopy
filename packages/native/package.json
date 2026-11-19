@@ -46,6 +46,7 @@
     "@canopy/query": "workspace:*"
   },
   "devDependencies": {
+    "@canopy/wasm": "workspace:*",
     "@emnapi/core": "catalog:",
     "@emnapi/runtime": "catalog:",
     "@napi-rs/cli": "catalog:",

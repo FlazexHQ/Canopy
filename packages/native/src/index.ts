@@ -1,5 +1,6 @@
-export type { BindingKind } from "./binding.ts"
+export type { Binding, BindingKind } from "./binding.ts"
 export {
+  engineFromBinding,
   fromBinding,
   loadNativeEngine,
   type NativeCompiledFilter,

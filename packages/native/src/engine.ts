@@ -309,7 +309,15 @@ export interface NativeEngine {
  * the first that loads. Throws `CANOPY_UNAVAILABLE` when none does.
  */
 export function loadNativeEngine(kind: BindingKind = "auto"): NativeEngine {
-  const binding = loadBinding(kind)
+  return engineFromBinding(loadBinding(kind))
+}
+
+/**
+ * Wraps a build of the Rust port behind the API of the TypeScript packages: the Node-API addon or its
+ * WebAssembly fallback as `loadNativeEngine` loads them, or the `wasm32-unknown-unknown` build of
+ * `@canopy/wasm` for Cloudflare Workers and browsers, which exports the same names and shapes.
+ */
+export function engineFromBinding(binding: Binding): NativeEngine {
   return {
     kind: binding.engine(),
     compileFilter: (filter) =>

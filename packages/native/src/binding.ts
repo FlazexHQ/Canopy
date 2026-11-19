@@ -12,9 +12,7 @@ export interface BindingFilter {
 }
 
 /** A compiled filter as an opaque handle, for the `matchBson` function. */
-interface BindingFilterHandle {
-  readonly __filter: unique symbol
-}
+type BindingFilterHandle = object
 
 /** A variable that made its policy drop out, as the Rust engine reports it. */
 interface BindingVariableIssue {

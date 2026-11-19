@@ -90,6 +90,18 @@ const open = core.compileFilter({ status: "open", total: { $gte: 100 } })
 open.matches({ status: "open", total: 120 }) // true, decided in Rust`,
     guides: [["reference/configuration", "Configuration"]],
   },
+  wasm: {
+    about:
+      "For Cloudflare Workers and browsers, where a Node-API addon cannot load. It exports what `@canopy/native` exports, so `engineFromBinding` of that package wraps it behind the API of the TypeScript packages.",
+    setup: ["<!-- snippet: declare const module: WebAssembly.Module -->"],
+    snippet: `import { instantiate } from "@canopy/wasm"
+
+// On Workers: import module from "@canopy/wasm/canopy_wasm_bg.wasm"
+const core = await instantiate(module)
+const open = core.Filter.fromEjson('{"status": "open"}')
+open.matchesEjson('{"status": "open", "total": 120}') // true, decided in Rust`,
+    guides: [["concepts/document-level-security", "Document Level Security"]],
+  },
   schema: {
     about:
       "`canopy gen types` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",

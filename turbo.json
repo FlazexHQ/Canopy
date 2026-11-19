@@ -16,7 +16,7 @@
         "$TURBO_ROOT$/Cargo.lock",
         "$TURBO_ROOT$/rust-toolchain.toml"
       ],
-      "outputs": ["*.node", "*.wasm"]
+      "outputs": ["*.node", "*.wasm", "generated/**"]
     },
     "test": {
       "inputs": ["src/**", "test/**", "vectors/**", "vitest.config.ts", "package.json"],

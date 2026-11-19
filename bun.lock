@@ -372,6 +372,7 @@
         "@canopy/query": "workspace:*",
       },
       "devDependencies": {
+        "@canopy/wasm": "workspace:*",
         "@emnapi/core": "catalog:",
         "@emnapi/runtime": "catalog:",
         "@napi-rs/cli": "catalog:",
@@ -694,6 +695,18 @@
         "vue": "^3.4.0",
       },
     },
+    "packages/wasm": {
+      "name": "@canopy/wasm",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
   },
   "trustedDependencies": [],
   "catalog": {
@@ -995,6 +1008,8 @@
     "@canopy/testing": ["@canopy/testing@workspace:packages/testing"],
 
     "@canopy/vue": ["@canopy/vue@workspace:packages/vue"],
+
+    "@canopy/wasm": ["@canopy/wasm@workspace:packages/wasm"],
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.1", "", { "dependencies": { "fontkitten": "^1.0.3" } }, "sha512-CuNiSqg7+e1cO/GjffyMOm5Tt2jUF9CWHHnvQ/UkqvtkGfHdgwEC0wpmq7fkN3gxwpRnrAN0WzO3vREKmNolMQ=="],
 

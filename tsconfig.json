@@ -28,6 +28,8 @@
     { "path": "packages/policy/test" },
     { "path": "packages/native" },
     { "path": "packages/native/test" },
+    { "path": "packages/wasm" },
+    { "path": "packages/wasm/test" },
     { "path": "packages/schema" },
     { "path": "packages/schema/test" },
     { "path": "packages/config" },
