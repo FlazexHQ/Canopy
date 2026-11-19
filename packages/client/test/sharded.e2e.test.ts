@@ -150,7 +150,7 @@ suite("Canopy on a sharded cluster", () => {
         mongodb: { uri: SHARDED_URI ?? "", database: name, metaDatabase: `${name}_meta` },
         auth: { kind: "external", jwks: { keys: [jwk] }, issuer: ISSUER, audience: AUDIENCE },
         keys: { publishable: [KEY] },
-        realtime: { checkpoints: "off", drainWindow: "1s" },
+        realtime: { checkpoints: "off", drainWindow: "1s", echoTimeout: "10s" },
         rateLimits: false,
       }),
       { env: TEST_ENV, policies: createPolicySet([orders]), onSetupToken: false },

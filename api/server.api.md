@@ -650,6 +650,7 @@ export interface ResolvedConfig {
         readonly resumeWindowMs: number;
         readonly checkpoints: "meta" | "off";
         readonly drainWindowMs: number;
+        readonly echoTimeoutMs: number;
     };
     readonly rateLimits: false | {
         readonly requests: {

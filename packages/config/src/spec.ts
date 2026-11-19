@@ -206,6 +206,7 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
       resumeWindow: withDefault(duration, 120_000),
       checkpoints: withDefault(oneOf("meta", "off"), "meta"),
       drainWindow: withDefault(duration, 30_000),
+      echoTimeout: withDefault(duration, 2000),
     }),
   },
   graphql: {
@@ -350,6 +351,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RESUME_WINDOW", "realtime.resumeWindow", duration],
   ["CANOPY_CHECKPOINTS", "realtime.checkpoints", oneOf("meta", "off")],
   ["CANOPY_DRAIN_WINDOW", "realtime.drainWindow", duration],
+  ["CANOPY_ECHO_TIMEOUT", "realtime.echoTimeout", duration],
   ["CANOPY_RATE_LIMITS", "rateLimits.enabled", bool],
   ["CANOPY_RATE_LIMIT_REQUESTS", "rateLimits.requests.perSecond", int],
   ["CANOPY_RATE_LIMIT_REQUEST_BURST", "rateLimits.requests.burst", int],

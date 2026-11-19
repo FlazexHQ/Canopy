@@ -80,6 +80,7 @@ describe("resolveConfig", () => {
       resumeWindowMs: 120_000,
       checkpoints: "meta",
       drainWindowMs: 30_000,
+      echoTimeoutMs: 2000,
     })
     expect(config.server).toEqual({
       port: 8080,
@@ -193,6 +194,16 @@ describe("resolveConfig", () => {
     expect(config.server.port).toBe(9000)
     expect(config.realtime !== false && config.realtime.resumeWindowMs).toBe(30_000)
     expect(sources.get("server.port")).toEqual({ kind: "env", name: "PORT", envFile: undefined })
+  })
+
+  it("reads the echo timeout from the file or CANOPY_ECHO_TIMEOUT, and refuses one that is not a duration", () => {
+    const fromFile = resolve({ mongodb: { uri: URI }, realtime: { echoTimeout: "10s" } }).config
+    expect(fromFile.realtime !== false && fromFile.realtime.echoTimeoutMs).toBe(10_000)
+    const fromEnv = resolve({ mongodb: { uri: URI } }, { CANOPY_ECHO_TIMEOUT: "750ms" }).config
+    expect(fromEnv.realtime !== false && fromEnv.realtime.echoTimeoutMs).toBe(750)
+    expect(() => resolve({ mongodb: { uri: URI } }, { CANOPY_ECHO_TIMEOUT: "soon" })).toThrow(
+      ConfigError,
+    )
   })
 
   it("fails when the file and a well known variable disagree", () => {

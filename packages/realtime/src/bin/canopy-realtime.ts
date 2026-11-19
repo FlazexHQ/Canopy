@@ -69,6 +69,7 @@ export function realtimeOptions(config: ResolvedConfig, logger: Logger): Realtim
     fullDocument: realtime.fullDocument,
     checkpoints: realtime.checkpoints,
     resumeWindowMs: realtime.resumeWindowMs,
+    echoTimeoutMs: realtime.echoTimeoutMs,
     nodeId: config.server.nodeId,
     engine: config.server.engine,
     logger,

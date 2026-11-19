@@ -405,6 +405,7 @@ export function normalize(
           resumeWindowMs: at<number>("realtime.resumeWindow"),
           checkpoints: at<"meta" | "off">("realtime.checkpoints"),
           drainWindowMs: at<number>("realtime.drainWindow"),
+          echoTimeoutMs: at<number>("realtime.echoTimeout"),
         }
 
   const rateLimits: ResolvedConfig["rateLimits"] =

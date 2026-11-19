@@ -88,6 +88,7 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `resumeWindow` | `CANOPY_RESUME_WINDOW`          | `2m`                                |
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
+| `echoTimeout`  | `CANOPY_ECHO_TIMEOUT`           | `2s`                                |
 
 ## `rateLimits`
 

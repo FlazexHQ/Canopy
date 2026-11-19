@@ -334,6 +334,12 @@ export interface RealtimeInput {
   readonly checkpoints?: Value<"meta" | "off">
   /** How long shutdown waits for clients to move. @default "30s" */
   readonly drainWindow?: Value<number | string>
+  /**
+   * How long a write's acknowledgement waits for the write's change events before it is sent with the post
+   * images instead (`echo: false`). Raise it on a sharded cluster, where an idle shard delays change events.
+   * @default "2s"
+   */
+  readonly echoTimeout?: Value<number | string>
 }
 
 /** One token bucket: the rate a caller can sustain and the burst it can spend at once. */
@@ -770,6 +776,7 @@ export interface ResolvedConfig {
         readonly resumeWindowMs: number
         readonly checkpoints: "meta" | "off"
         readonly drainWindowMs: number
+        readonly echoTimeoutMs: number
       }
   readonly rateLimits:
     | false

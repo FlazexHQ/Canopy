@@ -260,6 +260,7 @@ export interface RealtimeInput {
     readonly resumeWindow?: Value<number | string>;
     readonly checkpoints?: Value<"meta" | "off">;
     readonly drainWindow?: Value<number | string>;
+    readonly echoTimeout?: Value<number | string>;
 }
 
 export interface RelationInput {
@@ -392,6 +393,7 @@ export interface ResolvedConfig {
         readonly resumeWindowMs: number;
         readonly checkpoints: "meta" | "off";
         readonly drainWindowMs: number;
+        readonly echoTimeoutMs: number;
     };
     readonly rateLimits: false | {
         readonly requests: {

@@ -26,5 +26,10 @@ Lower the no-op interval on every shard member to bound the delay. It is a start
 mongod --shardsvr --replSet shard1 --setParameter periodicNoopIntervalSecs=1
 ```
 
-The sharded cluster in `deploy/compose/sharded.yaml` sets it to 1 second, which is what the sharded checks run
-against. A busy cluster, where every shard receives writes continuously, does not need it.
+The sharded cluster in `deploy/compose/sharded.yaml` sets it to 1 second. A busy cluster, where every shard
+receives writes continuously, does not need it.
+
+Even with a short interval, an event crosses mongos and every shard's clock before it arrives, which on a
+loaded host can take longer than the 2 second wait of an ack. Raise `realtime.echoTimeout`
+(`CANOPY_ECHO_TIMEOUT`) so acks keep carrying `echo: true`; the sharded checks run with `echoTimeout: "10s"`.
+A longer wait only delays the ack of a write whose events are late, it never changes what is stored.

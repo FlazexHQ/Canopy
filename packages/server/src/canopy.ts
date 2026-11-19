@@ -573,6 +573,7 @@ async function buildData(
         fullDocument: realtimeConfig.fullDocument,
         checkpoints: realtimeConfig.checkpoints,
         resumeWindowMs: realtimeConfig.resumeWindowMs,
+        echoTimeoutMs: realtimeConfig.echoTimeoutMs,
         nodeId: config.server.nodeId,
         engine: config.server.engine,
         contexts,
