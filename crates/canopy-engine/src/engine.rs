@@ -198,7 +198,7 @@ struct ContextRequest {
 }
 
 /// How often the timers are swept: hello and heartbeat deadlines, token expiry, resume windows, lingering
-/// observers, window re-reads, polling, echo deadlines and context lookup expiry.
+/// observers, echo deadlines and context lookup expiry. Window re-reads and polling run at their own times.
 const SWEEP_MS: u64 = 50;
 
 /// How long a failed context lookup waits before it is resolved again.
@@ -1774,6 +1774,7 @@ impl Engine {
     /// Runs every timer due at `now`: hello timeouts, heartbeats, token expiry, resume windows, observer
     /// lingers and re-reads, echo deadlines, time based policies and the drain.
     pub fn tick(&mut self, now: u64) {
+        self.run_timed(now);
         if now < self.next_sweep {
             return;
         }
@@ -1868,18 +1869,6 @@ impl Engine {
                 self.destroy_observer(id);
             }
         }
-        let mut timed: Vec<ObserverId> = self.timed.iter().copied().collect();
-        timed.sort_unstable();
-        for id in timed {
-            let due = self.registry.get(id).and_then(Observer::due).is_some_and(|at| at <= now);
-            if due {
-                if let Some(observer) = self.registry.get_mut(id) {
-                    observer.tick(now);
-                }
-                let notes = std::mem::take(&mut self.notes);
-                self.after_observer(id, notes, now);
-            }
-        }
         let expired = self.echo.expire(now);
         self.settle_acks(expired);
         let stale: Vec<(String, Vec<String>)> = self
@@ -1932,7 +1921,27 @@ impl Engine {
 
     /// The earliest time [`Engine::tick`] has work, so the transport can sleep until then.
     pub fn next_due(&self) -> Option<u64> {
-        Some(self.next_sweep)
+        let observers = self.timed.iter().filter_map(|id| self.registry.get(*id).and_then(Observer::due));
+        Some(observers.fold(self.next_sweep, u64::min))
+    }
+
+    /// Runs the window re-reads and polling re-runs that are due. They keep their own times rather than the
+    /// sweep's, since a window waiting for a re-read holds back documents its subscribers should see.
+    fn run_timed(&mut self, now: u64) {
+        let mut due: Vec<ObserverId> = self
+            .timed
+            .iter()
+            .copied()
+            .filter(|id| self.registry.get(*id).and_then(Observer::due).is_some_and(|at| at <= now))
+            .collect();
+        due.sort_unstable();
+        for id in due {
+            if let Some(observer) = self.registry.get_mut(id) {
+                observer.tick(now);
+            }
+            let notes = std::mem::take(&mut self.notes);
+            self.after_observer(id, notes, now);
+        }
     }
 }
 

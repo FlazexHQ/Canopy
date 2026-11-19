@@ -47,6 +47,12 @@ const sim = collection("sim", {
   ],
 })
 const SIM_SEEDS = Number(process.env["CANOPY_SIM_SEEDS"] ?? "5")
+/**
+ * Seeds that once failed, replayed before the others on every run. 1743 must come first: its first insert
+ * creates the collection while the subscriptions read their snapshots. 1744 then finds sorted windows that
+ * the deletes of the previous seed left short of their limit.
+ */
+const REGRESSION_SEEDS = [1743, 1744]
 
 const contexts = {
   teams: {
@@ -363,7 +369,8 @@ for (const kind of servers) {
           fc.record({ op: fc.constant("hide" as const), id: fc.nat(30), hidden: fc.boolean() }),
           fc.record({ op: fc.constant("delete" as const), id: fc.nat(30) }),
         )
-        for (let seed = 0; seed < SIM_SEEDS; seed += 1) {
+        const seeds = [...REGRESSION_SEEDS, ...Array.from({ length: SIM_SEEDS }, (_, seed) => seed)]
+        for (const seed of seeds) {
           await coll.deleteMany({})
           const writes =
             fc.sample(fc.array(write, { minLength: 20, maxLength: 60 }), { numRuns: 1, seed })[0] ??

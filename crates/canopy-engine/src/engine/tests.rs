@@ -657,6 +657,37 @@ fn a_window_keeps_the_sorted_top_documents() {
     assert!(contains(&frames, r#"{"t":"added","c":"items","id":3"#), "{frames:?}");
 }
 
+#[test]
+fn a_window_re_reads_when_due_rather_than_at_the_next_sweep() {
+    let mut h = Harness::new(policies(None));
+    h.connect(1, user("v", &["viewer"]));
+    h.send(1, r#"{"t":"sub","id":"top","c":"items","q":{"sort":{"n":-1},"limit":2}}"#);
+    let read = h.reads.remove(0);
+    let docs: Vec<Document> =
+        (1..=4).map(|id| doc(&format!(r#"{{"_id":{id},"n":{}}}"#, 10 - id))).collect();
+    h.engine.read_done(read.id, Ok(ReadResult { documents: docs, ct: Ct(10) }), h.now);
+    h.pump();
+    h.engine.tick(h.now);
+    h.pump();
+    h.frames(1);
+    let sweep = h.engine.next_due().unwrap_or(0);
+    assert!(sweep > h.now);
+    h.now += 1;
+    h.events(vec![
+        event(Op::Delete, 1, None, 11),
+        event(Op::Delete, 2, None, 12),
+        event(Op::Delete, 3, None, 13),
+    ]);
+    assert!(h.reads.is_empty(), "the window waits for its re-read interval");
+    let due = h.engine.next_due().unwrap_or(u64::MAX);
+    assert!(due < sweep, "the re-read is due at {due}, before the next sweep at {sweep}");
+    h.now = due;
+    h.engine.tick(h.now);
+    h.pump();
+    assert_eq!(h.reads.len(), 1, "the window is short of its limit, so it reads again");
+    assert_eq!(h.reads[0].read.limit, Some(4));
+}
+
 fn team_policies() -> PolicySet {
     let mut items = CollectionPolicies::new("items");
     items.exposed = true;

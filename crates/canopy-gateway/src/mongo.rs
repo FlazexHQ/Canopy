@@ -9,7 +9,8 @@ use canopy_protocol::ejson::{DecodeOptions, decode};
 use canopy_protocol::json::Json;
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 use futures_util::TryStreamExt;
-use mongodb::bson::{RawDocumentBuf, doc};
+use mongodb::bson::{RawDocumentBuf, Timestamp, doc};
+use mongodb::error::ErrorKind;
 use mongodb::{Client, Collection, Database};
 use tokio::sync::Semaphore;
 
@@ -23,6 +24,14 @@ pub(crate) fn to_bson(document: &Document) -> Result<mongodb::bson::Document, Ca
 /// Decodes a raw document from the driver.
 pub(crate) fn from_raw(raw: &mongodb::bson::RawDocument) -> Result<Document, CanopyError> {
     decode_document(raw.as_bytes())
+}
+
+/// MongoDB's `SnapshotUnavailable`: the requested time is not readable yet, for example during a catalog change.
+const SNAPSHOT_UNAVAILABLE: i32 = 246;
+const SNAPSHOT_ATTEMPTS: u32 = 5;
+
+fn snapshot_unavailable(error: &mongodb::error::Error) -> bool {
+    matches!(error.kind.as_ref(), ErrorKind::Command(command) if command.code == SNAPSHOT_UNAVAILABLE)
 }
 
 pub(crate) fn unavailable(error: impl std::fmt::Display) -> CanopyError {
@@ -48,8 +57,9 @@ impl Reader {
 
     /// Reads a query in a snapshot session and reports the snapshot's cluster time T: every write with
     /// `ct <= T` is in the result. T is the session's `snapshotTime`, never its `operationTime`. A read of a
-    /// collection that does not exist yet has no snapshot time, so a cluster time is taken first and the read
-    /// repeated, which keeps T from being later than what the result reflects.
+    /// collection that does not exist yet has no snapshot time, so a cluster time T is taken and the read
+    /// repeated at exactly T: a write at or before T that was not visible yet (such as the insert that creates
+    /// the collection) is then in the result rather than skipped as delivered.
     pub(crate) async fn snapshot(
         &self,
         coll: &str,
@@ -62,13 +72,54 @@ impl Reader {
         if let Some(ct) = first.1 {
             return Ok(ReadResult { documents: first.0, ct });
         }
-        let before = self.cluster_time().await?;
-        let second = self.read_once(coll, filter, sort, limit).await?;
-        let ct = second
-            .1
-            .or(before)
-            .ok_or_else(|| CanopyError::new(ErrorCode::Internal, "The snapshot read has no cluster time"))?;
-        Ok(ReadResult { documents: second.0, ct })
+        let mut attempt = 1;
+        loop {
+            let ct = self.cluster_time().await?.ok_or_else(|| {
+                CanopyError::new(ErrorCode::Internal, "The snapshot read has no cluster time")
+            })?;
+            match self.read_at(coll, filter, sort, limit, ct).await {
+                Ok(documents) => return Ok(ReadResult { documents, ct }),
+                Err(error) if snapshot_unavailable(&error) && attempt < SNAPSHOT_ATTEMPTS => attempt += 1,
+                Err(error) => return Err(unavailable(error)),
+            }
+        }
+    }
+
+    /// Reads a query as of exactly `ct`, which MongoDB waits for until every write up to it is visible.
+    async fn read_at(
+        &self,
+        coll: &str,
+        filter: &Document,
+        sort: Option<&Document>,
+        limit: Option<u32>,
+        ct: Ct,
+    ) -> mongodb::error::Result<Vec<Document>> {
+        let sort = with_id_tie_breaker(&sort.cloned().unwrap_or_default());
+        let encode = |document: &Document| {
+            to_bson(document).map_err(|error| mongodb::error::Error::custom(error.message().to_owned()))
+        };
+        let mut command = doc! {
+            "find": coll,
+            "filter": encode(filter)?,
+            "sort": encode(&sort)?,
+            "maxTimeMS": 30_000,
+            "readConcern": {
+                "level": "snapshot",
+                "atClusterTime": Timestamp { time: ct.seconds(), increment: ct.increment() },
+            },
+        };
+        if let Some(limit) = limit {
+            command.insert("limit", i64::from(limit));
+        }
+        let mut cursor = self.db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
+        let mut out = Vec::new();
+        while cursor.advance().await? {
+            out.push(
+                from_raw(cursor.current())
+                    .map_err(|error| mongodb::error::Error::custom(error.message().to_owned()))?,
+            );
+        }
+        Ok(out)
     }
 
     async fn read_once(

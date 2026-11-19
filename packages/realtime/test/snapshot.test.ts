@@ -1,5 +1,5 @@
 import { ctFromParts } from "@canopy/protocol"
-import { type Db, type MongoClient, Timestamp } from "mongodb"
+import { type Db, Long, type MongoClient, MongoServerError, Timestamp } from "mongodb"
 import { describe, expect, it } from "vitest"
 import { MongoSnapshotReader } from "../src/snapshot.ts"
 
@@ -11,10 +11,19 @@ interface FakeSession {
 
 /**
  * A driver double: snapshot sessions report `snapshotTime` only when `snapshotTimes` says so (a missing
- * collection reports none) and always carry a later `operationTime`; a `ping` reports `pingTime`.
+ * collection reports none) and always carry a later `operationTime`; each `ping` reports the next of
+ * `pingTimes`. A `find` command answers with `batches` (one cursor page each), or fails with
+ * `SnapshotUnavailable` as many times as `unavailable` says.
  */
-function fakeDriver(options: { snapshotTimes: (Timestamp | undefined)[]; pingTime: Timestamp }) {
-  const calls = { reads: 0, pings: 0 }
+function fakeDriver(options: {
+  snapshotTimes: (Timestamp | undefined)[]
+  pingTimes: Timestamp[]
+  batches?: Record<string, unknown>[][]
+  unavailable?: number
+}) {
+  const calls = { reads: 0, pings: 0, finds: [] as Record<string, unknown>[], getMores: 0 }
+  let unavailable = options.unavailable ?? 0
+  const batches = options.batches ?? [[]]
   const client = {
     startSession(settings?: { snapshot?: boolean }): FakeSession {
       const session: FakeSession = { endSession: async () => undefined }
@@ -34,10 +43,28 @@ function fakeDriver(options: { snapshotTimes: (Timestamp | undefined)[]; pingTim
   }
   const db = {
     collection: () => ({ find: () => cursor }),
-    command: async (_command: unknown, { session }: { session: FakeSession }) => {
-      calls.pings += 1
-      session.operationTime = options.pingTime
-      return { ok: 1 }
+    command: async (command: Record<string, unknown>, settings?: { session?: FakeSession }) => {
+      const page = (index: number) => ({
+        id: index + 1 < batches.length ? Long.fromNumber(index + 1) : Long.ZERO,
+        [index === 0 ? "firstBatch" : "nextBatch"]: batches[index] ?? [],
+      })
+      if ("ping" in command) {
+        const time = options.pingTimes[calls.pings]
+        calls.pings += 1
+        if (settings?.session !== undefined && time !== undefined)
+          settings.session.operationTime = time
+        return { ok: 1 }
+      }
+      if ("find" in command) {
+        calls.finds.push(command)
+        if (unavailable > 0) {
+          unavailable -= 1
+          throw new MongoServerError({ message: "Unable to read from a snapshot", code: 246 })
+        }
+        return { cursor: page(0) }
+      }
+      calls.getMores += 1
+      return { cursor: page(Number(command["getMore"])) }
     },
   }
   const reader = new MongoSnapshotReader(client as unknown as MongoClient, db as unknown as Db, {
@@ -52,28 +79,62 @@ describe("MongoSnapshotReader", () => {
   it("reports the snapshot time of the read, not the later operation time", async () => {
     const { reader, calls } = fakeDriver({
       snapshotTimes: [new Timestamp({ t: 100, i: 2 })],
-      pingTime: new Timestamp({ t: 50, i: 1 }),
+      pingTimes: [new Timestamp({ t: 50, i: 1 })],
     })
     const { ct } = await reader.read(query)
     expect(ct).toBe(ctFromParts(100, 2))
-    expect(calls).toEqual({ reads: 1, pings: 0 })
+    expect(calls).toEqual({ reads: 1, pings: 0, finds: [], getMores: 0 })
   })
 
-  it("without a snapshot time, takes a cluster time first and reads again instead of using the operation time", async () => {
+  it("without a snapshot time, takes a cluster time and reads again at exactly that time", async () => {
     const { reader, calls } = fakeDriver({
-      snapshotTimes: [undefined, undefined],
-      pingTime: new Timestamp({ t: 500, i: 3 }),
+      snapshotTimes: [undefined],
+      pingTimes: [new Timestamp({ t: 500, i: 3 })],
+      batches: [[{ _id: 1 }]],
     })
-    const { ct } = await reader.read(query)
+    const { docs, ct } = await reader.read(query)
     expect(ct).toBe(ctFromParts(500, 3))
-    expect(calls).toEqual({ reads: 2, pings: 1 })
+    expect(docs).toEqual([{ _id: 1 }])
+    expect(calls.reads).toBe(1)
+    expect(calls.pings).toBe(1)
+    expect(calls.finds).toHaveLength(1)
+    expect(calls.finds[0]?.["readConcern"]).toEqual({
+      level: "snapshot",
+      atClusterTime: new Timestamp({ t: 500, i: 3 }),
+    })
   })
 
-  it("uses the snapshot time of the second read when the collection appeared in between", async () => {
-    const { reader } = fakeDriver({
-      snapshotTimes: [undefined, new Timestamp({ t: 600, i: 1 })],
-      pingTime: new Timestamp({ t: 500, i: 3 }),
+  it("pages through the cursor of the read at a cluster time", async () => {
+    const { reader, calls } = fakeDriver({
+      snapshotTimes: [undefined],
+      pingTimes: [new Timestamp({ t: 500, i: 3 })],
+      batches: [[{ _id: 1 }], [{ _id: 2 }], [{ _id: 3 }]],
     })
-    expect((await reader.read(query)).ct).toBe(ctFromParts(600, 1))
+    expect((await reader.read(query)).docs).toEqual([{ _id: 1 }, { _id: 2 }, { _id: 3 }])
+    expect(calls.getMores).toBe(2)
+  })
+
+  it("takes a new cluster time while MongoDB cannot serve the one it asked for", async () => {
+    const { reader, calls } = fakeDriver({
+      snapshotTimes: [undefined],
+      pingTimes: [new Timestamp({ t: 500, i: 3 }), new Timestamp({ t: 501, i: 1 })],
+      unavailable: 1,
+    })
+    expect((await reader.read(query)).ct).toBe(ctFromParts(501, 1))
+    expect(calls.finds.map((find) => find["readConcern"])).toEqual([
+      { level: "snapshot", atClusterTime: new Timestamp({ t: 500, i: 3 }) },
+      { level: "snapshot", atClusterTime: new Timestamp({ t: 501, i: 1 }) },
+    ])
+  })
+
+  it("gives up after five attempts", async () => {
+    const times = [1, 2, 3, 4, 5, 6].map((t) => new Timestamp({ t, i: 1 }))
+    const { reader, calls } = fakeDriver({
+      snapshotTimes: [undefined],
+      pingTimes: times,
+      unavailable: 6,
+    })
+    await expect(reader.read(query)).rejects.toMatchObject({ code: 246 })
+    expect(calls.finds).toHaveLength(5)
   })
 })
