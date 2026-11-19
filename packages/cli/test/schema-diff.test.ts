@@ -1,13 +1,15 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { allow, createPolicySet, PolicyEngine, collection as policies } from "@canopy/policy"
 import type { SchemaDifference } from "@canopy/schema"
+import { collection, t, toCollectionSchema } from "@canopy/schema/define"
 import { MONGODB_URI } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { run } from "../src/cli.ts"
 import * as schemaLoader from "../src/gen-types.ts"
-import { driftReport, schemaDrift } from "../src/schema-diff.ts"
+import { driftReport, roleReport, schemaDrift } from "../src/schema-diff.ts"
 
 const source = `import { collection, defineSchema, t } from "@canopy/schema/define"
 export const schema = defineSchema(collection("notes", { body: t.string() }))`
@@ -123,6 +125,98 @@ describe("schema files", () => {
       errors: [
         "notes is in the schema file but not in the database",
         `1 differences; edit ${file} or run canopy schema push`,
+      ],
+    })
+  })
+})
+
+describe("schema diff role report", () => {
+  const items = toCollectionSchema(
+    collection("items", {
+      owner: t.string(),
+      details: t.object({ email: t.string(), name: t.string() }),
+      lines: t.array(t.object({ cost: t.int(), sku: t.string() })),
+    }),
+  )
+  const archive = toCollectionSchema(collection("archive", { body: t.string() }))
+  const engine = new PolicyEngine(
+    createPolicySet([
+      policies("items", {
+        exposed: true,
+        policies: [allow.read("authenticated"), allow.insert("editor")],
+        fields: {
+          read: { default: { omit: ["details.email", "lines.cost"] } },
+          write: { default: { only: ["details", "lines.sku"] } },
+          update: { default: { only: ["owner"] } },
+        },
+      }),
+    ]),
+  )
+
+  it("reports projected fields and insert restrictions in collection and path order", () => {
+    expect(roleReport([items, archive], engine, "editor")).toEqual([
+      "role editor on archive:",
+      "  cannot read the collection",
+      "  cannot write: _id, body (on insert)",
+      "role editor on items:",
+      "  cannot read: details.email, lines.cost",
+      "  cannot write: lines.cost, owner (on insert)",
+    ])
+  })
+
+  it("reports unrestricted access for service", () => {
+    expect(roleReport([items, archive], engine, "service")).toEqual([
+      "role service can read and write every declared field",
+    ])
+  })
+
+  it("requires an explicit, loadable policy directory", async () => {
+    await writeFile(join(dir, "canopy.schema.js"), source)
+    expect(await invoke("diff", "--role", "anon")).toMatchObject({
+      code: 1,
+      errors: ["--role needs a policy directory from --dir or policies.dir"],
+    })
+    expect(await invoke("diff", "--role", "anon", "--dir", "missing")).toMatchObject({
+      code: 1,
+      errors: [expect.stringMatching(/Cannot load policies from .*missing/)],
+    })
+  })
+
+  it("prints restrictions after a clean diff and preserves the status on drift", async () => {
+    await writeFile(join(dir, "canopy.schema.js"), source)
+    const policyDir = fileURLToPath(new URL("./fixtures/good", import.meta.url))
+    await writeFile(
+      join(dir, "canopy.config.mjs"),
+      `export default { policies: { dir: ${JSON.stringify(policyDir)} } }`,
+    )
+    const loader = vi
+      .spyOn(schemaLoader, "loadCollectionSchemas")
+      .mockResolvedValue([toCollectionSchema(collection("notes", { body: t.string() }))])
+    const flags = [
+      "--role",
+      "anon",
+      "--mongodb-uri",
+      "mongodb://localhost/app",
+      "--config",
+      "canopy.config.mjs",
+    ]
+    const restrictions = [
+      "role anon on notes:",
+      "  cannot read the collection",
+      "  cannot write: _id, body (on insert)",
+    ]
+    expect(await invoke("diff", ...flags)).toEqual({
+      code: 0,
+      errors: [],
+      lines: ["no drift between canopy.schema.js and app", ...restrictions],
+    })
+    loader.mockResolvedValue([])
+    expect(await invoke("diff", ...flags)).toMatchObject({
+      code: 1,
+      lines: restrictions,
+      errors: [
+        expect.stringContaining("notes is in the schema file"),
+        expect.stringContaining("1 differences"),
       ],
     })
   })

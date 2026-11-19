@@ -45,7 +45,7 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
     handler: { kind: "app", load: "gen", run: pull },
   },
   "schema diff": {
-    flags: ["file", "sample", "infer-enums"],
+    flags: ["file", "sample", "infer-enums", "role"],
     handler: { kind: "config", load: "policies", run: runSchema },
   },
   "schema push": {

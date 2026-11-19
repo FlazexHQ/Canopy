@@ -2,11 +2,15 @@ import { existsSync, watch } from "node:fs"
 import { basename, dirname, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { isDeepStrictEqual } from "node:util"
+import { PolicyEngine, Role } from "@canopy/policy"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { directoryPolicies } from "@canopy/realtime"
 import {
   type CollectionSchema,
   diffSchemas,
+  restrictShape,
   type SchemaDifference,
+  type Shape,
   toValidator,
 } from "@canopy/schema"
 import { type SchemaDefinition, toCollectionSchemas } from "@canopy/schema/define"
@@ -81,6 +85,58 @@ async function readDeclared(file: string, cwd: string, fresh = false) {
 }
 
 type SchemaOptions = Parameters<typeof loadCollectionSchemas>[0]
+
+function fieldPaths(shape: Shape): Set<string> {
+  const paths = new Set<string>()
+  function visit(value: Shape, prefix: string): void {
+    if (value.kind === "array") visit(value.items, prefix)
+    if (value.kind === "union") for (const member of value.of) visit(member, prefix)
+    if (value.kind === "object") {
+      for (const [name, field] of Object.entries(value.fields)) {
+        const path = prefix === "" ? name : `${prefix}.${name}`
+        paths.add(path)
+        visit(field.shape, path)
+      }
+    }
+  }
+  visit(shape, "")
+  return paths
+}
+
+/** Reports declared paths excluded by a role's read and insert permissions. */
+export function roleReport(
+  declared: readonly CollectionSchema[],
+  engine: PolicyEngine,
+  role: string,
+): string[] {
+  const base = role === Role.Anon || role === Role.Authenticated || role === Role.Service
+  const ctx = {
+    roles: new Set(base ? [role] : [Role.Authenticated, role]),
+    claims: null,
+    now: new Date(0),
+  }
+  const lines: string[] = []
+  for (const { name, shape } of [...declared].sort((a, b) =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+  )) {
+    const paths = [...fieldPaths(shape)].sort()
+    const restrictions: string[] = []
+    if (engine.hasGrant(name, "read", ctx)) {
+      const visible = fieldPaths(restrictShape(shape, engine.readable(name, ctx)))
+      const hidden = paths.filter((path) => !visible.has(path))
+      if (hidden.length > 0) restrictions.push(`  cannot read: ${hidden.join(", ")}`)
+    } else {
+      restrictions.push("  cannot read the collection")
+    }
+    const writable = engine.hasGrant(name, "insert", ctx)
+      ? fieldPaths(restrictShape(shape, engine.writable(name, "insert", ctx)))
+      : new Set<string>()
+    const denied = paths.filter((path) => !writable.has(path))
+    if (denied.length > 0) restrictions.push(`  cannot write: ${denied.join(", ")} (on insert)`)
+    if (restrictions.length > 0) lines.push(`role ${role} on ${name}:`, ...restrictions)
+  }
+  return lines.length > 0 ? lines : [`role ${role} can read and write every declared field`]
+}
 
 async function compareDeclared(
   declared: CollectionSchema[],
@@ -238,6 +294,29 @@ export async function runSchema(call: Configured): Promise<number> {
       out.error("--sample needs a positive integer")
       return 1
     }
+    const role = flags.get("role")
+    let report: string[] = []
+    if (role !== undefined) {
+      if (role === true || role.trim() === "") {
+        out.error("--role needs a role name")
+        return 1
+      }
+      if (!call.dirGiven) {
+        out.error("--role needs a policy directory from --dir or policies.dir")
+        return 1
+      }
+      try {
+        const set = await directoryPolicies(call.dir).load()
+        if (set.collections.size === 0) {
+          out.error(`No collection policies found in ${call.dir}`)
+          return 1
+        }
+        report = roleReport(declared, new PolicyEngine(set), role)
+      } catch (error: unknown) {
+        out.error(`Cannot load policies from ${call.dir}: ${messageOf(error)}`)
+        return 1
+      }
+    }
     const app = appTarget(call)
     if (app === undefined) return 1
     await using client = new MongoClient(app.mongodbUri, { serverSelectionTimeoutMS: 10_000 })
@@ -250,11 +329,12 @@ export async function runSchema(call: Configured): Promise<number> {
     })
     if (differences.length === 0) {
       out.log(`no drift between ${file} and ${app.database}`)
-      return 0
+    } else {
+      for (const difference of differences) out.error(difference.message)
+      out.error(`${differences.length} differences; edit ${file} or run canopy schema push`)
     }
-    for (const difference of differences) out.error(difference.message)
-    out.error(`${differences.length} differences; edit ${file} or run canopy schema push`)
-    return 1
+    for (const line of report) out.log(line)
+    return differences.length === 0 ? 0 : 1
   } catch (error: unknown) {
     out.error(messageOf(error))
     return 1

@@ -108,7 +108,8 @@ Options:
   --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens
                          create: the token's name
   --email <email>        admin create: the admin's email
-  --role <role>          gen types: make fields this role cannot read optional; admin create, admin
+  --role <role>          schema diff: report fields the role cannot read or write on insert
+                         gen types: make fields this role cannot read optional; admin create, admin
                          tokens create: the role (a token's defaults to yours and may not be higher)
   --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)
   --all                  admin tokens list: every admin's tokens (owners and admins)

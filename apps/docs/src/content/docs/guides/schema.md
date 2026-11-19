@@ -163,7 +163,8 @@ comparison when collections change and warns instead of changing anything.
 (`--yes` skips the question), never runs at startup and never touches a collection the file does not declare.
 
 Static types describe a collection, not what one role may do: Document Level Security still decides every
-request at runtime.
+request at runtime. `canopy schema diff --role <role>` adds a report of the declared fields that role cannot
+read, or cannot write on insert, under the field rules of your policies.
 
 ## Moving from `canopy gen types`
 
