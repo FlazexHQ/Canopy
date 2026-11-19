@@ -30,6 +30,7 @@
     "vue": "^3.4.0"
   },
   "devDependencies": {
+    "@canopy/schema": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "happy-dom": "catalog:",

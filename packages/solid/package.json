@@ -30,6 +30,7 @@
     "solid-js": "^1.8.0"
   },
   "devDependencies": {
+    "@canopy/schema": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "happy-dom": "catalog:",
