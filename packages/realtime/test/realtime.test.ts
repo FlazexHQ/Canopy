@@ -398,10 +398,34 @@ suite("realtime engine against MongoDB", () => {
             const got = [...client.view(`f${fi}`).values()].sort(
               (a, b) => Number(a["_id"]) - Number(b["_id"]),
             )
+            const gotText = got.map((doc) => canonicalString(doc))
+            const expectedText = expected.map((doc) => canonicalString(doc))
+            const differing = new Set(
+              [...got, ...expected]
+                .map((doc) => Number(doc["_id"]))
+                .filter(
+                  (id) =>
+                    canonicalString(got.find((doc) => Number(doc["_id"]) === id) ?? null) !==
+                    canonicalString(expected.find((doc) => Number(doc["_id"]) === id) ?? null),
+                ),
+            )
+            const history = [...differing].map((id) => {
+              const written = writes
+                .map((w, index) => ({
+                  index,
+                  phase: index < half ? "concurrent" : "sequential",
+                  ...w,
+                }))
+                .filter((w) => w.id === id)
+              const received = client.messages.filter(
+                (m) => "c" in m && "id" in m && Number(canonicalString(m.id)) === id,
+              )
+              return `document ${id}: writes ${JSON.stringify(written)}; messages ${received.map((m) => canonicalString(m)).join(" ")}`
+            })
             expect(
-              got.map((doc) => canonicalString(doc)),
-              `seed ${seed}, ${user}, filter ${JSON.stringify(filter)}`,
-            ).toEqual(expected.map((doc) => canonicalString(doc)))
+              gotText,
+              `seed ${seed}, ${user}, filter ${JSON.stringify(filter)}: got ${gotText.join(" ")}, MongoDB has ${expectedText.join(" ")}; ${history.join("; ")}`,
+            ).toEqual(expectedText)
             for (const doc of got) expect(compileFilter({ ownerId: user }).matches(doc)).toBe(true)
           }
           client.bye()
