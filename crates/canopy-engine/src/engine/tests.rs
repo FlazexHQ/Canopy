@@ -66,6 +66,7 @@ struct Harness {
     reads: Vec<ReadRequest>,
     lookups: Vec<(u64, String, Vec<Value>)>,
     writes: Vec<MutationRequest>,
+    contexts: Vec<(u64, Vec<ContextRead>)>,
 }
 
 impl Harness {
@@ -78,6 +79,7 @@ impl Harness {
             reads: Vec::new(),
             lookups: Vec::new(),
             writes: Vec::new(),
+            contexts: Vec::new(),
         }
     }
 
@@ -90,6 +92,7 @@ impl Harness {
                 Output::Read(read) => self.reads.push(read),
                 Output::Lookup { id, coll, ids } => self.lookups.push((id, coll, ids)),
                 Output::Mutate(request) => self.writes.push(*request),
+                Output::Contexts { id, reads } => self.contexts.push((id, reads)),
                 Output::Authenticate { .. } | Output::Session { .. } | Output::Collections(_) => {}
             }
         }
@@ -652,4 +655,119 @@ fn a_window_keeps_the_sorted_top_documents() {
     let frames = h.frames(1);
     assert!(contains(&frames, r#"{"t":"removed","c":"items","id":2"#), "{frames:?}");
     assert!(contains(&frames, r#"{"t":"added","c":"items","id":3"#), "{frames:?}");
+}
+
+fn team_policies() -> PolicySet {
+    let mut items = CollectionPolicies::new("items");
+    items.exposed = true;
+    items.realtime = true;
+    items.policies = vec![PolicyDefinition {
+        name: "team items".to_owned(),
+        kind: PolicyKind::Permissive,
+        ops: vec![Operation::Read],
+        roles: vec!["authenticated".to_owned()],
+        using: Some(doc(r#"{"team": {"$in": {"$ctx": "teams"}}}"#)),
+        check: None,
+    }];
+    let lookup = canopy_policy::ContextLookup {
+        from: "memberships".to_owned(),
+        filter: doc(r#"{"userId": {"$auth": "sub"}}"#),
+        select: "teamId".to_owned(),
+        max: 10.0,
+        ttl: "30s".to_owned(),
+    };
+    match create_policy_set(vec![items], vec![("teams".to_owned(), lookup)]) {
+        Ok(set) => set,
+        Err(error) => unreachable!("valid policies: {error:?}"),
+    }
+}
+
+fn team_docs() -> Vec<Document> {
+    vec![doc(r#"{"_id":1,"team":"t1"}"#), doc(r#"{"_id":2,"team":"t2"}"#)]
+}
+
+#[test]
+fn a_subscription_waits_for_its_context_lookups() {
+    let mut h = Harness::new(team_policies());
+    assert!(h.engine.watched().contains(&"memberships".to_owned()));
+    h.connect(1, user("alice", &[]));
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    assert!(h.reads.is_empty(), "no read before the lookup is resolved");
+    let (id, reads) = h.contexts.remove(0);
+    assert_eq!(reads.len(), 1);
+    assert_eq!(reads[0].from, "memberships");
+    assert_eq!(format!("{:?}", reads[0].filter), format!("{:?}", doc(r#"{"userId":"alice"}"#)));
+    assert_eq!(reads[0].limit, 11);
+    h.engine.contexts_done(
+        id,
+        vec![("teams".to_owned(), Ok(vec![doc(r#"{"userId":"alice","teamId":"t1"}"#)]))],
+        h.now,
+    );
+    h.pump();
+    assert_eq!(h.reads.len(), 1);
+    h.answer_reads(&team_docs(), Ct(10));
+    let frames = h.frames(1);
+    assert!(contains(&frames, r#""id":1"#), "{frames:?}");
+    assert!(!contains(&frames, r#""id":2"#), "{frames:?}");
+}
+
+#[test]
+fn a_membership_change_moves_the_subscription_without_a_resync() {
+    let mut h = Harness::new(team_policies());
+    h.connect(1, user("alice", &[]));
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    let (id, _) = h.contexts.remove(0);
+    h.engine.contexts_done(id, vec![("teams".to_owned(), Ok(vec![doc(r#"{"teamId":"t1"}"#)]))], h.now);
+    h.pump();
+    h.answer_reads(&team_docs(), Ct(10));
+    h.frames(1);
+    let mut membership = event(Op::Update, 7, Some(r#"{"_id":7,"userId":"alice","teamId":"t2"}"#), 11);
+    membership.coll = "memberships".to_owned();
+    membership.key = doc_key("memberships", &Value::Int32(7)).unwrap_or_default();
+    h.events(vec![membership]);
+    assert_eq!(h.contexts.len(), 1, "the lookup is resolved again");
+    let (id, _) = h.contexts.remove(0);
+    h.engine.contexts_done(id, vec![("teams".to_owned(), Ok(vec![doc(r#"{"teamId":"t2"}"#)]))], h.now);
+    h.pump();
+    h.answer_reads(&team_docs(), Ct(12));
+    let frames = h.frames(1);
+    assert!(!contains(&frames, "resync"), "{frames:?}");
+    assert!(contains(&frames, r#"{"t":"added","c":"items","id":2"#), "{frames:?}");
+    assert!(contains(&frames, r#"{"t":"removed","c":"items","id":1"#), "{frames:?}");
+    assert_eq!(frames.iter().filter(|f| f.contains("\"ready\"")).count(), 0, "{frames:?}");
+}
+
+#[test]
+fn a_failed_lookup_denies_and_is_retried() {
+    let mut h = Harness::new(team_policies());
+    h.connect(1, user("alice", &[]));
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    let (id, _) = h.contexts.remove(0);
+    h.engine.contexts_done(
+        id,
+        vec![("teams".to_owned(), Err(CanopyError::new(ErrorCode::Unavailable, "down")))],
+        h.now,
+    );
+    h.pump();
+    assert_eq!(h.reads.len(), 1);
+    assert_eq!(format!("{:?}", h.reads[0].read.filter), format!("{:?}", canopy_policy::deny_filter()));
+    h.engine.tick(h.now + 5000);
+    h.pump();
+    assert_eq!(h.contexts.len(), 1, "the failed lookup is retried");
+}
+
+#[test]
+fn a_lookup_over_its_maximum_fails_closed() {
+    let mut h = Harness::new(team_policies());
+    h.connect(1, user("alice", &[]));
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    let (id, _) = h.contexts.remove(0);
+    let many: Vec<Document> = (0..11).map(|n| doc(&format!(r#"{{"teamId":"t{n}"}}"#))).collect();
+    h.engine.contexts_done(id, vec![("teams".to_owned(), Ok(many))], h.now);
+    h.pump();
+    assert_eq!(format!("{:?}", h.reads[0].read.filter), format!("{:?}", canopy_policy::deny_filter()));
 }

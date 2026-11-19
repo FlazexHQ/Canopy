@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use canopy_matcher::CompiledProjection;
-use canopy_policy::{Operation, PolicyEngine, PolicySet, Role, uses_now};
+use canopy_policy::{
+    Operation, PolicyEngine, PolicySet, Role, context_query, lookup_values, ttl_ms, uses_now,
+};
 use canopy_protocol::sha256::sha256;
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 
@@ -12,7 +14,7 @@ use crate::echo::EchoWaiter;
 use crate::event::{Control, ControlKind, Event, Image, Op, Post, doc_key};
 use crate::metrics::Metrics;
 use crate::observer::{Kind, ListenerId, Note, Observer, ObserverLimits};
-use crate::output::{ConnId, MutationRequest, Output, ReadRequest, ReadResult};
+use crate::output::{ConnId, ContextRead, MutationRequest, Output, ReadRequest, ReadResult};
 use crate::plan::plan;
 use crate::registry::{ObserverId, Registry};
 use crate::session::{Coverage, HeadMemo, Session, SessionLimits, project};
@@ -174,7 +176,29 @@ struct SessionState {
     mutations: VecDeque<Mutation>,
     inflight: Option<u64>,
     refreshing: bool,
+    ctx: Document,
+    ctx_keys: HashMap<String, (String, u64)>,
+    ctx_failed: HashSet<String>,
+    ctx_loading: Option<u64>,
+    ctx_queue: Vec<String>,
+    ctx_after: Option<&'static str>,
+    pending: Vec<(Arc<str>, String, SubQuery)>,
 }
+
+impl SessionState {
+    fn context(&self, now: u64) -> canopy_policy::RequestContext {
+        self.principal.context(Some(self.ctx.clone()), now)
+    }
+}
+
+#[derive(Debug)]
+struct ContextRequest {
+    sid: String,
+    lookups: Vec<(String, String, u64)>,
+}
+
+/// How long a failed context lookup waits before it is resolved again.
+const CONTEXT_RETRY_MS: u64 = 5000;
 
 #[derive(Debug)]
 struct PendingAck {
@@ -215,6 +239,8 @@ pub struct Engine {
     queued: VecDeque<Vec<Event>>,
     buckets: HashMap<String, Bucket>,
     position: Ct,
+    ctx_cache: HashMap<String, (Option<Vec<Value>>, u64)>,
+    ctx_requests: HashMap<u64, ContextRequest>,
     watched: Vec<String>,
     next_id: u64,
     next_time_refresh: u64,
@@ -247,6 +273,8 @@ impl Engine {
             queued: VecDeque::new(),
             buckets: HashMap::new(),
             position: Ct::ZERO,
+            ctx_cache: HashMap::new(),
+            ctx_requests: HashMap::new(),
             watched: Vec::new(),
             next_id: 0,
             closing: false,
@@ -547,6 +575,13 @@ impl Engine {
                 mutations: VecDeque::new(),
                 inflight: None,
                 refreshing: false,
+                ctx: Document::new(),
+                ctx_keys: HashMap::new(),
+                ctx_failed: HashSet::new(),
+                ctx_loading: None,
+                ctx_queue: Vec::new(),
+                ctx_after: None,
+                pending: Vec::new(),
             },
         );
         self.metrics.sessions_opened += 1;
@@ -685,7 +720,14 @@ impl Engine {
             }
             ClientMessage::Unsub { id } => {
                 let id: Arc<str> = Arc::from(id);
-                if self.sessions.get(&sid).is_some_and(|state| state.subs.contains_key(&id)) {
+                let pending = self.sessions.get_mut(&sid).is_some_and(|state| {
+                    let before = state.pending.len();
+                    state.pending.retain(|(pending, _, _)| *pending != id);
+                    state.pending.len() != before
+                });
+                if pending {
+                    self.nosub(&sid, &id, None);
+                } else if self.sessions.get(&sid).is_some_and(|state| state.subs.contains_key(&id)) {
                     self.drop_sub(&sid, &id, now);
                     self.nosub(&sid, &id, None);
                 }
@@ -760,8 +802,18 @@ impl Engine {
                 state.principal = principal;
                 self.arm_expiry(sid, now);
                 if changed {
-                    let affected = self.affected_subs(sid, now);
-                    self.resync(sid, &affected, "auth", now);
+                    let names = self.context_names_of(sid);
+                    if let Some(state) = self.sessions.get_mut(sid) {
+                        state.ctx = Document::new();
+                        state.ctx_keys.clear();
+                        state.ctx_failed.clear();
+                    }
+                    if names.is_empty() {
+                        let affected = self.affected_subs(sid, now);
+                        self.resync(sid, &affected, "auth", now);
+                    } else {
+                        self.load_contexts(sid, names, true, Some("auth"), now);
+                    }
                 }
             }
             Err(error) => {
@@ -794,9 +846,12 @@ impl Engine {
         if state.subs.contains_key(&id) {
             self.drop_sub(sid, &id, now);
         }
+        if let Some(state) = self.sessions.get_mut(sid) {
+            state.pending.retain(|(pending, _, _)| *pending != id);
+        }
         let Some(state) = self.sessions.get(sid) else { return };
         let max = self.config.limits.max_subscriptions_per_connection;
-        if state.subs.len() >= max {
+        if state.subs.len() + state.pending.len() >= max {
             let err = wire_error(
                 ErrorCode::LimitSubscriptions,
                 format!("At most {max} subscriptions per connection"),
@@ -813,7 +868,31 @@ impl Engine {
             self.nosub(sid, &id, Some(&err));
             return;
         }
-        let ctx = state.principal.context(None, now);
+        let names = if self.policy.is_realtime(&coll) {
+            self.policy.context_names(Some(&[coll.as_str()]), &state.principal.roles)
+        } else {
+            Vec::new()
+        };
+        let missing: Vec<String> = names
+            .into_iter()
+            .filter(|name| {
+                state.ctx_failed.contains(name)
+                    || state.ctx_keys.get(name).is_none_or(|(_, expires)| *expires <= now)
+            })
+            .collect();
+        if !missing.is_empty() {
+            if let Some(state) = self.sessions.get_mut(sid) {
+                state.pending.push((id, coll, q));
+            }
+            self.load_contexts(sid, missing, false, None, now);
+            return;
+        }
+        self.subscribe_now(sid, id, coll, q, now);
+    }
+
+    fn subscribe_now(&mut self, sid: &str, id: Arc<str>, coll: String, q: SubQuery, now: u64) {
+        let Some(state) = self.sessions.get(sid) else { return };
+        let ctx = state.context(now);
         let planned = match plan(&self.policy, &ctx, &coll, &q, self.config.limits.max_window) {
             Ok(planned) => planned,
             Err(error) => {
@@ -962,9 +1041,259 @@ impl Engine {
         }
     }
 
+    fn context_names_of(&self, sid: &str) -> Vec<String> {
+        let Some(state) = self.sessions.get(sid) else { return Vec::new() };
+        let mut colls: Vec<&str> = state.subs.values().map(|sub| sub.coll.as_str()).collect();
+        colls.extend(state.pending.iter().map(|(_, coll, _)| coll.as_str()));
+        colls.sort_unstable();
+        colls.dedup();
+        if colls.is_empty() {
+            return Vec::new();
+        }
+        self.policy.context_names(Some(&colls), &state.principal.roles)
+    }
+
+    /// Resolves the named context lookups of a session: from the shared cache when fresh (and not `force`d),
+    /// else by asking the transport to run them ([`Output::Contexts`]). `after` says what follows when they are
+    /// resolved again for subscriptions that already exist: `auth` resyncs the changed ones, `ctx` moves them.
+    fn load_contexts(
+        &mut self,
+        sid: &str,
+        names: Vec<String>,
+        force: bool,
+        after: Option<&'static str>,
+        now: u64,
+    ) {
+        let Some(state) = self.sessions.get_mut(sid) else { return };
+        if after.is_some() {
+            state.ctx_after = after;
+        }
+        if state.ctx_loading.is_some() {
+            for name in names {
+                if !state.ctx_queue.contains(&name) {
+                    state.ctx_queue.push(name);
+                }
+            }
+            return;
+        }
+        let request = state.principal.context(Some(Document::new()), now);
+        let contexts = self.policy.set().contexts().clone();
+        let mut reads = Vec::new();
+        let mut lookups = Vec::new();
+        let mut resolved: Vec<(String, Option<Vec<Value>>, String, u64)> = Vec::new();
+        for name in names {
+            let Some((_, lookup)) = contexts.iter().find(|(declared, _)| *declared == name) else {
+                resolved.push((name, None, String::new(), now + CONTEXT_RETRY_MS));
+                continue;
+            };
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let ttl = ttl_ms(&lookup.ttl).map_or(30_000, |ms| ms.max(0.0) as u64);
+            let query = match context_query(&name, lookup, &request) {
+                Ok(Some(query)) => query,
+                _ => {
+                    resolved.push((name, None, String::new(), now + ttl));
+                    continue;
+                }
+            };
+            if !force {
+                if let Some((value, expires)) = self.ctx_cache.get(&query.key) {
+                    if *expires > now {
+                        resolved.push((name, value.clone(), query.key.clone(), *expires));
+                        continue;
+                    }
+                }
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let limit = query.limit.clamp(1.0, f64::from(u32::MAX)) as u32;
+            reads.push(ContextRead {
+                name: name.clone(),
+                from: lookup.from.clone(),
+                filter: query.filter,
+                limit,
+            });
+            lookups.push((name, query.key, now + ttl));
+        }
+        for (name, value, key, expires) in resolved {
+            self.store_context(sid, &name, value, key, expires);
+        }
+        if reads.is_empty() {
+            self.contexts_resolved(sid, now);
+            return;
+        }
+        let id = self.id();
+        if let Some(state) = self.sessions.get_mut(sid) {
+            state.ctx_loading = Some(id);
+        }
+        self.ctx_requests.insert(id, ContextRequest { sid: sid.to_owned(), lookups });
+        self.out.push(Output::Contexts { id, reads });
+    }
+
+    fn store_context(&mut self, sid: &str, name: &str, value: Option<Vec<Value>>, key: String, expires: u64) {
+        let Some(state) = self.sessions.get_mut(sid) else { return };
+        state.ctx_failed.remove(name);
+        match value {
+            Some(values) => state.ctx.insert(name.to_owned(), Value::Array(values)),
+            None => {
+                state.ctx.remove(name);
+            }
+        }
+        state.ctx_keys.insert(name.to_owned(), (key, expires));
+    }
+
+    /// The transport ran the lookups of [`Output::Contexts`]. A failed lookup has no value, so its policies deny,
+    /// and it is retried after a few seconds.
+    pub fn contexts_done(
+        &mut self,
+        id: u64,
+        results: Vec<(String, Result<Vec<Document>, CanopyError>)>,
+        now: u64,
+    ) {
+        let Some(request) = self.ctx_requests.remove(&id) else { return };
+        let sid = request.sid;
+        let contexts = self.policy.set().contexts().clone();
+        for (name, key, expires) in request.lookups {
+            let result = results.iter().find(|(n, _)| *n == name).map(|(_, result)| result);
+            let lookup = contexts.iter().find(|(declared, _)| *declared == name).map(|(_, lookup)| lookup);
+            match (result, lookup) {
+                (Some(Ok(documents)), Some(lookup)) => {
+                    let value = lookup_values(documents, &lookup.select, lookup.max).ok().flatten();
+                    self.ctx_cache.insert(key.clone(), (value.clone(), expires));
+                    self.store_context(&sid, &name, value, key, expires);
+                }
+                _ => {
+                    self.store_context(&sid, &name, None, key, now + CONTEXT_RETRY_MS);
+                    if let Some(state) = self.sessions.get_mut(&sid) {
+                        state.ctx_failed.insert(name);
+                    }
+                }
+            }
+        }
+        if let Some(state) = self.sessions.get_mut(&sid) {
+            if state.ctx_loading == Some(id) {
+                state.ctx_loading = None;
+            }
+        }
+        let queued =
+            self.sessions.get_mut(&sid).map(|state| std::mem::take(&mut state.ctx_queue)).unwrap_or_default();
+        if !queued.is_empty() {
+            self.load_contexts(&sid, queued, true, None, now);
+            return;
+        }
+        self.contexts_resolved(&sid, now);
+    }
+
+    fn contexts_resolved(&mut self, sid: &str, now: u64) {
+        let Some(state) = self.sessions.get_mut(sid) else { return };
+        if state.ctx_loading.is_some() {
+            return;
+        }
+        let pending = std::mem::take(&mut state.pending);
+        let after = state.ctx_after.take();
+        match after {
+            Some("auth") => {
+                let affected = self.affected_subs(sid, now);
+                self.resync(sid, &affected, "auth", now);
+            }
+            Some(reason) => self.rebind_changed(sid, reason, now),
+            None => {}
+        }
+        for (id, coll, q) in pending {
+            self.subscribe_now(sid, id, coll, q, now);
+        }
+    }
+
+    /// Moves the subscriptions whose effective query changed to their new observers, without a resync.
+    fn rebind_changed(&mut self, sid: &str, reason: &str, now: u64) {
+        let Some(state) = self.sessions.get(sid) else { return };
+        let ctx = state.context(now);
+        let mut moves = Vec::new();
+        let mut failures = Vec::new();
+        for (id, sub) in &state.subs {
+            match plan(&self.policy, &ctx, &sub.coll, &sub.query, self.config.limits.max_window) {
+                Err(error) => failures.push((Arc::clone(id), error)),
+                Ok(planned) => {
+                    let current = self.registry.get(sub.observer).map(|observer| observer.key().to_owned());
+                    if current.as_deref() != Some(planned.key.as_str()) {
+                        moves.push((Arc::clone(id), planned));
+                    }
+                }
+            }
+        }
+        for (id, error) in failures {
+            self.drop_sub(sid, &id, now);
+            self.nosub(sid, &id, Some(&error));
+        }
+        for (id, planned) in moves {
+            let Some((old, listener)) = self
+                .sessions
+                .get(sid)
+                .and_then(|state| state.subs.get(&id))
+                .map(|sub| (sub.observer, sub.listener))
+            else {
+                continue;
+            };
+            let empty = self.registry.get_mut(old).is_some_and(|observer| observer.detach(listener));
+            if empty {
+                self.lingering.insert(old, now + self.config.linger_ms);
+            }
+            let observer = self.acquire(planned.key.clone(), &planned);
+            if let Some(state) = self.sessions.get_mut(sid) {
+                if let Some(sub) = state.subs.get_mut(&id) {
+                    sub.observer = observer;
+                }
+                state.session.rebind(Arc::clone(&id));
+            }
+            self.metrics.resync(&format!("rebind_{reason}"));
+            let mut notes = std::mem::take(&mut self.notes);
+            if let Some(target) = self.registry.get_mut(observer) {
+                target.attach(listener, &mut notes);
+            }
+            self.after_observer(observer, notes, now);
+        }
+    }
+
+    /// Re-resolves the lookups whose source documents changed, for every session holding them.
+    fn invalidate_contexts(&mut self, colls: &HashSet<String>, now: u64) {
+        let contexts = self.policy.set().contexts().clone();
+        let names: HashSet<String> = contexts
+            .iter()
+            .filter(|(_, lookup)| colls.contains(&lookup.from))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if names.is_empty() {
+            return;
+        }
+        let keys: HashSet<String> = self
+            .sessions
+            .values()
+            .flat_map(|state| {
+                state
+                    .ctx_keys
+                    .iter()
+                    .filter(|(name, _)| names.contains(*name))
+                    .map(|(_, (key, _))| key.clone())
+            })
+            .collect();
+        for key in keys {
+            self.ctx_cache.remove(&key);
+        }
+        let sids: Vec<(String, Vec<String>)> = self
+            .sessions
+            .iter()
+            .filter_map(|(sid, state)| {
+                let held: Vec<String> =
+                    state.ctx_keys.keys().filter(|name| names.contains(*name)).cloned().collect();
+                (!held.is_empty()).then(|| (sid.clone(), held))
+            })
+            .collect();
+        for (sid, held) in sids {
+            self.load_contexts(&sid, held, true, Some("ctx"), now);
+        }
+    }
+
     fn affected_subs(&self, sid: &str, now: u64) -> Vec<Arc<str>> {
         let Some(state) = self.sessions.get(sid) else { return Vec::new() };
-        let ctx = state.principal.context(None, now);
+        let ctx = state.context(now);
         let mut out = Vec::new();
         for (id, sub) in &state.subs {
             let key = plan(&self.policy, &ctx, &sub.coll, &sub.query, self.config.limits.max_window)
@@ -1293,6 +1622,7 @@ impl Engine {
     fn process(&mut self, events: Vec<Event>, now: u64) {
         let mut last = self.position;
         let mut seen: Vec<(String, Ct)> = Vec::with_capacity(events.len());
+        let mut touched: HashSet<String> = HashSet::new();
         for event in events {
             let event = Arc::new(event);
             self.metrics.events += 1;
@@ -1309,6 +1639,7 @@ impl Engine {
             }
             last = last.max(event.ct);
             seen.push((event.key.clone(), event.ct));
+            touched.insert(event.coll.clone());
         }
         self.position = last;
         for id in self.registry.ids() {
@@ -1318,6 +1649,7 @@ impl Engine {
         }
         let settled = self.echo.processed(seen.iter().map(|(key, ct)| (key.as_str(), *ct)));
         self.settle_acks(settled);
+        self.invalidate_contexts(&touched, now);
     }
 
     /// A drop, rename, database drop or invalidate.
@@ -1541,6 +1873,23 @@ impl Engine {
         }
         let expired = self.echo.expire(now);
         self.settle_acks(expired);
+        let stale: Vec<(String, Vec<String>)> = self
+            .sessions
+            .iter()
+            .filter(|(_, state)| state.ctx_loading.is_none())
+            .filter_map(|(sid, state)| {
+                let names: Vec<String> = state
+                    .ctx_keys
+                    .iter()
+                    .filter(|(_, (_, expires))| *expires <= now)
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                (!names.is_empty()).then(|| (sid.clone(), names))
+            })
+            .collect();
+        for (sid, names) in stale {
+            self.load_contexts(&sid, names, true, Some("ctx"), now);
+        }
         if now >= self.next_time_refresh {
             self.next_time_refresh = now + self.config.time_policy_refresh_ms;
             self.refresh_time_policies(now);

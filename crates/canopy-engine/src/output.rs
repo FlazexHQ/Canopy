@@ -122,8 +122,28 @@ pub enum Output {
     },
     /// Forward a write.
     Mutate(Box<MutationRequest>),
+    /// Run context lookups, then call [`crate::Engine::contexts_done`].
+    Contexts {
+        /// The request number.
+        id: u64,
+        /// The lookups.
+        reads: Vec<ContextRead>,
+    },
     /// The collections the stream must cover changed.
     Collections(Vec<String>),
+}
+
+/// One context lookup to run: `find(filter).limit(limit)` on `from`.
+#[derive(Debug, Clone)]
+pub struct ContextRead {
+    /// The lookup name.
+    pub name: String,
+    /// The source collection.
+    pub from: String,
+    /// The `where` clause with the subject's claims substituted.
+    pub filter: Document,
+    /// The most documents to read.
+    pub limit: u32,
 }
 
 /// A document set read for [`Output::Read`].

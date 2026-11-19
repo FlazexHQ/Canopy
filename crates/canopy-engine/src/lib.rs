@@ -29,7 +29,7 @@ pub use event::{
 };
 pub use metrics::Metrics;
 pub use observer::{Kind, ObserverLimits};
-pub use output::{ConnId, Frame, MutationRequest, Output, ReadRequest, ReadResult};
+pub use output::{ConnId, ContextRead, Frame, MutationRequest, Output, ReadRequest, ReadResult};
 pub use plan::{Plan, plan};
 pub use registry::{IndexKey, indexable_conjunct};
 pub use wire::{ClientMessage, MutOp, Mutation, PROTOCOL_VERSION, SubQuery, close, decode_client};
