@@ -246,33 +246,36 @@ export class AuthHookFailedError extends CanopyError {
   }
 }
 
-/** Builds the most specific {@link CanopyError} subclass for a wire error. */
-export function errorFromWire(error: WireError): CanopyError {
+/**
+ * Builds the most specific {@link CanopyError} subclass for a wire error. `options` carries what a
+ * transport adds, such as the details of a Problem Details response.
+ */
+export function errorFromWire(error: WireError, options: CanopyErrorOptions = {}): CanopyError {
   switch (error.code) {
     case ErrorCode.Unauthorized:
-      return new UnauthorizedError(error.msg)
+      return new UnauthorizedError(error.msg, options)
     case ErrorCode.TokenExpired:
-      return new UnauthorizedError(error.msg, {}, true)
+      return new UnauthorizedError(error.msg, options, true)
     case ErrorCode.Forbidden:
-      return new ForbiddenError(error.msg)
+      return new ForbiddenError(error.msg, options)
     case ErrorCode.NotFound:
-      return new NotFoundError(error.msg)
+      return new NotFoundError(error.msg, options)
     case ErrorCode.PolicyViolation:
-      return new PolicyViolationError(error.msg)
+      return new PolicyViolationError(error.msg, options)
     case ErrorCode.InvalidQuery:
-      return new InvalidQueryError(error.msg)
+      return new InvalidQueryError(error.msg, options)
     case ErrorCode.Conflict:
-      return new ConflictError(error.msg)
+      return new ConflictError(error.msg, options)
     case ErrorCode.ValidationFailed:
-      return new ValidationError(error.msg)
+      return new ValidationError(error.msg, options)
     case ErrorCode.RateLimited:
-      return new RateLimitError(error.msg)
+      return new RateLimitError(error.msg, options)
     case ErrorCode.ProtocolError:
-      return new ProtocolError(error.msg)
+      return new ProtocolError(error.msg, options)
     case ErrorCode.AuthHookFailed:
-      return new AuthHookFailedError(error.msg)
+      return new AuthHookFailedError(error.msg, options)
     default:
-      return new CanopyError(error.code, error.msg)
+      return new CanopyError(error.code, error.msg, options)
   }
 }
 

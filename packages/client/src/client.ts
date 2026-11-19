@@ -35,7 +35,7 @@ import { type AnyClient, type Collection, QueryBuilder } from "./query-builder.t
 import {
   type DefaultSchema,
   definitionOf,
-  type SchemaDefinitionLike,
+  type SchemaConstraint,
   type SchemaOption,
   type SchemaTypes,
 } from "./register.ts"
@@ -713,11 +713,6 @@ function withoutId(doc: Record<string, unknown>, original: object): Document {
   const { _id: _omitted, ...rest } = doc
   return rest
 }
-
-/** The schemas `createClient` accepts: the registered one once a schema is registered, otherwise any. */
-type SchemaConstraint = SchemaOption extends { readonly schema: infer S }
-  ? Extract<S, SchemaDefinitionLike>
-  : SchemaDefinitionLike
 
 /**
  * Creates a client and starts connecting. Pass the schema from your `canopy.schema.ts` (`defineSchema()`) to

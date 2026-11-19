@@ -527,6 +527,12 @@ export type Schema<DB> = {
     readonly [K in keyof DB]: CollectionTypes;
 };
 
+export type SchemaConstraint = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? SchemaDefinitionLike : Extract<RegisteredSchema, SchemaDefinitionLike>;
+
 export type SchemaDefinitionLike = {
     readonly [name: string]: CollectionDefinitionLike;
 };
@@ -908,6 +914,84 @@ export interface ReactNativeLifecycleOptions {
 }
 
 function reactNativeLifecycle(options: ReactNativeLifecycleOptions): LifecycleSource
+```
+
+## @canopy/client/rest
+
+```ts
+export type CountMode = "exact" | "estimated";
+
+export interface CountOptions {
+    readonly mode?: CountMode;
+    readonly signal?: AbortSignal;
+}
+
+export interface FindByIdOptions<F> {
+    readonly fields?: F & ConsistentProjection<F>;
+    readonly signal?: AbortSignal;
+}
+
+export interface PageOptions {
+    readonly after?: string;
+    readonly count?: CountMode;
+    readonly signal?: AbortSignal;
+}
+
+export interface RestClient<DB extends Schema<DB> = DefaultSchema> {
+    from<C extends CollectionName<DB>>(collection: C): RestCollection<DocumentOf<DB, C>>;
+}
+
+export interface RestClientOptions {
+    readonly url: string;
+    readonly publishableKey: string;
+    readonly auth?: Pick<TokenSource, "getToken">;
+    readonly token?: RestToken;
+    readonly fetch?: typeof fetch;
+    readonly timeoutMs?: number;
+}
+
+export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc> {
+    readonly name: string;
+    findById<const F extends Projection<Doc> = never>(id: IdOf<Doc>, options?: FindByIdOptions<F>): Promise<RestDocument<ProjectedResult<Doc, F>>>;
+    count(filter?: Filter<Doc>, options?: CountOptions): Promise<RestCount>;
+}
+
+export interface RestCount {
+    readonly data: {
+        readonly count: number;
+        readonly exact: boolean;
+    };
+    readonly ct: ClusterTime;
+}
+
+export interface RestDocument<T> {
+    readonly data: T;
+    readonly ct: ClusterTime;
+}
+
+export interface RestPage<T> {
+    readonly data: readonly T[];
+    readonly page: {
+        readonly limit: number;
+        readonly next: string | null;
+        readonly total?: number;
+    };
+    readonly ct: ClusterTime;
+}
+
+export interface RestQuery<Doc = Document, Out = Doc> {
+    find(filter: Filter<Doc>): RestQuery<Doc, Out>;
+    sort(sort: Sort<Doc>): RestQuery<Doc, Out>;
+    limit(limit: number): RestQuery<Doc, Out>;
+    fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): RestQuery<Doc, ProjectedResult<Doc, F>>;
+    page(options?: PageOptions): Promise<RestPage<Out>>;
+}
+
+export type RestToken = string | null | undefined | (() => RestTokenValue | Promise<RestTokenValue>);
+
+function createRestClient<S extends SchemaConstraint>(options: RestClientOptions & { readonly schema: S; }): RestClient<SchemaTypes<S>>
+function createRestClient<DB extends Schema<DB> = import("../types.ts").UntypedSchema>(options: RestClientOptions & SchemaOption): RestClient<DB>
+function createRestClient<DB extends Schema<DB>>(options: RestClientOptions): RestClient<DB>
 ```
 
 ## @canopy/client/rest-polling

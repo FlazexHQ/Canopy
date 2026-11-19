@@ -446,7 +446,7 @@ function encode(value: unknown): unknown
 
 function encodeMessage(message: ClientMessage | ServerMessage): string
 
-function errorFromWire(error: WireError): CanopyError
+function errorFromWire(error: WireError, options?: CanopyErrorOptions): CanopyError
 
 function featureCompatibilityDiagnostic(version: string | undefined, target?: MongoTarget): Diagnostic
 

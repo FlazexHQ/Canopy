@@ -11,6 +11,7 @@ import {
   ObjectId,
   type Patch,
 } from "../../src/index.ts"
+import { createRestClient, type RestClient } from "../../src/rest/index.ts"
 import { Server, ServerSocket } from "../support.ts"
 import { schema } from "./canopy.schema.ts"
 
@@ -73,6 +74,20 @@ function checks(client: CanopyClient): void {
   // @ts-expect-error only the registered schema is accepted
   void createClient({ ...options, schema: other })
   expectTypeOf<Doc<"todos", typeof other>>().toEqualTypeOf<{ _id: ObjectId; x: number }>()
+
+  const rest = createRestClient({ url: "http://canopy.test", publishableKey: "pk", schema })
+  expectTypeOf(rest).toEqualTypeOf<RestClient>()
+  // @ts-expect-error the REST client needs the registered schema too
+  void createRestClient({ url: "http://canopy.test", publishableKey: "pk" })
+  const byId = async () => (await rest.from("notes").findById("agenda")).data
+  expectTypeOf<Awaited<ReturnType<typeof byId>>>().toEqualTypeOf<Doc<"notes">>()
+  // @ts-expect-error notes have string ids
+  void rest.from("notes").findById(new ObjectId())
+  const titles = async () =>
+    (await rest.from("todos").find({ done: false }).fields({ title: 1 }).page()).data
+  expectTypeOf<Awaited<ReturnType<typeof titles>>>().toEqualTypeOf<
+    readonly { _id: ObjectId; title: string }[]
+  >()
 }
 void checks
 

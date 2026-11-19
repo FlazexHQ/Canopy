@@ -1,16 +1,8 @@
-import {
-  CanopyError,
-  type ClusterTime,
-  type Document,
-  decode,
-  ErrorCode,
-  errorFromWire,
-  isErrorCode,
-  type SubQuery,
-  toCanonical,
-} from "@canopy/protocol"
+import { type Document, type SubQuery, toCanonical } from "@canopy/protocol"
 import type { DehydratedState, ReadOptions, Snapshot } from "./client-types.ts"
 import type { DefaultSchema } from "./register.ts"
+import { restCollection } from "./rest/read.ts"
+import { responseError } from "./rest/request.ts"
 import type {
   CollectionName,
   DocumentOf,
@@ -18,6 +10,7 @@ import type {
   ProjectedResult,
   Projection,
   Schema,
+  Sort,
 } from "./types.ts"
 
 /** Where a server request gets the user's access token. */
@@ -67,20 +60,6 @@ function cookieHeader(cookies: CookieSource | string): string {
     .join("; ")
 }
 
-async function failure(response: Response): Promise<CanopyError> {
-  try {
-    const problem = (await response.json()) as { code?: unknown; detail?: unknown }
-    if (typeof problem.code === "string" && isErrorCode(problem.code))
-      return errorFromWire({
-        code: problem.code,
-        msg: typeof problem.detail === "string" ? problem.detail : response.statusText,
-      })
-  } catch {
-    // Not Problem Details: fall through to the generic error for the status.
-  }
-  return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${response.status}`)
-}
-
 /**
  * Creates a client for Server Components, Nuxt server routes and SvelteKit `load`: it reads through the
  * REST API with the user's token, so DLS applies exactly as in the browser, and returns snapshots with
@@ -105,11 +84,18 @@ export function createServerClient<DB extends Schema<DB> = DefaultSchema>(
         await response.body?.cancel()
         return undefined
       }
-      if (!response.ok) throw await failure(response)
+      if (!response.ok) throw await responseError(response)
       const body = (await response.json()) as { access_token?: unknown }
       return typeof body.access_token === "string" ? body.access_token : undefined
     })()
     return minted
+  }
+  const transport = {
+    base,
+    publishableKey: options.publishableKey,
+    fetch: http,
+    token,
+    timeoutMs: undefined,
   }
   return {
     token,
@@ -124,20 +110,12 @@ export function createServerClient<DB extends Schema<DB> = DefaultSchema>(
         ...(query.limit === undefined ? {} : { limit: query.limit }),
         ...(query.fields === undefined ? {} : { fields: query.fields as Document }),
       } as SubQuery
-      const access = await token()
-      const response = await http(`${base}/rest/v1/${encodeURIComponent(collection)}/_query`, {
-        method: "POST",
-        headers: {
-          apikey: options.publishableKey,
-          accept: "application/ejson",
-          "content-type": "application/json",
-          ...(access === undefined ? {} : { authorization: `Bearer ${access}` }),
-        },
-        body: JSON.stringify(toCanonical(q)),
-      })
-      if (!response.ok) throw await failure(response)
-      const body = decode(await response.json()) as { data: Document[]; ct: ClusterTime }
-      return { c: collection, q, docs: body.data, ct: body.ct }
+      let reader = restCollection(transport, collection).find(filter as Document)
+      if (query.sort !== undefined) reader = reader.sort(query.sort as Sort<Document>)
+      if (query.limit !== undefined) reader = reader.limit(query.limit)
+      if (query.fields !== undefined) reader = reader.fields(query.fields as Projection<Document>)
+      const page = await reader.page()
+      return { c: collection, q, docs: page.data, ct: page.ct }
     },
   } as unknown as ServerClient<DB>
 }

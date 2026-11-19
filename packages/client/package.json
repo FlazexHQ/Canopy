@@ -31,6 +31,11 @@
       "@canopy/source": "./src/auth.ts",
       "default": "./dist/auth.js"
     },
+    "./rest": {
+      "types": "./dist/rest/index.d.ts",
+      "@canopy/source": "./src/rest/index.ts",
+      "default": "./dist/rest/index.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "@canopy/source": "./src/server.ts",

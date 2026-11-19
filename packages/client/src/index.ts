@@ -57,6 +57,7 @@ export type {
   Register,
   RegisteredSchema,
   ResolvedSchema,
+  SchemaConstraint,
   SchemaDefinitionLike,
   SchemaOption,
   SchemaTypes,

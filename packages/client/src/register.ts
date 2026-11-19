@@ -106,6 +106,11 @@ export type SchemaOption = [RegisteredSchema] extends [undefined]
   ? { readonly schema?: SchemaDefinitionLike }
   : { readonly schema: RegisteredSchema }
 
+/** The schemas a client factory accepts: the registered one once a schema is registered, otherwise any. */
+export type SchemaConstraint = [RegisteredSchema] extends [undefined]
+  ? SchemaDefinitionLike
+  : Extract<RegisteredSchema, SchemaDefinitionLike>
+
 /** Looks up a collection's definition, ignoring inherited properties such as `toString`. */
 export function definitionOf(
   schema: SchemaDefinitionLike | undefined,
