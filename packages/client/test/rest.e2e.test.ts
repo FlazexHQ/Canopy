@@ -94,6 +94,8 @@ suite("the REST reader against the composed server", () => {
       ["a2", "alice", 2],
       ["a3", "alice", 3],
       ["b1", "bob", 1],
+      ["b2", "bob", 2],
+      ["b3", "bob", 3],
     ] as const
     await mongo
       .db(name)
@@ -155,8 +157,14 @@ suite("the REST reader against the composed server", () => {
     expect(second.page.next).toBeNull()
     expect(second.ct).toBe((bodies[1] as { ct: unknown }).ct)
 
-    const bob = await reader("bob").from("items").page()
-    expect(bob.data.map((doc) => doc.title)).toEqual(["b1"])
+    const bobQuery = reader("bob").from("items").sort({ rank: 1 }).limit(2).fields({ title: 1 })
+    const bob = await bobQuery.page()
+    expect(bob.data.map((doc) => doc.title)).toEqual(["b1", "b2"])
+    const bobNext = bob.page.next
+    expect(typeof bobNext).toBe("string")
+    const bobSecond = await bobQuery.page({ after: bobNext ?? "" })
+    expect(bobSecond.data.map((doc) => doc.title)).toEqual(["b3"])
+    expect(bobSecond.page.next).toBeNull()
   })
 
   it("round trips BSON values", async () => {
@@ -177,7 +185,7 @@ suite("the REST reader against the composed server", () => {
           .count({ rank: { $gte: 1 } })
       ).data,
     ).toEqual({
-      count: 1,
+      count: 3,
       exact: true,
     })
   })
@@ -199,7 +207,8 @@ suite("the REST reader against the composed server", () => {
   it("reads distinct values and aggregates only the caller's documents", async () => {
     const ranks = await reader("alice").from("items").distinct("rank")
     expect([...ranks.data].sort()).toEqual([1, 2, 3])
-    expect((await reader("bob").from("items").distinct("title")).data).toEqual(["b1"])
+    const titles = await reader("bob").from("items").distinct("title")
+    expect([...titles.data].sort()).toEqual(["b1", "b2", "b3"])
     const total = await reader("alice")
       .from("items")
       .aggregate([{ $group: { _id: "$ownerId", n: { $sum: 1 } } }], {

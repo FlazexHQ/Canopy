@@ -119,9 +119,11 @@ steps. `deploy/binary/ws-smoke.ts` connects to the realtime socket of a running 
 mutates; both binary smoke steps in `.github/workflows/ci.yml` call it. It was run against the server started
 from source on Bun with `bun deploy/binary/ws-smoke.ts`; the compiled executables were built and started afterwards (`45c3887`), which also fixed their startup.
 
-Gate state: R1, R2, T3 and T5 were done on 2026-11-07, T1 is done, and the security half of O4 is this
-document. The usability test half of O4 has not been run (plan item C14) and stays open; the maintainer
-decides whether to run it or to waive it.
+Gate state as of 2026-11-20. R1, R2, T3 and T5 were done on 2026-11-07, T1 is done, and this document
+records the security half of O4. The maintainer confirmed completion of the five developer usability
+exercise (C14), closing O4 and the Phase 4 entry gate. The
+[exercise record](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md) lists the missing participant
+details and tracks the separate REST exercise.
 
 ## Verification
 

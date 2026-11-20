@@ -218,7 +218,7 @@ Phase 4, **P3** when the code is next touched.
 
 | Exit criterion | State |
 |---|---|
-| 5 outside developers, `docker compose up` to an authenticated todo app in ≤ 15 minutes | Not run, no record |
+| 5 outside developers, `docker compose up` to an authenticated todo app in ≤ 15 minutes | Complete by maintainer confirmation on 2026-11-20. [Exercise record](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md) |
 | Studio end-to-end tests cover the critical flows | 9 Playwright scenarios (`apps/studio/e2e/studio.spec.ts`); live data, providers and the danger zone are not covered because they cannot work yet (R2) |
 | Internal security review of auth and admin, no high findings open | Not recorded. R1 should be treated as a high finding. |
 
@@ -323,7 +323,7 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 | O1 | SDK core 20.3 kB against 15 kB | Dropped: the maintainer removed the size budget on 2026-11-13. |
 | O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 5. |
 | O3 | S9 decision | Done 2026-11-13: [S9](../spikes/S9-single-binary.md) has the sizes, startup times (Windows only) and the decision. |
-| O4 | Phase 3 exit criteria | The internal security review is recorded in [reviews/2026-11-13-phase-4-security-review.md](../reviews/2026-11-13-phase-4-security-review.md). The usability test (plan C14) has not been run. |
+| O4 | Phase 3 exit criteria | Closed. See the [internal security review](../reviews/2026-11-13-phase-4-security-review.md) and [maintainer confirmation of C14](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md). |
 
 #### Gate before Phase 4
 
@@ -331,10 +331,10 @@ Phase 4 starts when R1, R2 (implemented or cut), T1, T3 and T5 are done and O4 i
 fit into Phase 4: D1 to D3 and C1 to C4 should land before GraphQL adds another entry point on top of
 the admin API and the Node bridges.
 
-**Status (2026-11-13):** R1, R2, T3 and T5 were done on 2026-11-07, T1 on 2026-11-13, and the security review of
-O4 is recorded. The usability test of O4 is still open, so the gate is met except for that test; the
-maintainers decide whether to run it or to waive it. Phase 4 code was already on `master` before the gate was
-met; the review of that code found no DLS bypass and six defects, all fixed.
+**Status (2026-11-20):** The gate is met. R1, R2, T3 and T5 were done on 2026-11-07, T1 and the O4 security
+review on 2026-11-13. The maintainer confirmed completion of the O4 usability exercise on 2026-11-20.
+Phase 4 code was already on `master` before the gate closed. The review found no DLS bypass and six defects,
+all fixed.
 
 #### Progress (2026-11-07, stopped here)
 
@@ -357,7 +357,8 @@ MongoDB 8.0.34 replica set on Node and on Bun (127 files, 1262 tests), and every
   84.8, `query` 88.7 and 80.3, `realtime` 82.5 and 71.7 (87.5 % lines and 76.4 % branches overall). The
   floors in `vitest.config.ts` sit just under these; the target stays 90 % lines and 80 % branches.
 
-Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4. (T1 and the security review of O4 were closed on 2026-11-13, see the status above.)
+At this checkpoint, D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4 were still open. See
+[the gate status](#gate-before-phase-4) for the later closure of T1 and O4.
 
 ### 3.4 Phase 4: GraphQL, ecosystem and developer experience → v0.5 (7 weeks)
 

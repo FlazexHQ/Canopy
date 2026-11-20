@@ -32,8 +32,8 @@ Against the roadmap in `docs/plan/12-roadmap.md` (seven phases, 0 to 6):
 | 0 Foundations | Done in practice. Spike write ups exist for S3, S7 and S8 only |
 | 1 DLS core and realtime | Done |
 | 2 Data API and optimistic SDK | Done. The 15 kB SDK size goal was dropped by the maintainer on 2026-11-13 |
-| 3 Auth, server, Studio | Mostly done. The usability test with outside developers and the security review are not recorded |
-| 4 GraphQL and frameworks | Code is on `master`. Its entry gate (finding T1 and review O4 closed) was not met |
+| 3 Auth, server, Studio | The [security review](../docs/reviews/2026-11-13-phase-4-security-review.md) is recorded and the maintainer confirmed the [usability exercise](003-sdk-dx-and-canopy-rest/o4-exercise.md). |
+| 4 GraphQL and frameworks | Code is on `master`. The [entry gate](../docs/plan/12-roadmap.md#gate-before-phase-4) is met. |
 | 5 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
 | 6 Hardening and 1.0 | Not started |
 
@@ -124,7 +124,7 @@ Rule from here on: no new feature package merges while a P0 item is open.
 | C11 | CLI polish: `--version`, no stack trace for unexpected errors unless `--debug`, a keychain backed token store on Windows (Credential Manager) | `packages/cli/src/cli.ts:1039` prints `error.stack`; tokens are a plain JSON file on Windows | S |
 | C12 | Fix broken snippets and compile every docs snippet in CI | `packages/realtime/README.md` uses an undefined `Order` type | M |
 | C13 | Root `dev` script, or remove the promise from `CLAUDE.md` | No `dev` script in `package.json` | S |
-| C14 | Run the usability test the Phase 3 exit criteria ask for: five outside developers, timed, from the README alone | Not run | M |
+| C14 | Run the usability test the Phase 3 exit criteria ask for: five outside developers, timed, from the README alone | Complete by [maintainer confirmation](003-sdk-dx-and-canopy-rest/o4-exercise.md) | M |
 
 ### D. Production hardening (P1 for D1 to D6, P2 for the rest)
 
@@ -240,7 +240,7 @@ noted.
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
 | A1 F19 | Done | `bun run check`, the repo-check hooks in `lefthook.yml`, a dash and workspace step in the CI `check` job and a `commit-rules` job for pull requests. The ignored `lefthook-local.yml` now duplicates the hooks and can be deleted |
 | A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` and `tools/repo-check` |
-| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The usability test half of O4 (C14) is still open |
+| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The maintainer also confirmed [C14](003-sdk-dx-and-canopy-rest/o4-exercise.md), closing O4. |
 | D1 | Done | One token bucket limiter in `@canopy/auth` (`RateLimits`), configured by the `rateLimits` config section and `CANOPY_RATE_LIMIT*` variables, on by default (REST and GraphQL 50 requests per second, burst 200; realtime `sub`, `mut` and `auth` frames 20 per second, burst 100; 50 anonymous connections per address; `service` exempt). Callers are keyed by API key plus subject, anonymous callers by address through `trustedProxies`. REST and GraphQL answer 429 with `Retry-After`; realtime answers in the frame's own reply (`nosub`, failed `ack`, `err`) and keeps the connection, the address cap closes with the existing `4029`. Counters `canopy_http_rate_limited_total` and `canopy_realtime_rate_limited_total`. In memory per instance (D9 covers sharing). Failed authentications (unknown key, bad token; not expired tokens) are counted per address, 1 per second, burst 30, across REST, GraphQL and the realtime handshake. Not covered: a GraphQL batch costs one token, in process GraphQL subscriptions rely on the HTTP or graphql-ws limits |
 | D2 | Done | `/readyz` pings MongoDB (2 s timeout, 1 s cache) and checks the change stream, on `canopy-server` and `canopy-realtime` |
 | D3 | Done | Sessions waiting for a resume end at once; `close()` with connected clients can now take up to `drainWindow` |

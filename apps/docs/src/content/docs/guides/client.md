@@ -3,9 +3,76 @@ title: Client SDK
 description: Live queries, optimistic writes and typed collections with @canopy/client.
 ---
 
+## Run from a clone
+
+Install Bun 1.4 or newer and Node.js 24 or newer. Start the authenticated notes server from the repository root.
+
 ```bash
-bun add @canopy/client
+git clone https://github.com/FlazexHQ/Canopy.git
+cd Canopy
+bun install --frozen-lockfile
+bun run build
+bun run db:up
+node examples/auth-notes/src/server.ts
 ```
+
+Without Docker, replace `bun run db:up` with
+`bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir .canopy/mongo`.
+If you are reading the guide on a feature branch, check out that branch after cloning and before building.
+
+In a second terminal, change to `examples/auth-notes`, which declares the SDK workspace dependencies.
+Save the following program there as `sdk-demo.mjs` for JavaScript or `sdk-demo.ts` for TypeScript.
+Both use the same schema value and infer types from the `schema` option. Run `node sdk-demo.mjs` or
+`node sdk-demo.ts`, respectively.
+
+```js
+// @ts-check
+import { createClient } from "@canopy/client"
+import { createAuth } from "@canopy/client/auth"
+import { createRestClient } from "@canopy/client/rest"
+import { collection, defineSchema, t } from "@canopy/schema/define"
+
+const schema = defineSchema(
+  collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() }),
+)
+const url = "http://localhost:3000"
+const auth = createAuth({ url })
+const email = `demo-${crypto.randomUUID()}@example.com`
+await auth.signUp({ email, password: "local-demo-password" })
+const user = auth.user
+if (user === undefined) throw new Error("Sign-up did not establish a session")
+
+const options = { url, publishableKey: "pk_notes_local", auth, schema }
+const canopy = createClient(options)
+const notes = canopy.from("notes")
+const live = notes.find({ ownerId: user.id }).fields({ text: 1 })
+const stop = live.subscribe(({ data, status }) => {
+  console.log("live", status, data.map((note) => note.text))
+})
+try {
+  // Wait for the server's initial snapshot before writing a note.
+  const deadline = Date.now() + 10_000
+  while (live.getState().status !== "ready") {
+    if (Date.now() >= deadline) throw new Error("Live query did not become ready")
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  const added = notes.insert({ text: "Buy milk", ownerId: user.id, createdAt: new Date() })
+  console.log("new id", added.id)
+  await added
+
+  const rest = createRestClient(options)
+  const page = await rest.from("notes").find({ ownerId: user.id }).fields({ text: 1 }).limit(20).page()
+  console.log("REST page", page.data.map((note) => note.text))
+} finally {
+  stop()
+  canopy.close()
+}
+```
+
+The live query prints its initial snapshot and the update. The REST page prints `Buy milk`. In JavaScript
+the `@ts-check` directive enables editor diagnostics, including checks on the projected field names.
+
+## Configure a client
 
 <!-- snippet: declare const identityProvider: { getAccessToken(): Promise<string> } -->
 
@@ -68,9 +135,9 @@ change is rolled back. Single document writes take `{ where }`, a compare and se
 
 ## Types
 
-Declare your collections in `canopy.schema.ts` (`bunx canopy pull` writes the first version) and pass the
-schema to the client. Queries and writes are checked against it, and inserts take their `_id` generator and
-defaults from it. See [Schema in code](/guides/schema/).
+Declare your collections in `canopy.schema.ts` and pass the schema to the client. From a built clone,
+`node packages/cli/dist/cli.js pull` can write the first version. Queries and writes are checked against
+the schema, and inserts take their `_id` generator and defaults from it. See [Schema in code](/guides/schema/).
 
 ```ts
 import { createClient } from "@canopy/client"

@@ -138,6 +138,8 @@ if (first.page.next !== null) render((await recent.page({ after: first.page.next
 
 The [built in auth quickstart](apps/docs/src/content/docs/start/built-in-auth.md) walks through the same app
 step by step, and [`examples/auth-notes`](examples/auth-notes) has its browser tests.
+The [client SDK guide](apps/docs/src/content/docs/guides/client.md#run-from-a-clone) has a runnable
+JavaScript and TypeScript program that signs in, subscribes and fetches a REST page.
 
 ## Other ways in
 
