@@ -885,19 +885,22 @@ suite("admin API", () => {
 
     type Logs = { data: Record<string, unknown>[]; next: string | null; sampleRate: number }
     const logs = async (query: string): Promise<Logs> => {
-      const started = Date.now()
-      for (;;) {
-        const answer = (await (await owner.call("GET", `/logs${query}`)).json()) as Logs
-        if (answer.data.length > 0 || Date.now() - started > 3000) return answer
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
+      const response = await owner.call("GET", `/logs${query}`)
+      expect(response.status).toBe(200)
+      return (await response.json()) as Logs
     }
-    const rest = await logs("?surface=rest")
+    const rest = await vi.waitFor(
+      async () => {
+        const answer = await logs("?surface=rest")
+        expect(answer.data.map((entry) => [entry["path"], entry["status"]])).toEqual([
+          ["/rest/v1/nothing_here", 404],
+          ["/rest/v1/notes", 200],
+        ])
+        return answer
+      },
+      { timeout: 3000, interval: 50 },
+    )
     expect(rest.sampleRate).toBe(1)
-    expect(rest.data.map((entry) => [entry["path"], entry["status"]])).toEqual([
-      ["/rest/v1/nothing_here", 404],
-      ["/rest/v1/notes", 200],
-    ])
     expect(rest.data[0]).toMatchObject({ surface: "rest", method: "GET", ip: "127.0.0.1" })
     expect(typeof rest.data[0]?.["durationMs"]).toBe("number")
     expect(JSON.stringify(rest)).not.toContain("needle_value")
@@ -916,10 +919,11 @@ suite("admin API", () => {
       expect((await clients[role]?.call("GET", "/logs"))?.status).toBe(403)
 
     expect((await owner.call("PATCH", "/settings", { requestLogSampleRate: 0 })).status).toBe(200)
-    const before = await meta.collection("request_log").countDocuments()
-    await fetch(`${base}/rest/v1/notes`, { headers: { apikey: "pk_admin_test" } })
+    const disabledPath = "/rest/v1/logging_disabled"
+    const disabled = await fetch(`${base}${disabledPath}`, { headers: { apikey: "pk_admin_test" } })
+    expect(disabled.status).toBe(404)
     await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(await meta.collection("request_log").countDocuments()).toBe(before)
+    expect(await meta.collection("request_log").countDocuments({ path: disabledPath })).toBe(0)
   })
 
   it("limits the admin surface to the IP allowlist on the public listener, without locking out", async () => {
