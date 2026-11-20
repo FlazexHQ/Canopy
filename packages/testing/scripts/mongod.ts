@@ -81,6 +81,36 @@ function reports(mongod: string, version: string): boolean {
   }
 }
 
+/** Extracts a verified archive from memory. The Windows ZIP reader needs a seekable stream. */
+function extract(archive: Uint8Array, staging: string): void {
+  if (process.platform === "win32") {
+    const script = `
+      $ErrorActionPreference = 'Stop'
+      Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+      $archive = [System.IO.MemoryStream]::new()
+      [Console]::OpenStandardInput().CopyTo($archive)
+      $archive.Position = 0
+      $zip = [System.IO.Compression.ZipArchive]::new($archive)
+      try {
+        [System.IO.Compression.ZipFileExtensions]::ExtractToDirectory($zip, (Get-Location).Path)
+      } finally {
+        $zip.Dispose()
+      }
+    `
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
+      cwd: staging,
+      input: archive,
+      stdio: ["pipe", "inherit", "inherit"],
+    })
+    return
+  }
+  execFileSync("tar", ["-xzf", "-"], {
+    cwd: staging,
+    input: archive,
+    stdio: ["pipe", "inherit", "inherit"],
+  })
+}
+
 /**
  * Returns the path of `mongod` for `version` under `binaries/<version>`, reusing what an earlier run unpacked
  * there when it runs and reports that version, and downloading the official build otherwise. The archive is
@@ -108,15 +138,7 @@ async function install(version: string, dir: string): Promise<string> {
   const staging = `${target}.partial`
   rmSync(staging, { recursive: true, force: true })
   mkdirSync(staging, { recursive: true })
-  const archiveFile = join(staging, "mongo-archive")
-  writeFileSync(archiveFile, archive, { flag: "wx" })
-  // bsdtar ships with Windows 10 and later and also reads zip archives.
-  const tar =
-    process.platform === "win32"
-      ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
-      : "tar"
-  execFileSync(tar, ["-xf", archiveFile, "-C", staging], { stdio: "inherit" })
-  rmSync(archiveFile)
+  extract(archive, staging)
   rmSync(target, { recursive: true, force: true })
   renameSync(staging, target)
   const mongod = findMongod(target)

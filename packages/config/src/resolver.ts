@@ -336,6 +336,7 @@ export class Resolver {
     prefix: string,
   ): void {
     for (const [key, spec] of Object.entries(fields)) {
+      if (key === "__proto__" || key === "constructor" || key === "prototype") continue
       const path = `${prefix}${key}`
       const value = node[key]
       const nested =
@@ -379,9 +380,11 @@ export class Resolver {
     if (SECRET_PATHS.has(path)) this.secrets.add(path)
     const keys = path.split(".")
     const last = keys.pop() ?? ""
+    if (last === "__proto__" || last === "constructor" || last === "prototype") return
     let parent: Record<string, unknown> = tree
     for (const key of keys) {
-      const next = parent[key]
+      if (key === "__proto__" || key === "constructor" || key === "prototype") return
+      const next = Object.hasOwn(parent, key) ? parent[key] : undefined
       if (next === false) {
         this.problem(
           path,
