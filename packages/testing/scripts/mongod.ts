@@ -108,15 +108,15 @@ async function install(version: string, dir: string): Promise<string> {
   const staging = `${target}.partial`
   rmSync(staging, { recursive: true, force: true })
   mkdirSync(staging, { recursive: true })
+  const archiveFile = join(staging, "mongo-archive")
+  writeFileSync(archiveFile, archive, { flag: "wx" })
   // bsdtar ships with Windows 10 and later and also reads zip archives.
   const tar =
     process.platform === "win32"
       ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
       : "tar"
-  execFileSync(tar, ["-xf", "-", "-C", staging], {
-    input: archive,
-    stdio: ["pipe", "inherit", "inherit"],
-  })
+  execFileSync(tar, ["-xf", archiveFile, "-C", staging], { stdio: "inherit" })
+  rmSync(archiveFile)
   rmSync(target, { recursive: true, force: true })
   renameSync(staging, target)
   const mongod = findMongod(target)

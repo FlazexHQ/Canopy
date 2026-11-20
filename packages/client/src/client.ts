@@ -610,7 +610,8 @@ export class CanopyClient<
   private startHeartbeat(): void {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
     this.lastInbound = Date.now()
-    const interval = Math.min(300_000, Math.max(100, this.heartbeatMs))
+    const heartbeat = this.heartbeatMs
+    const interval = heartbeat >= 100 && heartbeat <= 300_000 ? heartbeat : 25_000
     this.heartbeatTimer = setInterval(() => {
       if (Date.now() - this.lastInbound > 2 * interval) {
         this.socket?.close(4000, "heartbeat timeout")
@@ -688,7 +689,7 @@ export class CanopyClient<
         this.reconnectTimer = undefined
         this.connect()
       },
-      Math.min(2_147_483_647, Math.max(0, delay)),
+      delay >= 0 && delay <= 2_147_483_647 ? delay : 30_000,
     )
   }
 
