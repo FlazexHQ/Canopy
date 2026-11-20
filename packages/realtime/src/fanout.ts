@@ -59,25 +59,33 @@ export class Fanout {
    * Applies one batch of events in order, then advances every observer past the batch. An update whose
    * document an earlier event of the batch touched gets its post image even when no observer holds the
    * document yet, because that earlier event can bring it into one before the update is applied.
+   * The last change for each document can share a snapshot at the end of the batch. Earlier changes to
+   * that document still read at their own event times.
    */
   async process(events: NormalizedEvent[]): Promise<void> {
     const { pool, reader, resolver, metrics } = this.options
     const lookups = new Map<string, Map<ClusterTime, NormalizedEvent[]>>()
-    const touched = new Set<string>()
+    const lastInBatch = events.at(-1)?.ct
+    const lastByKey = new Map<string, NormalizedEvent>()
+    const needed: NormalizedEvent[] = []
     for (const event of events) {
-      const earlier = touched.has(event.key)
-      touched.add(event.key)
+      const earlier = lastByKey.has(event.key)
+      lastByKey.set(event.key, event)
       if (event.op !== "update" || event.post !== undefined) continue
       if (!earlier && pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll))
         continue
+      needed.push(event)
+    }
+    for (const event of needed) {
       let byTime = lookups.get(event.coll)
       if (byTime === undefined) {
         byTime = new Map()
         lookups.set(event.coll, byTime)
       }
-      const list = byTime.get(event.ct) ?? []
+      const readTime = lastByKey.get(event.key) === event ? (lastInBatch ?? event.ct) : event.ct
+      const list = byTime.get(readTime) ?? []
       list.push(event)
-      byTime.set(event.ct, list)
+      byTime.set(readTime, list)
     }
     for (const [coll, byTime] of lookups) {
       for (const [ct, list] of byTime) {

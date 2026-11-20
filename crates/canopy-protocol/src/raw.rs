@@ -110,14 +110,27 @@ fn validate_document(bytes: &[u8], at: usize, depth: usize, array: bool) -> Chec
         return Err("document without terminator");
     }
     let scope = &bytes[..end];
-    let mut names = HashSet::new();
+    let mut inline_names: [&[u8]; 8] = [&[]; 8];
+    let mut name_count = 0;
+    let mut extra_names: Option<HashSet<&[u8]>> = None;
     let mut position = at + 4;
     while position < end - 1 {
         let kind = scope[position];
         let name_start = position + 1;
         position = validate_cstring(scope, name_start)?;
-        if !array && !names.insert(&scope[name_start..position - 1]) {
-            return Err("duplicate field name");
+        if !array {
+            let name = &scope[name_start..position - 1];
+            let unique = if name_count < inline_names.len() {
+                let unique = !inline_names[..name_count].contains(&name);
+                inline_names[name_count] = name;
+                name_count += 1;
+                unique
+            } else {
+                extra_names.get_or_insert_with(|| inline_names.into_iter().collect()).insert(name)
+            };
+            if !unique {
+                return Err("duplicate field name");
+            }
         }
         position = validate_value(scope, kind, position, depth)?;
     }
