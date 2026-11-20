@@ -146,7 +146,7 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     expect(await running).toBe(0)
   })
 
-  it("regenerates a types file only until a schema file replaces it, and leaves other projects alone", async () => {
+  it("warns on schema drift and leaves legacy generated files untouched", async () => {
     const legacy = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     const migrated = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     const untyped = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
@@ -169,20 +169,7 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
         async () => urls.length,
         (count) => count > 0,
       )
-      if (root === legacy) {
-        const text = await until(
-          () => readFile(join(root, generated), "utf8"),
-          (value) => value.includes("todos"),
-        )
-        expect(text).toContain("export interface Database")
-        expect(lines).toContain(
-          `  Types     ${generated}  (regenerated when schemas or policies change)`,
-        )
-        expect(lines).toContain(
-          `${generated} is deprecated: run canopy pull to write a canopy.schema.ts, then delete ${generated}`,
-        )
-        expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
-      } else if (root === migrated) {
+      if (root === migrated) {
         expect(lines).toContain("  Schema    canopy.schema.js  (warns when MongoDB drifts from it)")
         expect(
           await until(
@@ -190,18 +177,15 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
             (warned) => warned,
           ),
         ).toBe(true)
-        expect(lines).toContain(
-          `${generated} is deprecated and no longer regenerated: canopy.schema.js declares the schema, so delete ${generated}`,
-        )
-        expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
-        expect(await readFile(join(root, generated), "utf8")).toBe("// stale\n")
       } else {
-        expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
         expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
-        expect(lines.some((line) => line.includes("deprecated"))).toBe(false)
       }
+      expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
       stop.abort()
       expect(await running).toBe(0)
+    }
+    for (const root of [legacy, migrated]) {
+      expect(await readFile(join(root, generated), "utf8")).toBe("// stale\n")
     }
     await expect(readFile(join(untyped, generated), "utf8")).rejects.toThrow()
   }, 90_000)
