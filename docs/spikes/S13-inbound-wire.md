@@ -1,10 +1,9 @@
 # S13. Inbound MongoDB wire feasibility
 
-**Decision: no go for a production endpoint.** The loopback probe tests selected commands against
-the actual gateway verifier, policy compiler, write forwarding path and MongoDB 8.0. A passing
-driver smoke test and a faster fixture read path establish feasibility for that scope. The
-[S13 gate](../plan/15-mongodb-depth.md#6-spikes) also requires the allowlisted upstream unified
-tests on all four drivers and zero bypasses across the full corpus. Those results remain open.
+**Decision. Go for the bounded S13 feasibility scope.** All four drivers passed the selected
+upstream CRUD fixtures. The gateway refused every encodable query in the denial corpus, and the
+wire path cost less per document than the Data API for both measured page sizes. A production
+endpoint requires a separate decision.
 
 ## Scope
 
@@ -17,10 +16,12 @@ authenticator. See the [MongoDB wire format](https://www.mongodb.com/docs/manual
 and [driver handshake specification](https://github.com/mongodb/specifications/blob/master/source/mongodb-handshake/handshake.md).
 
 The read policy is `ownerId == auth("sub")`. The probe compiles it with the native DLS engine and
-combines it with a bounded equality query before calling the official Rust MongoDB driver.
-`aggregate` handles an empty pipeline or a single equality `$match`. Finite cursors are bound to
-the verified token. Single ordered inserts and single `$set` title updates by ID call the S11
-forwarder and the existing Data API transaction path with the caller's original token. The fixture
+combines it with a bounded fixture query before calling the official Rust MongoDB driver.
+The CRUD fixtures exercise equality, a numeric `_id` lower bound, bounded skip and limit, and
+batch continuation. Aggregation supports a bounded `$match` with an optional ascending sort on
+the numeric fixture field. Cursors are bound to the verified token. Single ordered inserts,
+`$set` for the title and `$inc` for the numeric fixture field call the S11 forwarder and the
+existing Data API transaction path with the caller's original token. The fixture
 uses acknowledged writes with retryable writes disabled. An empty `$changeStream` stage opens a
 collection change stream, and the native matcher checks the full document before returning insert
 and update events. The probe issues fixture cursor tokens and refuses resume options.
@@ -52,7 +53,24 @@ different owner. A different owner's update matches zero documents. The harness 
 `$match`. The gateway returned a refusal for all 50 encodable requests. The BSON serializer
 refused both attempts to encode the NUL key, so neither reached the gateway. The native policy
 tests also passed their stored-policy corpus and policy invariants. Stored-policy authoring has
-its own entry point, outside the probe's wire commands. The upstream unified runs remain open.
+its own entry point, outside the probe's wire commands.
+
+The [CRUD fixture adapter](../../packages/client/bench/s13-unified.ts) loads the upstream
+[Unified CRUD JSON at revision `2a20bd5`](https://github.com/mongodb/specifications/tree/2a20bd509e2ad4ee354b552145094ecdf434ee9d/source/crud/tests/unified).
+It selects seven cases for the commands the probe supports. These cases assert operation results
+and stored outcomes where supplied, with no command monitoring or topology requirements.
+The adapter maps the namespace and fixture IDs into the isolated collection and adds an owner to
+each document. Each operation uses the public API of the unmodified driver. Setup and outcome
+checks use the direct MongoDB connection. The full upstream driver runners and their broader
+command and event coverage sit outside this experiment.
+
+| Selected fixtures | Node | Python | Go | Java |
+| --- | --- | --- | --- | --- |
+| Find with filter, skip and limit, and batch continuation | 3 | 3 | 3 | 3 |
+| Aggregate with multiple stages | 1 | 1 | 1 | 1 |
+| Insert one | 1 | 1 | 1 | 1 |
+| Update one with and without a match | 2 | 2 | 2 | 2 |
+| Total passed | 7 | 7 | 7 | 7 |
 
 `cargo clippy --locked -p canopy-gateway --example s13-wire -- -D warnings` passed.
 `cargo test --locked -p canopy-gateway --all-targets` passed 14 gateway tests and the same
@@ -70,15 +88,15 @@ across the 750 timed requests per path and page size.
 
 | Documents per page | Path | Median µs per document (round range) | p95 ms | p99 ms |
 | --- | --- | --- | --- | --- |
-| 20 | Inbound wire | 32.85 (30.73 to 42.86) | 0.96 | 1.28 |
-| 20 | Data API over HTTP | 96.48 (72.62 to 124.24) | 2.84 | 3.58 |
-| 20 | Direct MongoDB | 22.78 (20.99 to 25.39) | 0.59 | 0.84 |
-| 100 | Inbound wire | 10.54 (10.04 to 14.94) | 2.01 | 2.64 |
-| 100 | Data API over HTTP | 27.08 (23.14 to 31.85) | 4.01 | 4.97 |
-| 100 | Direct MongoDB | 7.57 (7.01 to 8.76) | 1.16 | 1.45 |
+| 20 | Inbound wire | 39.75 (33.63 to 42.48) | 1.11 | 1.53 |
+| 20 | Data API over HTTP | 112.06 (93.41 to 150.48) | 3.81 | 4.80 |
+| 20 | Direct MongoDB | 24.95 (24.43 to 29.15) | 0.77 | 1.11 |
+| 100 | Inbound wire | 11.53 (10.20 to 12.71) | 1.56 | 2.05 |
+| 100 | Data API over HTTP | 23.97 (21.56 to 29.53) | 3.71 | 4.57 |
+| 100 | Direct MongoDB | 7.85 (6.95 to 9.90) | 1.32 | 1.85 |
 
-The inbound path used 66% and 61% less wall time per document than the Data API at the two page
-sizes. It used 44% and 39% more than direct MongoDB. This satisfies the relative cost condition for
+The inbound path used 65% and 52% less wall time per document than the Data API at the two page
+sizes. It used 59% and 47% more than direct MongoDB. This satisfies the relative cost condition for
 the measured fixture reads. Costs for sustained concurrency, writes and change streams remain open.
 
 ## Reproduction
@@ -97,7 +115,9 @@ Set `CANOPY_S13_MONGO_URI` to `mongodb://localhost:37153/?replicaSet=rs0` and
 For the Python, Go and Java probes, set `CANOPY_S13_DRIVER_TOOLS` to a scratch directory containing
 PyMongo 4.16.0 under `python/`, Go 1.26.0 under `go/`, and the 5.6.4 Maven JARs
 `bson`, `mongodb-driver-core` and `mongodb-driver-sync` at the scratch root.
-Set `CANOPY_S13_JAVA` to a Java 21 launcher if it is outside `PATH`.
+Set `CANOPY_S13_JAVA` to a Java 21 launcher if it is outside `PATH`. Set
+`CANOPY_S13_RUN_UNIFIED=1` in the environment to fetch the pinned upstream fixtures and require all
+four drivers.
 
 ```sh
 node --conditions=@canopy/source packages/client/bench/s13-wire.ts

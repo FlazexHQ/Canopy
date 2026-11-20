@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,93 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
+
+func unified(ctx context.Context, items *mongo.Collection, path string) error {
+	input, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var fixture struct {
+		Operation struct {
+			Name      string
+			Arguments json.RawMessage
+		}
+		Result string
+	}
+	if err := json.Unmarshal(input, &fixture); err != nil {
+		return err
+	}
+	var args struct {
+		Filter    bson.D
+		Sort      bson.D
+		Skip      *int64
+		Limit     *int64
+		BatchSize *int32 `bson:"batchSize"`
+		Pipeline  mongo.Pipeline
+		Document  bson.D
+		Update    bson.D
+	}
+	if err := bson.UnmarshalExtJSON(fixture.Operation.Arguments, false, &args); err != nil {
+		return err
+	}
+	var result any
+	var cursor *mongo.Cursor
+	switch fixture.Operation.Name {
+	case "find":
+		if args.Filter == nil {
+			args.Filter = bson.D{}
+		}
+		find := options.Find()
+		if args.Sort != nil {
+			find.SetSort(args.Sort)
+		}
+		if args.Skip != nil {
+			find.SetSkip(*args.Skip)
+		}
+		if args.Limit != nil {
+			find.SetLimit(*args.Limit)
+		}
+		if args.BatchSize != nil {
+			find.SetBatchSize(*args.BatchSize)
+		}
+		cursor, err = items.Find(ctx, args.Filter, find)
+	case "aggregate":
+		aggregate := options.Aggregate()
+		if args.BatchSize != nil {
+			aggregate.SetBatchSize(*args.BatchSize)
+		}
+		cursor, err = items.Aggregate(ctx, args.Pipeline, aggregate)
+	case "insertOne":
+		var write *mongo.InsertOneResult
+		write, err = items.InsertOne(ctx, args.Document)
+		if err == nil {
+			result = bson.M{"insertedId": write.InsertedID}
+		}
+	case "updateOne":
+		var write *mongo.UpdateResult
+		write, err = items.UpdateOne(ctx, args.Filter, args.Update)
+		if err == nil {
+			result = bson.M{"matchedCount": write.MatchedCount, "modifiedCount": write.ModifiedCount, "upsertedCount": write.UpsertedCount}
+		}
+	default:
+		return fmt.Errorf("unexpected operation: %s", fixture.Operation.Name)
+	}
+	if err != nil {
+		return err
+	}
+	if cursor != nil {
+		var docs []bson.M
+		if err := cursor.All(ctx, &docs); err != nil {
+			return err
+		}
+		result = docs
+	}
+	output, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(fixture.Result, output, 0600)
+}
 
 func probe(ctx context.Context) error {
 	credential := options.Credential{
@@ -31,6 +119,9 @@ func probe(ctx context.Context) error {
 	}
 	defer client.Disconnect(ctx)
 	items := client.Database("canopy_s13").Collection("items")
+	if path := os.Getenv("CANOPY_S13_CRUD_CASE"); path != "" {
+		return unified(ctx, items, path)
+	}
 	cursor, err := items.Find(ctx, bson.D{}, options.Find().SetSort(bson.D{{Key: "_id", Value: 1}}).
 		SetLimit(5).SetBatchSize(2))
 	if err != nil {
@@ -95,5 +186,7 @@ func main() {
 	if err := probe(ctx); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Go driver v2.5.0: authenticated reads, pagination, aggregation and writes passed")
+	if os.Getenv("CANOPY_S13_CRUD_CASE") == "" {
+		fmt.Println("Go driver v2.5.0: authenticated reads, pagination, aggregation and writes passed")
+	}
 }

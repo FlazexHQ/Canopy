@@ -16,7 +16,7 @@
 | Public registry install in a clean app | Pending publication | Re-run the quickstart against the published package names and versions once available. |
 | MongoDB minimum, replica set, sharding and Search | 8.0 minimum enforced. Topology and Search checks verified independently. | [Minimum version change](https://github.com/FlazexHQ/Canopy/commit/36ae827ac6448f38ecd9835b96d2dbc10a9379ff), [CI evidence](#ci-evidence) |
 | Native read codec | Decision recorded. REST and GraphQL use the TypeScript codec. | [Phase 5 measurements and decision](../../docs/plan/14-native-core.md#8-stages-and-gates) |
-| Inbound MongoDB wire endpoint | Independent S13 gate. No go for production on the current evidence. | [Driver, DLS and cost results](../../docs/spikes/S13-inbound-wire.md) |
+| Inbound MongoDB wire endpoint | S13 complete. Go for bounded feasibility, with production approval handled separately. | [28 upstream fixture results, query corpus and read cost](../../docs/spikes/S13-inbound-wire.md) |
 
 ## Local results
 

@@ -97,10 +97,18 @@ fn allowed(command: &Document, keys: &[&str]) -> bool {
 
 fn simple_field(key: &str, value: &Bson) -> bool {
     match key {
-        "_id" => integer(Some(value)).is_some(),
+        "_id" | "x" => integer(Some(value)).is_some(),
         "ownerId" | "title" => value.as_str().is_some(),
         _ => false,
     }
+}
+
+fn fixture_filter(key: &str, value: &Bson) -> bool {
+    simple_field(key, value)
+        || (key == "_id"
+            && value
+                .as_document()
+                .is_some_and(|range| range.len() == 1 && integer(range.get("$gt")).is_some()))
 }
 
 fn to_policy(document: &Document) -> Result<PolicyDocument, Document> {
@@ -155,9 +163,9 @@ impl Probe {
     ) -> Result<Document, Document> {
         let read = self.policy.using(COLLECTION, Operation::Read, &principal.context(None, now_ms()));
         let policy = mongo::to_bson(&read.to_filter()).map_err(|_| denied())?;
-        let (filter, limit, count, single_batch) = if command.contains_key("find") {
+        let (filter, sort, skip, limit, count, single_batch) = if command.contains_key("find") {
             if command.get_str("find").ok() != Some(COLLECTION)
-                || !allowed(command, &["find", "filter", "sort", "limit", "batchSize", "singleBatch"])
+                || !allowed(command, &["find", "filter", "sort", "skip", "limit", "batchSize", "singleBatch"])
             {
                 return Err(invalid());
             }
@@ -167,6 +175,8 @@ impl Probe {
             }
             (
                 optional_document(command, "filter")?,
+                doc! { "_id": 1 },
+                optional_integer(command, "skip", 0)?,
                 optional_integer(command, "limit", 1_000)?,
                 optional_integer(command, "batchSize", MAX_BATCH)?,
                 command.get("singleBatch").map_or(Ok(false), |value| value.as_bool().ok_or_else(invalid))?,
@@ -203,16 +213,24 @@ impl Probe {
                 let id = self.remember(token, FixtureCursor::Changes(Box::new(stream), filter, 0)).await?;
                 return Ok(response_batch(id, "firstBatch", vec![]));
             }
-            let filter = match pipeline.as_slice() {
-                [] => Document::new(),
+            let (filter, sort) = match pipeline.as_slice() {
+                [] => (Document::new(), doc! { "_id": 1 }),
                 [Bson::Document(stage)] if stage.len() == 1 => {
-                    stage.get_document("$match").map_err(|_| invalid())?.clone()
+                    (stage.get_document("$match").map_err(|_| invalid())?.clone(), doc! { "_id": 1 })
+                }
+                [Bson::Document(sort), Bson::Document(filter)]
+                    if sort.len() == 1
+                        && filter.len() == 1
+                        && sort.get_document("$sort").ok() == Some(&doc! { "x": 1 }) =>
+                {
+                    (filter.get_document("$match").map_err(|_| invalid())?.clone(), doc! { "x": 1 })
                 }
                 _ => return Err(invalid()),
             };
-            (filter, 1_000, count, false)
+            (filter, sort, 0, 1_000, count, false)
         };
-        if !filter.iter().all(|(key, value)| simple_field(key, value))
+        if !filter.iter().all(|(key, value)| fixture_filter(key, value))
+            || !(0..=1_000).contains(&skip)
             || !(1..=1_000).contains(&limit)
             || !(1..=MAX_BATCH + 1).contains(&count)
         {
@@ -223,7 +241,8 @@ impl Probe {
         let mut cursor = self
             .collection
             .find(predicate)
-            .sort(doc! { "_id": 1 })
+            .sort(sort)
+            .skip(u64::try_from(skip).map_err(|_| invalid())?)
             .limit(limit)
             .batch_size(u32::try_from(count).map_err(|_| invalid())?)
             .max_time(Duration::from_secs(3))
@@ -342,7 +361,11 @@ impl Probe {
         };
         let mut args = PolicyDocument::new();
         let op = if name == "insert" {
-            if input.len() != 3 || !input.iter().all(|(key, value)| simple_field(key, value)) {
+            if input.len() != 3
+                || integer(input.get("_id")).is_none()
+                || input.get_str("ownerId").is_err()
+                || !(input.get_str("title").is_ok() || integer(input.get("x")).is_some())
+            {
                 return Err(invalid());
             }
             args.insert("doc", Value::Document(to_policy(input)?));
@@ -358,8 +381,12 @@ impl Probe {
             let query = input.get_document("q").map_err(|_| invalid())?;
             let id = integer(query.get("_id")).filter(|_| query.len() == 1).ok_or_else(invalid)?;
             let update = input.get_document("u").map_err(|_| invalid())?;
-            let set = update.get_document("$set").map_err(|_| invalid())?;
-            if update.len() != 1 || set.len() != 1 || set.get_str("title").is_err() {
+            let sets_title =
+                update.get_document("$set").is_ok_and(|set| set.len() == 1 && set.get_str("title").is_ok());
+            let increments_x = update
+                .get_document("$inc")
+                .is_ok_and(|inc| inc.len() == 1 && integer(inc.get("x")).is_some());
+            if update.len() != 1 || !(sets_title || increments_x) {
                 return Err(invalid());
             }
             args.insert("id", Value::Int64(id));

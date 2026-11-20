@@ -15,6 +15,7 @@ import { createCanopy, defineConfig } from "@canopy/server"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { BSON, Long, MongoClient, MongoServerError } from "mongodb"
 import { bypassCorpus } from "../../query/test/bypass-corpus.ts"
+import { runNodeCase, verifyUnified } from "./s13-unified.ts"
 
 const database = "canopy_s13"
 const key = "pk_s13"
@@ -121,11 +122,9 @@ async function benchmark(paths: Record<string, () => Promise<readonly unknown[]>
   }
 }
 
-async function drivers(url: string, token: string) {
-  const tools = process.env["CANOPY_S13_DRIVER_TOOLS"]
-  if (tools === undefined) return
+function driverCommands(tools: string) {
   const probePath = fileURLToPath(new URL("./s13-drivers", import.meta.url))
-  const commands = [
+  return [
     {
       name: "Python",
       executable: "python",
@@ -148,25 +147,39 @@ async function drivers(url: string, token: string) {
       cwd: probePath,
     },
   ]
-  for (const command of commands) {
+}
+
+async function runDriver(
+  command: ReturnType<typeof driverCommands>[number],
+  url: string,
+  token: string,
+  fixtureEnv: Record<string, string>,
+) {
+  const child = spawn(command.executable, command.args, {
+    cwd: command.cwd,
+    env: {
+      ...process.env,
+      ...command.env,
+      ...fixtureEnv,
+      CANOPY_S13_URL: url,
+      CANOPY_S13_TOKEN: token,
+    },
+    stdio: ["ignore", "inherit", "inherit"],
+  })
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("error", reject)
+    child.once("exit", resolve)
+  })
+  assert.equal(code, 0, command.name)
+}
+
+async function drivers(url: string, token: string) {
+  const tools = process.env["CANOPY_S13_DRIVER_TOOLS"]
+  if (tools === undefined) return
+  for (const command of driverCommands(tools)) {
     const id = randomInt(10_000, 2_000_000_000)
-    const child = spawn(command.executable, command.args, {
-      cwd: command.cwd,
-      env: {
-        ...process.env,
-        ...command.env,
-        CANOPY_S13_URL: url,
-        CANOPY_S13_TOKEN: token,
-        CANOPY_S13_WRITE_ID: String(id),
-      },
-      stdio: ["ignore", "inherit", "inherit"],
-    })
     try {
-      const code = await new Promise<number | null>((resolve, reject) => {
-        child.once("error", reject)
-        child.once("exit", resolve)
-      })
-      assert.equal(code, 0, command.name)
+      await runDriver(command, url, token, { CANOPY_S13_WRITE_ID: String(id) })
     } finally {
       await items.deleteOne({ _id: id })
     }
@@ -378,6 +391,24 @@ try {
       "Node driver, two user REST equivalence and scoped read, write and stream checks passed\n",
     )
     await drivers(wireUrl, aliceToken)
+    if (process.env["CANOPY_S13_RUN_UNIFIED"] === "1") {
+      const tools = process.env["CANOPY_S13_DRIVER_TOOLS"]
+      assert.ok(tools, "Set CANOPY_S13_DRIVER_TOOLS to run the four driver unified fixtures")
+      const ownerId = `unified-${randomInt(10_000, 2_000_000_000)}`
+      const accessToken = await token(ownerId)
+      await using unified = client(wireUrl, accessToken)
+      type UnifiedItem = { _id: number; x: number; ownerId: string }
+      await verifyUnified(direct.db(database).collection<UnifiedItem>("items"), ownerId, scratch, [
+        [
+          "Node",
+          (path) => runNodeCase(unified.db(database).collection<UnifiedItem>("items"), path),
+        ],
+        ...driverCommands(tools).map((command): [string, (path: string) => Promise<void>] => [
+          command.name,
+          (path) => runDriver(command, wireUrl, accessToken, { CANOPY_S13_CRUD_CASE: path }),
+        ]),
+      ])
+    }
     for (const size of [20, 100]) {
       const wireItems = wrapped.db(database).collection<Item>("items")
       const reads = {
