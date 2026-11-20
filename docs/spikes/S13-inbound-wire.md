@@ -47,9 +47,12 @@ The Node fixture checks both identities against the secured Data API, including 
 multiple wire batches, aggregation, an allowed insert and update, and private change events.
 It confirms refusals for missing and invalid tokens, an unexposed collection, an unlisted command,
 an unsupported query operator, a different token's cursor read and kill, and an insert for a
-different owner. A different owner's update matches zero documents. These checks cover this
-fixture's policy and command boundary. The upstream allowlisted unified runs and full bypass corpus
-replay have no result.
+different owner. A different owner's update matches zero documents. The harness also reuses the
+[query denial corpus](../../packages/query/test/bypass-corpus.ts) for both `find` and aggregate
+`$match`. The gateway returned a refusal for all 50 encodable requests. The BSON serializer
+refused both attempts to encode the NUL key, so neither reached the gateway. The native policy
+tests also passed their stored-policy corpus and policy invariants. Stored-policy authoring has
+its own entry point, outside the probe's wire commands. The upstream unified runs remain open.
 
 `cargo clippy --locked -p canopy-gateway --example s13-wire -- -D warnings` passed.
 `cargo test --locked -p canopy-gateway --all-targets` passed 14 gateway tests and the same

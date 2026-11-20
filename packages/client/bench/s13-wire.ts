@@ -13,7 +13,8 @@ import { createRestClient } from "@canopy/client/rest"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { createCanopy, defineConfig } from "@canopy/server"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
-import { Long, MongoClient, MongoServerError } from "mongodb"
+import { BSON, Long, MongoClient, MongoServerError } from "mongodb"
+import { bypassCorpus } from "../../query/test/bypass-corpus.ts"
 
 const database = "canopy_s13"
 const key = "pk_s13"
@@ -51,6 +52,29 @@ function client(url: string, token?: string) {
 
 function hasCode(code: number) {
   return (error: unknown) => error instanceof MongoServerError && error.code === code
+}
+
+async function checkFilterDenials(caller: MongoClient) {
+  const db = caller.db(database)
+  let wire = 0
+  let codec = 0
+  for (const [name, filter] of bypassCorpus) {
+    for (const command of [
+      { find: "items", filter },
+      { aggregate: "items", pipeline: [{ $match: filter }], cursor: {} },
+    ]) {
+      if (name === "a NUL in a path") {
+        assert.throws(() => BSON.serialize(command), BSON.BSONError, name)
+        codec++
+      } else {
+        await assert.rejects(db.command(command), hasCode(2), name)
+        wire++
+      }
+    }
+  }
+  process.stdout.write(
+    `Query refusal corpus: ${wire} wire refusals, ${codec} BSON encoder refusals\n`,
+  )
 }
 
 async function benchmark(paths: Record<string, () => Promise<readonly unknown[]>>, size: number) {
@@ -279,6 +303,7 @@ try {
       wrapped.db(database).command({ find: "items", filter: { title: { $exists: true } } }),
       hasCode(2),
     )
+    await checkFilterDenials(wrapped)
     const open = await wrapped.db(database).command({ find: "items", batchSize: 2 })
     const cursor = Long.fromValue(open.cursor.id)
     await assert.rejects(

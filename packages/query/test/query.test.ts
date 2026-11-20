@@ -14,6 +14,7 @@ import {
   USING_LIMITS,
   validateStoredDocument,
 } from "../src/index.ts"
+import { bypassCorpus } from "./bypass-corpus.ts"
 
 function rejects(run: () => unknown): void {
   expect(run).toThrow(InvalidQueryError)
@@ -91,43 +92,11 @@ describe("parseFilter", () => {
 })
 
 describe("bypass corpus", () => {
-  const corpus: [string, unknown][] = [
-    ["$where with code", { $where: "sleep(1000) || true" }],
-    ["$where nested in $or", { $or: [{ a: 1 }, { $where: "true" }] }],
-    [
-      "$function inside $expr",
-      { $expr: { $function: { body: "return true", args: [], lang: "js" } } },
-    ],
-    ["$accumulator inside $expr", { $expr: { $accumulator: {} } }],
-    ["$expr reading a hidden field", { $expr: { $gt: ["$salary", 100000] } }],
-    ["$jsonSchema as an oracle", { $jsonSchema: { properties: { salary: { minimum: 100000 } } } }],
-    ["an unknown top level operator", { $comment2: "x" }],
-    ["an unknown field operator", { a: { $gtx: 1 } }],
-    ["operators mixed with fields", { a: { $gt: 1, b: 2 } }],
-    ["a $ prefixed path", { $a: 1 }],
-    ["a positional path in a filter", { "a.$": 1 }],
-    ["an empty path segment", { "a..b": 1 }],
-    ["a NUL in a path", { "a\0b": 1 }],
-    ["__proto__ as a path", JSON.parse('{"__proto__": {"admin": true}}')],
-    ["constructor as a path segment", { "a.constructor.prototype": 1 }],
-    ["prototype pollution in a value", { a: { $eq: JSON.parse('{"__proto__": {"x": 1}}') } }],
-    ["a $ key inside a literal value", { a: { $eq: { $gt: "" } } }],
-    ["a variable in a user filter", { ownerId: { $auth: "sub" } }],
-    ["a $ctx variable in a user filter", { projectId: { $in: { $ctx: "projectIds" } } }],
-    ["an empty $or", { $or: [] }],
-    ["a non document $and branch", { $and: [1] }],
-    ["$options without $regex", { a: { $options: "i" } }],
-    ["bad regex options", { a: { $regex: "x", $options: "g" } }],
-    ["$not with a literal", { a: { $not: 5 } }],
-    ["a huge $in", { a: { $in: Array.from({ length: 5000 }, (_, i) => i) } }],
-    ["$text below the top level", { $or: [{ $text: { $search: "x" } }] }],
-  ]
-
-  it.each(corpus)("rejects %s", (_name, payload) => {
+  it.each(bypassCorpus)("rejects %s", (_name, payload) => {
     rejects(() => parseFilter(payload))
   })
 
-  it.each(corpus)("rejects %s after an EJSON round trip from the wire", (_name, payload) => {
+  it.each(bypassCorpus)("rejects %s after an EJSON round trip from the wire", (_name, payload) => {
     let decoded: unknown
     try {
       decoded = parse(JSON.stringify(payload))
