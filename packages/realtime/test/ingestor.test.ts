@@ -102,69 +102,85 @@ describe("Ingestor start", () => {
 })
 
 describe("Ingestor progress", () => {
-  it("reports progress past an event only after the event was delivered", async () => {
-    const at = new Timestamp({ t: 1_800_000_000, i: 7 })
-    const ct = toCt(at) ?? "0"
-    const insert = {
-      _id: { _data: "event" },
-      operationType: "insert",
-      clusterTime: at,
-      ns: { db: "app", coll: "todos" },
-      documentKey: { _id: 1 },
-      fullDocument: { _id: 1 },
-    }
-    let deliver: () => void = () => {}
-    let delivering = false
-    const progress: string[] = []
-    const saved: string[] = []
-    const db = {
-      watch: () => new FakeStream(undefined, { _data: "event" }, insert),
-    } as unknown as Db
-    const subject = new Ingestor({
-      client: {} as MongoClient,
-      db,
-      mode: "auto",
-      collections: () => ["todos"],
-      checkpoints: {
-        load: async () => undefined,
-        save: async (_token, position) => {
-          saved.push(position)
+  it.each([
+    { name: "event token", token: "event", expectedIncrement: 7 },
+    {
+      name: "idle high water mark",
+      token: "826B49D200000000082B0429296E04",
+      expectedIncrement: 8,
+    },
+  ])(
+    "reports progress from $name only after the event was delivered",
+    async ({ token, expectedIncrement }) => {
+      const at = new Timestamp({ t: 1_800_000_000, i: 7 })
+      const ct = toCt(at) ?? "0"
+      const expected = toCt(new Timestamp({ t: 1_800_000_000, i: expectedIncrement }))
+      const insert = {
+        _id: { _data: "event" },
+        operationType: "insert",
+        clusterTime: at,
+        ns: { db: "app", coll: "todos" },
+        documentKey: { _id: 1 },
+        fullDocument: { _id: 1 },
+      }
+      let deliver: () => void = () => {}
+      let delivering = false
+      const progress: string[] = []
+      const saved: string[] = []
+      const db = {
+        watch: () => new FakeStream(undefined, { _data: token }, insert),
+      } as unknown as Db
+      const subject = new Ingestor({
+        client: {} as MongoClient,
+        db,
+        mode: "auto",
+        collections: () => ["todos"],
+        checkpoints: {
+          load: async () => undefined,
+          save: async (_token, position) => {
+            saved.push(position)
+          },
         },
-      },
-      handlers: {
-        onEvents: () => {
-          delivering = true
-          return new Promise<void>((resolve) => {
-            deliver = resolve
-          })
+        handlers: {
+          onEvents: () => {
+            delivering = true
+            return new Promise<void>((resolve) => {
+              deliver = resolve
+            })
+          },
+          onControl: () => {},
+          onRestart: () => {},
+          onProgress: (position) => {
+            progress.push(position)
+          },
         },
-        onControl: () => {},
-        onRestart: () => {},
-        onProgress: (position) => {
-          progress.push(position)
-        },
-      },
-      logger: quiet,
-      metrics: new RealtimeMetrics(),
-      checkpointIntervalMs: 10,
-    })
-    await subject.start()
-    try {
-      for (let waited = 0; !delivering && waited < 2000; waited += 10)
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      expect(delivering).toBe(true)
-      await new Promise((resolve) => setTimeout(resolve, 100))
-      expect(progress.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
-      expect(saved.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
-      deliver()
-      for (let waited = 0; !progress.includes(ct) && waited < 2000; waited += 10)
-        await new Promise((resolve) => setTimeout(resolve, 10))
-      expect(progress).toContain(ct)
-    } finally {
-      deliver()
-      await subject.stop()
-    }
-  })
+        logger: quiet,
+        metrics: new RealtimeMetrics(),
+        checkpointIntervalMs: 10,
+      })
+      await subject.start()
+      try {
+        for (let waited = 0; !delivering && waited < 2000; waited += 10)
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        expect(delivering).toBe(true)
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        expect(progress.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
+        expect(saved.filter((position) => compareCt(position, ct) >= 0)).toEqual([])
+        deliver()
+        for (
+          let waited = 0;
+          !progress.some((position) => position === expected) && waited < 2000;
+          waited += 10
+        )
+          await new Promise((resolve) => setTimeout(resolve, 10))
+        expect(progress).toContain(expected)
+        expect(saved).toContain(expected)
+      } finally {
+        deliver()
+        await subject.stop()
+      }
+    },
+  )
 })
 
 /** A change stream that returns the queued values in order, then waits until it is closed. */
