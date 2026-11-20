@@ -198,7 +198,10 @@ export class MongoSnapshotReader implements SnapshotReader {
     const filter = { _id: { $in: [...ids] } }
     const docs =
       ct === undefined
-        ? await this.db.collection(coll).find(filter, EXACT_BSON).toArray()
+        ? await this.db
+            .collection(coll)
+            .find(filter as Document, EXACT_BSON)
+            .toArray()
         : await this.readAt({ coll, filter, sort: undefined, limit: undefined }, ct)
     for (const doc of docs) out.set(docKey(coll, doc["_id"]), doc)
     this.metrics?.lazyLookups.inc({}, ids.length)
