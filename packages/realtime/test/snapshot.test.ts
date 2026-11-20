@@ -76,6 +76,22 @@ function fakeDriver(options: {
 const query = { coll: "notes", filter: {}, sort: undefined, limit: undefined }
 
 describe("MongoSnapshotReader", () => {
+  it("looks up post images at the supplied event time", async () => {
+    const document = { _id: 1, value: "at the event" }
+    const { reader, calls } = fakeDriver({
+      snapshotTimes: [],
+      pingTimes: [],
+      batches: [[document]],
+    })
+    const images = await reader.lookup("notes", [1], ctFromParts(500, 3))
+    expect([...images.values()]).toEqual([document])
+    expect(calls.finds).toHaveLength(1)
+    expect(calls.finds[0]).toMatchObject({
+      find: "notes",
+      readConcern: { level: "snapshot", atClusterTime: new Timestamp({ t: 500, i: 3 }) },
+    })
+  })
+
   it("reports the snapshot time of the read, not the later operation time", async () => {
     const { reader, calls } = fakeDriver({
       snapshotTimes: [new Timestamp({ t: 100, i: 2 })],

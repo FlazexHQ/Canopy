@@ -151,28 +151,33 @@ export class MongoSnapshotReader implements SnapshotReader {
   /** Reads the query as of exactly `ct`, which MongoDB waits for until every write up to it is visible. */
   private async readAt(query: SnapshotQuery, ct: ClusterTime): Promise<Doc[]> {
     const { t, i } = ctToParts(ct)
-    const reply = await this.db.command(
-      {
-        find: query.coll,
-        filter: toBsonLibrary(query.filter, BSON) as Document,
-        sort: withIdTieBreaker(query.sort ?? {}),
-        ...(query.limit === undefined ? {} : { limit: query.limit }),
-        maxTimeMS: this.maxTimeMS,
-        readConcern: { level: "snapshot", atClusterTime: new Timestamp({ t, i }) },
-      },
-      EXACT_BSON,
-    )
-    const docs: Doc[] = []
-    let cursor = reply["cursor"] as { id: Long | number; firstBatch?: Doc[]; nextBatch?: Doc[] }
-    for (;;) {
-      docs.push(...(cursor.firstBatch ?? cursor.nextBatch ?? []))
-      const id = cursor.id
-      if (Long.isLong(id) ? id.isZero() : id === 0) return docs
-      const more = await this.db.command(
-        { getMore: id, collection: query.coll, maxTimeMS: this.maxTimeMS },
-        EXACT_BSON,
+    const session = this.client.startSession({ causalConsistency: false })
+    try {
+      const reply = await this.db.command(
+        {
+          find: query.coll,
+          filter: toBsonLibrary(query.filter, BSON) as Document,
+          sort: withIdTieBreaker(query.sort ?? {}),
+          ...(query.limit === undefined ? {} : { limit: query.limit }),
+          maxTimeMS: this.maxTimeMS,
+          readConcern: { level: "snapshot", atClusterTime: new Timestamp({ t, i }) },
+        },
+        { ...EXACT_BSON, session },
       )
-      cursor = more["cursor"] as typeof cursor
+      const docs: Doc[] = []
+      let cursor = reply["cursor"] as { id: Long | number; firstBatch?: Doc[]; nextBatch?: Doc[] }
+      for (;;) {
+        docs.push(...(cursor.firstBatch ?? cursor.nextBatch ?? []))
+        const id = cursor.id
+        if (Long.isLong(id) ? id.isZero() : id === 0) return docs
+        const more = await this.db.command(
+          { getMore: id, collection: query.coll, maxTimeMS: this.maxTimeMS },
+          { ...EXACT_BSON, session },
+        )
+        cursor = more["cursor"] as typeof cursor
+      }
+    } finally {
+      await session.endSession()
     }
   }
 
@@ -186,15 +191,16 @@ export class MongoSnapshotReader implements SnapshotReader {
     }
   }
 
-  /** Fetches current documents by `_id`, for the lazy post image resolver. */
-  async lookup(coll: string, ids: readonly unknown[]): Promise<Map<string, Doc>> {
+  /** Fetches post images by ID at the supplied event time, or reads current documents if omitted. */
+  async lookup(coll: string, ids: readonly unknown[], ct?: ClusterTime): Promise<Map<string, Doc>> {
     const out = new Map<string, Doc>()
     if (ids.length === 0) return out
-    const docs = await this.db
-      .collection(coll)
-      .find({ _id: { $in: [...ids] } } as Document, EXACT_BSON)
-      .toArray()
-    for (const doc of docs) out.set(docKey(coll, doc["_id"]), doc as Doc)
+    const filter = { _id: { $in: [...ids] } }
+    const docs =
+      ct === undefined
+        ? await this.db.collection(coll).find(filter, EXACT_BSON).toArray()
+        : await this.readAt({ coll, filter, sort: undefined, limit: undefined }, ct)
+    for (const doc of docs) out.set(docKey(coll, doc["_id"]), doc)
     this.metrics?.lazyLookups.inc({}, ids.length)
     return out
   }

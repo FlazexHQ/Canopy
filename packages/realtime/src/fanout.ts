@@ -62,7 +62,7 @@ export class Fanout {
    */
   async process(events: NormalizedEvent[]): Promise<void> {
     const { pool, reader, resolver, metrics } = this.options
-    const lookups = new Map<string, NormalizedEvent[]>()
+    const lookups = new Map<string, Map<ClusterTime, NormalizedEvent[]>>()
     const touched = new Set<string>()
     for (const event of events) {
       const earlier = touched.has(event.key)
@@ -70,16 +70,24 @@ export class Fanout {
       if (event.op !== "update" || event.post !== undefined) continue
       if (!earlier && pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll))
         continue
-      const list = lookups.get(event.coll) ?? []
+      let byTime = lookups.get(event.coll)
+      if (byTime === undefined) {
+        byTime = new Map()
+        lookups.set(event.coll, byTime)
+      }
+      const list = byTime.get(event.ct) ?? []
       list.push(event)
-      lookups.set(event.coll, list)
+      byTime.set(event.ct, list)
     }
-    for (const [coll, list] of lookups) {
-      const found = await reader.lookup(
-        coll,
-        list.map((event) => event.id),
-      )
-      for (const event of list) event.post = found.get(event.key) ?? null
+    for (const [coll, byTime] of lookups) {
+      for (const [ct, list] of byTime) {
+        const found = await reader.lookup(
+          coll,
+          list.map((event) => event.id),
+          ct,
+        )
+        for (const event of list) event.post = found.get(event.key) ?? null
+      }
     }
     for (const event of events) {
       if (resolver.watches(event.coll))

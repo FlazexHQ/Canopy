@@ -231,7 +231,7 @@ export interface Logger {
 class MongoSnapshotReader implements SnapshotReader {
   constructor(client: MongoClient, db: Db, options: { concurrency: number; metrics?: RealtimeMetrics; maxTimeMS?: number; }): MongoSnapshotReader
   read(query: SnapshotQuery): Promise<{ docs: Doc[]; ct: ClusterTime; }>
-  lookup(coll: string, ids: readonly unknown[]): Promise<Map<string, Doc>>
+  lookup(coll: string, ids: readonly unknown[], ct?: ClusterTime): Promise<Map<string, Doc>>
 }
 
 export interface MutationExecutor {
