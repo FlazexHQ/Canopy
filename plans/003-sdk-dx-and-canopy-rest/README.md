@@ -9,7 +9,8 @@ passed separately. The clean app registry install is pending publication.
 
 MongoDB **8.0** is the enforced minimum in this branch. The native REST read codec did not meet
 the Phase 5 adoption gate, so REST and GraphQL use the TypeScript codec. S13 has its own decision
-gate and change.
+gate and change. The [S13 report](../../docs/spikes/S13-inbound-wire.md) records a no go for a
+production endpoint on the current evidence.
 
 Proposed on 19 November 2026 for `feat/rust-native-core` at `7a9a318`. [Developer experience and MongoDB transport report](report.md)
 
@@ -271,7 +272,7 @@ and first blockers could not be recovered. The separate REST participant exercis
 | MongoDB compatibility | MongoDB 8.0 minimum enforced by [36ae827](https://github.com/FlazexHQ/Canopy/commit/36ae827ac6448f38ecd9835b96d2dbc10a9379ff). Replica set and two shard checks passed independently. [SDK verification](verification.md#ci-evidence) |
 | Search and operator DX | The capability result is shared by `canopy doctor` and Studio. The replica set suite covers unavailable Search and Atlas Local CI runs indexed text and vector queries for known callers. Index changes remain explicit admin actions. [SDK verification](verification.md#ci-evidence) |
 | Native read codec | Retain the TypeScript codec. Identical encoded bytes on 400 compared pages, with the native path at 0.92x for 20 documents and 0.99x for 100 documents in the codec ceiling experiment. The gate requires 1.5x complete REST throughput per vCPU, so the native REST path did not proceed to end to end timing. [Phase 5 decision](../../docs/plan/14-native-core.md#8-stages-and-gates) |
-| Inbound wire endpoint | Independent S13 feasibility gate. Evaluate Node, Python, Go and Java compatibility, DLS equivalence and fail-closed behavior, and cost per document against the Data API and direct MongoDB. |
+| Inbound wire endpoint | Independent S13 experiment complete with a no go for production on the current evidence. Four drivers passed the scoped read and write probes, and fixture reads cost less per document than the Data API. The full unified suites and bypass corpus remain open. [S13 report](../../docs/spikes/S13-inbound-wire.md) |
 
 ## Verification for implementation changes
 

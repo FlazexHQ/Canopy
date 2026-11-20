@@ -365,4 +365,5 @@ impl Jwt {
 }
 
 #[cfg(test)]
+#[path = "jwt/tests.rs"]
 mod tests;
