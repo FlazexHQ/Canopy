@@ -1,6 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -60,13 +59,17 @@ function requestShutdown(run: Running, how: Shutdown = SHUTDOWNS[0] ?? "shutdown
   else run.child.send("shutdown")
 }
 
-async function freePort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (address === null || typeof address === "string") throw new Error("no port")
-  return address.port
+function boundPorts(output: string): { port: number; metricsPort: number } | undefined {
+  const line = output.split(/\r?\n/).find((line) => line.includes('"msg":"canopy listening"'))
+  if (line === undefined) return undefined
+  try {
+    const { port, metricsPort } = JSON.parse(line) as { port?: unknown; metricsPort?: unknown }
+    if (typeof port === "number" && port > 0 && typeof metricsPort === "number" && metricsPort > 0)
+      return { port, metricsPort }
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -148,8 +151,6 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   const boot = async (
     policies = POLICIES,
   ): Promise<{ run: Running; base: string; metrics: string }> => {
-    const port = await freePort()
-    const metricsPort = await freePort()
     const run = start(["--config", config], {
       MONGODB_URI: MONGODB_URI ?? "",
       CANOPY_DB: database,
@@ -158,24 +159,29 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
       CANOPY_PUBLISHABLE_KEYS: KEY,
       CANOPY_CHECKPOINTS: "off",
       CANOPY_DRAIN_WINDOW: "5s",
-      PORT: String(port),
-      METRICS_PORT: String(metricsPort),
+      CANOPY_LOG_LEVEL: "info",
+      PORT: "0",
+      METRICS_PORT: "0",
     })
-    const base = `http://127.0.0.1:${port}`
     const started = Date.now()
     for (;;) {
       if (run.child.exitCode !== null)
         throw new Error(`canopy-server exited early:\n${run.output()}`)
-      const ready = await fetch(`${base}/readyz`).then(
-        (response) => response.status === 200,
-        () => false,
-      )
-      if (ready) break
-      if (Date.now() - started > 30_000)
+      const ports = boundPorts(run.output())
+      if (ports !== undefined) {
+        const base = `http://127.0.0.1:${ports.port}`
+        const ready = await fetch(`${base}/readyz`).then(
+          (response) => response.status === 200,
+          () => false,
+        )
+        if (ready) return { run, base, metrics: `http://127.0.0.1:${ports.metricsPort}/metrics` }
+      }
+      if (Date.now() - started > 30_000) {
+        run.child.kill()
         throw new Error(`canopy-server did not become ready:\n${run.output()}`)
+      }
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    return { run, base, metrics: `http://127.0.0.1:${metricsPort}/metrics` }
   }
 
   const stop = async (run: Running): Promise<number | null> => {

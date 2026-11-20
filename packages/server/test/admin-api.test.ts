@@ -67,6 +67,13 @@ async function start(
   }
 }
 
+async function closeHttpServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)))
+    server.closeAllConnections()
+  })
+}
+
 function bearer(base: string, token: string): Client {
   return {
     token,
@@ -255,7 +262,7 @@ suite("admin API", () => {
 
   afterAll(async () => {
     await canopy.close()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await closeHttpServer(server)
     await mongo.db(dbName).dropDatabase()
     await meta.dropDatabase()
     await mongo.close()
@@ -1034,7 +1041,7 @@ suite("admin API", () => {
     afterAll(async () => {
       await admin?.close()
       await prod.canopy.close()
-      await new Promise<void>((resolve) => prod.server.close(() => resolve()))
+      await closeHttpServer(prod.server)
       await mongo.db(prodDb).dropDatabase()
       await mongo.db(`${prodDb}_meta`).dropDatabase()
     })
