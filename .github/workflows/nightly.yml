@@ -1,8 +1,6 @@
 name: Nightly
 
 on:
-  push:
-    branches: [ci/cross-platform]
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
@@ -16,34 +14,36 @@ concurrency:
 
 env:
   BUN_VERSION: 1.4.4
+  MONGODB_VERSION: 8.0.34
 
 jobs:
-  differential:
-    name: Long differential and simulation runs (MongoDB ${{ matrix.mongo }})
-    if: github.event_name != 'push'
+  replica-set:
+    name: ${{ matrix.name }}
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["8.0.34"]
+        include:
+          - { suite: parity, name: MongoDB differential tests }
+          - { suite: simulation, name: Realtime seeded simulation }
+          - { suite: chaos, name: Realtime failover }
+          - { suite: writes, name: Write acknowledgements and REST property tests }
     env:
-      CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
-      CANOPY_DIFF_RUNS: "3500"
-      CANOPY_SIM_SEEDS: "10000"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
-        shell: bash
-        run: |
-          rustup toolchain install
-          rustup target add wasm32-wasip1-threads
-      - name: Restore the Cargo registry and build output
+      - if: matrix.suite != 'writes'
+        name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - if: matrix.suite == 'parity'
+        run: rustup target add wasm32-wasip1-threads
+      - if: matrix.suite != 'writes'
+        name: Restore the Cargo registry and build output
         id: cargo-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -55,13 +55,17 @@ jobs:
           key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
           restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
+      - if: matrix.suite == 'parity'
+        name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
         run: bun --filter @canopy/native build:native
-      - name: Build the native gateway, so the 10k seed simulation also runs against it
+      - if: matrix.suite == 'simulation' || matrix.suite == 'chaos'
+        name: Build the native gateway for realtime tests
         run: cargo build --release --locked -p canopy-gateway
       - name: Save the Cargo registry and build output
-        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        if: matrix.suite != 'writes' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -70,32 +74,42 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
-      - name: Differential suites (6000 filters on 12000 documents, at least 1M cases per operator, each decided by MongoDB, TypeScript and Rust)
+      - if: matrix.suite == 'parity'
+        name: Differential suites (6000 filters on 12000 documents, at least 1M cases per operator, each decided by MongoDB, TypeScript and Rust)
         run: bun --bun vitest run --project matcher --project policy
         env:
           CANOPY_TEST_ENGINE: native
           CANOPY_DIFF_RUNS: "6000"
           CANOPY_DIFF_DOCS: "12000"
           CANOPY_DIFF_OPERATOR_CASES: "1000000"
-      - name: The same against the WebAssembly build of the Rust core (500 filters)
+      - if: matrix.suite == 'parity'
+        name: The same against the WebAssembly build of the Rust core (500 filters)
         run: bun --bun vitest run --project matcher --project policy
         env:
           CANOPY_TEST_ENGINE: wasm
           CANOPY_DIFF_RUNS: "500"
-      - name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
-        run: bun --bun vitest run --project realtime -t "seeded simulation" --testTimeout 14400000
-      - name: Realtime chaos (server kill and primary step down, on both engines; alone, since the step down disturbs other suites)
+      - if: matrix.suite == 'simulation'
+        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
+        run: bun --bun vitest run --project realtime -t "seeded simulation"
+        env:
+          CANOPY_SIM_SEEDS: "10000"
+      - if: matrix.suite == 'chaos'
+        name: Realtime failover on both engines
         run: bun --bun vitest run --project realtime test/chaos.test.ts
         env:
           CANOPY_CHAOS: "1"
-      - name: Echo correlation between writes and change events (100k mutations)
+      - if: matrix.suite == 'writes'
+        name: Echo correlation between writes and change events (100k mutations)
         run: bun --bun vitest run --project rest -t "echo correlation" --testTimeout 14400000
         env:
           CANOPY_ECHO_MUTATIONS: "100000"
-      - name: Fuzzing the trust boundary parsers and the Data API (100k cases per property)
+      - if: matrix.suite == 'writes'
+        name: Fuzzing the trust boundary parsers and the Data API (100k cases per property)
         run: bun --bun vitest run --project rest test/fuzz.test.ts --testTimeout 14400000
         env:
           CANOPY_FUZZ_RUNS: "100000"
+      - if: failure()
+        run: docker compose -f deploy/compose/dev.yaml logs --tail=100
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
@@ -122,15 +136,15 @@ jobs:
         id: mongodb-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
-          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ env.MONGODB_VERSION }}
       - name: Start a MongoDB 8.0 replica set from the official binaries
-        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+        run: bun packages/testing/scripts/mongod.ts --version "${{ env.MONGODB_VERSION }}" --dir "${{ runner.temp }}/mongodb"
       - if: steps.mongodb-cache.outputs.cache-hit != 'true'
         name: Save the MongoDB 8.0.34 binaries
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
           key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: Install Chromium
         working-directory: examples/todo-react
@@ -153,11 +167,12 @@ jobs:
     runs-on: ubuntu-22.04-arm
     timeout-minutes: 30
     env:
-      CANOPY_MONGO_IMAGE: mongo:8.0.34
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -173,7 +188,6 @@ jobs:
   sharded:
     name: Snapshots, resume and write acknowledgements on a sharded cluster (MongoDB 8.0, Node.js 24)
     # A single member replica set cannot show sharded behaviour, so this runs against two shards behind mongos.
-    if: github.event_name != 'push'
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
     timeout-minutes: 30
@@ -200,7 +214,6 @@ jobs:
     name: Text and vector search with ready indexes (MongoDB Atlas Local 8.0, Node.js 24)
     # mongodb-atlas-local runs mongod with mongot, so search indexes build and answer queries. The
     # search-unavailable case runs in the main suite against the plain replica set.
-    if: github.event_name != 'push'
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
@@ -231,128 +244,12 @@ jobs:
       - if: always()
         run: docker rm -f atlas-local
 
-  benchmark:
-    name: Benchmarks against their baselines (MongoDB 8.0, Node.js 24)
-    if: github.event_name != 'push'
-    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
-    runs-on: ubuntu-22.04
-    timeout-minutes: 90
-    env:
-      CANOPY_MONGO_IMAGE: mongo:8.0.34
-      CANOPY_BENCH_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
-      CANOPY_BENCH_TIERS: "100000"
-      CANOPY_BENCH_ROUNDS: "3"
-      CANOPY_BENCH_INGEST: "0"
-      CANOPY_BENCH_OUT: ${{ github.workspace }}/scale.json
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: ${{ env.BUN_VERSION }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: "24"
-      - name: Install the toolchain pinned in rust-toolchain.toml
-        run: rustup toolchain install
-      - name: Restore the Cargo registry and build output
-        id: cargo-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
-          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
-      - run: docker compose -f deploy/compose/dev.yaml up -d --wait
-      - run: bun install --frozen-lockfile
-      - name: Build the addon (release), so the benchmarks also measure the Rust core
-        run: bun --filter @canopy/native build:native --native-only
-      - name: Save the Cargo registry and build output
-        if: steps.cargo-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
-      - name: Scale benchmark at 100k documents, 3 alternating rounds
-        working-directory: packages/rest
-        run: npm run bench:scale
-      - name: Compare the Canopy to driver ratios with the baseline
-        working-directory: packages/rest
-        run: npm run bench:check -- "$CANOPY_BENCH_OUT"
-      - name: Matcher throughput against hand written predicates, 3 runs
-        working-directory: packages/matcher
-        env:
-          CANOPY_BENCH_DOCS: "200000"
-        run: |
-          for run in 1 2 3; do
-            CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/matcher-$run.json" npm run bench
-          done
-          npm run bench:check -- "$GITHUB_WORKSPACE"/matcher-*.json
-      - name: Matcher per change event, TypeScript decode and match against the Rust addon, 3 runs
-        if: ${{ !cancelled() }}
-        working-directory: packages/matcher
-        shell: bash
-        env:
-          CANOPY_BENCH_DOCS: "200000"
-          CANOPY_BENCH_ROUNDS: "7"
-        run: |
-          for run in 1 2 3; do
-            CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/events-$run.json" npm run bench:events
-          done
-      - name: Rust matcher at least 3 times the events per second of the TypeScript matcher, per event
-        if: ${{ !cancelled() }}
-        working-directory: packages/matcher
-        run: npm run bench:events:check -- "$GITHUB_WORKSPACE"/events-*.json
-      - name: Realtime fan out against a plain change stream on each engine, 2 runs each
-        if: ${{ !cancelled() }}
-        working-directory: packages/realtime
-        shell: bash
-        env:
-          CANOPY_BENCH_DOCS: "100000"
-          CANOPY_BENCH_SECONDS: "5"
-          CANOPY_BENCH_ONLY: "1k connections, 1k writes/s|shared query, 1k connections"
-        run: |
-          for engine in ts native; do
-            for run in 1 2; do
-              CANOPY_TEST_ENGINE="$engine" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/fanout-$engine-$run.json" npm run bench
-            done
-          done
-          npm run bench:compare -- "$GITHUB_WORKSPACE"/fanout-*-*.json --out "$GITHUB_WORKSPACE/fanout-compare.json"
-      - name: Fan out on the TypeScript engine against its baseline
-        if: ${{ !cancelled() }}
-        working-directory: packages/realtime
-        run: npm run bench:check -- "$GITHUB_WORKSPACE"/fanout-ts-*.json
-      - name: Fan out on the Rust engine converges (latency against the TypeScript baseline is reported only)
-        if: ${{ !cancelled() }}
-        working-directory: packages/realtime
-        run: npm run bench:check -- "$GITHUB_WORKSPACE"/fanout-native-*.json --report-ratios
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: scale-benchmark
-          path: |
-            scale.json
-            matcher-*.json
-            events-*.json
-            fanout-*.json
-          if-no-files-found: ignore
-      - if: always()
-        run: docker compose -f deploy/compose/dev.yaml down --volumes
-
   mutation:
     name: Mutation testing (${{ matrix.package }})
-    if: github.event_name != 'push'
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
     timeout-minutes: 240
     env:
-      CANOPY_MONGO_IMAGE: mongo:8.0.34
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       CANOPY_DIFF_RUNS: "50"
     strategy:
@@ -368,6 +265,8 @@ jobs:
         with:
           node-version: "24"
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - run: bun install --frozen-lockfile
       - name: Stryker, failing below the package's break threshold
         working-directory: packages/${{ matrix.package }}
@@ -383,7 +282,6 @@ jobs:
 
   fuzz:
     name: cargo fuzz (${{ matrix.target }})
-    if: github.event_name != 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     strategy:
@@ -514,16 +412,16 @@ jobs:
         id: mongodb-cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
-          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ env.MONGODB_VERSION }}
       - if: runner.os != 'Linux'
         name: Start a MongoDB 8.0 replica set from the official binaries
-        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+        run: bun packages/testing/scripts/mongod.ts --version "${{ env.MONGODB_VERSION }}" --dir "${{ runner.temp }}/mongodb"
       - if: runner.os != 'Linux' && steps.mongodb-cache.outputs.cache-hit != 'true'
         name: Save the MongoDB 8.0.34 binaries
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
           key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - run: deno --version
       # Vitest needs the thread pool on Deno. Studio is a browser app, tested in browsers instead.

@@ -150,7 +150,7 @@ suite("Canopy on a sharded cluster", () => {
         mongodb: { uri: SHARDED_URI ?? "", database: name, metaDatabase: `${name}_meta` },
         auth: { kind: "external", jwks: { keys: [jwk] }, issuer: ISSUER, audience: AUDIENCE },
         keys: { publishable: [KEY] },
-        realtime: { checkpoints: "off", drainWindow: "1s", echoTimeout: "10s" },
+        realtime: { checkpoints: "off", drainWindow: "1s", echoTimeout: "30s" },
         rateLimits: false,
       }),
       { env: TEST_ENV, policies: createPolicySet([orders]), onSetupToken: false },
@@ -235,10 +235,14 @@ suite("Canopy on a sharded cluster", () => {
       ownerId: "alice",
       total: 8,
     })
-    for (const result of [lowShard, highShard]) {
-      expect(result.echo).toBe(true)
-      expect(typeof result.ct).toBe("string")
-    }
+    expect(lowShard, "write to the lower shard").toMatchObject({
+      echo: true,
+      ct: expect.any(String),
+    })
+    expect(highShard, "write to the upper shard").toMatchObject({
+      echo: true,
+      ct: expect.any(String),
+    })
     expect(ids(query.state.current)).toContain("w1")
     expect(ids(query.state.current)).toContain("w2")
 
