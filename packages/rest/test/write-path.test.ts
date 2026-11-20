@@ -1172,10 +1172,10 @@ suite("WritePath against MongoDB", () => {
 
     it("inserts, replaces with upsert and deletes on the fast path", async () => {
       const inserted = await commands(() =>
-        run(editor, { op: "insert", collection: "notes", doc: { _id: 3, body: "c", secret: 1 } }),
+        run(editor, { op: "insert", collection: "notes", doc: { _id: 3, body: "$5", secret: 1 } }),
       )
       expect(inserted.transactional).toBe(false)
-      expect(relaxed(inserted.value.documents)).toEqual([{ _id: 3, body: "c" }])
+      expect(relaxed(inserted.value.documents)).toEqual([{ _id: 3, body: "$5" }])
 
       const upserted = await commands(() =>
         run(editor, {

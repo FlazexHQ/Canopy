@@ -269,7 +269,7 @@ export class Scope {
     const facet = this.facets(ids, check, read)
     if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
     const [out] = await this.db
-      .aggregate([{ $documents: [...docs] }, { $facet: facet }], {
+      .aggregate([{ $documents: { $literal: [...docs] } }, { $facet: facet }], {
         maxTimeMS: this.maxTimeMS,
         ...EXACT_BSON,
       })
