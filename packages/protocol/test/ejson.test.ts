@@ -140,6 +140,13 @@ describe("decode", () => {
 })
 
 describe("encode", () => {
+  it("encodes an own __proto__ field without changing the output prototype", () => {
+    const encoded = encode(JSON.parse('{"__proto__":{"marker":true}}'))
+    expect(Object.getPrototypeOf(encoded)).toBe(Object.prototype)
+    expect(Object.hasOwn(encoded as object, "__proto__")).toBe(true)
+    expect(JSON.stringify(encoded)).toBe('{"__proto__":{"marker":true}}')
+  })
+
   it("uses relaxed forms for plain values and keeps lossless forms where needed", () => {
     expect(
       encode({

@@ -100,7 +100,12 @@ function decodeValue(value: unknown, depth: number, maxDepth: number, state: Dec
   const out: Record<string, unknown> = Object.create(null)
   for (const key of keys) {
     if (FORBIDDEN_KEYS.has(key)) throw new InvalidQueryError(`The key "${key}" is not allowed`)
-    out[key] = decodeValue(record[key], depth + 1, maxDepth, state)
+    Object.defineProperty(out, key, {
+      value: decodeValue(record[key], depth + 1, maxDepth, state),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
   }
   return out
 }
@@ -319,12 +324,11 @@ function encodeValue(value: unknown, canonical: boolean): unknown {
     return { $binary: { base64: bytesToBase64(value), subType: "00" } }
   }
   if (isDocument(value)) {
-    const out: Record<string, unknown> = {}
-    for (const key of Object.keys(value)) {
-      const item = value[key]
-      if (item !== undefined) out[key] = encodeValue(item, canonical)
-    }
-    return out
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, encodeValue(item, canonical)]),
+    )
   }
   return encodeBsonValue(value, canonical)
 }

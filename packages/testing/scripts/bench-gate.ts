@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { parseArgs } from "node:util"
 import { check, newBaseline, readBaseline, readGate } from "./gate.ts"
@@ -45,7 +44,12 @@ async function main(): Promise<number> {
   )
   const target = values["write-baseline"]
   if (target !== undefined) {
-    const previous = existsSync(target) ? readBaseline(await readJson(target), target) : undefined
+    let previous: ReturnType<typeof readBaseline> | undefined
+    try {
+      previous = readBaseline(await readJson(target), target)
+    } catch (error: unknown) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+    }
     const { source, ratios, floors } = newBaseline(runs, previous)
     const written =
       Object.keys(floors).length === 0 ? { source, ratios } : { source, ratios, floors }

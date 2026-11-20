@@ -11,6 +11,7 @@
  * Prints the connection string on success. The server keeps running after the script exits.
  */
 import { execFileSync, spawn } from "node:child_process"
+import { createHash } from "node:crypto"
 import {
   existsSync,
   mkdirSync,
@@ -74,7 +75,7 @@ function findMongod(dir: string): string | undefined {
 function reports(mongod: string, version: string): boolean {
   try {
     const output = execFileSync(mongod, ["--version"], { encoding: "utf8", timeout: 60_000 })
-    return new RegExp(`^db version v${version.replaceAll(".", "\\.")}\\r?$`, "m").test(output)
+    return output.split(/\r?\n/).includes(`db version v${version}`)
   } catch {
     return false
   }
@@ -94,20 +95,28 @@ async function install(version: string, dir: string): Promise<string> {
   }
   const url = archiveUrl(version)
   process.stderr.write(`Downloading MongoDB ${version} from ${url}\n`)
-  const response = await fetch(url)
+  const checksum = await fetch(`${url}.sha256`, { redirect: "error" })
+  if (!checksum.ok) throw new Error(`MongoDB checksum request answered ${checksum.status}`)
+  const expected = (await checksum.text()).trim().split(/\s+/)[0]
+  if (expected === undefined || !/^[0-9a-f]{64}$/i.test(expected))
+    throw new Error("Invalid MongoDB archive checksum")
+  const response = await fetch(url, { redirect: "error" })
   if (!response.ok) throw new Error(`GET ${url} answered ${response.status}`)
+  const archive = new Uint8Array(await response.arrayBuffer())
+  if (createHash("sha256").update(archive).digest("hex") !== expected.toLowerCase())
+    throw new Error(`MongoDB archive checksum does not match for ${version}`)
   const staging = `${target}.partial`
   rmSync(staging, { recursive: true, force: true })
   mkdirSync(staging, { recursive: true })
-  const archive = join(staging, url.slice(url.lastIndexOf("/") + 1))
-  writeFileSync(archive, new Uint8Array(await response.arrayBuffer()))
   // bsdtar ships with Windows 10 and later and also reads zip archives.
   const tar =
     process.platform === "win32"
       ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
       : "tar"
-  execFileSync(tar, ["-xf", archive, "-C", staging], { stdio: "inherit" })
-  rmSync(archive)
+  execFileSync(tar, ["-xf", "-", "-C", staging], {
+    input: archive,
+    stdio: ["pipe", "inherit", "inherit"],
+  })
   rmSync(target, { recursive: true, force: true })
   renameSync(staging, target)
   const mongod = findMongod(target)

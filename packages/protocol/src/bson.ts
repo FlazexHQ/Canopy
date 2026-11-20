@@ -125,7 +125,7 @@ export class Long {
 }
 
 /** A decimal string; groups: fraction digits (after `1.` or `.`), then the written exponent. */
-const DECIMAL = /^[+-]?(?:(?:\d+\.?(\d*)|\.(\d+))(?:[eE]([+-]?\d+))?|Infinity|inf|NaN)$/i
+const DECIMAL = /^[+-]?(?:(?:\d+(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?|Infinity|inf|NaN)$/i
 
 /**
  * A Decimal128 value, kept in its string form. Arithmetic is not supported. Its exponent, with the fraction

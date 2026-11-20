@@ -209,10 +209,12 @@ export class TestClient {
           this.docs.set(key, message.d)
           return
         }
-        const doc = { ...(this.docs.get(key) ?? {}) }
-        Object.assign(doc, message.set ?? {})
-        for (const field of message.unset ?? []) delete doc[field]
-        this.docs.set(key, doc)
+        const doc = { ...this.docs.get(key), ...message.set }
+        const unset = new Set(message.unset)
+        this.docs.set(
+          key,
+          Object.fromEntries(Object.entries(doc).filter(([field]) => !unset.has(field))),
+        )
         return
       }
       case "removed": {

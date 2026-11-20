@@ -444,7 +444,12 @@ export function expandAuth(resolver: Resolver, tree: Record<string, unknown>): v
     for (const key of Object.keys(fields)) resolver.sources.set(`auth.${key}`, source)
     tree["auth"] = next
   }
-  const host = (value: string): string => value.replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  const host = (value: string): string => {
+    const authority = value.replace(/^https?:\/\//, "")
+    let end = authority.length
+    while (end > 0 && authority[end - 1] === "/") end--
+    return authority.slice(0, end)
+  }
   switch (auth["kind"]) {
     case "auth0": {
       const domain = text("domain")

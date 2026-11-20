@@ -610,13 +610,14 @@ export class CanopyClient<
   private startHeartbeat(): void {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
     this.lastInbound = Date.now()
+    const interval = Math.min(300_000, Math.max(100, this.heartbeatMs))
     this.heartbeatTimer = setInterval(() => {
-      if (Date.now() - this.lastInbound > 2 * this.heartbeatMs) {
+      if (Date.now() - this.lastInbound > 2 * interval) {
         this.socket?.close(4000, "heartbeat timeout")
         return
       }
       this.send({ t: "ping", ts: Date.now() })
-    }, this.heartbeatMs)
+    }, interval)
   }
 
   private detach(): void {
@@ -677,12 +678,18 @@ export class CanopyClient<
       return
     }
     this.setStatus("reconnecting")
-    const delay = Math.max(minDelayMs, backoff(this.attempt, this.options.maxBackoffMs ?? 30_000))
+    const delay = Math.max(
+      Math.min(300_000, minDelayMs),
+      backoff(this.attempt, this.options.maxBackoffMs ?? 30_000),
+    )
     this.attempt += 1
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = undefined
-      this.connect()
-    }, delay)
+    this.reconnectTimer = setTimeout(
+      () => {
+        this.reconnectTimer = undefined
+        this.connect()
+      },
+      Math.min(2_147_483_647, Math.max(0, delay)),
+    )
   }
 
   /** Reconnects now, for example on `online` or when the page becomes visible. */

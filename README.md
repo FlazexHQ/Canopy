@@ -88,7 +88,12 @@ const schema = defineSchema(
 )
 
 const auth = createAuth({ url: location.origin })
-const canopy = createClient({ url: location.origin, publishableKey: "pk_notes_local", auth, schema })
+const canopy = createClient({
+  url: location.origin,
+  publishableKey: "pk_notes_local",
+  auth,
+  schema,
+})
 
 canopy
   .from("notes")
@@ -97,7 +102,9 @@ canopy
   .limit(100)
   .subscribe(({ data, status }) => render(data, status))
 
-const added = canopy.from("notes").insert({ text: "Buy milk", ownerId: userId, createdAt: new Date() })
+const added = canopy
+  .from("notes")
+  .insert({ text: "Buy milk", ownerId: userId, createdAt: new Date() })
 render(added.id) // the new note's ObjectId, before the server has answered
 await added // resolves once the server has stored it, rejects if a policy refused it
 ```
@@ -116,7 +123,12 @@ const schema = defineSchema(
   collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() }),
 )
 const auth = createAuth({ url: location.origin })
-const rest = createRestClient({ url: location.origin, publishableKey: "pk_notes_local", auth, schema })
+const rest = createRestClient({
+  url: location.origin,
+  publishableKey: "pk_notes_local",
+  auth,
+  schema,
+})
 
 const recent = rest.from("notes").find({ ownerId: userId }).sort({ createdAt: -1 }).limit(20)
 const first = await recent.page()

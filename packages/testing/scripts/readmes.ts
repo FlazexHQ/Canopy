@@ -7,7 +7,7 @@
  *
  * The snippets are compiled with the other docs snippets by `bun run lint:snippets`.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 const root = resolve(".")
@@ -457,7 +457,12 @@ for (const [name, entry] of Object.entries(ENTRIES)) {
   }
   const text = render(name, entry, manifest.description ?? "")
   const path = join(dir, "README.md")
-  const current = existsSync(path) ? readFileSync(path, "utf8").replaceAll("\r\n", "\n") : undefined
+  let current: string | undefined
+  try {
+    current = readFileSync(path, "utf8").replaceAll("\r\n", "\n")
+  } catch (error: unknown) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+  }
   if (current !== undefined && !current.startsWith(MARKER)) {
     process.stderr.write(`packages/${name}/README.md is written by hand; remove its entry here\n`)
     stale++
