@@ -2,6 +2,7 @@
 
 use crate::error::{CanopyError, ErrorCode};
 use crate::value::{Binary, DbPointer, Document, JavaScript, Regex, Value};
+use std::collections::HashSet;
 
 /// Nesting beyond this depth is refused while decoding, so hostile input cannot exhaust the stack. MongoDB
 /// itself stores at most 100 levels.
@@ -88,7 +89,14 @@ impl<'a> Reader<'a> {
     }
 
     fn document(&mut self, depth: usize) -> Result<Document, CanopyError> {
-        Ok(self.elements(depth)?.into_iter().collect())
+        let elements = self.elements(depth)?;
+        let mut names = HashSet::with_capacity(elements.len());
+        for (name, _) in &elements {
+            if !names.insert(name) {
+                return Err(malformed("duplicate field name"));
+            }
+        }
+        Ok(elements.into_iter().collect())
     }
 
     fn elements(&mut self, depth: usize) -> Result<Vec<(String, Value)>, CanopyError> {
@@ -132,13 +140,7 @@ impl<'a> Reader<'a> {
             0x05 => {
                 let length = self.length()?;
                 let subtype = self.u8()?;
-                let mut bytes = self.take(length)?;
-                if subtype == 0x02 && bytes.len() >= 4 {
-                    let inner = i32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-                    if usize::try_from(inner).ok() == Some(bytes.len() - 4) {
-                        bytes = &bytes[4..];
-                    }
-                }
+                let bytes = binary_payload(subtype, self.take(length)?).map_err(malformed)?;
                 Value::Binary(Box::new(Binary { subtype, bytes: bytes.to_vec() }))
             }
             0x06 => Value::Undefined,
@@ -193,6 +195,19 @@ pub fn encode_document(document: &Document) -> Result<Vec<u8>, CanopyError> {
     let mut out = Vec::new();
     write_elements(&mut out, document.iter())?;
     Ok(out)
+}
+
+pub(crate) fn binary_payload(subtype: u8, bytes: &[u8]) -> Result<&[u8], &'static str> {
+    if subtype != 0x02 {
+        return Ok(bytes);
+    }
+    let Some((length, payload)) = bytes.split_first_chunk::<4>() else {
+        return Err("missing old binary length");
+    };
+    if usize::try_from(i32::from_le_bytes(*length)).ok() != Some(payload.len()) {
+        return Err("old binary length does not match its content");
+    }
+    Ok(payload)
 }
 
 fn write_elements<'a>(
@@ -271,8 +286,15 @@ fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), CanopyError> {
         Value::Binary(binary) => {
             let length =
                 i32::try_from(binary.bytes.len()).map_err(|_| malformed("binary larger than 2 GiB"))?;
-            out.extend_from_slice(&length.to_le_bytes());
+            let has_inner_length = binary.subtype == 0x02;
+            let outer_length = length
+                .checked_add(if has_inner_length { 4 } else { 0 })
+                .ok_or_else(|| malformed("binary larger than 2 GiB"))?;
+            out.extend_from_slice(&outer_length.to_le_bytes());
             out.push(binary.subtype);
+            if has_inner_length {
+                out.extend_from_slice(&length.to_le_bytes());
+            }
             out.extend_from_slice(&binary.bytes);
         }
         Value::Undefined | Value::Null | Value::MinKey | Value::MaxKey => {}
@@ -467,6 +489,7 @@ mod tests {
             ("o", Value::Document(inner.clone())),
             ("a", Value::Array(vec![Value::Int32(1), Value::Null])),
             ("b", Value::Binary(Box::new(Binary { subtype: 4, bytes: vec![1; 16] }))),
+            ("legacy", Value::Binary(Box::new(Binary { subtype: 2, bytes: vec![0; 4] }))),
             ("u", Value::Undefined),
             ("id", Value::ObjectId([7; 12])),
             ("t", Value::Bool(true)),
@@ -504,6 +527,18 @@ mod tests {
         let mut trailing = good;
         trailing.push(0);
         assert!(decode_document(&trailing).is_err());
+    }
+
+    #[test]
+    fn both_readers_reject_duplicate_document_fields() {
+        let value = Value::Int32(1);
+        let mut bytes = Vec::new();
+        write_elements(&mut bytes, [("field", &value), ("field", &value)].into_iter()).unwrap();
+        assert_eq!(decode_document(&bytes).unwrap_err().message(), "Malformed BSON: duplicate field name");
+        assert_eq!(
+            crate::RawDocument::new(&bytes).unwrap_err().message(),
+            "Malformed BSON: duplicate field name"
+        );
     }
 
     #[test]

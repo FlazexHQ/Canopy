@@ -1,9 +1,10 @@
 //! Borrowed views over BSON values, either owned ([`Value`]) or raw BSON bytes, so the matcher can test a
 //! change event in place without building a value tree.
 
-use crate::bson::{MAX_BSON_DEPTH, decimal128_to_string};
+use crate::bson::{MAX_BSON_DEPTH, binary_payload, decimal128_to_string};
 use crate::error::{CanopyError, ErrorCode};
 use crate::value::{Binary, DbPointer, Document, JavaScript, Regex, Value};
+use std::collections::HashSet;
 
 fn malformed(reason: &str) -> CanopyError {
     CanopyError::named(ErrorCode::InvalidQuery, "BSONError", format!("Malformed BSON: {reason}"))
@@ -19,7 +20,7 @@ impl<'a> RawDocument<'a> {
     /// Checks a buffer that must hold exactly one well formed BSON document: lengths, terminators, UTF-8 in
     /// names and strings, known element types and nesting depth.
     pub fn new(bytes: &'a [u8]) -> Result<RawDocument<'a>, CanopyError> {
-        let end = validate_document(bytes, 0, 0).map_err(malformed)?;
+        let end = validate_document(bytes, 0, 0, false).map_err(malformed)?;
         if end != bytes.len() {
             return Err(malformed("trailing bytes after the document"));
         }
@@ -96,7 +97,7 @@ fn fixed(bytes: &[u8], at: usize, size: usize) -> Check<usize> {
     Ok(end)
 }
 
-fn validate_document(bytes: &[u8], at: usize, depth: usize) -> Check<usize> {
+fn validate_document(bytes: &[u8], at: usize, depth: usize, array: bool) -> Check<usize> {
     if depth >= MAX_BSON_DEPTH {
         return Err("nesting too deep");
     }
@@ -109,10 +110,15 @@ fn validate_document(bytes: &[u8], at: usize, depth: usize) -> Check<usize> {
         return Err("document without terminator");
     }
     let scope = &bytes[..end];
+    let mut names = HashSet::new();
     let mut position = at + 4;
     while position < end - 1 {
         let kind = scope[position];
-        position = validate_cstring(scope, position + 1)?;
+        let name_start = position + 1;
+        position = validate_cstring(scope, name_start)?;
+        if !array && !names.insert(&scope[name_start..position - 1]) {
+            return Err("duplicate field name");
+        }
         position = validate_value(scope, kind, position, depth)?;
     }
     if position != end - 1 {
@@ -125,10 +131,12 @@ fn validate_value(bytes: &[u8], kind: u8, at: usize, depth: usize) -> Check<usiz
     match kind {
         0x01 | 0x09 | 0x11 | 0x12 => fixed(bytes, at, 8),
         0x02 | 0x0d | 0x0e => validate_string(bytes, at),
-        0x03 | 0x04 => validate_document(bytes, at, depth + 1),
+        0x03 | 0x04 => validate_document(bytes, at, depth + 1, kind == 0x04),
         0x05 => {
             let length = read_len(bytes, at)?;
-            fixed(bytes, at, length.checked_add(5).ok_or("length overflow")?)
+            let end = fixed(bytes, at, length.checked_add(5).ok_or("length overflow")?)?;
+            binary_payload(bytes[at + 4], &bytes[at + 5..end])?;
+            Ok(end)
         }
         0x06 | 0x0a | 0xff | 0x7f => Ok(at),
         0x07 => fixed(bytes, at, 12),
@@ -148,7 +156,7 @@ fn validate_value(bytes: &[u8], kind: u8, at: usize, depth: usize) -> Check<usiz
         0x0f => {
             let length = read_len(bytes, at)?;
             let after = validate_string(bytes, at + 4)?;
-            let end = validate_document(bytes, after, depth + 1)?;
+            let end = validate_document(bytes, after, depth + 1, false)?;
             if end - at != length {
                 return Err("code with scope length does not match its content");
             }
@@ -209,13 +217,7 @@ fn value_at(bytes: &[u8], kind: u8, at: usize) -> Option<(ValueRef<'_>, usize)> 
         0x05 => {
             let length = usize::try_from(read_i32(bytes, at)?).ok()?;
             let subtype = *bytes.get(at + 4)?;
-            let mut data = bytes.get(at + 5..at + 5 + length)?;
-            if subtype == 0x02 && data.len() >= 4 {
-                let inner = i32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-                if usize::try_from(inner).ok() == Some(data.len() - 4) {
-                    data = &data[4..];
-                }
-            }
+            let data = binary_payload(subtype, bytes.get(at + 5..at + 5 + length)?).ok()?;
             (ValueRef::Binary { subtype, bytes: data }, at + 5 + length)
         }
         0x06 => (ValueRef::Undefined, at),
