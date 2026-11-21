@@ -1,5 +1,6 @@
 import { type CompiledFilter, compileFilter } from "@canopy/matcher"
 import { type EngineHooks, PolicyEngine, type PolicySet } from "@canopy/policy"
+import { CanopyError, ErrorCode } from "@canopy/protocol"
 import { canonicalQuery, type QueryKeyParts, queryHash } from "@canopy/query"
 import { loadNativeEngine } from "./engine.ts"
 
@@ -11,6 +12,12 @@ export type EngineKind = "ts" | "native" | "wasm"
 
 /** The engine kinds, in the order they are documented. */
 export const ENGINE_KINDS: readonly EngineKind[] = ["ts", "native", "wasm"]
+
+/**
+ * The engine a server is asked to run: a kind, or `auto`, which runs the Node-API addon when it loads, else its
+ * WebAssembly build, else the TypeScript packages.
+ */
+export type EngineChoice = EngineKind | "auto"
 
 /** The parts of the core whose implementation an engine chooses. Both implementations give equal results. */
 export interface CoreEngine {
@@ -35,11 +42,21 @@ const TS_ENGINE: CoreEngine = {
 }
 
 /**
- * Returns the core of an engine kind. `ts` never loads Rust; `native` and `wasm` load the matching build and
- * throw `CANOPY_UNAVAILABLE` when it cannot load, rather than silently running another implementation.
+ * Returns the core of an engine choice. `ts` never loads Rust; `native` and `wasm` load the matching build and
+ * throw `CANOPY_UNAVAILABLE` when it cannot load, rather than silently running another implementation; `auto`
+ * takes the first that loads of the addon, the WebAssembly build and the TypeScript packages, and the returned
+ * `kind` says which.
  */
-export function selectEngine(kind: EngineKind = "ts"): CoreEngine {
+export function selectEngine(kind: EngineChoice = "ts"): CoreEngine {
   if (kind === "ts") return TS_ENGINE
+  if (kind === "auto") {
+    try {
+      return selectEngine(loadNativeEngine("auto").kind)
+    } catch (error: unknown) {
+      if (error instanceof CanopyError && error.code === ErrorCode.Unavailable) return TS_ENGINE
+      throw error
+    }
+  }
   const native = loadNativeEngine(kind)
   return {
     kind,

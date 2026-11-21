@@ -30,6 +30,8 @@ export interface CoreEngine {
 
 const ENGINE_KINDS: readonly EngineKind[]
 
+export type EngineChoice = EngineKind | "auto";
+
 export type EngineKind = "ts" | "native" | "wasm";
 
 export interface NativeCompiledFilter extends CompiledFilter {
@@ -54,5 +56,5 @@ function fromBinding(error: unknown): Error
 
 function loadNativeEngine(kind?: BindingKind): NativeEngine
 
-function selectEngine(kind?: EngineKind): CoreEngine
+function selectEngine(kind?: EngineChoice): CoreEngine
 ```

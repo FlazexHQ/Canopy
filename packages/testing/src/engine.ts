@@ -34,8 +34,7 @@ export function testPolicyEngine(set: PolicySet, hooks?: EngineHooks): PolicyEng
 }
 
 /** The environment a server under test resolves its config from, selecting {@link TEST_ENGINE} through `CANOPY_ENGINE`. */
-export const TEST_ENV: Readonly<Record<string, string>> =
-  TEST_ENGINE === "ts" ? {} : { CANOPY_ENGINE: TEST_ENGINE }
+export const TEST_ENV: Readonly<Record<string, string>> = { CANOPY_ENGINE: TEST_ENGINE }
 
 let rust: { readonly engine: NativeEngine | undefined } | undefined
 

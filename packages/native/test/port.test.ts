@@ -17,7 +17,12 @@ import { canonicalQuery, DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/q
 import { instantiate, wasmUrl } from "@canopy/wasm"
 import { deserialize } from "bson"
 import { describe, expect, it } from "vitest"
-import { engineFromBinding, loadNativeEngine, type NativeEngine } from "../src/index.ts"
+import {
+  engineFromBinding,
+  loadNativeEngine,
+  type NativeEngine,
+  selectEngine,
+} from "../src/index.ts"
 
 function vectors<T>(crate: string, file: string): T {
   const url = new URL(`../../../crates/${crate}/tests/vectors/${file}`, import.meta.url)
@@ -74,6 +79,20 @@ function text(result: Compiled): string {
 
 describe.runIf(engines.length === 0)("the Rust port", () => {
   it.skip("needs a build: bun --filter @canopy/native build:native", () => undefined)
+})
+
+describe("selectEngine", () => {
+  it("runs the first build that loads for auto, and TypeScript only without one", () => {
+    const loads = (kind: string) =>
+      builds.some(([name, engine]) => name === kind && engine !== undefined)
+    const auto = selectEngine("auto")
+    expect(auto.kind).toBe(loads("native") ? "native" : loads("wasm") ? "wasm" : "ts")
+    expect(selectEngine("ts").kind).toBe("ts")
+    expect(selectEngine().kind).toBe("ts")
+    const filter = auto.compileFilter({ $and: [{ a: 1 }, { b: { $gt: 2 } }] })
+    expect(filter.matches({ a: 1, b: 3 })).toBe(true)
+    expect(filter.matches({ a: 1, b: 2 })).toBe(false)
+  })
 })
 
 describe.each(labelled)("the %s engine", (_, engine) => {

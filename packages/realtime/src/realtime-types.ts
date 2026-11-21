@@ -1,5 +1,5 @@
 import type { Authenticator, JwtAuthOptions, KeyOptions, Principal, RateLimits } from "@canopy/auth"
-import type { EngineKind } from "@canopy/native"
+import type { EngineChoice } from "@canopy/native"
 import type { ContextResolver, PolicySet } from "@canopy/policy"
 import type { ClusterTime, SubMessage } from "@canopy/protocol"
 import type { MongoClient } from "mongodb"
@@ -123,7 +123,7 @@ export interface RealtimeOptions {
    * default), `native` (the Rust core as a Node-API addon) or `wasm` (the Rust core as WebAssembly). Both
    * give equal results; `native` and `wasm` refuse to start when their build cannot load.
    */
-  readonly engine?: EngineKind
+  readonly engine?: EngineChoice
 }
 
 /** A connection, for the realtime inspector. */

@@ -6,4 +6,10 @@ export {
   type NativeCompiledFilter,
   type NativeEngine,
 } from "./engine.ts"
-export { type CoreEngine, ENGINE_KINDS, type EngineKind, selectEngine } from "./select.ts"
+export {
+  type CoreEngine,
+  ENGINE_KINDS,
+  type EngineChoice,
+  type EngineKind,
+  selectEngine,
+} from "./select.ts"

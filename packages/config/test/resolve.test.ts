@@ -42,8 +42,8 @@ function problems(run: () => unknown): { path: string; message: string }[] {
 }
 
 describe("resolveConfig", () => {
-  it("runs the TypeScript core unless the engine is set, from the file or CANOPY_ENGINE", () => {
-    expect(resolve({ mongodb: { uri: URI } }).config.server.engine).toBe("ts")
+  it("picks the engine automatically unless it is set, from the file or CANOPY_ENGINE", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.server.engine).toBe("auto")
     expect(
       resolve({ mongodb: { uri: URI }, server: { engine: "wasm" } }).config.server.engine,
     ).toBe("wasm")
@@ -92,7 +92,7 @@ describe("resolveConfig", () => {
       adminListen: undefined,
       nodeId: "n1",
       trustedProxies: [],
-      engine: "ts",
+      engine: "auto",
     })
     expect(config.cors).toBeUndefined()
   })

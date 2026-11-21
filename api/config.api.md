@@ -164,7 +164,7 @@ export interface CronSchedule {
 
 export type EmailTransportInput = SmtpTransportInput | ResendTransportInput | PostmarkTransportInput | SesTransportInput | LogTransportInput;
 
-export type Engine = "ts" | "native" | "wasm";
+export type Engine = "auto" | "ts" | "native" | "wasm";
 
 export type EnvKind = "string" | "int" | "bool" | "list" | "url" | "duration";
 

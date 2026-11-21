@@ -31,7 +31,7 @@ masked. An invalid config stops every command before it connects, with all probl
 | `server.adminListen`    | `CANOPY_ADMIN_LISTEN`        |                             | Serves `/admin` and `/studio` only on this address       |
 | `server.nodeId`         | `CANOPY_NODE_ID`             | `n1`                        | Names this instance in logs and metrics                  |
 | `server.trustedProxies` | `CANOPY_TRUSTED_PROXIES`     |                             | Proxies whose `X-Forwarded-For` is trusted               |
-| `server.engine`         | `CANOPY_ENGINE`              | `ts`                        | `native` or `wasm` run policies and matching in Rust     |
+| `server.engine`         | `CANOPY_ENGINE`              | `auto`                      | `native`, `wasm` or `ts`; `auto` takes the first that loads |
 | `log.level`             | `CANOPY_LOG_LEVEL`           | `info`                      | `debug`, `info`, `warn` or `error`                       |
 | `dev.insecure`          | `CANOPY_DEV_INSECURE`        | `false`                     | Development only switches; refused in production         |
 

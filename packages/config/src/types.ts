@@ -32,10 +32,11 @@ export type IdType = "auto" | "objectId" | "string" | "uuid" | "number"
 export type LogLevel = "debug" | "info" | "warn" | "error"
 
 /**
- * Which implementation of the core evaluates policies and matches change events: `ts` (the TypeScript
- * packages), `native` (the Rust core as a Node-API addon) or `wasm` (the Rust core as WebAssembly).
+ * Which implementation of the core evaluates policies and matches change events: `auto` (the Rust core when a
+ * build of it loads, else the TypeScript packages), `ts` (the TypeScript packages), `native` (the Rust core as
+ * a Node-API addon) or `wasm` (the Rust core as WebAssembly).
  */
-export type Engine = "ts" | "native" | "wasm"
+export type Engine = "auto" | "ts" | "native" | "wasm"
 
 /** Tokens from any OIDC or JWKS identity provider. */
 export interface ExternalAuthInput {
@@ -587,8 +588,9 @@ export interface CanopyConfigInput {
     readonly trustedProxies?: Value<readonly string[]>
     /**
      * Which implementation of the core evaluates policies and matches change events (`CANOPY_ENGINE`).
+     * `auto` runs the Node-API addon of the Rust core, else its WebAssembly build, else the TypeScript packages.
      * `native` and `wasm` run the Rust core and refuse to start when its build cannot load.
-     * @default "ts"
+     * @default "auto"
      */
     readonly engine?: Value<Engine>
   }
