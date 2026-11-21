@@ -579,11 +579,13 @@ for (const kind of servers) {
           },
         })
 
-      const openSession = async (claims: Record<string, unknown>, extra = {}) => {
+      /** Opens a session with claims, or with a signed token when the claims must stay the same for a resume. */
+      const openSession = async (claims: Record<string, unknown> | string, extra = {}) => {
+        const signed = typeof claims === "string" ? claims : await token(keys, claims)
         const response = await call("/sessions", {
           method: "POST",
           headers: {
-            authorization: `Bearer ${await token(keys, claims)}`,
+            authorization: `Bearer ${signed}`,
             "content-type": "application/json",
           },
           body: JSON.stringify({ v: 1, sdk: "test", caps: ["diff", "batch"], ...extra }),
@@ -754,11 +756,12 @@ for (const kind of servers) {
       })
 
       it("resumes a session on a new HTTP session and replays what the client missed", async () => {
-        const { sid } = await openSession({ sub: "alice" })
+        const signed = await token(keys, { sub: "alice" })
+        const { sid } = await openSession(signed)
         await post(sid, [{ t: "sub", id: "r", c: "items", q: { filter: { n: { $gte: 300 } } } }])
         const frames = await pollUntil(sid, (all) => all.some((f) => f.t === "ready"))
         const ready = frames.find((frame) => frame.t === "ready")?.seq ?? 0
-        const resumed = await openSession({ sub: "alice" }, { resume: { sid, seq: ready - 1 } })
+        const resumed = await openSession(signed, { resume: { sid, seq: ready - 1 } })
         expect(resumed).toMatchObject({ sid, resumed: true })
         expect((await poll(sid, ready - 1, 2)).map((frame) => frame.t)).toEqual(["ready"])
         await server.db.collection<Item>("items").insertOne({ _id: 300, ownerId: "alice", n: 300 })
