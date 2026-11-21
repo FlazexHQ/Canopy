@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { existsSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ResolvedConfig } from "@canopy/config"
 import { type PolicySet, toStored } from "@canopy/policy"
@@ -12,12 +12,17 @@ const BINARY = process.platform === "win32" ? "canopy-gateway.exe" : "canopy-gat
 
 /**
  * Finds the `canopy-gateway` executable: `CANOPY_GATEWAY_BIN`, else a release or debug build of the Cargo
- * workspace this package lives in. Returns `undefined` when there is none.
+ * workspace this package lives in, else one beside the running executable (the single file `canopy` binaries
+ * ship it there), else one on `PATH`. Returns `undefined` when there is none.
  */
-export function findGatewayBinary(env: NodeJS.ProcessEnv = process.env): string | undefined {
+export function findGatewayBinary(
+  env: NodeJS.ProcessEnv = process.env,
+  execPath: string = process.execPath,
+  from: string = dirname(fileURLToPath(import.meta.url)),
+): string | undefined {
   const configured = env["CANOPY_GATEWAY_BIN"]
   if (configured !== undefined && configured !== "") return resolve(configured)
-  let dir = dirname(fileURLToPath(import.meta.url))
+  let dir = from
   for (let depth = 0; depth < 6; depth += 1) {
     for (const profile of ["release", "debug"]) {
       const candidate = join(dir, "target", profile, BINARY)
@@ -26,6 +31,14 @@ export function findGatewayBinary(env: NodeJS.ProcessEnv = process.env): string 
     const parent = dirname(dir)
     if (parent === dir) break
     dir = parent
+  }
+  const beside = join(dirname(execPath), BINARY)
+  if (existsSync(beside)) return beside
+  const path = env["PATH"] ?? env["Path"] ?? ""
+  for (const entry of path.split(delimiter)) {
+    if (entry === "") continue
+    const candidate = join(entry, BINARY)
+    if (existsSync(candidate)) return candidate
   }
   return undefined
 }
