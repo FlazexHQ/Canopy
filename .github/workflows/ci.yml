@@ -193,7 +193,7 @@ jobs:
         shell: bash
         working-directory: ${{ runner.temp }}
         run: |
-          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --only server --require-native --out "$RUNNER_TEMP/native-binary"
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --only server --require-native --require-gateway --out "$RUNNER_TEMP/native-binary"
           exe=""
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
           mkdir native-smoke && cd native-smoke
@@ -346,11 +346,16 @@ jobs:
         name: Unit, integration and differential tests (Node.js)
         run: node node_modules/vitest/vitest.mjs run
       - if: matrix.runtime == 'bun'
+        name: Build the native gateway
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p canopy-gateway
+      - if: matrix.runtime == 'bun'
         name: The standalone executables run without node_modules
         shell: bash
         working-directory: ${{ runner.temp }}
         run: |
-          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --out "$RUNNER_TEMP/binaries"
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --require-gateway --out "$RUNNER_TEMP/binaries"
           exe=""
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
@@ -553,26 +558,36 @@ jobs:
           curl -fsS --max-time 2 http://127.0.0.1:19464/metrics
       - run: bun install --frozen-lockfile
       - name: Build the standalone executables
-        run: bun deploy/binary/build.ts --target linux-x64 --out "$RUNNER_TEMP/binaries"
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p canopy-gateway
+          bun deploy/binary/build.ts --target linux-x64 --require-gateway --out "$RUNNER_TEMP/binaries"
       - name: The executables run without node_modules
         working-directory: ${{ runner.temp }}
         run: |
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
           binaries/canopy-linux-x64 --version
           binaries/canopy-linux-x64 policies lint --dir policies
-          MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary \
-            CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
+          smoke() (
+            export MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary
+            export CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490
             binaries/canopy-server-linux-x64 > server.log 2>&1 &
-          for attempt in $(seq 60); do
-            if curl -fsS localhost:18090/readyz; then break; fi
-            sleep 1
-          done
-          curl -fsS -X POST localhost:18090/rest/v1/notes -H "apikey: sk_ci" \
-            -H "content-type: application/json" -d '{"ownerId":"user_1"}'
-          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
-          kill -TERM %1
-          wait %1
-          grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
+            server=$!
+            trap 'status=$?; kill -TERM "$server" 2>/dev/null || true; wait "$server" || true; if [ "$status" -ne 0 ]; then cat server.log; fi' EXIT
+            curl -fsS --max-time 2 --retry 60 --retry-delay 1 --retry-connrefused http://127.0.0.1:18090/readyz
+            curl -fsS -X POST http://127.0.0.1:18090/rest/v1/notes -H "apikey: sk_ci" \
+              -H "content-type: application/json" -d '{"ownerId":"user_1"}'
+            bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
+            kill -TERM "$server"
+            wait "$server"
+            trap '' EXIT
+            grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
+            if [ "${CANOPY_REALTIME_SERVER:-}" = gateway ]; then
+              grep -q '"realtimeServer":"gateway"' server.log || { cat server.log; exit 1; }
+            fi
+          )
+          smoke
+          CANOPY_REALTIME_SERVER=gateway smoke
       - if: failure()
         run: docker compose -f deploy/compose/canopy.yaml logs
       - if: always()
