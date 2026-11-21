@@ -34,7 +34,12 @@ import {
 } from "graphql"
 import { createYoga, type Plugin, type YogaServerInstance } from "graphql-yoga"
 import { checkOperation, DEFAULT_OPERATION_LIMITS, type OperationLimits } from "./limits.ts"
-import { type LiveCredentials, LiveQueries, type RealtimeConnector } from "./live.ts"
+import {
+  type LiveCredentials,
+  LiveQueries,
+  type RealtimeConnector,
+  type RemoteRealtime,
+} from "./live.ts"
 import {
   buildSchema,
   type CanopyContext,
@@ -67,8 +72,11 @@ export interface GraphqlHandlerOptions {
   readonly contexts: ContextResolver
   /** Collection schemas, shared with the OpenAPI document. */
   readonly schemas: SchemaCache
-  /** The realtime engine. Without it the schema has no subscriptions. */
-  readonly realtime?: RealtimeConnector
+  /**
+   * The realtime engine in this process, or a realtime server in another one. Without either the schema has no
+   * subscriptions.
+   */
+  readonly realtime?: RealtimeConnector | RemoteRealtime
   /** Type names and relations per collection. */
   readonly collections?: Readonly<Record<string, CollectionGraphqlConfig>>
   /** The endpoint. Defaults to `/graphql/v1`. */

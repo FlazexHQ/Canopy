@@ -126,6 +126,11 @@ export interface CreateCanopyOptions {
    * `admin.accounts.createSetupToken()`.
    */
   readonly onSetupToken?: ((token: string) => void) | false
+  /**
+   * With `realtime.server: "gateway"`, the HTTP base URL of the gateway, known once it listens. GraphQL
+   * subscriptions follow their live queries through it; without it the schema has no subscriptions.
+   */
+  readonly gatewayUrl?: () => string
 }
 
 /** The admin surface: `/admin/v1` and `/studio`. */
@@ -619,7 +624,13 @@ async function buildData(
           authenticator: auth.authenticator,
           contexts,
           schemas,
-          ...(engineRealtime === undefined ? {} : { realtime: engineRealtime }),
+          ...(engineRealtime !== undefined
+            ? { realtime: engineRealtime }
+            : realtimeConfig !== false &&
+                realtimeConfig.server === "gateway" &&
+                options.gatewayUrl !== undefined
+              ? { realtime: { url: options.gatewayUrl } }
+              : {}),
           collections: config.collections,
           limits: {
             maxDepth: config.graphql.maxDepth,

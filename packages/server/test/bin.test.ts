@@ -390,13 +390,56 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
           scraped = await (await fetch(metrics)).text()
         }
         expect(scraped).toMatch(/canopy_build_info\{runtime="(node|bun)",node_id="n1"\} 1/)
+
+        const controller = new AbortController()
+        const live = await fetch(`${base}/graphql/v1`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: { ...(await headers("carol")), accept: "text/event-stream" },
+          body: JSON.stringify({ query: "subscription { liveNotes { _id } }" }),
+        })
+        expect(live.headers.get("content-type")).toContain("text/event-stream")
+        const reader = (live.body as ReadableStream<Uint8Array>).getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        const nextIds = async (): Promise<string[]> => {
+          for (;;) {
+            const match = /event: next\r?\ndata: (.*)\r?\n\r?\n/.exec(buffer)
+            if (match !== null) {
+              buffer = buffer.slice((match.index ?? 0) + match[0].length)
+              const body = JSON.parse(match[1] ?? "{}") as {
+                data?: { liveNotes?: { _id: string }[] }
+                errors?: unknown
+              }
+              if (body.data?.liveNotes === undefined)
+                throw new Error(`no live result: ${JSON.stringify(body)}`)
+              return body.data.liveNotes.map((note) => note._id).sort()
+            }
+            const { value, done } = await reader.read()
+            if (done) throw new Error(`the subscription ended:\n${run.output()}`)
+            buffer += decoder.decode(value, { stream: true })
+          }
+        }
+        expect(await nextIds()).toEqual(["g1", "g3"])
+        await mongo
+          .db(database)
+          .collection<{ _id: string; ownerId: string }>("notes")
+          .insertMany([
+            { _id: "g5", ownerId: "carol" },
+            { _id: "g6", ownerId: "dave" },
+          ])
+        let ids = await nextIds()
+        while (!ids.includes("g5")) ids = await nextIds()
+        expect(ids).toEqual(["g1", "g3", "g5"])
+        controller.abort()
+        await reader.cancel().catch(() => {})
         socket.close()
       } finally {
         expect(await stop(run)).toBe(0)
         await mongo
           .db(database)
           .collection<{ _id: string }>("notes")
-          .deleteMany({ _id: { $in: ["g1", "g3"] } })
+          .deleteMany({ _id: { $in: ["g1", "g3", "g5", "g6"] } })
       }
     },
   )

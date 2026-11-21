@@ -403,6 +403,7 @@ export interface CreateCanopyOptions {
     readonly admin?: boolean;
     readonly studio?: FetchHandler | false;
     readonly onSetupToken?: ((token: string) => void) | false;
+    readonly gatewayUrl?: () => string;
 }
 
 export interface CreatedAdminToken {

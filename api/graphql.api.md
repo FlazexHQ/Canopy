@@ -57,7 +57,7 @@ export interface GraphqlHandlerOptions {
     readonly authenticator: Authenticator;
     readonly contexts: ContextResolver;
     readonly schemas: SchemaCache;
-    readonly realtime?: RealtimeConnector;
+    readonly realtime?: RealtimeConnector | RemoteRealtime;
     readonly collections?: Readonly<Record<string, CollectionGraphqlConfig>>;
     readonly path?: string;
     readonly limits?: Partial<OperationLimits>;
@@ -92,7 +92,7 @@ export interface LiveCredentials {
 }
 
 class LiveQueries {
-  constructor(realtime: RealtimeConnector): LiveQueries
+  constructor(realtime: RealtimeConnector | RemoteRealtime): LiveQueries
   get sessions(): number
   follow(credentials: LiveCredentials, collection: string, query: SubQuery, signal: AbortSignal): AsyncIterable<LiveResult>
   close(): void
@@ -168,6 +168,11 @@ export interface RelationSpec {
     readonly to: string;
     readonly foreign: string;
     readonly many: boolean;
+}
+
+export interface RemoteRealtime {
+    readonly url: string | (() => string);
+    readonly WebSocket?: WebSocketConstructor;
 }
 
 export interface RequestServices {

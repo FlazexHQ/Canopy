@@ -214,11 +214,16 @@ async function main(): Promise<void> {
   const config = gatewayed ? behindGateway(loaded) : loaded
   const logger = redacting(jsonLogger(config.log.level))
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
-  const canopy = await createCanopy(config, { logger })
+  let gatewayUrl = ""
+  const canopy = await createCanopy(config, {
+    logger,
+    ...(gatewayed ? { gatewayUrl: () => gatewayUrl } : {}),
+  })
   const http = gatewayed
     ? await listen(canopy, 0, "127.0.0.1")
     : await listen(canopy, config.server.port)
   const gateway = gatewayed ? await startFrontDoor(canopy, logger, http.port) : undefined
+  if (gateway !== undefined) gatewayUrl = `http://127.0.0.1:${gateway.port}`
 
   const metrics = await metricsServer(canopy, runtime, () => gateway?.metrics() ?? "")
   const admin = await canopy.admin.listen()
