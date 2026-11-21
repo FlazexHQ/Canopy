@@ -1,0 +1,129 @@
+name: Benchmarks
+
+# The performance gates of the native core, run by hand on the machine they are judged on. Every job takes the
+# runner label as an input, so the same steps run on a hosted runner for a rehearsal and on the reference
+# hardware (a self hosted runner with that label) for the recorded result. Results are uploaded as artifacts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label (a self hosted reference machine, or a hosted runner for a rehearsal)
+        type: string
+        default: ubuntu-22.04
+      suite:
+        description: Benchmarks to run
+        type: choice
+        default: all
+        options: [all, matcher, gateway]
+      scenarios:
+        description: Gateway scenarios of the S11 load driver
+        type: string
+        default: idle:10000,owners:10000:5:1000,hot:5000:20
+      coalesce:
+        description: Gateway coalescing windows to measure, in milliseconds, separated by commas
+        type: string
+        default: "0,100"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ inputs.runner }}
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.4.4
+  NODE_VERSION: 26
+  MONGODB_VERSION: 8.0.34
+
+jobs:
+  matcher:
+    if: inputs.suite == 'all' || inputs.suite == 'matcher'
+    name: Matcher, Rust against TypeScript per change event (gate at 3 times)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install && rustup target add wasm32-wasip1-threads
+      - run: bun install --frozen-lockfile
+      - name: Build the addon and the WebAssembly fallback with the shipping release profile
+        run: bun --filter @canopy/native build:native
+      - name: Three runs of the event cost benchmark
+        working-directory: packages/matcher
+        run: |
+          mkdir -p ../../bench-results
+          for run in 1 2 3; do
+            CANOPY_BENCH_OUT="../../bench-results/matcher-events-$run.json" node --conditions=@canopy/source bench/event-cost.ts
+          done
+      - name: Gate on the floors of bench/event-baseline.json (median of the runs)
+        working-directory: packages/matcher
+        run: node ../testing/scripts/bench-gate.ts ../../bench-results/matcher-events-*.json --baseline bench/event-baseline.json
+      - name: Machine
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; node --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-matcher
+          path: bench-results/
+
+  gateway:
+    if: inputs.suite == 'all' || inputs.suite == 'gateway'
+    name: Gateway against the Bun sidecar (fan out p99, CPU per event, idle memory, broadcast CPU)
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    env:
+      # A secret, when set, points the runs at the reference replica set (three nodes in the same region).
+      # Without it a single node replica set starts in Docker on the runner.
+      REFERENCE_URI: ${{ secrets.CANOPY_BENCH_MONGODB_URI }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - run: bun install --frozen-lockfile
+      - name: Build the gateway and the S11 load driver with the shipping release profile
+        run: |
+          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked --manifest-path docs/spikes/S11-prototype/Cargo.toml --bin bench
+      - name: Start a single node replica set
+        if: env.REFERENCE_URI == ''
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
+      - name: Run the scenarios on canopy-gateway for each coalescing window, then on the Bun sidecar
+        env:
+          SCENARIOS: ${{ inputs.scenarios }}
+          COALESCE: ${{ inputs.coalesce }}
+        run: |
+          ulimit -n "$(ulimit -Hn)"
+          uri="${REFERENCE_URI:-mongodb://localhost:27017/?replicaSet=rs0}"
+          bench=docs/spikes/S11-prototype/target/release/bench
+          mkdir -p bench-results
+          for window in ${COALESCE//,/ }; do
+            CANOPY_GATEWAY_COALESCE_MS="$window" "$bench" --uri "$uri" --server gateway --shards 4 \
+              --scenarios "$SCENARIOS" --out "bench-results/gateway-coalesce-$window.json"
+          done
+          "$bench" --uri "$uri" --server bun --engine ts --scenarios "$SCENARIOS" --out bench-results/bun-ts.json
+      - name: Machine
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-gateway
+          path: bench-results/
