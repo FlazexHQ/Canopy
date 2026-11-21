@@ -299,19 +299,31 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [canopy-matcher, canopy-policy]
+        include:
+          - { package: canopy-matcher, break: "70" }
+          - { package: canopy-policy, break: "86" }
     env:
       CARGO_MUTANTS_VERSION: 27.1.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
       - name: Install the pinned Rust toolchain and cargo mutants
         run: |
           rustup toolchain install
           cargo install cargo-mutants --version "=$CARGO_MUTANTS_VERSION" --locked
-      - name: Run mutation testing
+      - name: Run mutation testing; missed mutants and timeouts are judged by the score gate below
         env:
           MUTATION_PACKAGE: ${{ matrix.package }}
-        run: timeout --signal=INT --kill-after=1m 210m cargo mutants --package "$MUTATION_PACKAGE" --timeout 60
+        run: |
+          status=0
+          timeout --signal=INT --kill-after=1m 210m cargo mutants --package "$MUTATION_PACKAGE" --timeout 60 || status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+      - name: Fail below the crate's break threshold
+        env:
+          MUTATION_BREAK: ${{ matrix.break }}
+        run: bun packages/testing/scripts/mutants-gate.ts mutants.out --break "$MUTATION_BREAK"
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
