@@ -12,6 +12,7 @@ mod ct;
 mod echo;
 mod engine;
 mod event;
+mod explain;
 mod metrics;
 mod observer;
 mod output;
@@ -27,6 +28,7 @@ pub use engine::{Config, Engine, Limits, MessageRate, MutationOutcome};
 pub use event::{
     Control, ControlKind, Diff, Event, Image, Normalized, Op, Post, doc_key, merge_fragments, normalize,
 };
+pub use explain::Explain;
 pub use metrics::Metrics;
 pub use observer::{Kind, ObserverLimits};
 pub use output::{ConnId, ContextRead, Frame, MutationRequest, Output, ReadRequest, ReadResult};

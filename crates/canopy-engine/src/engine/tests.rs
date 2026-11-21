@@ -1,6 +1,7 @@
 use super::*;
 use canopy_policy::{CollectionPolicies, PolicyDefinition, PolicyKind, create_policy_set};
 use canopy_protocol::ejson::{DecodeOptions, parse};
+use canopy_protocol::json::{Json, parse_json};
 use canopy_query::js_property_order;
 
 fn doc(text: &str) -> Document {
@@ -800,4 +801,126 @@ fn a_lookup_over_its_maximum_fails_closed() {
     h.engine.contexts_done(id, vec![("teams".to_owned(), Ok(many))], h.now);
     h.pump();
     assert_eq!(format!("{:?}", h.reads[0].read.filter), format!("{:?}", canopy_policy::deny_filter()));
+}
+
+fn service() -> Principal {
+    Principal {
+        subject: "service".to_owned(),
+        roles: ["service"].into_iter().collect(),
+        claims: None,
+        expires_at_ms: None,
+        key_id: None,
+        read_only: false,
+    }
+}
+
+fn ready_report(frames: &[String], sub: &str) -> Option<Json> {
+    let ready = frames
+        .iter()
+        .find(|frame| frame.contains(r#""t":"ready""#) && frame.contains(&format!(r#""s":"{sub}""#)))?;
+    parse_json(ready).ok()?.get("explain").cloned()
+}
+
+fn json_text(json: Option<&Json>) -> String {
+    let mut out = String::new();
+    if let Some(json) = json {
+        canopy_protocol::json::write_json(&mut out, json);
+    }
+    out
+}
+
+#[test]
+fn explanations_are_refused_without_a_secret_key() {
+    let mut h = Harness::new(policies(None));
+    h.connect(1, user("alice", &[]));
+    h.frames(1);
+    for o in [r#"true"#, r#"{"claims":{"sub":"bob"}}"#] {
+        h.send(1, &format!(r#"{{"t":"sub","id":"x","c":"items","q":{{}},"o":{{"explain":{o}}}}}"#));
+        let frames = h.frames(1);
+        assert!(
+            contains(&frames, r#""t":"nosub""#)
+                && contains(&frames, "CANOPY_FORBIDDEN")
+                && contains(&frames, "Explanations are only available with a secret key"),
+            "{frames:?}"
+        );
+        assert!(h.reads.is_empty());
+    }
+}
+
+#[test]
+fn a_stated_caller_is_explained_with_the_first_ready_only() {
+    let mut h = Harness::new(policies(None));
+    h.connect(1, service());
+    h.frames(1);
+    h.send(
+        1,
+        r#"{"t":"sub","id":"as","c":"items","q":{"filter":{"status":"open"}},"o":{"explain":{"claims":{"sub":"u1"}}}}"#,
+    );
+    h.answer_reads(&seed(), Ct(10));
+    let frames = h.frames(1);
+    let report = ready_report(&frames, "as");
+    let text = json_text(report.as_ref());
+    assert!(
+        text.starts_with(
+            r#"{"collection":"items","op":"read","roles":["authenticated"],"bypass":false,"exposed":true,"granted":true,"using":{"collection":"items","op":"read","clause":"using","roles":["authenticated"],"bypass":false,"exposed":true,"policies":[{"name":"own items","kind":"permissive","applies":true,"reason":"applies","resolved":{"ownerId":"u1"}},{"name":"viewers","kind":"permissive","applies":false,"reason":"not granted to roles authenticated"}]"#
+        ),
+        "{text}"
+    );
+    assert!(text.contains(r#""effectiveFilter":{"$and":[{"status":"open"},{"ownerId":"u1"}]}"#), "{text}");
+    assert!(text.contains(r#""readable":{"kind":"all"}"#), "{text}");
+    assert!(text.contains(r#""text":"#), "{text}");
+    h.send(1, r#"{"t":"unsub","id":"as"}"#);
+    h.send(1, r#"{"t":"sub","id":"as","c":"items","q":{}}"#);
+    h.answer_reads(&seed(), Ct(11));
+    assert_eq!(ready_report(&h.frames(1), "as"), None, "a later ready carries no report");
+}
+
+#[test]
+fn the_connection_itself_is_explained_as_service() {
+    let mut h = Harness::new(policies(None));
+    h.connect(1, service());
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"self","c":"items","q":{},"o":{"explain":true}}"#);
+    h.answer_reads(&seed(), Ct(10));
+    let text = json_text(ready_report(&h.frames(1), "self").as_ref());
+    assert!(text.contains(r#""roles":["service"],"bypass":true"#), "{text}");
+    assert!(text.contains("service bypasses DLS"), "{text}");
+}
+
+#[test]
+fn an_explanation_of_a_collection_that_is_not_realtime_is_refused() {
+    let mut h = Harness::new(policies(None));
+    h.connect(1, service());
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"x","c":"hidden","q":{},"o":{"explain":true}}"#);
+    let frames = h.frames(1);
+    assert!(contains(&frames, r#""t":"nosub""#) && contains(&frames, "CANOPY_NOT_FOUND"), "{frames:?}");
+}
+
+#[test]
+fn a_stated_caller_has_its_context_lookups_read_before_the_report() {
+    let mut h = Harness::new(team_policies());
+    h.connect(1, service());
+    h.frames(1);
+    h.send(1, r#"{"t":"sub","id":"t","c":"items","q":{},"o":{"explain":{"claims":{"sub":"alice"}}}}"#);
+    assert!(h.reads.is_empty(), "no snapshot before the stated caller's lookups");
+    let (id, reads) = h.contexts.remove(0);
+    assert_eq!(format!("{:?}", reads[0].filter), format!("{:?}", doc(r#"{"userId":"alice"}"#)));
+    h.engine.contexts_done(
+        id,
+        vec![("teams".to_owned(), Ok(vec![doc(r#"{"userId":"alice","teamId":"t1"}"#)]))],
+        h.now,
+    );
+    h.pump();
+    h.answer_reads(&team_docs(), Ct(10));
+    let frames = h.frames(1);
+    let text = json_text(ready_report(&frames, "t").as_ref());
+    assert!(text.contains(r#""effectiveFilter":{"team":{"$in":["t1"]}}"#), "{text}");
+    assert!(contains(&frames, r#""id":2"#), "the service connection itself reads every document: {frames:?}");
+    let given = r#"{"t":"sub","id":"g","c":"items","q":{},"o":{"explain":{"claims":{"sub":"bob"},"ctx":{"teams":["t2"]}}}}"#;
+    h.send(1, given);
+    assert!(h.contexts.is_empty(), "ctx given, so nothing is read");
+    h.answer_reads(&team_docs(), Ct(11));
+    let text = json_text(ready_report(&h.frames(1), "g").as_ref());
+    assert!(text.contains(r#""effectiveFilter":{"team":{"$in":["t2"]}}"#), "{text}");
 }

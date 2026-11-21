@@ -4,8 +4,21 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { allow, auth, collection, ctx, restrict, toStored } from "@canopy/policy"
-import { canonicalString, toCanonical } from "@canopy/protocol"
+import {
+  allow,
+  auth,
+  collection,
+  createPolicySet,
+  ctx,
+  explainAccess,
+  explainContext,
+  formatAccessReport,
+  PolicyEngine,
+  restrict,
+  toFilter,
+  toStored,
+} from "@canopy/policy"
+import { type ClientMessage, canonicalString, toCanonical } from "@canopy/protocol"
 import { MONGODB_URI } from "@canopy/testing"
 import fc from "fast-check"
 import { type Db, MongoClient } from "mongodb"
@@ -439,6 +452,42 @@ for (const kind of servers) {
       },
       120_000 + SIM_SEEDS * 5000,
     )
+
+    it("explains a stated caller to a secret key exactly as the TypeScript policy engine does", async () => {
+      const service = await connect(undefined, { key: "sk_test" })
+      const filter = { n: { $gte: 1 } }
+      const claims = { sub: "alice", roles: ["viewer"] }
+      service.send({
+        t: "sub",
+        id: "why",
+        c: "items",
+        q: { filter },
+        o: { explain: { claims, roles: ["admin"] } },
+      } as ClientMessage)
+      await service.until(() => service.ready.has("why"))
+      const ready = service.messages.find((m) => m.t === "ready" && m.s === "why")
+      const engine = new PolicyEngine(createPolicySet([items, teamDocs, sim], contexts))
+      const report = explainAccess(engine, {
+        collection: "items",
+        op: "read",
+        context: explainContext({ claims, roles: ["admin"] }),
+        filter,
+      })
+      const expected = {
+        ...report,
+        effectiveFilter: toFilter(report.effective),
+        text: formatAccessReport(report),
+      }
+      expect(canonicalString(ready?.t === "ready" ? ready.explain : undefined)).toBe(
+        canonicalString(expected),
+      )
+      const user = await connect({ sub: "alice" })
+      user.send({ t: "sub", id: "no", c: "items", q: {}, o: { explain: true } } as ClientMessage)
+      await user.until(() => user.messages.some((m) => m.t === "nosub" && m.s === "no"))
+      expect(user.messages.find((m) => m.t === "nosub" && m.s === "no")).toMatchObject({
+        err: { code: "CANOPY_FORBIDDEN" },
+      })
+    })
 
     it("sent only frames the protocol decoder accepts", () => {
       expect(open.length).toBeGreaterThan(0)

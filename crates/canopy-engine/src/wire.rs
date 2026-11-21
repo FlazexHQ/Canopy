@@ -3,6 +3,7 @@ use canopy_protocol::json::{Json, js_number_string, parse_json, write_json_strin
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 
 use crate::ct::Ct;
+use crate::explain::Explain;
 
 /// The protocol version this engine speaks.
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -153,8 +154,8 @@ pub enum ClientMessage {
         c: String,
         /// The query.
         q: SubQuery,
-        /// Whether an explanation was asked for (`o.explain`).
-        explain: bool,
+        /// The explanation asked for with `o.explain`, if any.
+        explain: Option<Explain>,
     },
     /// The end of a subscription.
     Unsub {
@@ -243,6 +244,53 @@ fn optional_document(object: &Json, name: &str) -> Result<Option<Value>, CanopyE
     }
 }
 
+/// The most roles `o.explain` may state.
+const MAX_EXPLAIN_ROLES: usize = 32;
+
+fn explain_option(value: Option<&Json>) -> Result<Option<Explain>, CanopyError> {
+    let shape = || protocol("\"o.explain\" must be true or { claims, roles, ctx }");
+    let entries = match value {
+        None | Some(Json::Bool(false)) => return Ok(None),
+        Some(Json::Bool(true)) => return Ok(Some(Explain::Own)),
+        Some(Json::Object(entries)) => entries,
+        Some(_) => return Err(shape()),
+    };
+    if let Some((key, _)) =
+        entries.iter().find(|(key, _)| !["claims", "roles", "ctx"].contains(&key.as_str()))
+    {
+        return Err(protocol(format!("\"o.explain\" has an unknown field \"{key}\"")));
+    }
+    let object = Json::Object(entries.clone());
+    let claims = match get(&object, "claims") {
+        None | Some(Json::Null) => None,
+        Some(value @ Json::Object(_)) => match ejson(value, "o.explain.claims")? {
+            Value::Document(claims) => Some(claims),
+            _ => return Err(protocol("\"o.explain.claims\" must be an object or null")),
+        },
+        Some(_) => return Err(protocol("\"o.explain.claims\" must be an object or null")),
+    };
+    let roles = match get(&object, "roles") {
+        None => Vec::new(),
+        Some(Json::Array(items)) => items
+            .iter()
+            .map(|item| match item {
+                Json::String(role) => Ok(role.clone()),
+                _ => Err(protocol("\"roles\" must be a list of role names")),
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        Some(_) => return Err(protocol("\"roles\" must be a list of role names")),
+    };
+    if roles.len() > MAX_EXPLAIN_ROLES {
+        return Err(protocol(format!("\"o.explain.roles\" may list at most {MAX_EXPLAIN_ROLES} roles")));
+    }
+    let ctx = match optional_document(&object, "ctx").map_err(|_| protocol("\"ctx\" must be an object"))? {
+        Some(Value::Document(ctx)) => Some(ctx),
+        Some(_) => return Err(protocol("\"ctx\" must be an object")),
+        None => None,
+    };
+    Ok(Some(Explain::As { claims, roles, ctx }))
+}
+
 fn sub_query(value: Option<&Json>) -> Result<SubQuery, CanopyError> {
     let Some(value) = value else { return Ok(SubQuery::default()) };
     if !matches!(value, Json::Object(_)) {
@@ -317,19 +365,13 @@ pub fn decode_client(text: &str) -> Result<Option<ClientMessage>, CanopyError> {
             }
             let q = sub_query(get(&raw, "q"))?;
             let explain = match get(&raw, "o") {
-                None => false,
+                None => None,
                 Some(o @ Json::Object(_)) => {
                     if let Some(buffer) = get(o, "buffer") {
                         seq_of(buffer)
                             .ok_or_else(|| protocol("\"buffer\" must be a non negative integer"))?;
                     }
-                    match get(o, "explain") {
-                        None | Some(Json::Bool(false)) => false,
-                        Some(Json::Bool(true) | Json::Object(_)) => true,
-                        Some(_) => {
-                            return Err(protocol("\"o.explain\" must be true or { claims, roles, ctx }"));
-                        }
-                    }
+                    explain_option(get(o, "explain"))?
                 }
                 Some(_) => return Err(protocol("\"o\" must be an object")),
             };
@@ -470,6 +512,45 @@ pub(crate) fn frame_text(head: &str, seq: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn explain_of(o: &str) -> Result<Option<Explain>, String> {
+        let text = format!(r#"{{"t":"sub","id":"s","c":"items","o":{{"explain":{o}}}}}"#);
+        match decode_client(&text) {
+            Ok(Some(ClientMessage::Sub { explain, .. })) => Ok(explain),
+            Ok(other) => Err(format!("{other:?}")),
+            Err(error) => Err(error.message().to_owned()),
+        }
+    }
+
+    #[test]
+    fn decodes_the_explain_option_like_the_typescript_decoder() {
+        assert_eq!(explain_of("false"), Ok(None));
+        assert_eq!(explain_of("true"), Ok(Some(Explain::Own)));
+        assert_eq!(
+            explain_of(r#"{"claims":null,"roles":["admin"]}"#),
+            Ok(Some(Explain::As { claims: None, roles: vec!["admin".to_owned()], ctx: None }))
+        );
+        let Ok(Some(Explain::As { claims: Some(claims), ctx: Some(ctx), .. })) =
+            explain_of(r#"{"claims":{"sub":"u1"},"ctx":{"teams":["t1"]}}"#)
+        else {
+            unreachable!("claims and ctx decode")
+        };
+        assert_eq!(claims.get("sub"), Some(&Value::String("u1".to_owned())));
+        assert!(ctx.get("teams").is_some());
+        assert_eq!(explain_of("1"), Err("\"o.explain\" must be true or { claims, roles, ctx }".to_owned()));
+        assert_eq!(explain_of(r#"{"as":1}"#), Err("\"o.explain\" has an unknown field \"as\"".to_owned()));
+        assert_eq!(
+            explain_of(r#"{"claims":"u1"}"#),
+            Err("\"o.explain.claims\" must be an object or null".to_owned())
+        );
+        let many = (0..33).map(|n| format!("\"r{n}\"")).collect::<Vec<_>>().join(",");
+        assert_eq!(
+            explain_of(&format!(r#"{{"roles":[{many}]}}"#)),
+            Err("\"o.explain.roles\" may list at most 32 roles".to_owned())
+        );
+        assert_eq!(explain_of(r#"{"roles":[1]}"#), Err("\"roles\" must be a list of role names".to_owned()));
+        assert_eq!(explain_of(r#"{"ctx":[]}"#), Err("\"ctx\" must be an object".to_owned()));
+    }
 
     #[test]
     fn decodes_a_hello_with_resume_and_caps() {

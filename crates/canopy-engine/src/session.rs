@@ -217,6 +217,8 @@ pub(crate) struct Session {
     merge_box: HashMap<String, MergeEntry>,
     rebinding: HashMap<Arc<str>, HashSet<String>>,
     readied: HashSet<Arc<str>>,
+    /// Access reports waiting for the first `ready` of their subscription, as relaxed EJSON.
+    explanations: HashMap<Arc<str>, String>,
     diffs: bool,
     batching: bool,
     dropped: bool,
@@ -236,6 +238,7 @@ impl Session {
             merge_box: HashMap::new(),
             rebinding: HashMap::new(),
             readied: HashSet::new(),
+            explanations: HashMap::new(),
             diffs: caps.iter().any(|cap| cap == "diff"),
             batching: caps.iter().any(|cap| cap == "batch"),
             dropped: false,
@@ -325,6 +328,16 @@ impl Session {
         self.rebinding.insert(sub, HashSet::new());
     }
 
+    /// Keeps an access report for the first `ready` of a subscription.
+    pub(crate) fn explain_on_ready(&mut self, sub: Arc<str>, report: String) {
+        self.explanations.insert(sub, report);
+    }
+
+    /// Drops the access report of a subscription that will not become ready.
+    pub(crate) fn forget_explanation(&mut self, sub: &str) {
+        self.explanations.remove(sub);
+    }
+
     /// The `ready` of a subscription.
     pub(crate) fn ready(&mut self, sub: &Arc<str>, ct: Ct, out: &mut Vec<Output>) {
         if let Some(seen) = self.rebinding.remove(sub) {
@@ -342,7 +355,12 @@ impl Session {
             }
         }
         self.readied.insert(Arc::clone(sub));
-        let head = Head::new("ready").text("s", sub).ct("ct", ct).finish();
+        let head = Head::new("ready").text("s", sub).ct("ct", ct);
+        let head = match self.explanations.remove(sub) {
+            Some(report) => head.raw("explain", &report),
+            None => head,
+        }
+        .finish();
         self.send_head(head, out);
     }
 

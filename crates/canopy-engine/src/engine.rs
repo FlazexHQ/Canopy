@@ -12,6 +12,7 @@ use crate::auth::Principal;
 use crate::ct::Ct;
 use crate::echo::EchoWaiter;
 use crate::event::{Control, ControlKind, Event, Image, Op, Post, doc_key};
+use crate::explain::{Explain, caller_filter, explain_read};
 use crate::metrics::Metrics;
 use crate::observer::{Kind, ListenerId, Note, Observer, ObserverLimits};
 use crate::output::{ConnId, ContextRead, MutationRequest, Output, ReadRequest, ReadResult};
@@ -191,6 +192,17 @@ impl SessionState {
     }
 }
 
+/// A `sub` with `o.explain` for a stated caller, waiting for that caller's context lookups.
+#[derive(Debug)]
+struct ExplainLoad {
+    sid: String,
+    id: Arc<str>,
+    coll: String,
+    q: SubQuery,
+    filter: Document,
+    context: canopy_policy::RequestContext,
+}
+
 #[derive(Debug)]
 struct ContextRequest {
     sid: String,
@@ -245,6 +257,7 @@ pub struct Engine {
     position: Ct,
     ctx_cache: HashMap<String, (Option<Vec<Value>>, u64)>,
     ctx_requests: HashMap<u64, ContextRequest>,
+    explain_loads: HashMap<u64, ExplainLoad>,
     watched: Vec<String>,
     next_id: u64,
     next_time_refresh: u64,
@@ -283,6 +296,7 @@ impl Engine {
             position: Ct::ZERO,
             ctx_cache: HashMap::new(),
             ctx_requests: HashMap::new(),
+            explain_loads: HashMap::new(),
             watched: Vec::new(),
             next_id: 0,
             closing: false,
@@ -841,6 +855,9 @@ impl Engine {
     // Subscriptions
 
     fn nosub(&mut self, sid: &str, id: &str, error: Option<&CanopyError>) {
+        if let Some(state) = self.sessions.get_mut(sid) {
+            state.session.forget_explanation(id);
+        }
         let head = Head::new("nosub").text("s", id);
         let head = match error {
             Some(error) => head.raw("err", &error_object(error)),
@@ -849,7 +866,15 @@ impl Engine {
         self.send(sid, head.finish());
     }
 
-    fn subscribe(&mut self, sid: &str, id: Arc<str>, coll: String, q: SubQuery, explain: bool, now: u64) {
+    fn subscribe(
+        &mut self,
+        sid: &str,
+        id: Arc<str>,
+        coll: String,
+        q: SubQuery,
+        explain: Option<Explain>,
+        now: u64,
+    ) {
         let Some(state) = self.sessions.get(sid) else { return };
         if state.subs.contains_key(&id) {
             self.drop_sub(sid, &id, now);
@@ -867,13 +892,14 @@ impl Engine {
             self.nosub(sid, &id, Some(&err));
             return;
         }
-        if explain {
-            let err = if state.principal.roles.contains(Role::SERVICE) {
-                wire_error(ErrorCode::Unavailable, "Explanations are not available on the native gateway")
-            } else {
-                wire_error(ErrorCode::Forbidden, "Explanations are only available with a secret key")
-            };
-            self.nosub(sid, &id, Some(&err));
+        if let Some(explain) = explain {
+            if !state.principal.roles.contains(Role::SERVICE) {
+                let err =
+                    wire_error(ErrorCode::Forbidden, "Explanations are only available with a secret key");
+                self.nosub(sid, &id, Some(&err));
+                return;
+            }
+            self.explain_sub(sid, id, coll, q, explain, now);
             return;
         }
         let names = if self.policy.is_realtime(&coll) {
@@ -1071,6 +1097,89 @@ impl Engine {
     /// Resolves the named context lookups of a session: from the shared cache when fresh (and not `force`d),
     /// else by asking the transport to run them ([`Output::Contexts`]). `after` says what follows when they are
     /// resolved again for subscriptions that already exist: `auth` resyncs the changed ones, `ctx` moves them.
+    /// Answers `o.explain`: the report for the connection or a stated caller, whose context lookups are read
+    /// first unless the `sub` gave them, then subscribes as usual with the report kept for the first `ready`.
+    fn explain_sub(
+        &mut self,
+        sid: &str,
+        id: Arc<str>,
+        coll: String,
+        q: SubQuery,
+        explain: Explain,
+        now: u64,
+    ) {
+        let Some(state) = self.sessions.get(sid) else { return };
+        let filter = if self.policy.is_realtime(&coll) {
+            caller_filter(&q, self.config.limits.max_window)
+        } else {
+            Err(CanopyError::new(ErrorCode::NotFound, format!("No realtime collection {coll}")))
+        };
+        let filter = match filter {
+            Ok(filter) => filter,
+            Err(error) => {
+                self.nosub(sid, &id, Some(&error));
+                return;
+            }
+        };
+        let context = match explain {
+            Explain::Own => state.context(now),
+            Explain::As { claims, roles, ctx } => {
+                let stated = canopy_policy::explain_context(
+                    claims,
+                    &roles,
+                    ctx,
+                    i64::try_from(now).unwrap_or(i64::MAX),
+                );
+                let names = self.policy.context_names(Some(&[coll.as_str()]), &stated.roles);
+                if stated.ctx.is_none() && !names.is_empty() {
+                    let load = ExplainLoad { sid: sid.to_owned(), id, coll, q, filter, context: stated };
+                    self.explain_lookups(load, &names, now);
+                    return;
+                }
+                stated
+            }
+        };
+        self.explained(ExplainLoad { sid: sid.to_owned(), id, coll, q, filter, context }, now);
+    }
+
+    fn explain_lookups(&mut self, mut load: ExplainLoad, names: &[String], now: u64) {
+        let contexts = self.policy.set().contexts().clone();
+        let mut reads = Vec::new();
+        for name in names {
+            let Some((_, lookup)) = contexts.iter().find(|(declared, _)| declared == name) else { continue };
+            if let Ok(Some(query)) = context_query(name, lookup, &load.context) {
+                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                let limit = query.limit.clamp(1.0, f64::from(u32::MAX)) as u32;
+                reads.push(ContextRead {
+                    name: name.clone(),
+                    from: lookup.from.clone(),
+                    filter: query.filter,
+                    limit,
+                });
+            }
+        }
+        if reads.is_empty() {
+            load.context.ctx = Some(Document::new());
+            self.explained(load, now);
+            return;
+        }
+        let request = self.id();
+        self.explain_loads.insert(request, load);
+        self.out.push(Output::Contexts { id: request, reads });
+    }
+
+    fn explained(&mut self, load: ExplainLoad, now: u64) {
+        let ExplainLoad { sid, id, coll, q, filter, context } = load;
+        match explain_read(&self.policy, &coll, filter, context) {
+            Ok(report) => {
+                let Some(state) = self.sessions.get_mut(&sid) else { return };
+                state.session.explain_on_ready(Arc::clone(&id), report);
+                self.subscribe(&sid, id, coll, q, None, now);
+            }
+            Err(error) => self.nosub(&sid, &id, Some(&error)),
+        }
+    }
+
     fn load_contexts(
         &mut self,
         sid: &str,
@@ -1162,6 +1271,21 @@ impl Engine {
         results: Vec<(String, Result<Vec<Document>, CanopyError>)>,
         now: u64,
     ) {
+        if let Some(mut load) = self.explain_loads.remove(&id) {
+            let contexts = self.policy.set().contexts().clone();
+            let mut ctx = Document::new();
+            for (name, result) in &results {
+                let lookup = contexts.iter().find(|(declared, _)| declared == name).map(|(_, lookup)| lookup);
+                if let (Ok(documents), Some(lookup)) = (result, lookup)
+                    && let Ok(Some(values)) = lookup_values(documents, &lookup.select, lookup.max)
+                {
+                    ctx.insert(name.clone(), Value::Array(values));
+                }
+            }
+            load.context.ctx = Some(ctx);
+            self.explained(load, now);
+            return;
+        }
         let Some(request) = self.ctx_requests.remove(&id) else { return };
         let sid = request.sid;
         let contexts = self.policy.set().contexts().clone();
@@ -1953,3 +2077,4 @@ fn quoted(text: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
