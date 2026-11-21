@@ -1,6 +1,15 @@
 use canopy_engine::MessageRate;
 use canopy_protocol::json::{Json, parse_json};
 
+/// Which browser origins may call the endpoints from another origin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Cors {
+    /// Every origin.
+    Any,
+    /// These origins only.
+    Origins(Vec<String>),
+}
+
 /// How full documents of updates are obtained.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FullDocument {
@@ -60,6 +69,10 @@ pub(crate) struct GatewayConfig {
     pub(crate) anonymous_per_address: Option<usize>,
     pub(crate) mutations_url: Option<String>,
     pub(crate) log_level: String,
+    pub(crate) websocket: bool,
+    /// Whether the SSE and long poll transports are offered.
+    pub(crate) http_fallback: bool,
+    pub(crate) cors: Option<Cors>,
 }
 
 pub(crate) type ConfigResult<T> = Result<T, String>;
@@ -239,6 +252,17 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         usize::try_from(whole(limit)).unwrap_or(usize::MAX)
     });
     let checkpoints = text(&doc, &["realtime", "checkpoints"]).or_else(|| env("CANOPY_CHECKPOINTS"));
+    let transports = strings(&doc, &["realtime", "transports"])
+        .or_else(|| list_env("CANOPY_REALTIME_TRANSPORTS"))
+        .unwrap_or_else(|| vec!["websocket".to_owned(), "sse".to_owned(), "long-poll".to_owned()]);
+    if let Some(other) = transports.iter().find(|t| !["websocket", "sse", "long-poll"].contains(&t.as_str()))
+    {
+        return Err(format!("realtime.transports may list websocket, sse and long-poll, not {other}"));
+    }
+    let cors =
+        strings(&doc, &["cors", "origins"]).or_else(|| list_env("CANOPY_CORS_ORIGINS")).map(|origins| {
+            if origins.iter().any(|origin| origin == "*") { Cors::Any } else { Cors::Origins(origins) }
+        });
     Ok(GatewayConfig {
         mongodb_uri,
         database,
@@ -278,6 +302,9 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         log_level: text(&doc, &["log", "level"])
             .or_else(|| env("CANOPY_LOG_LEVEL"))
             .unwrap_or_else(|| "info".to_owned()),
+        websocket: transports.iter().any(|t| t == "websocket"),
+        http_fallback: transports.iter().any(|t| t == "sse" || t == "long-poll"),
+        cors,
     })
 }
 
@@ -309,6 +336,24 @@ mod tests {
         assert!(matches!(config.policies, Policies::Stored { .. }));
         assert_eq!(config.auth.map(|auth| auth.audiences), Some(vec!["aud".to_owned()]));
         assert_eq!(config.mutations_url.as_deref(), Some("http://127.0.0.1:8080/rest/v1"));
+        assert!(config.websocket && config.http_fallback);
+        assert_eq!(config.cors, None);
+    }
+
+    #[test]
+    fn reads_transports_and_cors() {
+        let config = resolve(Some(
+            r#"{"mongodb":{"uri":"mongodb://h/app"},"realtime":{"transports":["sse"]},"cors":{"origins":["https://a.example"]}}"#,
+        ));
+        let Ok(config) = config else { unreachable!("valid: {config:?}") };
+        assert!(!config.websocket);
+        assert!(config.http_fallback);
+        assert_eq!(config.cors, Some(Cors::Origins(vec!["https://a.example".to_owned()])));
+        let any = resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"},"cors":{"origins":"*"}}"#));
+        assert!(matches!(any, Ok(GatewayConfig { cors: Some(Cors::Any), .. })));
+        let wrong =
+            resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"},"realtime":{"transports":["smoke"]}}"#));
+        assert!(wrong.is_err());
     }
 
     #[test]

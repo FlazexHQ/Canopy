@@ -98,7 +98,9 @@ export function gatewayConfig(
       checkpoints: realtime?.checkpoints ?? "meta",
       resumeWindowMs: realtime?.resumeWindowMs ?? 120_000,
       drainWindowMs: realtime?.drainWindowMs ?? 30_000,
+      transports: realtime?.transports ?? ["websocket", "sse", "long-poll"],
     },
+    ...(config.cors === undefined ? {} : { cors: { origins: config.cors.origins } }),
     rateLimits:
       limits === false
         ? false

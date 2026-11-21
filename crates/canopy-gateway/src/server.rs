@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use canopy_engine::ConnId;
 use futures_util::{SinkExt, StreamExt};
-use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{
     CONNECTION, HeaderValue, SEC_WEBSOCKET_ACCEPT, SEC_WEBSOCKET_KEY, SEC_WEBSOCKET_PROTOCOL, UPGRADE,
@@ -24,6 +23,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 
 use crate::core::{Command, EngineSender, ShardMessage};
+use crate::http::{Body, HttpSession, HttpTransport, Origin, full};
 
 /// Bytes queued for a connection beyond which it is a slow consumer.
 const HARD_QUEUE_BYTES: usize = 16 * 1024 * 1024;
@@ -37,6 +37,10 @@ pub(crate) struct Shared {
     pub(crate) next_conn: AtomicU64,
     pub(crate) ready: Arc<AtomicBool>,
     pub(crate) max_frame_bytes: usize,
+    /// Whether WebSocket upgrades are served.
+    pub(crate) websocket: bool,
+    /// The SSE and long poll transports, when either is offered.
+    pub(crate) http: Option<Arc<HttpTransport>>,
 }
 
 enum Out {
@@ -81,7 +85,13 @@ impl Queue {
     }
 }
 
-type Registry = Rc<RefCell<HashMap<ConnId, Rc<Queue>>>>;
+/// Where the frames of a connection go: a WebSocket's queue, or an HTTP session's buffer.
+enum Sink {
+    Socket(Rc<Queue>),
+    Http(Arc<HttpSession>),
+}
+
+type Registry = Rc<RefCell<HashMap<ConnId, Sink>>>;
 
 fn weight(out: &Out) -> usize {
     match out {
@@ -108,21 +118,51 @@ pub(crate) fn start_shard(
             let engine = shared.engine.clone();
             async move {
                 while let Some(batch) = frames.recv().await {
-                    let registry = registry.borrow();
-                    for message in batch {
-                        let (conn, out) = match message {
-                            ShardMessage::Frame { conn, frame } => (conn, Out::Frame(frame)),
-                            ShardMessage::Text { conn, text } => (conn, Out::Text(text)),
-                            ShardMessage::Session { conn, batch } => (conn, Out::Session(batch)),
-                            ShardMessage::Close { conn, code, reason } => (conn, Out::Close(code, reason)),
-                        };
-                        let Some(queue) = registry.get(&conn) else { continue };
-                        let bytes = queue.bytes.get() + weight(&out);
-                        queue.bytes.set(bytes);
-                        if bytes > HARD_QUEUE_BYTES {
-                            let _ = engine.send(Command::Slow { conn });
+                    let mut ended = Vec::new();
+                    {
+                        let registry = registry.borrow();
+                        for message in batch {
+                            let (conn, out) = match message {
+                                ShardMessage::Frame { conn, frame } => (conn, Out::Frame(frame)),
+                                ShardMessage::Text { conn, text } => (conn, Out::Text(text)),
+                                ShardMessage::Session { conn, batch } => (conn, Out::Session(batch)),
+                                ShardMessage::Close { conn, code, reason } => {
+                                    (conn, Out::Close(code, reason))
+                                }
+                            };
+                            match registry.get(&conn) {
+                                Some(Sink::Socket(queue)) => {
+                                    let bytes = queue.bytes.get() + weight(&out);
+                                    queue.bytes.set(bytes);
+                                    if bytes > HARD_QUEUE_BYTES {
+                                        let _ = engine.send(Command::Slow { conn });
+                                    }
+                                    queue.push(out);
+                                }
+                                Some(Sink::Http(session)) => {
+                                    let pending = match out {
+                                        Out::Frame(frame) => session.push(frame.text(), Some(frame.seq)),
+                                        Out::Text(text) => session.push(text, None),
+                                        Out::Session(_) => 0,
+                                        Out::Close(code, reason) => {
+                                            session.end(code, &reason);
+                                            ended.push(conn);
+                                            0
+                                        }
+                                    };
+                                    if pending > HARD_QUEUE_BYTES {
+                                        let _ = engine.send(Command::Slow { conn });
+                                    }
+                                }
+                                None => {}
+                            }
                         }
-                        queue.push(out);
+                    }
+                    if !ended.is_empty() {
+                        let mut registry = registry.borrow_mut();
+                        for conn in ended {
+                            registry.remove(&conn);
+                        }
                     }
                 }
             }
@@ -153,10 +193,8 @@ pub(crate) fn start_shard(
     })
 }
 
-fn reply(status: StatusCode, body: &'static str) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from_static(body.as_bytes())));
-    *response.status_mut() = status;
-    response
+fn reply(status: StatusCode, body: &'static str) -> Response<Body> {
+    full(status, Bytes::from_static(body.as_bytes()))
 }
 
 async fn route(
@@ -165,7 +203,7 @@ async fn route(
     registry: Registry,
     peer: String,
     shard: usize,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+) -> Result<Response<Body>, Infallible> {
     match request.uri().path() {
         "/healthz" => return Ok(reply(StatusCode::OK, "ok")),
         "/readyz" => {
@@ -175,8 +213,23 @@ async fn route(
                 reply(StatusCode::SERVICE_UNAVAILABLE, "not ready: change stream")
             });
         }
-        "/realtime/v1" => {}
-        _ => return Ok(reply(StatusCode::NOT_FOUND, "Not found")),
+        "/realtime/v1" if shared.websocket => {}
+        path => {
+            let Some(http) = shared.http.as_ref().filter(|http| http.matches(path)) else {
+                return Ok(reply(StatusCode::NOT_FOUND, "Not found"));
+            };
+            let register = |conn: ConnId, session: Arc<HttpSession>| {
+                registry.borrow_mut().insert(conn, Sink::Http(session));
+            };
+            let origin = Origin {
+                engine: &shared.engine,
+                address: peer,
+                shard,
+                next_conn: &shared.next_conn,
+                register: &register,
+            };
+            return Ok(http.handle(request, origin).await);
+        }
     }
     let headers = request.headers();
     let upgrade = headers
@@ -208,8 +261,7 @@ async fn route(
             WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config)).await;
         connection(socket, shared, registry, peer, shard).await;
     });
-    let mut response = Response::new(Full::new(Bytes::new()));
-    *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
+    let mut response = full(StatusCode::SWITCHING_PROTOCOLS, Bytes::new());
     let headers = response.headers_mut();
     headers.insert(UPGRADE, HeaderValue::from_static("websocket"));
     headers.insert(CONNECTION, HeaderValue::from_static("Upgrade"));
@@ -268,7 +320,7 @@ async fn flush(socket: &mut Socket, batch: bool, pending: &mut Vec<String>) -> R
 async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry, peer: String, shard: usize) {
     let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
     let queue = Rc::new(Queue::default());
-    registry.borrow_mut().insert(conn, Rc::clone(&queue));
+    registry.borrow_mut().insert(conn, Sink::Socket(Rc::clone(&queue)));
     if shared.engine.send(Command::Open { conn, address: peer, shard }).is_err() {
         registry.borrow_mut().remove(&conn);
         return;

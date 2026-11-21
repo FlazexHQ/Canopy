@@ -86,6 +86,8 @@ interface Item {
 
 interface Server {
   readonly url: string
+  /** The HTTP base of the realtime endpoints, for the SSE and long poll transports. */
+  readonly base: string
   readonly db: Db
   stop(): Promise<void>
 }
@@ -117,6 +119,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
     policies: { dir: policies, watch: false },
     realtime: { checkpoints: "off", drainWindow: 100 },
     rateLimits: false,
+    cors: { origins: ["https://app.test"] },
     server: { port, metricsPort: await freePort() },
     log: { level: "error" },
   }
@@ -153,6 +156,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
   await client.connect()
   return {
     url: `ws://127.0.0.1:${port}/realtime/v1`,
+    base: `http://127.0.0.1:${port}/realtime/v1`,
     db: client.db(dbName),
     async stop() {
       if (child.exitCode === null) {
@@ -439,6 +443,231 @@ for (const kind of servers) {
     it("sent only frames the protocol decoder accepts", () => {
       expect(open.length).toBeGreaterThan(0)
       expect(open.flatMap((client) => client.invalid)).toEqual([])
+    })
+
+    describe("SSE and long polling", () => {
+      interface Frame {
+        readonly t: string
+        readonly seq?: number
+        readonly [key: string]: unknown
+      }
+
+      const call = (path: string, init: RequestInit = {}, key: string | null = "pk_test") =>
+        fetch(`${server.base}${path}`, {
+          ...init,
+          headers: {
+            ...(key === null ? {} : { apikey: key }),
+            ...(init.headers as Record<string, string> | undefined),
+          },
+        })
+
+      const openSession = async (claims: Record<string, unknown>, extra = {}) => {
+        const response = await call("/sessions", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${await token(keys, claims)}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ v: 1, sdk: "test", caps: ["diff", "batch"], ...extra }),
+        })
+        expect(response.status).toBe(201)
+        return (await response.json()) as Frame & { sid: string; caps: string[]; resumed: boolean }
+      }
+
+      const post = (sid: string, messages: unknown[]) =>
+        call(`/sessions/${sid}/messages`, { method: "POST", body: JSON.stringify(messages) })
+
+      const poll = async (sid: string, after: number, wait = 5): Promise<Frame[]> => {
+        const response = await call(`/sessions/${sid}/poll?after=${after}&wait=${wait}`)
+        expect(response.status).toBe(200)
+        expect(response.headers.get("content-type")).toBe("application/json")
+        return (await response.json()) as Frame[]
+      }
+
+      const pollUntil = async (sid: string, test: (frames: Frame[]) => boolean) => {
+        const frames: Frame[] = []
+        let after = 0
+        const started = Date.now()
+        while (!test(frames)) {
+          if (Date.now() - started > 10_000) throw new Error(`timed out: ${JSON.stringify(frames)}`)
+          const batch = await poll(sid, after, 2)
+          frames.push(...batch)
+          for (const frame of batch) if (frame.seq !== undefined) after = Math.max(after, frame.seq)
+        }
+        return frames
+      }
+
+      it("opens a session from headers, drops the batch capability and refuses bad credentials", async () => {
+        const welcome = await openSession({ sub: "alice" })
+        expect(welcome.t).toBe("welcome")
+        expect(welcome.sid.startsWith("n1.")).toBe(true)
+        expect(welcome.caps).not.toContain("batch")
+        const badKey = await call("/sessions", { method: "POST", body: '{"v":1}' }, "pk_wrong")
+        expect(badKey.status).toBe(401)
+        expect(badKey.headers.get("content-type")).toBe("application/problem+json")
+        expect(await badKey.json()).toMatchObject({ code: "CANOPY_UNAUTHORIZED", close: 4001 })
+        const badToken = await call("/sessions", {
+          method: "POST",
+          headers: { authorization: "Bearer not.a.jwt" },
+          body: '{"v":1}',
+        })
+        expect(badToken.status).toBe(401)
+        expect(await badToken.json()).toMatchObject({ close: 4001 })
+        expect((await call("/sessions", { method: "POST", body: '{"v":1}' }, null)).status).toBe(
+          401,
+        )
+        expect((await call("/sessions", { method: "POST", body: "[1]" })).status).toBe(400)
+      })
+
+      it("delivers a snapshot and live changes over long polling, and redelivers a retried position", async () => {
+        const { sid } = await openSession({ sub: "alice" })
+        expect(
+          (
+            await post(sid, [
+              { t: "sub", id: "p", c: "items", q: { filter: { n: { $gte: 200 } } } },
+            ])
+          ).status,
+        ).toBe(202)
+        const snapshot = await pollUntil(sid, (frames) => frames.some((f) => f.t === "ready"))
+        const seqs = snapshot.map((frame) => frame.seq ?? 0)
+        expect(seqs).toEqual([...seqs].sort((a, b) => a - b))
+        const again = await poll(sid, 0, 0)
+        expect(again.map((frame) => frame.seq)).toEqual(snapshot.map((frame) => frame.seq))
+        const last = Math.max(...seqs)
+        const waiting = poll(sid, last, 5)
+        await sleep(150)
+        await server.db.collection<Item>("items").insertOne({ _id: 200, ownerId: "alice", n: 200 })
+        await server.db.collection<Item>("items").insertOne({ _id: 201, ownerId: "bob", n: 201 })
+        const live = await waiting
+        expect(live).toEqual([expect.objectContaining({ t: "added", seq: last + 1 })])
+        expect(canonicalString(live[0]?.["id"])).toBe(canonicalString(200))
+        const gone = await call(`/sessions/${sid}/poll?after=0&wait=0`)
+        expect(gone.status).toBe(410)
+        expect(await gone.json()).toMatchObject({ close: 4000 })
+        const started = Date.now()
+        expect(await poll(sid, last + 1, 1)).toEqual([])
+        expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+      })
+
+      it("streams server sent events whose ids are sequence numbers and resumes from Last-Event-ID", async () => {
+        await server.db.collection<Item>("items").insertMany([
+          { _id: 400, ownerId: "alice", n: 400 },
+          { _id: 401, ownerId: "alice", n: 401 },
+        ])
+        const { sid } = await openSession({ sub: "alice" })
+        await post(sid, [
+          { t: "sub", id: "e", c: "items", q: { filter: { n: { $gte: 400 } }, sort: { _id: 1 } } },
+        ])
+        const read = async (headers: Record<string, string>) => {
+          const controller = new AbortController()
+          const response = await fetch(`${server.base}/sessions/${sid}/events`, {
+            headers: { apikey: "pk_test", ...headers },
+            signal: controller.signal,
+          })
+          expect(response.status).toBe(200)
+          expect(response.headers.get("content-type")).toBe("text/event-stream")
+          const reader = (response.body as ReadableStream<Uint8Array>).getReader()
+          const decoder = new TextDecoder()
+          let text = ""
+          while (!text.includes('"t":"ready"')) {
+            const { value, done } = await reader.read()
+            if (done) break
+            text += decoder.decode(value, { stream: true })
+          }
+          controller.abort()
+          return text
+        }
+        const first = await read({})
+        expect(first.startsWith("retry: 1000\n\n")).toBe(true)
+        const events = first
+          .split("\n\n")
+          .filter((block) => block.includes("data: "))
+          .map((block) => ({
+            id: /^id: (\d+)$/m.exec(block)?.[1],
+            data: JSON.parse(/^data: (.*)$/m.exec(block)?.[1] ?? "null") as Frame,
+          }))
+        expect(events.map((event) => event.data.t)).toEqual(["added", "added", "ready"])
+        for (const event of events) expect(Number(event.id)).toBe(event.data.seq)
+        const firstSeq = events[0]?.data.seq ?? 0
+        const replay = await read({ "last-event-id": String(firstSeq) })
+        expect(replay).not.toContain(`id: ${firstSeq}\n`)
+        expect(replay).toContain(`id: ${firstSeq + 1}\n`)
+      })
+
+      it("needs the session key or a single use ticket, and routes other nodes away", async () => {
+        const { sid } = await openSession({ sub: "alice" })
+        expect((await call(`/sessions/${sid}/poll?wait=0`, {}, "pk_other")).status).toBe(401)
+        expect((await call(`/sessions/${sid}/poll?wait=0`, {}, null)).status).toBe(401)
+        const moved = await call("/sessions/n7.abc/poll?wait=0")
+        expect(moved.status).toBe(409)
+        expect(await moved.json()).toMatchObject({ code: "CANOPY_SESSION_MOVED" })
+        expect((await call("/sessions/n1.abc/poll?wait=0")).status).toBe(404)
+        expect((await call(`/sessions/${sid}/events`, { method: "POST" })).status).toBe(405)
+        const issued = await call("/tickets", { method: "POST", body: JSON.stringify({ sid }) })
+        expect(issued.status).toBe(201)
+        const { ticket, expiresIn } = (await issued.json()) as { ticket: string; expiresIn: number }
+        expect(expiresIn).toBe(30)
+        expect((await call(`/sessions/${sid}/poll?wait=0&ticket=${ticket}`, {}, null)).status).toBe(
+          200,
+        )
+        expect((await call(`/sessions/${sid}/poll?wait=0&ticket=${ticket}`, {}, null)).status).toBe(
+          401,
+        )
+        const onPath = await call(`/sessions/${sid}/tickets`, { method: "POST" })
+        expect(onPath.status).toBe(201)
+        const other = await openSession({ sub: "alice" })
+        const value = ((await onPath.json()) as { ticket: string }).ticket
+        expect(
+          (await call(`/sessions/${other.sid}/poll?wait=0&ticket=${value}`, {}, null)).status,
+        ).toBe(401)
+      })
+
+      it("only takes client messages, and ends a session with DELETE", async () => {
+        const { sid } = await openSession({ sub: "alice" })
+        expect((await post(sid, [{ t: "hello", v: 1, key: "pk_test" }])).status).toBe(400)
+        expect(
+          (await call(`/sessions/${sid}/messages`, { method: "POST", body: "{}" })).status,
+        ).toBe(400)
+        expect((await call(`/sessions/${sid}`, { method: "DELETE" })).status).toBe(204)
+        expect((await call(`/sessions/${sid}/poll?wait=0`)).status).toBe(404)
+        const resumed = await openSession({ sub: "alice" }, { resume: { sid, seq: 0 } })
+        expect(resumed.resumed).toBe(false)
+        expect(resumed.sid).not.toBe(sid)
+      })
+
+      it("resumes a session on a new HTTP session and replays what the client missed", async () => {
+        const { sid } = await openSession({ sub: "alice" })
+        await post(sid, [{ t: "sub", id: "r", c: "items", q: { filter: { n: { $gte: 300 } } } }])
+        const frames = await pollUntil(sid, (all) => all.some((f) => f.t === "ready"))
+        const ready = frames.find((frame) => frame.t === "ready")?.seq ?? 0
+        const resumed = await openSession({ sub: "alice" }, { resume: { sid, seq: ready - 1 } })
+        expect(resumed).toMatchObject({ sid, resumed: true })
+        expect((await poll(sid, ready - 1, 2)).map((frame) => frame.t)).toEqual(["ready"])
+        await server.db.collection<Item>("items").insertOne({ _id: 300, ownerId: "alice", n: 300 })
+        expect(await poll(sid, ready, 5)).toEqual([expect.objectContaining({ t: "added" })])
+      })
+
+      it("answers CORS preflights only for allowed origins", async () => {
+        const preflight = (origin: string) =>
+          call(
+            "/sessions",
+            { method: "OPTIONS", headers: { origin, "access-control-request-method": "POST" } },
+            null,
+          )
+        const allowed = await preflight("https://app.test")
+        expect(allowed.status).toBe(204)
+        expect(allowed.headers.get("access-control-allow-origin")).toBe("https://app.test")
+        expect(allowed.headers.get("access-control-allow-headers")).toContain("apikey")
+        const denied = await preflight("https://evil.test")
+        expect(denied.headers.get("access-control-allow-origin")).toBeNull()
+        const refused = await call(
+          "/sessions",
+          { method: "POST", headers: { origin: "https://app.test" }, body: '{"v":1}' },
+          "pk_wrong",
+        )
+        expect(refused.status).toBe(401)
+        expect(refused.headers.get("access-control-allow-origin")).toBe("https://app.test")
+      })
     })
   })
 }

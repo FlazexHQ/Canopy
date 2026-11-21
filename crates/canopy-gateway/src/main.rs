@@ -6,6 +6,7 @@
 mod config;
 mod core;
 mod forward;
+mod http;
 mod ingest;
 mod jwt;
 mod log;
@@ -167,6 +168,10 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         next_conn: AtomicU64::new(1),
         ready: Arc::clone(&stream_open),
         max_frame_bytes: limits.max_frame_bytes,
+        websocket: config.websocket,
+        http: config.http_fallback.then(|| {
+            Arc::new(http::HttpTransport::new(http::HttpOptions::new(&config.node_id, config.cors.clone())))
+        }),
     });
     let mut socket_senders = Vec::new();
     let mut frame_senders = Vec::new();
@@ -270,6 +275,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     let deadline = tokio::time::Instant::now() + Duration::from_millis(config.drain_window_ms + 2000);
     while !engine_thread.is_finished() && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if let Some(http) = &shared.http {
+        http.close();
     }
     tokio::time::sleep(Duration::from_millis(100)).await;
     log.info("stopped", &[]);
