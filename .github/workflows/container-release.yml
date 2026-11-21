@@ -1,0 +1,62 @@
+name: Container release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build and push images (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, os: ubuntu-24.04 }
+          - { arch: arm64, os: ubuntu-24.04-arm }
+    env:
+      ARCH: ${{ matrix.arch }}
+      REGISTRY_OWNER: ${{ github.repository_owner }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Sign in to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push the images for this architecture
+        run: |
+          for image in canopy-gateway canopy-realtime canopy; do
+            ref="ghcr.io/${REGISTRY_OWNER,,}/$image:$RELEASE_TAG-$ARCH"
+            docker build --platform "linux/$ARCH" -f "deploy/docker/$image.Dockerfile" \
+              --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+              --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+              --label "org.opencontainers.image.version=$RELEASE_TAG" \
+              -t "$ref" .
+            docker push "$ref"
+          done
+
+  manifest:
+    name: Publish the release tags
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      REGISTRY_OWNER: ${{ github.repository_owner }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Sign in to GitHub Container Registry
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Publish the combined image manifests
+        run: |
+          for image in canopy-gateway canopy-realtime canopy; do
+            ref="ghcr.io/${REGISTRY_OWNER,,}/$image:$RELEASE_TAG"
+            docker buildx imagetools create -t "$ref" "$ref-amd64" "$ref-arm64"
+          done

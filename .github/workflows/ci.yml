@@ -500,9 +500,11 @@ jobs:
     name: Docker images and compose stack
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the standalone gateway image
+        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile -t canopy-realtime:ci .
       - name: Build the canopy image and start the compose stack
@@ -511,18 +513,33 @@ jobs:
           CANOPY_IMAGE: canopy:ci
       - name: Smoke test the compose stack
         run: deploy/compose/canopy-smoke.sh
-      - name: The sidecar image starts and reports ready
+      - name: The sidecar and gateway images start and report ready
         run: |
-          docker run -d --name sidecar --network canopy_default -p 18080:8080 \
+          docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \
             -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
             -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
             canopy-realtime:ci
-          for attempt in $(seq 60); do
-            if curl -fsS localhost:18080/readyz; then exit 0; fi
-            sleep 1
-          done
-          docker logs sidecar
-          exit 1
+          docker run -d --read-only --name sidecar-gateway --network canopy_default -p 127.0.0.1:18081:8080 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
+            -e CANOPY_NODE_ID=sidecar-gateway -e CANOPY_REALTIME_SERVER=gateway canopy-realtime:ci
+          docker run -d --read-only --name gateway --network canopy_default \
+            -p 127.0.0.1:18082:8080 -p 127.0.0.1:19464:9464 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy-gateway:ci
+
+          check_ready() {
+            for ((attempt = 0; attempt < 60; attempt++)); do
+              if curl -fsS --max-time 2 "http://127.0.0.1:$2/readyz"; then return 0; fi
+              sleep 1
+            done
+            docker logs "$1"
+            return 1
+          }
+          check_ready sidecar 18080
+          check_ready sidecar-gateway 18081
+          check_ready gateway 18082
+          curl -fsS --max-time 2 http://127.0.0.1:19464/metrics
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -552,7 +569,7 @@ jobs:
         run: docker compose -f deploy/compose/canopy.yaml logs
       - if: always()
         run: |
-          docker rm -f sidecar || true
+          docker rm -f sidecar sidecar-gateway gateway || true
           docker compose -f deploy/compose/canopy.yaml down --volumes
 
   changeset:
