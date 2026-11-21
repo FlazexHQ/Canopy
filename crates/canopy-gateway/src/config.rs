@@ -58,6 +58,8 @@ pub(crate) struct GatewayConfig {
     pub(crate) metrics_token: Option<String>,
     pub(crate) trusted_proxies: Vec<Rule>,
     pub(crate) check_revocations: bool,
+    /// The Ed25519 public key of Studio's view tokens, from `viewTokens.jwk`.
+    pub(crate) view_key: Option<Vec<u8>>,
     pub(crate) node_id: String,
     pub(crate) shards: usize,
     pub(crate) auth: Option<JwtConfig>,
@@ -285,6 +287,7 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
             .filter_map(|rule| Rule::parse(rule))
             .collect(),
         check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(false),
+        view_key: get(&doc, &["viewTokens", "jwk"]).map(crate::view_tokens::view_key).transpose()?,
         node_id: text(&doc, &["server", "nodeId"])
             .or_else(|| env("CANOPY_NODE_ID"))
             .unwrap_or_else(|| "n1".to_owned()),

@@ -22,6 +22,9 @@ mod mongo;
 #[allow(dead_code)]
 #[path = "../src/revocations.rs"]
 mod revocations;
+#[allow(dead_code)]
+#[path = "../src/view_tokens.rs"]
+mod view_tokens;
 
 use std::collections::HashMap;
 use std::error::Error;

@@ -16,6 +16,7 @@ mod mongo;
 mod proxy;
 mod revocations;
 mod server;
+mod view_tokens;
 
 use std::convert::Infallible;
 use std::io::BufRead as _;
@@ -214,6 +215,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             .await;
     });
     auth.api_keys = Some(api_keys);
+    auth.view_key = config.view_key.clone().map(Arc::new);
     let revocation_watch = if config.check_revocations {
         let revocations = Arc::new(revocations::Revocations::new(&meta));
         let stream =

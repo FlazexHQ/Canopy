@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use crate::api_keys::{ApiKeys, REVOKED_KEY};
 use crate::config::JwtConfig;
 use crate::revocations::{REVOKED_TOKEN, Revocations};
+use crate::view_tokens::{VIEW_TOKEN_ISSUER, issuer_of, verify_view_token};
 
 const DEFAULT_ALGORITHMS: [&str; 7] = ["EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256"];
 const FORBIDDEN_ALGORITHMS: [&str; 4] = ["none", "HS256", "HS384", "HS512"];
@@ -164,6 +165,8 @@ pub(crate) struct Authenticator {
     jwt: Option<Arc<Jwt>>,
     pub(crate) api_keys: Option<Arc<ApiKeys>>,
     pub(crate) revocations: Option<Arc<Revocations>>,
+    /// The public key of Studio's view tokens, when the server that runs the gateway issues them.
+    pub(crate) view_key: Option<Arc<Vec<u8>>>,
 }
 
 impl Authenticator {
@@ -207,6 +210,7 @@ impl Authenticator {
             jwt,
             api_keys: None,
             revocations: None,
+            view_key: None,
         })
     }
 
@@ -234,6 +238,13 @@ impl Authenticator {
             return Err(unauthorized("Unknown API key"));
         }
         let mut principal = if let Some(token) = token.filter(|token| !token.is_empty()) {
+            if let Some(view_key) = &self.view_key
+                && issuer_of(token).as_deref() == Some(VIEW_TOKEN_ISSUER)
+            {
+                let mut principal = verify_view_token(view_key, token, now_s())?;
+                principal.key_id = stored.map(|stored| stored.id);
+                return Ok(principal);
+            }
             let Some(jwt) = &self.jwt else { return Err(unauthorized("User tokens are not accepted")) };
             jwt.verify(token, self.revocations.as_deref()).await?
         } else {
