@@ -8,7 +8,13 @@ import {
   resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
-import { CanopyError, ErrorCode, isDocument, UnauthorizedError } from "@canopy/protocol"
+import {
+  CanopyError,
+  ErrorCode,
+  isDocument,
+  trimTrailingSlashes,
+  UnauthorizedError,
+} from "@canopy/protocol"
 import { type JSONWebKeySet, errors as joseErrors, jwtVerify } from "jose"
 import { type ChangeStream, MongoServerError } from "mongodb"
 import { type AuditDocument, AuditLog } from "./audit.ts"
@@ -28,6 +34,7 @@ import { KeyRing, type SigningKeyDocument, type SigningKeyInfo } from "./keyring
 import type { LeaseDocument } from "./lease.ts"
 import { type AuthLogger, silentAuthLogger } from "./logger.ts"
 import type { BuiltinAuthOptions, ClaimsHookResult } from "./options.ts"
+import { ResponseFloor } from "./response-floor.ts"
 import { type RevocationDocument, RevocationStore } from "./revocation-store.ts"
 import { EngineUserAdmin, toAuthUser } from "./users.ts"
 
@@ -249,7 +256,7 @@ class BetterAuthProvider implements BuiltinAuth {
   private readonly issuer: string
   private readonly audience: string
   private readonly ttl: number
-  private readonly floorMs: number
+  private readonly floor: ResponseFloor
   private keyStream: ChangeStream<SigningKeyDocument> | undefined
   private pruneTimer: ReturnType<typeof setInterval> | undefined
   private closed = false
@@ -263,7 +270,7 @@ class BetterAuthProvider implements BuiltinAuth {
     this.issuer = `${settings.publicUrl}${BASE}`
     this.audience = settings.publicUrl
     this.ttl = settings.accessTokenTtlSeconds
-    this.floorMs = options.responseFloorMs ?? 80
+    this.floor = new ResponseFloor(options.responseFloorMs ?? 80)
     this.origins = new Set(settings.trustedOrigins)
     this.audit = new AuditLog(meta.collection<AuditDocument>("audit_log"), logger)
     this.guard = new IdentifierGuard({
@@ -313,13 +320,20 @@ class BetterAuthProvider implements BuiltinAuth {
           target: { type: "session", id: session.id },
           details: { method: signInMethod(path) },
         }),
-      sessionEnded: (session) => {
-        void this.revoke({ kind: "session", sub: session.userId, sid: session.id })
+      sessionEnded: async (session) => {
         this.audit.record({
           action: "auth.session_ended",
           actor: { type: "user", id: session.userId },
           target: { type: "session", id: session.id },
         })
+        try {
+          await this.revoke({ kind: "session", sub: session.userId, sid: session.id })
+        } catch (error: unknown) {
+          this.logger.error(
+            { err: error, sid: session.id },
+            "recording the revocation of an ended session failed",
+          )
+        }
       },
       rehash: async (legacy, hash) => {
         await authDb
@@ -591,7 +605,9 @@ class BetterAuthProvider implements BuiltinAuth {
       await this.afterEngine(path, request.method, response, email, ip)
     }
     if (FLOOR_PATHS.has(path) && request.method === "POST") {
-      const wait = this.floorMs - (performance.now() - started)
+      const took = performance.now() - started
+      const wait = this.floor.target(path) - took
+      this.floor.record(path, took)
       if (wait > 0) await sleep(wait)
     }
     return response
@@ -942,7 +958,7 @@ function resolveSettings(options: BuiltinAuthOptions): EngineSettings {
   }
   return {
     appName: options.appName ?? "Canopy",
-    publicUrl: publicUrl.origin + publicUrl.pathname.replace(/\/+$/, ""),
+    publicUrl: publicUrl.origin + trimTrailingSlashes(publicUrl.pathname),
     secret: options.secret,
     mongo: options.mongo,
     authDatabase: options.authDatabase ?? "canopy_auth",

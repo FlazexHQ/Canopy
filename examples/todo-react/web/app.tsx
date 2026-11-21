@@ -1,4 +1,4 @@
-import { isCanopyError } from "@canopy/client"
+import { type Doc, isCanopyError } from "@canopy/client"
 import {
   createReactDb,
   type ReactDb,
@@ -8,10 +8,8 @@ import {
   useStaleMutations,
 } from "@canopy/react"
 import { type FormEvent, useMemo, useState } from "react"
-import type { Database, Todos } from "./canopy.gen.ts"
-
-/** A todo as stored in MongoDB, generated from the collection's validator. */
-export type Todo = Todos
+/** A todo as stored in MongoDB, typed from `canopy.schema.ts`. */
+export type Todo = Doc<"todos">
 
 function explain(error: Error): string {
   if (isCanopyError(error, "CANOPY_CONFLICT"))
@@ -77,11 +75,11 @@ function TodoRow({ todo, user, db }: { todo: Todo; user: string; db: TodoDb }) {
   )
 }
 
-type TodoDb = ReactDb<Database>
+type TodoDb = ReactDb
 
 /** The todo list: optimistic, live across tabs and users, and usable offline. */
 export function App({ user }: { user: string }) {
-  const client = useCanopy<Database>()
+  const client = useCanopy()
   const status = useCanopyStatus()
   const db = useMemo(() => createReactDb(client), [client])
   const list = db.todos.useQuery({}, { sort: { createdAt: 1 } })

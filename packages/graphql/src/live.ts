@@ -21,6 +21,17 @@ export interface RealtimeConnector {
   connect(socket: LiveSocket): { message(text: string): void; close(): void }
 }
 
+/**
+ * A realtime server in another process, such as the native gateway in front of this one: live queries connect
+ * to it over a WebSocket at `url` (the HTTP base, `/realtime/v1` is added), with the caller's credentials.
+ */
+export interface RemoteRealtime {
+  /** The HTTP base URL, or a function returning it when it is known only after startup. */
+  readonly url: string | (() => string)
+  /** The WebSocket class. Defaults to the global `WebSocket`. */
+  readonly WebSocket?: WebSocketConstructor
+}
+
 /** The credentials a live query connects with, as the request presented them. */
 export interface LiveCredentials {
   readonly key: string
@@ -110,10 +121,24 @@ interface Shared {
  */
 export class LiveQueries {
   private readonly socket: WebSocketConstructor
+  private readonly url: () => string
   private readonly shared = new Map<string, Shared>()
 
-  constructor(realtime: RealtimeConnector) {
-    this.socket = inProcessSocket(realtime)
+  constructor(realtime: RealtimeConnector | RemoteRealtime) {
+    if ("connect" in realtime) {
+      this.socket = inProcessSocket(realtime)
+      this.url = () => "http://canopy.in-process"
+      return
+    }
+    const socket =
+      realtime.WebSocket ??
+      (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket ??
+      undefined
+    if (socket === undefined)
+      throw new TypeError("Live queries over a remote realtime server need a WebSocket class")
+    this.socket = socket
+    const url = realtime.url
+    this.url = typeof url === "function" ? url : () => url
   }
 
   /** The number of open in-process sessions. */
@@ -128,7 +153,7 @@ export class LiveQueries {
       const token = credentials.token
       entry = {
         client: createClient({
-          url: "http://canopy.in-process",
+          url: this.url(),
           publishableKey: credentials.key,
           WebSocket: this.socket,
           lifecycle: false,

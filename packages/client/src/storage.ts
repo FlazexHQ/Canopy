@@ -137,6 +137,16 @@ interface UploadState {
   readonly parts: readonly number[]
 }
 
+/**
+ * The body of a response as a `Blob` typed by its `content-type`. Bun leaves the type of a streamed body
+ * empty, where the Fetch standard takes it from the header.
+ */
+async function blobOf(response: Response): Promise<Blob> {
+  const blob = await response.blob()
+  const type = response.headers.get("content-type")
+  return blob.type === "" && type !== null ? new Blob([blob], { type }) : blob
+}
+
 function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/")
 }
@@ -314,7 +324,7 @@ export function createStorage(options: StorageClientOptions): StorageApi {
               `${at("render/image/object", path)}${query === "" ? "" : `?${query}`}`,
               { signal: download.signal },
             )
-            return response.blob()
+            return blobOf(response)
           }
           const response = await request("GET", at("object", path), {
             ...(download.range === undefined
@@ -322,7 +332,7 @@ export function createStorage(options: StorageClientOptions): StorageApi {
               : { headers: { range: `bytes=${download.range[0]}-${download.range[1]}` } }),
             signal: download.signal,
           })
-          return response.blob()
+          return blobOf(response)
         },
         async remove(path) {
           await request("DELETE", at("object", path))

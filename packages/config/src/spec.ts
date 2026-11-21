@@ -80,6 +80,8 @@ const FULL_DOCUMENT = ["auto", "updateLookup", "images"] as const
 const TRANSPORTS = ["websocket", "sse", "long-poll"] as const
 const ID_TYPES = ["auto", "objectId", "string", "uuid", "number"] as const
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const
+const ENGINES = ["auto", "ts", "native", "wasm"] as const
+const REALTIME_SERVERS = ["ts", "gateway"] as const
 /** The change events a trigger can react to. */
 export const TRIGGER_OPERATIONS = ["insert", "update", "replace", "delete"] as const
 
@@ -205,6 +207,8 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
       resumeWindow: withDefault(duration, 120_000),
       checkpoints: withDefault(oneOf("meta", "off"), "meta"),
       drainWindow: withDefault(duration, 30_000),
+      echoTimeout: withDefault(duration, 2000),
+      server: withDefault(oneOf(...REALTIME_SERVERS), "ts"),
     }),
   },
   graphql: {
@@ -316,6 +320,7 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
     adminListen: str,
     nodeId: withDefault(str, "n1"),
     trustedProxies: withDefault(list, []),
+    engine: withDefault(oneOf(...ENGINES), "auto"),
   }),
   log: obj({ level: withDefault(oneOf(...LOG_LEVELS), "info") }),
   types: obj({ out: str, role: str }),
@@ -348,6 +353,8 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_RESUME_WINDOW", "realtime.resumeWindow", duration],
   ["CANOPY_CHECKPOINTS", "realtime.checkpoints", oneOf("meta", "off")],
   ["CANOPY_DRAIN_WINDOW", "realtime.drainWindow", duration],
+  ["CANOPY_ECHO_TIMEOUT", "realtime.echoTimeout", duration],
+  ["CANOPY_REALTIME_SERVER", "realtime.server", oneOf(...REALTIME_SERVERS)],
   ["CANOPY_RATE_LIMITS", "rateLimits.enabled", bool],
   ["CANOPY_RATE_LIMIT_REQUESTS", "rateLimits.requests.perSecond", int],
   ["CANOPY_RATE_LIMIT_REQUEST_BURST", "rateLimits.requests.burst", int],
@@ -370,6 +377,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_ADMIN_LISTEN", "server.adminListen", str],
   ["CANOPY_NODE_ID", "server.nodeId", str],
   ["CANOPY_TRUSTED_PROXIES", "server.trustedProxies", list],
+  ["CANOPY_ENGINE", "server.engine", oneOf(...ENGINES)],
   ["CANOPY_LOG_LEVEL", "log.level", oneOf(...LOG_LEVELS)],
   ["CANOPY_DEV_INSECURE", "dev.insecure", bool],
 ]

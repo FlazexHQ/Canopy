@@ -1,5 +1,6 @@
 export { immutableViolations } from "@canopy/policy"
 export { type CallerOptions, requestCaller } from "./caller.ts"
+export { probeSearch, type SearchCapability, searchDiagnostics } from "./capabilities.ts"
 export { mongoContextReader } from "./context-reader.ts"
 export {
   type CursorKey,

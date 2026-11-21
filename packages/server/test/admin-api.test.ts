@@ -1,10 +1,13 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { MONGODB_URI } from "@canopy/testing"
-import { type Db, MongoClient } from "mongodb"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
+import { type Db, MongoClient, MongoNetworkError } from "mongodb"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import type { AdminDeps, Context, RouteFn } from "../src/admin/routes/core.ts"
+import { registerOps } from "../src/admin/routes/ops.ts"
 import { base32Decode, totp } from "../src/admin/totp.ts"
 import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
+import { META_MIGRATIONS } from "../src/migrations.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const PASSWORD = "owner password long enough"
@@ -51,7 +54,7 @@ async function start(
         : {}),
       ...extra,
     }),
-    { env: {}, onSetupToken: (value) => (setupToken = value) },
+    { env: TEST_ENV, onSetupToken: (value) => (setupToken = value) },
   )
   const server = createServer(canopy.node())
   await canopy.attach(server)
@@ -62,6 +65,13 @@ async function start(
     base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
     setupToken,
   }
+}
+
+async function closeHttpServer(server: Server): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => (error === undefined ? resolve() : reject(error)))
+    server.closeAllConnections()
+  })
 }
 
 function bearer(base: string, token: string): Client {
@@ -79,6 +89,121 @@ function bearer(base: string, token: string): Client {
       }),
   }
 }
+
+/** Runs the admin doctor route against fake dependencies and returns its JSON report. */
+async function doctorReport(
+  hello: Record<string, unknown>,
+  searchIndexes: () => Promise<Record<string, unknown>[]>,
+): Promise<unknown> {
+  const route = vi.fn<RouteFn>()
+  const meta = {
+    collection: () => ({
+      find: () => ({
+        toArray: async () =>
+          META_MIGRATIONS.map(({ version }) => ({ _id: version, appliedAt: new Date() })),
+      }),
+    }),
+  }
+  registerOps(route, {
+    app: {
+      command: async (command: Record<string, unknown>) =>
+        "hello" in command ? hello : { version: "8.0" },
+      collection: () => ({
+        aggregate: () => ({
+          toArray: searchIndexes,
+          [Symbol.asyncDispose]: async () => {},
+        }),
+      }),
+    },
+    environment: "development",
+    config: {
+      collections: { notes: { search: true } },
+      mongodb: { metaDatabase: "canopy" },
+      masterKey: "test",
+      server: { adminListen: "localhost" },
+    },
+    options: {
+      client: { db: () => meta },
+      engine: () => ({ version: 1, set: { collections: new Map() } }),
+    },
+  } as unknown as AdminDeps)
+  const doctor = route.mock.calls.find(([method, path]) => method === "GET" && path === "doctor")
+  if (!doctor) throw new Error("GET doctor route is missing")
+  const response = await doctor[3]({
+    request: new Request("http://localhost/admin/v1/doctor"),
+  } as Context)
+  expect(response.status).toBe(200)
+  return response.json()
+}
+
+const BASE_CHECKS = [
+  { name: "meta-migrations", status: "ok", message: "The meta database is up to date" },
+  { name: "master-key", status: "ok", message: "Stored secrets are encrypted" },
+  { name: "admin-listener", status: "ok", message: "/admin is served only on localhost" },
+  { name: "policies", status: "ok", message: "Bundle 1, 0 collection(s)" },
+]
+
+describe("admin doctor search checks", () => {
+  it.each([
+    {
+      probe: "failed",
+      checks: [
+        {
+          name: "search",
+          status: "warn",
+          message: "search: could not be checked: MongoDB is unavailable",
+        },
+      ],
+    },
+    {
+      probe: "available",
+      checks: [
+        { name: "search", status: "ok", message: "search: 1 collections, 0 indexes ready" },
+        { name: "search-index", status: "warn", message: "search index notes.text is BUILDING" },
+        { name: "search-index", status: "warn", message: "search index notes.vector is UNKNOWN" },
+      ],
+    },
+  ])("returns the full report when search is $probe", async ({ probe, checks }) => {
+    const report = await doctorReport({ setName: "rs0" }, async () => {
+      if (probe === "failed") throw new MongoNetworkError("private driver details")
+      return [{ name: "text", status: "BUILDING" }, { name: "vector" }]
+    })
+    expect(report).toEqual({
+      status: "warn",
+      environment: "development",
+      checks: [
+        { name: "mongodb", status: "ok", message: "MongoDB 8.0" },
+        { name: "replica-set", status: "ok", message: "Replica set rs0" },
+        ...BASE_CHECKS,
+        ...checks,
+      ],
+    })
+  })
+})
+
+describe("admin doctor topology", () => {
+  const ready = async () => [{ name: "text", status: "READY", queryable: true }]
+  const topology = async (hello: Record<string, unknown>) =>
+    ((await doctorReport(hello, ready)) as { checks: { name: string }[] }).checks.find(
+      (check) => check.name === "replica-set",
+    )
+
+  it("accepts a sharded cluster behind mongos", async () => {
+    expect(await topology({ msg: "isdbgrid" })).toEqual({
+      name: "replica-set",
+      status: "ok",
+      message: "Sharded cluster (mongos)",
+    })
+  })
+
+  it("fails a standalone server, which has no change streams or transactions", async () => {
+    expect(await topology({ isWritablePrimary: true })).toEqual({
+      name: "replica-set",
+      status: "fail",
+      message: "Change streams and transactions need a replica set or a sharded cluster",
+    })
+  })
+})
 
 suite("admin API", () => {
   const dbName = `canopy_admin_api_${process.pid}_${Math.floor(Math.random() * 1e6)}`
@@ -137,7 +262,7 @@ suite("admin API", () => {
 
   afterAll(async () => {
     await canopy.close()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await closeHttpServer(server)
     await mongo.db(dbName).dropDatabase()
     await meta.dropDatabase()
     await mongo.close()
@@ -724,6 +849,7 @@ suite("admin API", () => {
     }
     expect(doctor.checks.find((c) => c.name === "replica-set")?.status).toBe("ok")
     expect(doctor.checks.find((c) => c.name === "meta-migrations")?.status).toBe("ok")
+    expect(doctor.checks.find((c) => c.name === "search")?.status).toBe("ok")
   })
 
   it("keeps sampled request logs with settings for sampling and retention", async () => {
@@ -759,19 +885,22 @@ suite("admin API", () => {
 
     type Logs = { data: Record<string, unknown>[]; next: string | null; sampleRate: number }
     const logs = async (query: string): Promise<Logs> => {
-      const started = Date.now()
-      for (;;) {
-        const answer = (await (await owner.call("GET", `/logs${query}`)).json()) as Logs
-        if (answer.data.length > 0 || Date.now() - started > 3000) return answer
-        await new Promise((resolve) => setTimeout(resolve, 50))
-      }
+      const response = await owner.call("GET", `/logs${query}`)
+      expect(response.status).toBe(200)
+      return (await response.json()) as Logs
     }
-    const rest = await logs("?surface=rest")
+    const rest = await vi.waitFor(
+      async () => {
+        const answer = await logs("?surface=rest")
+        expect(answer.data.map((entry) => [entry["path"], entry["status"]])).toEqual([
+          ["/rest/v1/nothing_here", 404],
+          ["/rest/v1/notes", 200],
+        ])
+        return answer
+      },
+      { timeout: 3000, interval: 50 },
+    )
     expect(rest.sampleRate).toBe(1)
-    expect(rest.data.map((entry) => [entry["path"], entry["status"]])).toEqual([
-      ["/rest/v1/nothing_here", 404],
-      ["/rest/v1/notes", 200],
-    ])
     expect(rest.data[0]).toMatchObject({ surface: "rest", method: "GET", ip: "127.0.0.1" })
     expect(typeof rest.data[0]?.["durationMs"]).toBe("number")
     expect(JSON.stringify(rest)).not.toContain("needle_value")
@@ -790,10 +919,11 @@ suite("admin API", () => {
       expect((await clients[role]?.call("GET", "/logs"))?.status).toBe(403)
 
     expect((await owner.call("PATCH", "/settings", { requestLogSampleRate: 0 })).status).toBe(200)
-    const before = await meta.collection("request_log").countDocuments()
-    await fetch(`${base}/rest/v1/notes`, { headers: { apikey: "pk_admin_test" } })
+    const disabledPath = "/rest/v1/logging_disabled"
+    const disabled = await fetch(`${base}${disabledPath}`, { headers: { apikey: "pk_admin_test" } })
+    expect(disabled.status).toBe(404)
     await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(await meta.collection("request_log").countDocuments()).toBe(before)
+    expect(await meta.collection("request_log").countDocuments({ path: disabledPath })).toBe(0)
   })
 
   it("limits the admin surface to the IP allowlist on the public listener, without locking out", async () => {
@@ -851,7 +981,7 @@ suite("admin API", () => {
         keys: { publishable: ["pk_admin_test"] },
         realtime: false,
       }),
-      { env: {}, onSetupToken: false, studio: false, migrate: false },
+      { env: TEST_ENV, onSetupToken: false, studio: false, migrate: false },
     )
     try {
       expect((await off.fetch(new Request(`${base}/studio`))).status).toBe(404)
@@ -915,7 +1045,7 @@ suite("admin API", () => {
     afterAll(async () => {
       await admin?.close()
       await prod.canopy.close()
-      await new Promise<void>((resolve) => prod.server.close(() => resolve()))
+      await closeHttpServer(prod.server)
       await mongo.db(prodDb).dropDatabase()
       await mongo.db(`${prodDb}_meta`).dropDatabase()
     })

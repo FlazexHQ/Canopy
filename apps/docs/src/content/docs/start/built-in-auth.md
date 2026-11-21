@@ -61,23 +61,26 @@ Start it with `bunx canopy dev`, which prints the URLs, or embed it with `create
 
 ## 3. Sign up and sign in from the browser
 
+Declare the notes collection once. In an app it lives in `canopy.schema.ts`, which `canopy pull` can write
+from the database (see [Schema in code](/guides/schema/)); the client types every query and write from it and
+generates each note's ObjectId.
+
 ```ts
-import { createClient, type DocumentSchema } from "@canopy/client"
+import { createClient } from "@canopy/client"
 import { createAuth } from "@canopy/client/auth"
 import { indexedDbPersister } from "@canopy/client/persist"
+import { collection, defineSchema, t } from "@canopy/schema/define"
 
-interface Note {
-  readonly _id: string
-  text: string
-  ownerId: string
-  createdAt: Date
-}
+const schema = defineSchema(
+  collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() }),
+)
 
 const auth = createAuth({ url: "http://localhost:8080", storage: indexedDbPersister() })
-const canopy = createClient<DocumentSchema<{ notes: Note }>>({
+const canopy = createClient({
   url: "http://localhost:8080",
   publishableKey: "pk_notes_dev",
   auth,
+  schema,
 })
 
 await auth.signUp({ email: "ann@example.com", password: "a long password" })
@@ -91,13 +94,15 @@ stays signed in; `auth.signOut()` ends it. A wrong password rejects with an `Aut
 
 ## 4. Write and read live
 
-<!-- snippet: declare const auth: import("@canopy/client/auth").CanopyAuth -->
-<!-- snippet: declare const canopy: import("@canopy/client").CanopyClient<import("@canopy/client").DocumentSchema<{ notes: { readonly _id: string; text: string; ownerId: string; createdAt: Date } }>> -->
+<!-- snippet: import { createClient } from "@canopy/client" -->
+<!-- snippet: import { collection, defineSchema, t } from "@canopy/schema/define" -->
+<!-- snippet: const schema = defineSchema(collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() })) -->
+<!-- snippet: const canopy = createClient({ url, publishableKey, auth, schema }) -->
 
 ```ts
 const user = auth.user
 if (user !== undefined) {
-  await canopy.insert("notes", { text: "Buy milk", ownerId: user.id, createdAt: new Date() })
+  await canopy.from("notes").insert({ text: "Buy milk", ownerId: user.id, createdAt: new Date() })
   canopy
     .from("notes")
     .find({ ownerId: user.id })

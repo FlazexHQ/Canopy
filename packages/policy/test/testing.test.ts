@@ -1,5 +1,6 @@
+import { testPolicyEngine } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "../src/index.ts"
+import { allow, auth, collection, createPolicySet } from "../src/index.ts"
 import {
   as,
   describePolicies,
@@ -11,7 +12,7 @@ import {
 } from "../src/testing.ts"
 import { todos } from "./fixtures.ts"
 
-const engine = new PolicyEngine(createPolicySet([todos]))
+const engine = testPolicyEngine(createPolicySet([todos]))
 
 describe("policy test runner", () => {
   it("passes the documented todos example in memory", async () => {
@@ -65,7 +66,7 @@ describe("policy test runner", () => {
       expectThat(alice).can.update(order, { $inc: { "lines.0.qty": 1 } })
     })
     const results = await runPolicyTests(takeRegisteredSuites(), [
-      memoryBackend(new PolicyEngine(createPolicySet([orders]))),
+      memoryBackend(testPolicyEngine(createPolicySet([orders]))),
     ])
     expect(results.filter((result) => !result.passed).map((result) => result.failures)).toEqual([])
     expect(results).toHaveLength(3)

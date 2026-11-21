@@ -1,3 +1,4 @@
+import type { JsonWebKey } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import {
@@ -18,8 +19,14 @@ import {
   resolveConfig,
 } from "@canopy/config"
 import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
+import { selectEngine } from "@canopy/native"
 import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
-import { ContextResolver, onceVariableIssue, PolicyEngine, type PolicySet } from "@canopy/policy"
+import {
+  ContextResolver,
+  onceVariableIssue,
+  type PolicyEngine,
+  type PolicySet,
+} from "@canopy/policy"
 import {
   CloseCode,
   DiagnosticError,
@@ -120,6 +127,11 @@ export interface CreateCanopyOptions {
    * `admin.accounts.createSetupToken()`.
    */
   readonly onSetupToken?: ((token: string) => void) | false
+  /**
+   * With `realtime.server: "gateway"`, the HTTP base URL of the gateway, known once it listens. GraphQL
+   * subscriptions follow their live queries through it; without it the schema has no subscriptions.
+   */
+  readonly gatewayUrl?: () => string
 }
 
 /** The admin surface: `/admin/v1` and `/studio`. */
@@ -173,6 +185,8 @@ export interface Canopy extends AsyncDisposable {
   readonly keys: ApiKeys
   /** The admin API, Studio and the stores behind them. */
   readonly admin: AdminSurface
+  /** The public key of Studio's view tokens as a JWK, for a native gateway that must accept them. */
+  readonly viewTokenKey: JsonWebKey
   /** Database triggers and schedules, when the config has any. */
   readonly webhooks: Webhooks | undefined
   /** File storage at `/storage/v1`, when the config has buckets. */
@@ -460,7 +474,8 @@ function trustedProxiesOf(config: ResolvedConfig): string[] {
 
 /**
  * The policy source with hot reload, the context lookup resolver, REST and the realtime engine. With
- * realtime on, its engine holds the policies; otherwise a standalone engine follows the source.
+ * realtime on in this process, its engine holds the policies; otherwise (realtime off, or served by the native
+ * gateway) a standalone engine follows the source.
  */
 async function buildData(
   config: ResolvedConfig,
@@ -556,7 +571,7 @@ async function buildData(
         })
 
   const realtimeConfig = config.realtime
-  if (realtimeConfig !== false) {
+  if (realtimeConfig !== false && realtimeConfig.server === "ts") {
     realtime = await connection.diagnosed(() =>
       createRealtime({
         mongo,
@@ -567,7 +582,9 @@ async function buildData(
         fullDocument: realtimeConfig.fullDocument,
         checkpoints: realtimeConfig.checkpoints,
         resumeWindowMs: realtimeConfig.resumeWindowMs,
+        echoTimeoutMs: realtimeConfig.echoTimeoutMs,
         nodeId: config.server.nodeId,
+        engine: config.server.engine,
         contexts,
         logger,
         traceCapacity: 256,
@@ -578,13 +595,12 @@ async function buildData(
       }),
     )
   } else {
+    const core = selectEngine(config.server.engine)
     const load = (set: PolicySet): PolicyEngine =>
       tracing === undefined
-        ? new PolicyEngine(set, variableHooks)
-        : tracing.span(
-            "canopy.policy.load",
-            { version: set.version },
-            () => new PolicyEngine(set, variableHooks),
+        ? core.createPolicyEngine(set, variableHooks)
+        : tracing.span("canopy.policy.load", { version: set.version }, () =>
+            core.createPolicyEngine(set, variableHooks),
           )
     let current = load(await source.load())
     standalone = current
@@ -611,7 +627,13 @@ async function buildData(
           authenticator: auth.authenticator,
           contexts,
           schemas,
-          ...(engineRealtime === undefined ? {} : { realtime: engineRealtime }),
+          ...(engineRealtime !== undefined
+            ? { realtime: engineRealtime }
+            : realtimeConfig !== false &&
+                realtimeConfig.server === "gateway" &&
+                options.gatewayUrl !== undefined
+              ? { realtime: { url: options.gatewayUrl } }
+              : {}),
           collections: config.collections,
           limits: {
             maxDepth: config.graphql.maxDepth,
@@ -1139,6 +1161,7 @@ ${webhooks.metrics.render()}`
 }`,
     auth: builtin,
     keys: auth.apiKeys,
+    viewTokenKey: auth.viewTokens.publicJwk,
     admin: admin.surface,
     webhooks,
     storage: data.storage?.storage,

@@ -25,17 +25,19 @@ source. Claims marked "survey" were reported by a survey and not opened again.
 
 ## 2. How complete it is
 
-Against the roadmap in `docs/plan/12-roadmap.md` (seven phases, 0 to 6):
+Against the roadmap in `docs/plan/12-roadmap.md` (nine phases, 0 to 8, since Phase 5 became the native core in Rust and Phase 7 MongoDB depth on 2026-11-18):
 
 | Phase | State |
 |-------|-------|
 | 0 Foundations | Done in practice. Spike write ups exist for S3, S7 and S8 only |
 | 1 DLS core and realtime | Done |
 | 2 Data API and optimistic SDK | Done. The 15 kB SDK size goal was dropped by the maintainer on 2026-11-13 |
-| 3 Auth, server, Studio | Mostly done. The usability test with outside developers and the security review are not recorded |
-| 4 GraphQL and frameworks | Code is on `master`. Its entry gate (finding T1 and review O4 closed) was not met |
-| 5 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
-| 6 Hardening and 1.0 | Not started |
+| 3 Auth, server, Studio | The [security review](../docs/reviews/2026-11-13-phase-4-security-review.md) is recorded and the maintainer confirmed the [usability exercise](003-sdk-dx-and-canopy-rest/o4-exercise.md). |
+| 4 GraphQL and frameworks | Code is on `master`. The [entry gate](../docs/plan/12-roadmap.md#gate-before-phase-4) is met. |
+| 5 Native core in Rust | Not started. Planned in `docs/plan/14-native-core.md` |
+| 6 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
+| 7 MongoDB depth | Not started. Planned in `docs/plan/15-mongodb-depth.md` |
+| 8 Hardening and 1.0 | Not started |
 
 Estimate: about **60% of the way to 1.0** by roadmap scope, and about **50% of Supabase's surface**.
 
@@ -109,6 +111,8 @@ Rule from here on: no new feature package merges while a P0 item is open.
 
 ### C. Developer experience (P1)
 
+[Plan 003](003-sdk-dx-and-canopy-rest/README.md) covers SDK types (a schema in code with `canopy pull`, replacing the generated `Database` interface), collection and query objects, the stateless REST client and its proposed folder structure. The [companion report](003-sdk-dx-and-canopy-rest/report.md) documents the current behavior.
+
 | ID | Item | Evidence | Effort |
 |----|------|----------|--------|
 | C1 | Rewrite the root README: current status, the full package list, one quickstart that ends with a live query in the browser | `README.md` says Phase 1 and lists 8 of 23 packages | S |
@@ -124,7 +128,7 @@ Rule from here on: no new feature package merges while a P0 item is open.
 | C11 | CLI polish: `--version`, no stack trace for unexpected errors unless `--debug`, a keychain backed token store on Windows (Credential Manager) | `packages/cli/src/cli.ts:1039` prints `error.stack`; tokens are a plain JSON file on Windows | S |
 | C12 | Fix broken snippets and compile every docs snippet in CI | `packages/realtime/README.md` uses an undefined `Order` type | M |
 | C13 | Root `dev` script, or remove the promise from `CLAUDE.md` | No `dev` script in `package.json` | S |
-| C14 | Run the usability test the Phase 3 exit criteria ask for: five outside developers, timed, from the README alone | Not run | M |
+| C14 | Run the usability test the Phase 3 exit criteria ask for: five outside developers, timed, from the README alone | Complete by [maintainer confirmation](003-sdk-dx-and-canopy-rest/o4-exercise.md) | M |
 
 ### D. Production hardening (P1 for D1 to D6, P2 for the rest)
 
@@ -176,8 +180,8 @@ The designs are in [plan 002](002-product-gaps.md).
 | F1 | Storage: uploads with DLS style policies on file metadata documents, S3 compatible backends first, GridFS for small deployments, signed URLs, resumable uploads | The largest gap against the comparison, and the feature most apps need next after auth |
 | F1b | Storage backends `local` (disk, the default), `r2` and `s3`, replacing GridFS, and image transformations (resize, format, quality) on every backend | Decided by the maintainer on 2026-11-18; design in plan 002 |
 | F2 | Database triggers and webhooks on the existing change stream ingestor, with retries and a dead letter collection | Cheap, because the stream and checkpoints exist |
-| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Rejected in aggregations today |
-| F4 | Phase 5 as planned: edge fan out on Durable Objects, starting from spike S8 | Not started |
+| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Accepted as a first stage now, never run against a real index; the real index work (M2) is in `docs/plan/15-mongodb-depth.md` |
+| F4 | Phase 6 as planned: edge fan out on Durable Objects, starting from spike S8 | Not started |
 | F5 | Scheduled jobs and functions | After F2; consider running user code out of process only |
 | F6 | Several projects per deployment | Decide if it is a goal at all before 1.0 |
 
@@ -208,7 +212,7 @@ and F12 (same files). C2 before C4 and C5. D1 before any public demo instance.
 - Decided: the SDK size budget is dropped (E17, 2026-11-13).
 - From the earlier plan, still open: read back of every inserted document on bulk insert, and whether SDK
   mutations may use the transaction free fast path.
-- Whether storage (F1) moves ahead of Phase 5 (F4). Recommendation: yes, storage first.
+- Whether storage (F1) moves ahead of the edge (F4, now Phase 6). Recommendation: yes, storage first.
 - Decided: one project per deployment until 1.0 (F6, [ADR 0013](../docs/adr/0013-one-project-per-deployment.md)).
 
 ## 7. Considered and not planned
@@ -240,7 +244,7 @@ noted.
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
 | A1 F19 | Done | `bun run check`, the repo-check hooks in `lefthook.yml`, a dash and workspace step in the CI `check` job and a `commit-rules` job for pull requests. The ignored `lefthook-local.yml` now duplicates the hooks and can be deleted |
 | A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` and `tools/repo-check` |
-| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The usability test half of O4 (C14) is still open |
+| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The maintainer also confirmed [C14](003-sdk-dx-and-canopy-rest/o4-exercise.md), closing O4. |
 | D1 | Done | One token bucket limiter in `@canopy/auth` (`RateLimits`), configured by the `rateLimits` config section and `CANOPY_RATE_LIMIT*` variables, on by default (REST and GraphQL 50 requests per second, burst 200; realtime `sub`, `mut` and `auth` frames 20 per second, burst 100; 50 anonymous connections per address; `service` exempt). Callers are keyed by API key plus subject, anonymous callers by address through `trustedProxies`. REST and GraphQL answer 429 with `Retry-After`; realtime answers in the frame's own reply (`nosub`, failed `ack`, `err`) and keeps the connection, the address cap closes with the existing `4029`. Counters `canopy_http_rate_limited_total` and `canopy_realtime_rate_limited_total`. In memory per instance (D9 covers sharing). Failed authentications (unknown key, bad token; not expired tokens) are counted per address, 1 per second, burst 30, across REST, GraphQL and the realtime handshake. Not covered: a GraphQL batch costs one token, in process GraphQL subscriptions rely on the HTTP or graphql-ws limits |
 | D2 | Done | `/readyz` pings MongoDB (2 s timeout, 1 s cache) and checks the change stream, on `canopy-server` and `canopy-realtime` |
 | D3 | Done | Sessions waiting for a resume end at once; `close()` with connected clients can now take up to `drainWindow` |

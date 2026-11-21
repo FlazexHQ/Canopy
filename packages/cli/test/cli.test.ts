@@ -75,8 +75,8 @@ describe("canopy cli", () => {
 
   it("rejects unknown options instead of ignoring them", async () => {
     const { errors, out } = capture()
-    expect(await run(["gen", "types", "--chek"], {}, out)).toBe(1)
-    expect(errors).toEqual(["Unknown option --chek for gen types. Did you mean --check?"])
+    expect(await run(["pull", "--sampl"], {}, out)).toBe(1)
+    expect(errors).toEqual(["Unknown option --sampl for pull. Did you mean --sample?"])
     const other = capture()
     expect(await run(["policies", "lint", "--sources"], {}, other.out)).toBe(1)
     expect(other.errors[0]).toBe("Unknown option --sources for policies lint.")

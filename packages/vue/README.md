@@ -4,6 +4,8 @@
 
 Vue bindings for the Canopy client: useQuery returning ShallowRefs, useMutation, useCanopyStatus and a plugin.
 
+The composables are typed by the schema your `canopy.schema.ts` registers, with no type argument.
+
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.
 
@@ -17,12 +19,14 @@ bun add @canopy/vue @canopy/client
 
 ## Use
 
+<!-- snippet: registered -->
+
 ```ts
 import { canopyPlugin, useCanopy, useQuery } from "@canopy/vue"
 import { createApp, defineComponent, h } from "vue"
 
 const Todos = defineComponent(() => {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const { data } = useQuery(() => canopy.from("todos").find({ done: false }).limit(50))
   return () =>
     h(

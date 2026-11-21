@@ -1,0 +1,115 @@
+# A small sharded cluster for the sharded checks: one config server, two shards (single member replica
+# sets) and a mongos on localhost:27017. Each healthcheck initiates its replica set or adds the shards, so
+# `docker compose -f deploy/compose/sharded.yaml up -d --wait` returns once the cluster accepts writes.
+# Connect with mongodb://localhost:27017 (no replicaSet parameter: mongos is a router). The shards write a
+# no-op every second instead of every 10, so an idle shard does not hold back the change stream through mongos.
+name: canopy-sharded
+
+x-mongo: &mongo
+  image: ${CANOPY_MONGO_IMAGE:-mongo:8.0.34@sha256:b9924c330a8bbc5800fe9c69f04a84e221eca7b28fd049a0354147d9908fa142}
+
+services:
+  configsvr:
+    <<: *mongo
+    command:
+      [
+        "--configsvr",
+        "--replSet",
+        "cfgrs",
+        "--port",
+        "27019",
+        "--bind_ip_all",
+        "--wiredTigerCacheSizeGB",
+        "0.25",
+      ]
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --port
+        - "27019"
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'cfgrs', configsvr: true, members: [{ _id: 0, host: 'configsvr:27019' }] }).ok }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 2s
+      timeout: 10s
+      retries: 45
+      start_period: 5s
+
+  shard1:
+    <<: *mongo
+    command:
+      [
+        "--shardsvr",
+        "--replSet",
+        "shard1rs",
+        "--port",
+        "27018",
+        "--bind_ip_all",
+        "--wiredTigerCacheSizeGB",
+        "0.25",
+        "--setParameter",
+        "periodicNoopIntervalSecs=1",
+      ]
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --port
+        - "27018"
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'shard1rs', members: [{ _id: 0, host: 'shard1:27018' }] }).ok }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 2s
+      timeout: 10s
+      retries: 45
+      start_period: 5s
+
+  shard2:
+    <<: *mongo
+    command:
+      [
+        "--shardsvr",
+        "--replSet",
+        "shard2rs",
+        "--port",
+        "27018",
+        "--bind_ip_all",
+        "--wiredTigerCacheSizeGB",
+        "0.25",
+        "--setParameter",
+        "periodicNoopIntervalSecs=1",
+      ]
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --port
+        - "27018"
+        - --eval
+        - "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'shard2rs', members: [{ _id: 0, host: 'shard2:27018' }] }).ok }; quit(db.hello().isWritablePrimary ? 0 : 1)"
+      interval: 2s
+      timeout: 10s
+      retries: 45
+      start_period: 5s
+
+  mongos:
+    <<: *mongo
+    command: ["mongos", "--configdb", "cfgrs/configsvr:27019", "--port", "27017", "--bind_ip_all"]
+    ports: ["27017:27017"]
+    depends_on:
+      configsvr: { condition: service_healthy }
+      shard1: { condition: service_healthy }
+      shard2: { condition: service_healthy }
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "const ids = db.adminCommand({ listShards: 1 }).shards.map((s) => s._id); if (!ids.includes('shard1rs')) sh.addShard('shard1rs/shard1:27018'); if (!ids.includes('shard2rs')) sh.addShard('shard2rs/shard2:27018'); quit(db.adminCommand({ listShards: 1 }).shards.length === 2 ? 0 : 1)"
+      interval: 2s
+      timeout: 20s
+      retries: 45
+      start_period: 5s

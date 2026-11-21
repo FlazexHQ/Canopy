@@ -32,6 +32,6 @@ restore the backup from step 2.
 
 ## MongoDB upgrades
 
-Canopy needs a replica set on MongoDB 7.0 or later. Upgrade MongoDB the usual way (one member at a time, then
+Canopy needs a replica set on MongoDB 8.0 or later. Upgrade MongoDB the usual way (one member at a time, then
 `setFeatureCompatibilityVersion`). An election closes change streams briefly; the realtime engine resumes from
 its last position, so clients notice nothing unless the election outlasts the oplog window.

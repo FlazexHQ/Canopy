@@ -1,6 +1,7 @@
 import { Authenticator } from "@canopy/auth"
-import { type ContextResolver, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { type ContextResolver, collection, createPolicySet } from "@canopy/policy"
 import type { ReadPath, SchemaCache, WritePath } from "@canopy/rest"
+import { testPolicyEngine } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
 import { createGraphqlHandler, type GraphqlHandler } from "../src/index.ts"
 
@@ -16,7 +17,7 @@ function handlerWith(
   return createGraphqlHandler({
     reads,
     writes: {} as WritePath,
-    policies: new PolicyEngine(createPolicySet([collection("todos", { exposed: true })])),
+    policies: testPolicyEngine(createPolicySet([collection("todos", { exposed: true })])),
     authenticator: new Authenticator(undefined, { publishable: [PUBLISHABLE] }),
     contexts: {} as ContextResolver,
     schemas: { all: async () => new Map(), version: 0 } as unknown as SchemaCache,

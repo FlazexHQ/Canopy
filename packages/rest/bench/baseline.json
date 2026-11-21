@@ -1,5 +1,5 @@
 {
-  "source": "node v24.22.2, MongoDB 8.0.34",
+  "source": "node v24.22.2, MongoDB 8.0.34; insertMany of 1,000 from the GitHub ubuntu-22.04 nightly runner, lowest of 2 runs",
   "tiers": {
     "100000": {
       "canopy: owner page (50, sorted)": 0.86,
@@ -16,7 +16,7 @@
       "canopy: insert with mutation ID": 0.265,
       "canopy: delete": 0.817,
       "canopy: insertMany of 1,000": 0.391,
-      "canopy: insertMany of 1,000, no documents returned": 0.64
+      "canopy: insertMany of 1,000, no documents returned": 0.436
     }
   }
 }

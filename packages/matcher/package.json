@@ -34,12 +34,15 @@
     "typecheck": "tsc -b test",
     "test": "vitest run",
     "bench": "node --conditions=@canopy/source bench/throughput.ts",
-    "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json"
+    "bench:events": "node --conditions=@canopy/source bench/event-cost.ts",
+    "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json",
+    "bench:events:check": "node ../testing/scripts/bench-gate.ts --baseline bench/event-baseline.json"
   },
   "dependencies": {
     "@canopy/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@canopy/native": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "bson": "catalog:",

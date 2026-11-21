@@ -1,7 +1,7 @@
 import { Authenticator } from "@canopy/auth"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { ErrorCode } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -67,7 +67,7 @@ suite("REST aggregation against MongoDB", () => {
     rest = createRestHandler({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([orders, customers, open, internal])),
+      policies: testPolicyEngine(createPolicySet([orders, customers, open, internal])),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [SECRET] },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  amendConfig,
   type CanopyConfigInput,
   type Command,
   ConfigError,
@@ -41,6 +42,21 @@ function problems(run: () => unknown): { path: string; message: string }[] {
 }
 
 describe("resolveConfig", () => {
+  it("picks the engine automatically unless it is set, from the file or CANOPY_ENGINE", () => {
+    expect(resolve({ mongodb: { uri: URI } }).config.server.engine).toBe("auto")
+    expect(
+      resolve({ mongodb: { uri: URI }, server: { engine: "wasm" } }).config.server.engine,
+    ).toBe("wasm")
+    expect(
+      resolve(undefined, { MONGODB_URI: URI, CANOPY_ENGINE: "native" }).config.server.engine,
+    ).toBe("native")
+    expect(
+      problems(() => resolve(undefined, { MONGODB_URI: URI, CANOPY_ENGINE: "rust" })).map(
+        (problem) => problem.path,
+      ),
+    ).toEqual(["server.engine"])
+  })
+
   it("applies secure defaults and takes the database from the URI path", () => {
     const { config } = resolve({ mongodb: { uri: URI } })
     expect(config.mongodb).toEqual({
@@ -65,6 +81,8 @@ describe("resolveConfig", () => {
       resumeWindowMs: 120_000,
       checkpoints: "meta",
       drainWindowMs: 30_000,
+      echoTimeoutMs: 2000,
+      server: "ts",
     })
     expect(config.server).toEqual({
       port: 8080,
@@ -74,6 +92,7 @@ describe("resolveConfig", () => {
       adminListen: undefined,
       nodeId: "n1",
       trustedProxies: [],
+      engine: "auto",
     })
     expect(config.cors).toBeUndefined()
   })
@@ -177,6 +196,38 @@ describe("resolveConfig", () => {
     expect(config.server.port).toBe(9000)
     expect(config.realtime !== false && config.realtime.resumeWindowMs).toBe(30_000)
     expect(sources.get("server.port")).toEqual({ kind: "env", name: "PORT", envFile: undefined })
+  })
+
+  it("amends a resolved config into one that is still recognised as resolved", () => {
+    const config = resolve({ mongodb: { uri: URI } }).config
+    const amended = amendConfig(config, {
+      server: { ...config.server, trustedProxies: ["127.0.0.1"] },
+    })
+    expect(isResolvedConfig(amended)).toBe(true)
+    expect(isResolvedConfig({ ...config })).toBe(false)
+    expect(amended.server.trustedProxies).toEqual(["127.0.0.1"])
+    expect(config.server.trustedProxies).toEqual([])
+    expect(amended.mongodb).toBe(config.mongodb)
+  })
+
+  it("reads the realtime server from the file or CANOPY_REALTIME_SERVER, and refuses an unknown one", () => {
+    const fromFile = resolve({ mongodb: { uri: URI }, realtime: { server: "gateway" } }).config
+    expect(fromFile.realtime !== false && fromFile.realtime.server).toBe("gateway")
+    const fromEnv = resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "gateway" }).config
+    expect(fromEnv.realtime !== false && fromEnv.realtime.server).toBe("gateway")
+    expect(() => resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "rust" })).toThrow(
+      ConfigError,
+    )
+  })
+
+  it("reads the echo timeout from the file or CANOPY_ECHO_TIMEOUT, and refuses one that is not a duration", () => {
+    const fromFile = resolve({ mongodb: { uri: URI }, realtime: { echoTimeout: "10s" } }).config
+    expect(fromFile.realtime !== false && fromFile.realtime.echoTimeoutMs).toBe(10_000)
+    const fromEnv = resolve({ mongodb: { uri: URI } }, { CANOPY_ECHO_TIMEOUT: "750ms" }).config
+    expect(fromEnv.realtime !== false && fromEnv.realtime.echoTimeoutMs).toBe(750)
+    expect(() => resolve({ mongodb: { uri: URI } }, { CANOPY_ECHO_TIMEOUT: "soon" })).toThrow(
+      ConfigError,
+    )
   })
 
   it("fails when the file and a well known variable disagree", () => {

@@ -36,6 +36,7 @@ export const UPDATE_OPERATORS: readonly string[] = [
 ]
 
 const OPERATORS = new Set(UPDATE_OPERATORS)
+const MAX_PADDING = 1_500_000
 const CREATING = new Set([
   "$rename-to",
   "$set",
@@ -376,9 +377,25 @@ function addLeaf(
   })
 }
 
+/**
+ * The text `String(value)` gives, without failing on a value whose conversion throws (an object without a
+ * prototype, as a parsed request body can hold), which reads `[object Object]` like any other object.
+ */
+function jsString(value: unknown): string {
+  if (Array.isArray(value))
+    return value
+      .map((item) => (item === null || item === undefined ? "" : jsString(item)))
+      .join(",")
+  try {
+    return String(value)
+  } catch {
+    return "[object Object]"
+  }
+}
+
 function addRename(root: Node, doc: Record<string, unknown>, from: string, to: unknown): void {
   if (typeof to !== "string")
-    fail(`The 'to' field for $rename must be a string: ${from}: ${String(to)}`)
+    fail(`The 'to' field for $rename must be a string: ${from}: ${jsString(to)}`)
   if (from === to) fail(`The source and target field for $rename must differ: ${from}: "${to}"`)
   if (to.startsWith(`${from}.`) || from.startsWith(`${to}.`)) {
     fail(`The source and target field for $rename must not be on the same path: ${from}: "${to}"`)
@@ -510,6 +527,9 @@ function writeSlot(
       )
     }
     const index = Number(key)
+    if (index > container.length + MAX_PADDING) {
+      fail(`can't backfill more than ${MAX_PADDING} elements`)
+    }
     while (container.length < index) container.push(null)
     container[index] = value
     return

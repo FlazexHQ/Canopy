@@ -4,6 +4,7 @@ import type {
   CanopyClient,
   CollectionName,
   ConnectionStatus,
+  DefaultSchema,
   DehydratedState,
   Document,
   DocumentOf,
@@ -13,7 +14,10 @@ import type {
   LiveQuery,
   LiveQueryOptions,
   MutationHandle,
+  ProjectedResult,
+  Projection,
   QueryState,
+  ReadOptions,
   ReplaceOptions,
   Schema,
   StaleMutation,
@@ -38,13 +42,13 @@ import {
 const ClientContext = createContext<CanopyClient | undefined>(undefined)
 
 /** Props of {@link CanopyProvider}. */
-export interface CanopyProviderProps<DB extends Schema<DB> = UntypedSchema> {
+export interface CanopyProviderProps<DB extends Schema<DB> = DefaultSchema> {
   readonly client: CanopyClient<DB>
   readonly children?: ReactNode
 }
 
 /** Makes a client, typed or not, available to the hooks below it. */
-export function CanopyProvider<DB extends Schema<DB> = UntypedSchema>({
+export function CanopyProvider<DB extends Schema<DB> = DefaultSchema>({
   client,
   children,
 }: CanopyProviderProps<DB>): ReactNode {
@@ -56,10 +60,10 @@ export function CanopyProvider<DB extends Schema<DB> = UntypedSchema>({
 }
 
 /**
- * Returns the client from the nearest {@link CanopyProvider}. Pass the schema the client was created with
- * to get it back typed: `useCanopy<Database>()`.
+ * Returns the client from the nearest {@link CanopyProvider}, typed by the registered schema. Code that
+ * cannot rely on it passes the schema's types: `useCanopy<SchemaTypes<typeof schema>>()`.
  */
-export function useCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB> {
+export function useCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = useContext(ClientContext)
   if (client === undefined) throw new Error("useCanopy must be used inside <CanopyProvider>")
   return client as unknown as CanopyClient<DB>
@@ -85,7 +89,7 @@ export interface DocumentState<T> {
  * optimistic writes to the document show at once.
  */
 export function useDocument<
-  DB extends Schema<DB> = UntypedSchema,
+  DB extends Schema<DB> = DefaultSchema,
   C extends CollectionName<DB> = CollectionName<DB>,
 >(collection: C, id: IdOf<DocumentOf<DB, C>>): DocumentState<DocumentOf<DB, C>> {
   const client = useCanopy() as CanopyClient
@@ -201,8 +205,12 @@ function stableKey(value: unknown): string {
 
 /** Hooks and optimistic mutations for one collection. */
 export interface CollectionHooks<Doc = Document, Insert = Doc> {
-  useQuery(filter?: Filter<Doc>, options?: LiveQueryOptions<Doc>): QueryState<Doc>
-  insert(doc: Insert): MutationHandle
+  /** A live query; a literal `fields` projection narrows the documents' type. */
+  useQuery<const F extends Projection<Doc> = never>(
+    filter?: Filter<Doc>,
+    options?: ReadOptions<Doc, F>,
+  ): QueryState<ProjectedResult<Doc, F>>
+  insert(doc: Insert): MutationHandle<IdOf<Doc>>
   insertMany(docs: readonly Insert[]): MutationHandle
   update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
   replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
@@ -212,21 +220,26 @@ export interface CollectionHooks<Doc = Document, Insert = Doc> {
 }
 
 /** Collection hooks keyed by collection name. */
-export type ReactDb<DB extends Schema<DB>> = {
+export type ReactDb<DB extends Schema<DB> = DefaultSchema> = {
   readonly [C in CollectionName<DB>]: CollectionHooks<DocumentOf<DB, C>, InsertOf<DB, C>>
 }
 
 /**
  * Builds typed hooks per collection from a client: `db.todos.useQuery({ done: false }, { sort: { createdAt: -1 } })`.
- * The types come from the client (`createClient<Database>(...)`); an untyped client can be typed here
- * instead, with `createReactDb<Database>(client)`. The filter and options are compared by value, so inline
- * objects do not resubscribe on every render.
+ * The types come from the client, which a registered `canopy.schema.ts` types; an untyped client can be
+ * typed here instead, with `createReactDb<SchemaTypes<typeof schema>>(client)`. The filter and options are
+ * compared by value, so inline objects do not resubscribe on every render.
  */
-export function createReactDb<DB extends Schema<DB> = UntypedSchema>(
+export function createReactDb<DB extends Schema<DB> = DefaultSchema>(
   client: CanopyClient<DB> | CanopyClient<UntypedSchema>,
 ): ReactDb<DB> {
   const untyped = client as unknown as CanopyClient<UntypedSchema>
   const cache = new Map<string, CollectionHooks>()
+  const live = untyped.live.bind(untyped) as (
+    collection: string,
+    filter: Filter<Document>,
+    options: LiveQueryOptions,
+  ) => LiveQuery<Document>
   const queries = new Map<string, LiveQuery<Document>>()
   return new Proxy({} as ReactDb<DB>, {
     get(_target, name) {
@@ -238,10 +251,10 @@ export function createReactDb<DB extends Schema<DB> = UntypedSchema>(
             const key = stableKey([name, filter, options])
             let query = queries.get(key)
             if (query === undefined) {
-              query = untyped.live(name, filter, options)
+              query = live(name, filter, options as LiveQueryOptions)
               queries.set(key, query)
             }
-            return useQuery(query)
+            return useQuery(query) as QueryState<never>
           },
           insert: (doc) => untyped.insert(name, doc),
           insertMany: (docs) => untyped.insertMany(name, docs),

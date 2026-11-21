@@ -1,16 +1,17 @@
-import {
-  CanopyError,
-  type ClusterTime,
-  type Document,
-  decode,
-  ErrorCode,
-  errorFromWire,
-  isErrorCode,
-  type SubQuery,
-  toCanonical,
-} from "@canopy/protocol"
-import type { DehydratedState, LiveQueryOptions, Snapshot } from "./client-types.ts"
-import type { CollectionName, DocumentOf, Filter, Schema, UntypedSchema } from "./types.ts"
+import { type Document, type SubQuery, toCanonical } from "@canopy/protocol"
+import type { DehydratedState, ReadOptions, Snapshot } from "./client-types.ts"
+import type { DefaultSchema } from "./register.ts"
+import { restCollection } from "./rest/read.ts"
+import { responseError } from "./rest/request.ts"
+import type {
+  CollectionName,
+  DocumentOf,
+  Filter,
+  ProjectedResult,
+  Projection,
+  Schema,
+  Sort,
+} from "./types.ts"
 
 /** Where a server request gets the user's access token. */
 export type ServerToken = string | null | undefined | (() => Promise<string | null | undefined>)
@@ -36,16 +37,17 @@ export interface ServerClientOptions {
 }
 
 /** A client for server rendering: one-off DLS reads whose results hydrate the browser's live queries. */
-export interface ServerClient<DB extends Schema<DB> = UntypedSchema> {
+export interface ServerClient<DB extends Schema<DB> = DefaultSchema> {
   /**
    * Reads a query's current result as the request's user. Pass the same filter and options to
-   * `live()` or `useQuery()` in the browser, so the hydrated result seeds that live query.
+   * `live()` or `useQuery()` in the browser, so the hydrated result seeds that live query. A literal
+   * `fields` projection narrows the snapshot's documents, as it does for `live()`.
    */
-  find<C extends CollectionName<DB>>(
+  find<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(
     collection: C,
     filter?: Filter<DocumentOf<DB, C>>,
-    options?: LiveQueryOptions<DocumentOf<DB, C>>,
-  ): Promise<Snapshot>
+    options?: ReadOptions<DocumentOf<DB, C>, F>,
+  ): Promise<Snapshot<ProjectedResult<DocumentOf<DB, C>, F>>>
   /** The access token used for the request's reads, minted once from the cookies when needed. */
   token(): Promise<string | undefined>
 }
@@ -58,26 +60,12 @@ function cookieHeader(cookies: CookieSource | string): string {
     .join("; ")
 }
 
-async function failure(response: Response): Promise<CanopyError> {
-  try {
-    const problem = (await response.json()) as { code?: unknown; detail?: unknown }
-    if (typeof problem.code === "string" && isErrorCode(problem.code))
-      return errorFromWire({
-        code: problem.code,
-        msg: typeof problem.detail === "string" ? problem.detail : response.statusText,
-      })
-  } catch {
-    // Not Problem Details: fall through to the generic error for the status.
-  }
-  return new CanopyError(ErrorCode.Unavailable, `Canopy answered ${response.status}`)
-}
-
 /**
  * Creates a client for Server Components, Nuxt server routes and SvelteKit `load`: it reads through the
  * REST API with the user's token, so DLS applies exactly as in the browser, and returns snapshots with
  * their cluster time. Pass them through {@link dehydrate} to the page and `client.hydrate()` there.
  */
-export function createServerClient<DB extends Schema<DB> = UntypedSchema>(
+export function createServerClient<DB extends Schema<DB> = DefaultSchema>(
   options: ServerClientOptions,
 ): ServerClient<DB> {
   const base = options.url.replace(/\/$/, "")
@@ -96,40 +84,43 @@ export function createServerClient<DB extends Schema<DB> = UntypedSchema>(
         await response.body?.cancel()
         return undefined
       }
-      if (!response.ok) throw await failure(response)
+      if (!response.ok) throw await responseError(response)
       const body = (await response.json()) as { access_token?: unknown }
       return typeof body.access_token === "string" ? body.access_token : undefined
     })()
     return minted
   }
+  const transport = {
+    base,
+    publishableKey: options.publishableKey,
+    fetch: http,
+    token,
+    timeoutMs: undefined,
+  }
   return {
     token,
-    async find(collection, filter = {}, query = {}) {
+    async find(
+      collection: string,
+      filter: object = {},
+      query: ReadOptions<Document, unknown> = {},
+    ) {
       const q: SubQuery = {
         filter: filter as Document,
         ...(query.sort === undefined ? {} : { sort: query.sort as Document }),
         ...(query.limit === undefined ? {} : { limit: query.limit }),
         ...(query.fields === undefined ? {} : { fields: query.fields as Document }),
       } as SubQuery
-      const access = await token()
-      const response = await http(`${base}/rest/v1/${encodeURIComponent(collection)}/_query`, {
-        method: "POST",
-        headers: {
-          apikey: options.publishableKey,
-          accept: "application/ejson",
-          "content-type": "application/json",
-          ...(access === undefined ? {} : { authorization: `Bearer ${access}` }),
-        },
-        body: JSON.stringify(toCanonical(q)),
-      })
-      if (!response.ok) throw await failure(response)
-      const body = decode(await response.json()) as { data: Document[]; ct: ClusterTime }
-      return { c: collection, q, docs: body.data, ct: body.ct }
+      let reader = restCollection(transport, collection).find(filter as Document)
+      if (query.sort !== undefined) reader = reader.sort(query.sort as Sort<Document>)
+      if (query.limit !== undefined) reader = reader.limit(query.limit)
+      if (query.fields !== undefined) reader = reader.fields(query.fields as Projection<Document>)
+      const page = await reader.page()
+      return { c: collection, q, docs: page.data, ct: page.ct }
     },
-  }
+  } as unknown as ServerClient<DB>
 }
 
 /** Turns snapshots into plain JSON for the page; `client.hydrate()` reads it back in the browser. */
-export function dehydrate(snapshots: readonly Snapshot[]): DehydratedState {
+export function dehydrate(snapshots: readonly Snapshot<unknown>[]): DehydratedState {
   return { canopy: 1, queries: snapshots.map((snapshot) => toCanonical(snapshot)) }
 }

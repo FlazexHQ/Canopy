@@ -1,13 +1,7 @@
-import { createClient, type DocumentSchema } from "@canopy/client"
+import { createClient, type Doc } from "@canopy/client"
 import { AuthError, createAuth } from "@canopy/client/auth"
 import { indexedDbPersister } from "@canopy/client/persist"
-
-interface Note {
-  readonly _id: string
-  text: string
-  ownerId: string
-  createdAt: Date
-}
+import { schema } from "./canopy.schema.ts"
 
 const byId = <E extends HTMLElement>(id: string): E => {
   const element = document.getElementById(id)
@@ -21,11 +15,7 @@ const auth = createAuth({
   url: location.origin,
   storage: indexedDbPersister({ name: "canopy-notes" }),
 })
-const canopy = createClient<DocumentSchema<{ notes: Note }>>({
-  url: location.origin,
-  publishableKey,
-  auth,
-})
+const canopy = createClient({ url: location.origin, publishableKey, auth, schema })
 
 const signedOut = byId<HTMLElement>("signed-out")
 const signedIn = byId<HTMLElement>("signed-in")
@@ -39,7 +29,7 @@ const report = (cause: unknown): void => {
     cause instanceof AuthError || cause instanceof Error ? cause.message : String(cause)
 }
 
-function renderNotes(notes: readonly Note[]): void {
+function renderNotes(notes: readonly Doc<"notes">[]): void {
   list.replaceChildren(
     ...notes.map((note) => {
       const item = document.createElement("li")
@@ -49,7 +39,7 @@ function renderNotes(notes: readonly Note[]): void {
       remove.type = "button"
       remove.textContent = "Delete"
       remove.addEventListener("click", () => {
-        canopy.delete("notes", note._id).catch(report)
+        canopy.from("notes").delete(note._id).catch(report)
       })
       item.append(text, remove)
       return item
@@ -108,7 +98,7 @@ byId<HTMLFormElement>("note-form").addEventListener("submit", (event) => {
   const text = String(new FormData(form).get("text")).trim()
   if (text === "") return
   error.textContent = ""
-  canopy.insert("notes", { text, ownerId: user.id, createdAt: new Date() }).catch(report)
+  canopy.from("notes").insert({ text, ownerId: user.id, createdAt: new Date() }).catch(report)
   form.reset()
 })
 

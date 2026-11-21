@@ -36,6 +36,7 @@ export type {
   MutationResult,
   Persister,
   PersistScope,
+  ReadOptions,
   ReplaceOptions,
   SharedConnection,
   Snapshot,
@@ -45,7 +46,23 @@ export type {
   WebSocketLike,
   WriteOptions,
 } from "./client-types.ts"
-export { QueryBuilder } from "./query-builder.ts"
+export { type Collection, CollectionBuilder, type Query, QueryBuilder } from "./query-builder.ts"
+export type {
+  CollectionDefinitionLike,
+  DefaultSchema,
+  Doc,
+  Id,
+  NewDoc,
+  Patch,
+  Register,
+  RegisteredSchema,
+  ResolvedSchema,
+  SchemaConstraint,
+  SchemaDefinitionLike,
+  SchemaOption,
+  SchemaTypes,
+  UntypedDefinition,
+} from "./register.ts"
 export {
   type BucketApi,
   createStorage,
@@ -71,6 +88,7 @@ export type {
   CollectionName,
   CollectionTypes,
   Condition,
+  ConsistentProjection,
   DeepPartial,
   DocumentOf,
   DocumentSchema,
@@ -84,6 +102,7 @@ export type {
   Path,
   PathValue,
   Projected,
+  ProjectedResult,
   Projection,
   RootOperators,
   Schema,

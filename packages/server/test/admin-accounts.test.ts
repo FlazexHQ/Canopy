@@ -43,7 +43,9 @@ suite("admin accounts", () => {
   beforeEach(async () => {
     await meta.dropDatabase()
     await migrateMeta(meta)
-    now = Date.UTC(2026, 10, 7, 12, 0, 0)
+    // The real time: sessions and lockouts carry dates MongoDB's TTL monitor compares with its own clock, and
+    // one set in the past would let it delete a session in the middle of a test.
+    now = Date.now()
     accounts = fresh()
   })
 

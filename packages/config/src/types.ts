@@ -19,6 +19,9 @@ export interface ConfigContext {
 /** How full documents are obtained for change events. */
 export type FullDocumentMode = "auto" | "updateLookup" | "images"
 
+/** Which server answers realtime: the TypeScript engine or the native gateway. */
+export type RealtimeServer = "ts" | "gateway"
+
 /** The realtime transports a server offers. */
 export type Transport = "websocket" | "sse" | "long-poll"
 
@@ -27,6 +30,13 @@ export type IdType = "auto" | "objectId" | "string" | "uuid" | "number"
 
 /** Log levels. */
 export type LogLevel = "debug" | "info" | "warn" | "error"
+
+/**
+ * Which implementation of the core evaluates policies and matches change events: `auto` (the Rust core when a
+ * build of it loads, else the TypeScript packages), `ts` (the TypeScript packages), `native` (the Rust core as
+ * a Node-API addon) or `wasm` (the Rust core as WebAssembly).
+ */
+export type Engine = "auto" | "ts" | "native" | "wasm"
 
 /** Tokens from any OIDC or JWKS identity provider. */
 export interface ExternalAuthInput {
@@ -328,6 +338,19 @@ export interface RealtimeInput {
   readonly checkpoints?: Value<"meta" | "off">
   /** How long shutdown waits for clients to move. @default "30s" */
   readonly drainWindow?: Value<number | string>
+  /**
+   * How long a write's acknowledgement waits for the write's change events before it is sent with the post
+   * images instead (`echo: false`). Raise it on a sharded cluster, where an idle shard delays change events.
+   * @default "2s"
+   */
+  readonly echoTimeout?: Value<number | string>
+  /**
+   * Which server answers realtime: `ts`, the engine inside the TypeScript process, or `gateway`, the native
+   * `canopy-gateway` executable. With `gateway`, `canopy-server` runs the gateway on the public port, where it
+   * serves realtime and passes every other request to the TypeScript server on loopback.
+   * @default "ts"
+   */
+  readonly server?: Value<RealtimeServer>
 }
 
 /** One token bucket: the rate a caller can sustain and the burst it can spend at once. */
@@ -563,6 +586,13 @@ export interface CanopyConfigInput {
      * allowlist, the audit log and built in auth see the client address behind them.
      */
     readonly trustedProxies?: Value<readonly string[]>
+    /**
+     * Which implementation of the core evaluates policies and matches change events (`CANOPY_ENGINE`).
+     * `auto` runs the Node-API addon of the Rust core, else its WebAssembly build, else the TypeScript packages.
+     * `native` and `wasm` run the Rust core and refuse to start when its build cannot load.
+     * @default "auto"
+     */
+    readonly engine?: Value<Engine>
   }
   readonly log?: { readonly level?: Value<LogLevel> }
   /** Where `canopy gen types` writes, relative to the config file. */
@@ -758,6 +788,8 @@ export interface ResolvedConfig {
         readonly resumeWindowMs: number
         readonly checkpoints: "meta" | "off"
         readonly drainWindowMs: number
+        readonly echoTimeoutMs: number
+        readonly server: RealtimeServer
       }
   readonly rateLimits:
     | false
@@ -796,6 +828,7 @@ export interface ResolvedConfig {
     readonly adminListen: string | undefined
     readonly nodeId: string
     readonly trustedProxies: readonly string[]
+    readonly engine: Engine
   }
   readonly log: { readonly level: LogLevel }
   readonly types: { readonly out: string; readonly role: string | undefined }

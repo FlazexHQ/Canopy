@@ -23,7 +23,8 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | `canopy policies lint`                   | Validates and lints the policy directory                                                |
 | `canopy policies test`                   | Runs policy tests in memory and, with `--mongodb-uri`, against MongoDB                  |
 | `canopy policies explain <collection>`   | Shows how policies decide an operation (`--as`, `--roles`, `--op`, `--filter`, `--ctx`) |
-| `canopy gen types [--check \| --watch]` | Generates the `Database` types (`--out`, `--role`, `--sample`, `--infer-enums`); `--watch` regenerates on policy and collection changes |
+| `canopy pull [--js] [--collection <name>]` | Writes `canopy.schema.ts` from validators, config and sampled documents; refuses to overwrite edits without `--force` ([guide](/guides/schema/)) |
+| `canopy schema diff [--file <path>]`     | Compares the schema file with MongoDB and exits 1 on drift                              |
 | `canopy config print [--sources]`        | Prints the resolved config, secrets masked                                              |
 
 ## Database changes
@@ -33,6 +34,7 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | `canopy realtime enable-images \| disable-images <collection...>` | Turns change stream pre and post images on or off |
 | `canopy indexes advise \| create`                                 | Suggests, then creates, indexes for policy fields |
 | `canopy migrate [--status]`                                       | Brings the meta database up to date               |
+| `canopy schema push [--file <path>] [--yes]`                      | Applies the schema file's validators (asks first) |
 
 ## Policies in the meta database
 
@@ -44,7 +46,7 @@ and ask first; without a terminal they refuse unless `--yes` is given.
 | `canopy policies history <collection> [--limit <n>]`     | Lists published versions                                                     |
 | `canopy policies rollback <collection> <version>`        | Republishes an earlier version as a new one                                  |
 
-A GitOps setup runs `canopy policies lint && canopy policies test && canopy gen types --check` on pull
+A GitOps setup runs `canopy policies lint && canopy policies test && canopy schema diff` on pull
 requests and `canopy policies push --env production --comment "$GIT_SHA"` on merge.
 
 ## Users, keys and admins

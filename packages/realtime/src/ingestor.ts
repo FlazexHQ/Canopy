@@ -1,4 +1,11 @@
-import { type ClusterTime, isDocument, serverErrorCode, ZERO_CT } from "@canopy/protocol"
+import {
+  type ClusterTime,
+  ctFromParts,
+  isDocument,
+  maxCt,
+  serverErrorCode,
+  ZERO_CT,
+} from "@canopy/protocol"
 import type { ChangeStream, ChangeStreamOptions, Db, Document, MongoClient } from "mongodb"
 import {
   type ControlEvent,
@@ -73,6 +80,14 @@ export interface IngestorOptions {
 }
 
 const HISTORY_LOST = new Set([260, 280, 286])
+
+/** MongoDB's version 2 high water mark KeyString has a timestamp followed by a fixed suffix. */
+function highWaterMark(token: unknown): ClusterTime | undefined {
+  if (!isDocument(token) || typeof token["_data"] !== "string") return undefined
+  const match = /^82([\da-f]{8})([\da-f]{8})2b0429296e04$/i.exec(token["_data"])
+  if (match?.[1] === undefined || match[2] === undefined) return undefined
+  return ctFromParts(Number.parseInt(match[1], 16), Number.parseInt(match[2], 16))
+}
 
 /**
  * Reads the one change stream of the app database: filters to realtime collections, normalizes
@@ -193,12 +208,14 @@ export class Ingestor {
         const batch: unknown[] = this.pending
         this.pending = []
         if (batch.length === 0) batch.push(await stream.next())
+        this.processing = true
         while (batch.length < (this.options.maxBatch ?? 1000) && stream.bufferedCount() > 0) {
           batch.push(await stream.next())
         }
         await this.process(batch)
         this.token = stream.resumeToken
       } catch (error: unknown) {
+        this.processing = false
         try {
           await this.recover(error)
         } catch (recoverError: unknown) {
@@ -313,7 +330,7 @@ export class Ingestor {
    * mutation acknowledge its echo before its events were sent, or lose those events after a crash.
    */
   private async checkpoint(force: boolean): Promise<void> {
-    if (this.processing) return
+    if (this.processing || this.fragments.length > 0) return
     const token = this.stream?.resumeToken ?? this.token
     if (token === undefined) return
     const due =
@@ -323,7 +340,9 @@ export class Ingestor {
     if (!due) return
     this.sinceCheckpoint = 0
     this.lastCheckpoint = Date.now()
-    this.options.handlers.onProgress(this.lastCt)
-    await this.options.checkpoints.save(token, this.lastCt)
+    const watermark = highWaterMark(token)
+    const position = watermark === undefined ? this.lastCt : maxCt(this.lastCt, watermark)
+    this.options.handlers.onProgress(position)
+    await this.options.checkpoints.save(token, position)
   }
 }

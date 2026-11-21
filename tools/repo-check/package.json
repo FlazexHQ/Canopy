@@ -2,7 +2,7 @@
   "name": "@canopy/repo-check",
   "version": "0.0.0",
   "private": true,
-  "description": "Repository checks for Canopy: workspace layout, the no dashes rule and commit messages.",
+  "description": "Repository checks for Canopy: workspace and Cargo layout, the no dashes rule and commit messages.",
   "type": "module",
   "bin": {
     "canopy-repo-check": "./src/cli.ts"

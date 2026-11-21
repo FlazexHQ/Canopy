@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { createServer, type Server } from "node:http"
+import type { Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
@@ -10,9 +10,12 @@ import {
   parseBinaryArgs,
   UsageError,
 } from "@canopy/config/process"
+import { selectEngine } from "@canopy/native"
 import { serveMetrics } from "@canopy/node-http"
 import { redacting } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
+import { startGatewayFrontDoor } from "../gateway-front-door.ts"
+import { listenCanopy } from "../listen.ts"
 
 const USAGE = `Usage: canopy-server [--config <file>]
 
@@ -53,40 +56,7 @@ async function load(): Promise<ResolvedConfig> {
   }
 }
 
-interface BunRuntime {
-  serve(options: Record<string, unknown>): { readonly port: number; stop(force?: boolean): void }
-}
-
-interface Listening {
-  readonly port: number
-  stop(): Promise<void>
-}
-
-async function listen(canopy: Canopy, port: number): Promise<Listening> {
-  const bun = (globalThis as { Bun?: BunRuntime }).Bun
-  if (bun !== undefined) {
-    const server = bun.serve({ port, ...canopy.bun() })
-    return {
-      port: server.port,
-      stop: async () => server.stop(true),
-    }
-  }
-  const server = createServer(canopy.node())
-  await canopy.attach(server)
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(port, () => resolve())
-  })
-  return {
-    port: (server.address() as AddressInfo).port,
-    stop: () => {
-      server.closeAllConnections()
-      return new Promise<void>((resolve) => server.close(() => resolve()))
-    },
-  }
-}
-
-function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
+function metricsServer(canopy: Canopy, runtime: string, extra: () => string): Promise<Server> {
   const started = Date.now()
   const { metricsPort, metricsHost, metricsToken } = canopy.config.server
   return serveMetrics({
@@ -102,7 +72,9 @@ function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
         "# TYPE canopy_uptime_seconds gauge",
         `canopy_uptime_seconds ${((Date.now() - started) / 1000).toFixed(3)}`,
         "",
-      ].join("\n") + canopy.renderMetrics(),
+      ].join("\n") +
+      canopy.renderMetrics() +
+      extra(),
   })
 }
 
@@ -110,15 +82,23 @@ async function main(): Promise<void> {
   const config = await load()
   const logger = redacting(jsonLogger(config.log.level))
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
-  const canopy = await createCanopy(config, { logger })
-  const http = await listen(canopy, config.server.port)
-  const metrics = await metricsServer(canopy, runtime)
+  const gateway =
+    config.realtime !== false && config.realtime.server === "gateway"
+      ? await startGatewayFrontDoor(config, logger)
+      : undefined
+  const canopy = gateway?.canopy ?? (await createCanopy(config, { logger }))
+  const http = gateway ?? (await listenCanopy(canopy, config.server.port))
+
+  const metrics = await metricsServer(canopy, runtime, () => gateway?.metrics() ?? "")
   const admin = await canopy.admin.listen()
   if (admin !== undefined) logger.info({ address: admin.address }, "admin listening")
   const realtime = config.realtime
   logger.info(
     {
       port: http.port,
+      ...(gateway === undefined
+        ? {}
+        : { realtimeServer: "gateway", upstreamPort: gateway.upstreamPort }),
       metricsPort: (metrics.address() as AddressInfo).port,
       database: config.mongodb.database,
       environment: config.environment,
@@ -126,20 +106,29 @@ async function main(): Promise<void> {
       realtime: realtime !== false,
       config: config.file ?? "environment",
       runtime,
+      engine: selectEngine(config.server.engine).kind,
     },
     "canopy listening",
   )
 
   let stopping = false
+  void gateway?.exited.then((code) => {
+    if (stopping) return
+    logger.error({ code }, "canopy-gateway stopped, so the server stops too")
+    process.exit(1)
+  })
   const shutdown = (signal: string): void => {
     if (stopping) return
     stopping = true
     const drainMs = realtime === false ? 0 : realtime.drainWindowMs
     logger.info({ signal, drainMs }, "draining")
-    canopy
-      .close({ drainMs })
-      .then(() => admin?.close())
-      .then(() => http.stop())
+    const stopped =
+      gateway?.stop() ??
+      canopy
+        .close({ drainMs })
+        .then(() => admin?.close())
+        .then(() => http.stop())
+    stopped
       .then(() => new Promise<void>((resolve) => metrics.close(() => resolve())))
       .then(
         () => {

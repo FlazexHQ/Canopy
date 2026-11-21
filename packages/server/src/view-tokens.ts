@@ -3,6 +3,7 @@ import {
   createPublicKey,
   generateKeyPairSync,
   hkdfSync,
+  type JsonWebKey,
   type KeyObject,
 } from "node:crypto"
 import {
@@ -43,6 +44,11 @@ export class ViewTokens {
             type: "pkcs8",
           })
     this.publicKey = createPublicKey(this.privateKey)
+  }
+
+  /** The public key as a JWK, for a native gateway that must accept these tokens too. */
+  get publicJwk(): JsonWebKey {
+    return this.publicKey.export({ format: "jwk" })
   }
 
   /** What an `Authenticator` needs to accept these tokens. */

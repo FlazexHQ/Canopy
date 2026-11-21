@@ -1,4 +1,4 @@
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
@@ -31,7 +31,7 @@ suite("admin IP allowlist behind a trusted proxy", () => {
         realtime: false,
         server: { trustedProxies: ["10.0.0.0/8", "fd00::/8"] },
       }),
-      { env: {}, onSetupToken: () => {} },
+      { env: TEST_ENV, onSetupToken: () => {} },
     )
     await meta
       .collection<{ _id: string; adminAllowlist: string[] }>("settings")

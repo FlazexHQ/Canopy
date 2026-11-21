@@ -1,6 +1,6 @@
 import { encodeMessage, ObjectId, type SequencedMessage } from "@canopy/protocol"
 import { describe, expect, it } from "vitest"
-import { FULL_COVERAGE, type RealtimeSocket, Session } from "../src/session.ts"
+import { type Coverage, FULL_COVERAGE, type RealtimeSocket, Session } from "../src/session.ts"
 
 function open(): { session: Session; sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = []
@@ -173,5 +173,63 @@ describe("Session frames shared between sessions", () => {
         { t: "changed", c: "tasks", id: first._id, ct: "7", set: { b: "y" }, seq: 4 },
       ].map((message) => encodeMessage(message as SequencedMessage)),
     )
+  })
+})
+
+/** The document the client holds after applying `sent` the way the SDK does. */
+function held(
+  sent: readonly Record<string, unknown>[],
+  id: string,
+): Record<string, unknown> | undefined {
+  let doc: Record<string, unknown> | undefined
+  for (const message of sent) {
+    if (message["id"] !== id) continue
+    const d = message["d"] as Record<string, unknown> | undefined
+    if (message["t"] === "added" && d !== undefined) doc = d
+    if (message["t"] === "changed") {
+      if (message["replace"] === true && d !== undefined) doc = d
+      else {
+        doc = { ...doc, ...(message["set"] as Record<string, unknown> | undefined) }
+        for (const field of (message["unset"] as string[] | undefined) ?? []) delete doc[field]
+      }
+    }
+  }
+  return doc
+}
+
+describe("Session merge box across subscriptions read at different times", () => {
+  it("keeps the newer version when a subscription with an older snapshot adds the document", () => {
+    const { session, sent } = open()
+    const all = session.listener("todos", "all", (doc) => doc, FULL_COVERAGE)
+    const done = session.listener("todos", "done", (doc) => doc, FULL_COVERAGE)
+    all.added("todos/13", "13", { _id: "13", done: false }, "579")
+    done.added("todos/13", "13", { _id: "13", done: true }, "577")
+    done.removed("todos/13", "13", "578")
+    session.flush()
+    expect(held(sent, "13")).toEqual({ _id: "13", done: false })
+  })
+
+  it("still takes an older change of a field the newer subscription does not cover", () => {
+    const { session, sent } = open()
+    const onlyA: Coverage = { covers: (field) => field === "_id" || field === "a" }
+    const narrow = session.listener("todos", "narrow", (doc) => doc, onlyA)
+    const wide = session.listener("todos", "wide", (doc) => doc, FULL_COVERAGE)
+    narrow.added("todos/1", "1", { _id: "1", a: 1 }, "10")
+    wide.added("todos/1", "1", { _id: "1", a: 0, b: 5 }, "5")
+    wide.changed("todos/1", "1", { _id: "1", a: 0, b: 6 }, "8")
+    narrow.changed("todos/1", "1", { _id: "1", a: 2 }, "12")
+    session.flush()
+    expect(held(sent, "1")).toEqual({ _id: "1", a: 2, b: 6 })
+  })
+
+  it("drops a field that a newer version of the whole document no longer has", () => {
+    const { session, sent } = open()
+    const first = session.listener("todos", "first", (doc) => doc, FULL_COVERAGE)
+    const second = session.listener("todos", "second", (doc) => doc, FULL_COVERAGE)
+    first.added("todos/2", "2", { _id: "2", x: 1, y: 1 }, "1")
+    second.added("todos/2", "2", { _id: "2", x: 2 }, "2")
+    first.changed("todos/2", "2", { _id: "2", x: 1, y: 1 }, "1")
+    session.flush()
+    expect(held(sent, "2")).toEqual({ _id: "2", x: 2 })
   })
 })

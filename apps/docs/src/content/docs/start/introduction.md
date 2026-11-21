@@ -31,7 +31,7 @@ and the edge.
 
 ## Requirements
 
-- MongoDB 7.0 or newer as a **replica set** or sharded cluster. Change streams and transactions do not work on
+- MongoDB 8.0 or newer as a **replica set** or sharded cluster. Change streams and transactions do not work on
   a standalone server. Atlas works.
 - Bun 1.4 or newer, Node.js 24 or newer, or Deno. Every runtime works on Windows, Linux and macOS.
 - Packages install with Bun, pnpm, Yarn or npm.

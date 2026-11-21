@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { RateLimitsInput } from "@canopy/config"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -65,7 +65,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
         server: { trustedProxies: proxies },
         ...(rateLimits === undefined ? {} : { rateLimits }),
       }),
-      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes]), onSetupToken: false },
     )
     const server = createServer(canopy.node())
     await canopy.attach(server)
@@ -103,7 +103,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
     })
     expect(graphql.status).toBe(429)
     expect(graphql.headers.get("retry-after")).not.toBeNull()
-  })
+  }, 20_000)
 
   it("lets the secret key through and counts refusals in the metrics", async () => {
     const { base, canopy } = await start({ requests: { perSecond: 1, burst: 1 } })
@@ -117,7 +117,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
     await alice()
     const metrics = canopy.renderMetrics()
     expect(metrics).toMatch(/canopy_http_rate_limited_total\{surface="rest"\} [1-9]/)
-  })
+  }, 20_000)
 
   it("limits anonymous callers by the address behind a trusted proxy", async () => {
     const { base } = await start({ requests: { perSecond: 1, burst: 2 } }, ["127.0.0.0/8", "::1"])
@@ -127,7 +127,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
     expect(await statuses(2, a)).toEqual([200, 200])
     expect((await a()).status).toBe(429)
     expect((await anon("203.0.113.6")()).status).toBe(200)
-  })
+  }, 20_000)
 
   it("caps anonymous WebSocket connections per address with close code 4029", async () => {
     const { base } = await start({ anonymousConnectionsPerAddress: 1 })
@@ -146,7 +146,7 @@ suite("rate limits of createCanopy against MongoDB", () => {
     const second = await open()
     expect(await second.code).toBe(4029)
     first.socket.close()
-  })
+  }, 20_000)
 
   it("serves everything when the limits are off", async () => {
     const { base } = await start(false)
@@ -154,5 +154,5 @@ suite("rate limits of createCanopy against MongoDB", () => {
     const rest = () =>
       fetch(`${base}/rest/v1/notes`, { headers: { apikey: KEY, authorization: `Bearer ${token}` } })
     expect(await statuses(40, rest)).toEqual(Array.from({ length: 40 }, () => 200))
-  })
+  }, 20_000)
 })

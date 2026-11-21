@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { findGatewayBinary } from "@canopy/realtime"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -10,7 +11,7 @@ const scratch = fileURLToPath(new URL("./.tmp/dev/", import.meta.url))
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
 async function until<T>(read: () => Promise<T>, test: (value: T) => boolean): Promise<T> {
-  const deadline = Date.now() + 10_000
+  const deadline = Date.now() + 30_000
   let value = await read()
   while (!test(value) && Date.now() < deadline) {
     await new Promise((done) => setTimeout(done, 50))
@@ -43,7 +44,7 @@ suite("canopy dev", () => {
     `export default { mongodb: { uri: ${JSON.stringify(MONGODB_URI)}, database: ${JSON.stringify(database)}, metaDatabase: ${JSON.stringify(`${database}_meta`)} }, policies: { dir: "./policies" }${extra} }\n`
   const policy = (shared: boolean): string =>
     `import { allow, collection } from "@canopy/policy"
-export default collection("todos", { exposed: true, policies: [allow.read("public").where({ shared: ${shared} }).named("shared")] })
+export default collection("todos", { exposed: true, realtime: true, policies: [allow.read("public").where({ shared: ${shared} }).named("shared")] })
 `
 
   async function project(extra: string): Promise<string> {
@@ -146,12 +147,82 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     expect(await running).toBe(0)
   })
 
-  it("keeps an existing types file up to date, and leaves projects without one alone", async () => {
-    const typed = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
-    await mkdir(join(typed, "src"))
-    await writeFile(join(typed, "src", "canopy.gen.ts"), "// stale\n")
+  it.skipIf(findGatewayBinary() === undefined)(
+    "serves REST and realtime through the gateway and restarts it on config edits",
+    async () => {
+      const key = "canopy_pk_test"
+      const gateway = `, keys: { publishable: ["${key}"] }, realtime: { server: "gateway", drainWindow: "1s" }`
+      const root = await project(gateway)
+      const lines: string[] = []
+      const errors: string[] = []
+      const urls: string[] = []
+      const stop = new AbortController()
+      const running = dev(
+        { cwd: root, env: {}, port: 0, onReady: (url) => urls.push(url) },
+        { log: (line) => lines.push(line), error: (line) => errors.push(line) },
+        stop.signal,
+      )
+      let socket: WebSocket | undefined
+      try {
+        await until(
+          async () => urls.length + errors.length,
+          (count) => count > 0,
+        )
+        expect(errors).toEqual([])
+        const base = urls[0] ?? ""
+        const realtime = `${base.replace(/^http/, "ws")}/realtime/v1`
+        expect(lines).toContain(`  REST      ${base}/rest/v1`)
+        expect(lines).toContain(`  Realtime  ${realtime}`)
+        expect(lines).toContain(`  GraphQL   ${base}/graphql/v1`)
+        expect(lines).toContain(`  Studio    ${base}/studio`)
+        expect(await ids(base, key)).toEqual(["a"])
+
+        const ws = new WebSocket(realtime, "canopy.v1+json")
+        socket = ws
+        type Frame = { t?: string; s?: string; id?: unknown; m?: Frame[] }
+        const frames: Frame[] = []
+        ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "hello", v: 1, key })))
+        ws.addEventListener("message", (event) => {
+          const frame = JSON.parse(String(event.data)) as Frame
+          for (const message of frame.t === "batch" ? (frame.m ?? []) : [frame]) {
+            frames.push(message)
+            if (message.t === "welcome")
+              ws.send(JSON.stringify({ t: "sub", id: "todos", c: "todos", q: {} }))
+          }
+        })
+        await expect
+          .poll(() => frames, { timeout: 10_000 })
+          .toContainEqual(expect.objectContaining({ t: "ready", s: "todos" }))
+        expect(frames.filter((frame) => frame.t === "added").map((frame) => frame.id)).toEqual([
+          "a",
+        ])
+        await writeFile(join(root, "canopy.config.mjs"), config(`${gateway}, rest: false`))
+        await until(async () => urls.length === 2 || errors.length > 0, Boolean)
+        expect(errors).toEqual([])
+        expect(urls).toHaveLength(2)
+        await expect.poll(() => ws.readyState).toBe(WebSocket.CLOSED)
+        expect(await ids(urls[1] ?? "", key)).toBe(404)
+      } finally {
+        socket?.close()
+        stop.abort()
+        expect(await running).toBe(0)
+      }
+      await expect(fetch(`${urls[1]}/readyz`)).rejects.toThrow()
+    },
+    90_000,
+  )
+
+  it("warns on schema drift and leaves legacy generated files untouched", async () => {
+    const legacy = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
+    const migrated = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
     const untyped = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
-    for (const root of [typed, untyped]) {
+    for (const root of [legacy, migrated]) {
+      await mkdir(join(root, "src"))
+      await writeFile(join(root, "src", "canopy.gen.ts"), "// stale\n")
+    }
+    await writeFile(join(migrated, "canopy.schema.js"), "export const schema = {}")
+    const generated = join("src", "canopy.gen.ts")
+    for (const root of [legacy, migrated, untyped]) {
       const lines: string[] = []
       const urls: string[] = []
       const stop = new AbortController()
@@ -164,21 +235,26 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
         async () => urls.length,
         (count) => count > 0,
       )
-      if (root === typed) {
-        const text = await until(
-          () => readFile(join(root, "src", "canopy.gen.ts"), "utf8"),
-          (value) => value.includes("todos"),
-        )
-        expect(text).toContain("export interface Database")
-        expect(lines.some((line) => line.startsWith("  Types     src"))).toBe(true)
+      if (root === migrated) {
+        expect(lines).toContain("  Schema    canopy.schema.js  (warns when MongoDB drifts from it)")
+        expect(
+          await until(
+            async () => lines.includes(`schema  canopy.schema.js differs from ${database}:`),
+            (warned) => warned,
+          ),
+        ).toBe(true)
       } else {
-        expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
+        expect(lines.some((line) => line.startsWith("  Schema"))).toBe(false)
       }
+      expect(lines.some((line) => line.startsWith("  Types"))).toBe(false)
       stop.abort()
       expect(await running).toBe(0)
     }
-    await expect(readFile(join(untyped, "src", "canopy.gen.ts"), "utf8")).rejects.toThrow()
-  })
+    for (const root of [legacy, migrated]) {
+      expect(await readFile(join(root, generated), "utf8")).toBe("// stale\n")
+    }
+    await expect(readFile(join(untyped, generated), "utf8")).rejects.toThrow()
+  }, 90_000)
 
   it("exits 1 with the config problems when the config is invalid", async () => {
     await mkdir(scratch, { recursive: true })

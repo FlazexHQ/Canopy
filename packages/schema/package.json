@@ -11,6 +11,11 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./define": {
+      "types": "./dist/define/index.d.ts",
+      "@canopy/source": "./src/define/index.ts",
+      "default": "./dist/define/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -29,6 +34,7 @@
     "@canopy/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "fast-check": "catalog:",
     "typescript": "catalog:",

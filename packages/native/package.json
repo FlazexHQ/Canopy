@@ -1,0 +1,60 @@
+{
+  "name": "@canopy/native",
+  "version": "0.0.0",
+  "description": "The Canopy core in Rust for Bun, Node and Deno: the policy engine, the event matcher, query canonicalization and the EJSON codec, as a prebuilt Node-API addon with a WebAssembly fallback.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src/**/*.ts",
+    "!**/*.tsbuildinfo"
+  ],
+  "napi": {
+    "binaryName": "canopy-native",
+    "packageName": "@canopy/native",
+    "targets": [
+      "x86_64-pc-windows-msvc",
+      "aarch64-pc-windows-msvc",
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu",
+      "aarch64-unknown-linux-musl",
+      "wasm32-wasip1-threads"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:native": "bun scripts/build.ts",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/matcher": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/query": "workspace:*"
+  },
+  "devDependencies": {
+    "@canopy/wasm": "workspace:*",
+    "@emnapi/core": "catalog:",
+    "@emnapi/runtime": "catalog:",
+    "@napi-rs/cli": "catalog:",
+    "@napi-rs/wasm-runtime": "catalog:",
+    "@types/node": "catalog:",
+    "bson": "catalog:",
+    "emnapi": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -15,6 +15,7 @@
     { "path": "../graphql" },
     { "path": "../matcher" },
     { "path": "../policy" },
+    { "path": "../native" },
     { "path": "../protocol" },
     { "path": "../realtime" },
     { "path": "../rest" },

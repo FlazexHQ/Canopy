@@ -1,0 +1,16 @@
+[package]
+name = "canopy-policy"
+description = "Canopy's Document Level Security: the stored policy format, the compiler to MongoDB filters and in process matchers, variables, context lookups, field rules, immutable fields and explain."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+
+[lints]
+workspace = true

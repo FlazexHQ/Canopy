@@ -13,7 +13,47 @@ refuse to start until you provide them.
 | Plain Kubernetes manifests   | `deploy/kubernetes/canopy.yaml`   |
 | Docker Compose               | `deploy/compose/production.yaml`  |
 
-Build the image from `deploy/docker/canopy.Dockerfile` and push it to your registry; no image is published yet.
+Build the server image from `deploy/docker/canopy.Dockerfile` and push it to your registry, or use the
+`ghcr.io/flazexhq/canopy:<tag>` image from a published GitHub release. Releases also build
+`ghcr.io/flazexhq/canopy-realtime:<tag>` and `ghcr.io/flazexhq/canopy-gateway:<tag>`. All three images
+target Linux x64 and arm64.
+
+The Canopy server and realtime sidecar images include the native gateway. Set `CANOPY_REALTIME_SERVER=gateway`
+on either image to use it with your existing configuration and policy files. In the Canopy server image,
+the gateway serves realtime on the public port and proxies the other routes to the TypeScript server.
+The standalone gateway image reads policies from the meta database by default and listens on ports
+8080 and 9464 for realtime and metrics, respectively.
+
+## Verify release artifacts
+
+The container release workflow signs each architecture image, its image index and the combined release
+index in GHCR using GitHub Actions OIDC and Sigstore. The signed indexes include BuildKit's SPDX SBOM
+and provenance attestations for the platforms they reference. Use Cosign 3 and replace the example
+tag and digest with those of the release you are deploying. The same command works for all three
+image repositories.
+
+```sh
+tag=v0.1.0
+image=ghcr.io/flazexhq/canopy@sha256:YOUR_DIGEST
+issuer=https://token.actions.githubusercontent.com
+workflow=https://github.com/FlazexHQ/Canopy/.github/workflows
+
+cosign verify --certificate-identity "$workflow/container-release.yml@refs/tags/$tag" \
+  --certificate-oidc-issuer "$issuer" "$image"
+docker buildx imagetools inspect "$image" --format '{{json .SBOM}}'
+```
+
+Download the gateway archive and its matching `.sigstore.json` bundle from the native release workflow
+run for the tag. The gateway archive contains the executable and its CycloneDX SBOM. The standalone
+archives contain `canopy`, `canopy-server`, the gateway beside them and `SHA256SUMS`. Verify either
+archive with the same workflow identity before extracting it.
+
+```sh
+archive=canopy-gateway-x86_64-unknown-linux-gnu.tar.gz
+cosign verify-blob --bundle "$archive.sigstore.json" \
+  --certificate-identity "$workflow/native-release.yml@refs/tags/$tag" \
+  --certificate-oidc-issuer "$issuer" "$archive"
+```
 
 ## Secrets
 

@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
+import { type CanopyAuth, createAuth } from "../src/auth.ts"
 import type {
   CanopyClient,
+  DeepPartial,
   DocumentSchema,
   Filter,
   Long,
@@ -8,10 +10,14 @@ import type {
   Path,
   PathValue,
   Projected,
+  Projection,
   QueryState,
+  TokenSource,
   UntypedSchema,
   UpdateFilter,
 } from "../src/index.ts"
+import { createClient } from "../src/index.ts"
+import type { ServerClient } from "../src/server.ts"
 
 interface TodoDocument {
   _id: ObjectId
@@ -32,6 +38,7 @@ interface Database {
 
 declare const canopy: CanopyClient<Database>
 declare const untyped: CanopyClient
+declare const server: ServerClient<Database>
 declare const id: ObjectId
 
 /** Type checks run by `tsc -b`; this function is never called. */
@@ -91,6 +98,26 @@ function checks(): void {
   // @ts-expect-error unknown field in a bulk filter
   void canopy.updateMany("todos", { dun: true }, { $set: { done: false } })
 
+  const open = canopy.from("todos").find({ done: false })
+  // @ts-expect-error a derived read query has no bulk write method
+  void open.updateMany
+  // @ts-expect-error nor single document writes
+  void open.sort({ createdAt: -1 }).limit(5).insert
+  void canopy.from("todos").updateMany({ done: false }, { $set: { done: true } })
+  // @ts-expect-error a literal projection cannot mix inclusion and exclusion
+  void canopy.from("todos").fields({ title: 1, done: 0 })
+  // @ts-expect-error nor in a live read
+  void canopy.live("todos", {}, { fields: { title: 1, done: 0 } })
+  void canopy.from("todos").fields({ title: 1, _id: 0 })
+  void canopy.live("todos", {}, { fields: { title: 0, _id: 1 } })
+
+  const [projected] = canopy.live("todos", {}, { fields: { title: 1 } }).getState().data
+  if (projected !== undefined) {
+    expectTypeOf(projected.title).toEqualTypeOf<string>()
+    // @ts-expect-error the projection omits done
+    void projected.done
+  }
+
   void untyped.from("anything").find({ any: { $gt: 1 }, "a.b": [1] })
   void untyped.update("x", "id", { $set: { y: 1 } })
 }
@@ -132,6 +159,42 @@ describe("client types", () => {
     expectTypeOf<Nested["meta"]>().toEqualTypeOf<
       { owner?: { name?: string; age?: number } } | undefined
     >()
+  })
+
+  it("gives live reads and server snapshots the same projected documents", () => {
+    const live = () => canopy.live("todos", {}, { fields: { title: 1 } }).getState().data[0]
+    const ssr = async () => (await server.find("todos", {}, { fields: { title: 1 } })).docs[0]
+    const full = async () => (await server.find("todos", { done: false })).docs[0]
+    expectTypeOf<ReturnType<typeof live>>().toEqualTypeOf<
+      { _id: ObjectId; title: string } | undefined
+    >()
+    expectTypeOf<Awaited<ReturnType<typeof ssr>>>().toEqualTypeOf<
+      { _id: ObjectId; title: string } | undefined
+    >()
+    expectTypeOf<Awaited<ReturnType<typeof full>>>().toEqualTypeOf<TodoDocument | undefined>()
+  })
+
+  it("keeps a projection known only at runtime conservative", () => {
+    const fields: Projection<TodoDocument> = { title: 1 }
+    const dynamic = () => canopy.live("todos", {}, { fields }).getState().data[0]
+    expectTypeOf<ReturnType<typeof dynamic>>().toEqualTypeOf<
+      DeepPartial<TodoDocument> | undefined
+    >()
+  })
+
+  it("keeps the type of the auth handle it was given", () => {
+    const builtIn = () =>
+      createClient({ url: "u", publishableKey: "pk", auth: createAuth({ url: "u" }) })
+    const minimal = () =>
+      createClient({ url: "u", publishableKey: "pk", auth: { getToken: () => "t" } })
+    const none = () => createClient({ url: "u", publishableKey: "pk" })
+    expectTypeOf<ReturnType<typeof builtIn>["auth"]>().toEqualTypeOf<CanopyAuth>()
+    expectTypeOf<ReturnType<typeof builtIn>["auth"]["signInWithPassword"]>().toBeFunction()
+    expectTypeOf<ReturnType<typeof minimal>["auth"]>().toEqualTypeOf<{ getToken: () => string }>()
+    expectTypeOf<ReturnType<typeof none>["auth"]>().toEqualTypeOf<TokenSource | undefined>()
+    const typed = () =>
+      createClient<Database>({ url: "u", publishableKey: "pk", auth: createAuth({ url: "u" }) })
+    expectTypeOf<ReturnType<typeof typed>>().toExtend<CanopyClient<Database>>()
   })
 
   it("resolves paths and their values", () => {

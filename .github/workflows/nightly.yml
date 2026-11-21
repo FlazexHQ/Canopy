@@ -1,61 +1,127 @@
 name: Nightly
 
 on:
-  push:
-    branches: [ci/cross-platform]
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Nightly jobs to run
+        type: choice
+        default: all
+        options: [all, sharded, cargo-mutants]
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly
+  group: ${{ inputs.suite == 'cargo-mutants' && 'nightly-cargo-mutants' || 'nightly' }}
   cancel-in-progress: false
 
 env:
   BUN_VERSION: 1.4.4
+  MONGODB_VERSION: 8.0.34
 
 jobs:
-  differential:
-    name: Long differential and simulation runs (MongoDB ${{ matrix.mongo }})
-    if: github.event_name != 'push'
+  replica-set:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: ${{ matrix.name }}
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["7.0.45", "8.0.34"]
+        include:
+          - { suite: parity, name: MongoDB differential tests }
+          - { suite: simulation, name: Realtime seeded simulation }
+          - { suite: chaos, name: Realtime failover }
+          - { suite: writes, name: Write acknowledgements and REST property tests }
     env:
-      CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
-      CANOPY_DIFF_RUNS: "3500"
-      CANOPY_SIM_SEEDS: "10000"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - if: matrix.suite != 'writes'
+        name: Install the pinned Rust toolchain
+        run: rustup toolchain install
+      - if: matrix.suite == 'parity'
+        run: rustup target add wasm32-wasip1-threads
+      - if: matrix.suite != 'writes'
+        name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - run: bun install --frozen-lockfile
-      - name: Differential suites (about 1M filter cases)
+      - if: matrix.suite == 'parity'
+        name: Build the addon and the WebAssembly fallback, so the differential suites also compare the Rust core
+        run: bun --filter @canopy/native build:native
+      - if: matrix.suite == 'simulation' || matrix.suite == 'chaos'
+        name: Build the native gateway for realtime tests
+        run: cargo build --release --locked -p canopy-gateway
+      - name: Save the Cargo registry and build output
+        if: matrix.suite != 'writes' && steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - if: matrix.suite == 'parity'
+        name: Differential suites (6000 filters on 12000 documents, at least 1M cases per operator, each decided by MongoDB, TypeScript and Rust)
         run: bun --bun vitest run --project matcher --project policy
-      - name: Realtime simulation (10k seeds)
-        run: bun --bun vitest run --project realtime -t "seeded simulation" --testTimeout 14400000
-      - name: Echo correlation between writes and change events (100k mutations)
+        env:
+          CANOPY_TEST_ENGINE: native
+          CANOPY_DIFF_RUNS: "6000"
+          CANOPY_DIFF_DOCS: "12000"
+          CANOPY_DIFF_OPERATOR_CASES: "1000000"
+      - if: matrix.suite == 'parity'
+        name: The same against the WebAssembly build of the Rust core (500 filters)
+        run: bun --bun vitest run --project matcher --project policy
+        env:
+          CANOPY_TEST_ENGINE: wasm
+          CANOPY_DIFF_RUNS: "500"
+      - if: matrix.suite == 'simulation'
+        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
+        run: bun --bun vitest run --project realtime -t "seeded simulation"
+        env:
+          CANOPY_SIM_SEEDS: "10000"
+      - if: matrix.suite == 'chaos'
+        name: Realtime failover on both engines
+        run: bun --bun vitest run --project realtime test/chaos.test.ts
+        env:
+          CANOPY_CHAOS: "1"
+      - if: matrix.suite == 'writes'
+        name: Echo correlation between writes and change events (100k mutations)
         run: bun --bun vitest run --project rest -t "echo correlation" --testTimeout 14400000
         env:
           CANOPY_ECHO_MUTATIONS: "100000"
-      - name: Fuzzing the trust boundary parsers and the Data API (100k cases per property)
+      - if: matrix.suite == 'writes'
+        name: Fuzzing the trust boundary parsers and the Data API (100k cases per property)
         run: bun --bun vitest run --project rest test/fuzz.test.ts --testTimeout 14400000
         env:
           CANOPY_FUZZ_RUNS: "100000"
+      - if: failure()
+        run: docker compose -f deploy/compose/dev.yaml logs --tail=100
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   platform-e2e:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Browser end to end tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -74,8 +140,20 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      - name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ env.MONGODB_VERSION }}
       - name: Start a MongoDB 8.0 replica set from the official binaries
-        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+        run: bun packages/testing/scripts/mongod.ts --version "${{ env.MONGODB_VERSION }}" --dir "${{ runner.temp }}/mongodb"
+      - if: steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: Install Chromium
         working-directory: examples/todo-react
         run: node node_modules/@playwright/test/cli.js install chromium
@@ -92,16 +170,18 @@ jobs:
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   linux-arm64:
-    name: Linux arm64 (Bun and Node.js 24, MongoDB 7.0)
-    # MongoDB 8 does not start on the 7.0.0 kernel of the arm64 runners yet (SERVER-121912), 7.0 does.
-    runs-on: ubuntu-24.04-arm
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: Linux arm64 (Bun and Node.js 24, MongoDB 8.0)
+    # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04-arm runners (SERVER-121912).
+    runs-on: ubuntu-22.04-arm
     timeout-minutes: 30
     env:
-      CANOPY_MONGO_IMAGE: mongo:7.0.45
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -114,75 +194,74 @@ jobs:
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
-  benchmark:
-    name: Benchmarks against their baselines (MongoDB 8.0, Node.js 24)
-    if: github.event_name != 'push'
+  sharded:
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'sharded'
+    name: Snapshots, resume and write acknowledgements on a sharded cluster (MongoDB 8.0, Node.js 24)
+    # A single member replica set cannot show sharded behaviour, so this runs against two shards behind mongos.
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
-    timeout-minutes: 60
-    env:
-      CANOPY_MONGO_IMAGE: mongo:8.0.34
-      CANOPY_BENCH_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
-      CANOPY_BENCH_TIERS: "100000"
-      CANOPY_BENCH_ROUNDS: "3"
-      CANOPY_BENCH_INGEST: "0"
-      CANOPY_BENCH_OUT: ${{ github.workspace }}/scale.json
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: docker compose -f deploy/compose/sharded.yaml up -d --wait
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
-      - run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - run: bun install --frozen-lockfile
-      - name: Scale benchmark at 100k documents, 3 alternating rounds
-        working-directory: packages/rest
-        run: npm run bench:scale
-      - name: Compare the Canopy to driver ratios with the baseline
-        working-directory: packages/rest
-        run: npm run bench:check -- "$CANOPY_BENCH_OUT"
-      - name: Matcher throughput against hand written predicates, 3 runs
-        working-directory: packages/matcher
+      - name: Sharded cluster suite (Node)
+        run: node node_modules/vitest/vitest.mjs run --project client test/sharded.e2e.test.ts --testTimeout=120000
         env:
-          CANOPY_BENCH_DOCS: "200000"
-        run: |
-          for run in 1 2 3; do
-            CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/matcher-$run.json" npm run bench
-          done
-          npm run bench:check -- "$GITHUB_WORKSPACE"/matcher-*.json
-      - name: Realtime fan out against a plain change stream, 2 runs
-        working-directory: packages/realtime
-        env:
-          CANOPY_BENCH_DOCS: "100000"
-          CANOPY_BENCH_SECONDS: "5"
-          CANOPY_BENCH_ONLY: "1k connections, 1k writes/s|shared query, 1k connections"
-        run: |
-          for run in 1 2; do
-            CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/fanout-$run.json" npm run bench
-          done
-          npm run bench:check -- "$GITHUB_WORKSPACE"/fanout-*.json
+          CANOPY_TEST_SHARDED_URI: mongodb://localhost:27017
+      - if: failure()
+        run: docker compose -f deploy/compose/sharded.yaml logs
       - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        run: docker compose -f deploy/compose/sharded.yaml down --volumes
+
+  search:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: Text and vector search with ready indexes (MongoDB Atlas Local 8.0, Node.js 24)
+    # mongodb-atlas-local runs mongod with mongot, so search indexes build and answer queries. The
+    # search-unavailable case runs in the main suite against the plain replica set.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start MongoDB Atlas Local and wait until it is healthy
+        run: |
+          docker run -d --name atlas-local -p 27017:27017 \
+            mongodb/mongodb-atlas-local:8.0.21@sha256:89003da4870d6fc3bd9305be8e881ba4a756a0733c1a3f3ed2358284d8d2e652
+          for attempt in $(seq 1 90); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' atlas-local)" = healthy ] && exit 0
+            sleep 2
+          done
+          docker logs atlas-local
+          exit 1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
-          name: scale-benchmark
-          path: |
-            scale.json
-            matcher-*.json
-            fanout-*.json
-          if-no-files-found: ignore
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Search suite (Node)
+        run: node node_modules/vitest/vitest.mjs run --project rest test/search-indexes.e2e.test.ts --testTimeout=120000
+        env:
+          CANOPY_TEST_SEARCH_URI: mongodb://localhost:27017/?directConnection=true
+      - if: failure()
+        run: docker logs atlas-local
       - if: always()
-        run: docker compose -f deploy/compose/dev.yaml down --volumes
+        run: docker rm -f atlas-local
 
   mutation:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Mutation testing (${{ matrix.package }})
-    if: github.event_name != 'push'
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
     timeout-minutes: 240
     env:
-      CANOPY_MONGO_IMAGE: mongo:8.0.34
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       CANOPY_DIFF_RUNS: "50"
     strategy:
@@ -198,6 +277,8 @@ jobs:
         with:
           node-version: "24"
       - run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:${{ env.MONGODB_VERSION }}
       - run: bun install --frozen-lockfile
       - name: Stryker, failing below the package's break threshold
         working-directory: packages/${{ matrix.package }}
@@ -211,7 +292,100 @@ jobs:
       - if: always()
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
+  cargo-mutants:
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'cargo-mutants'
+    name: cargo mutants (${{ matrix.package }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { package: canopy-matcher, break: "70" }
+          - { package: canopy-policy, break: "86" }
+    env:
+      CARGO_MUTANTS_VERSION: 27.1.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Install the pinned Rust toolchain and cargo mutants
+        run: |
+          rustup toolchain install
+          cargo install cargo-mutants --version "=$CARGO_MUTANTS_VERSION" --locked
+      - name: Run mutation testing; missed mutants and timeouts are judged by the score gate below
+        env:
+          MUTATION_PACKAGE: ${{ matrix.package }}
+          # A mutant can allocate indefinitely. Limit test processes without capping the compiler.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: prlimit --as=1073741824 --core=0 --
+        run: |
+          status=0
+          timeout --signal=INT --kill-after=1m 210m cargo mutants --package "$MUTATION_PACKAGE" \
+            --jobs 4 --minimum-test-timeout 15 --timeout-multiplier 3 || status=$?
+          if [ "$status" -ne 0 ] && [ "$status" -ne 2 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
+      - name: Fail below the crate's break threshold
+        env:
+          MUTATION_BREAK: ${{ matrix.break }}
+        run: bun packages/testing/scripts/mutants-gate.ts mutants.out --break "$MUTATION_BREAK"
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mutants-${{ matrix.package }}
+          path: mutants.out
+          if-no-files-found: ignore
+
+  fuzz:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: cargo fuzz (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: ejson, dict: dict/ejson.dict }
+          - { target: bson, dict: "" }
+          - { target: filter, dict: dict/ejson.dict }
+          - { target: update, dict: dict/ejson.dict }
+          - { target: regex, dict: dict/regex.dict }
+          - { target: frame, dict: dict/ejson.dict }
+    env:
+      FUZZ_TOOLCHAIN: nightly-2026-11-15
+      CARGO_FUZZ_VERSION: 0.13.2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the pinned nightly toolchain and cargo fuzz
+        run: |
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      - name: Restore the corpus of earlier runs
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz for 20 minutes, failing on a panic or a broken property
+        working-directory: fuzz
+        run: |
+          mkdir -p "corpus/${{ matrix.target }}"
+          cargo +"$FUZZ_TOOLCHAIN" fuzz run "${{ matrix.target }}" "corpus/${{ matrix.target }}" -- \
+            ${{ matrix.dict && format('-dict={0}', matrix.dict) || '' }} -max_total_time=1200 -max_len=4096
+      - name: Save the corpus
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+
   alpine:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Alpine Linux (musl, Bun and Node.js 24)
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
@@ -234,6 +408,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   deno:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Deno (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
@@ -252,12 +427,60 @@ jobs:
       - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
           deno-version: v2.x
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
+      - name: Build the packages, the addon of this platform and the WebAssembly fallback
+        shell: bash
+        run: |
+          bun run build
+          bun --filter @canopy/native build:native
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - name: Without --allow-ffi the loader takes WebAssembly without asking, with it the addon
+        shell: bash
+        run: |
+          deno run --no-prompt --allow-read --allow-env --allow-sys --node-modules-dir=manual packages/native/scripts/deno-smoke.ts wasm
+          deno run --no-prompt --allow-read --allow-env --allow-sys --allow-ffi --node-modules-dir=manual packages/native/scripts/deno-smoke.ts native
       - if: runner.os == 'Linux'
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
       - if: runner.os != 'Linux'
+        name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ env.MONGODB_VERSION }}
+      - if: runner.os != 'Linux'
         name: Start a MongoDB 8.0 replica set from the official binaries
-        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+        run: bun packages/testing/scripts/mongod.ts --version "${{ env.MONGODB_VERSION }}" --dir "${{ runner.temp }}/mongodb"
+      - if: runner.os != 'Linux' && steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/${{ env.MONGODB_VERSION }}
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - run: deno --version
       # Vitest needs the thread pool on Deno. Studio is a browser app, tested in browsers instead.
       - name: Full suite on Deno

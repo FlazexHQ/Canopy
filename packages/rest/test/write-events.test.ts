@@ -1,6 +1,6 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { isClusterTime } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { type Caller, type WriteEvent, WritePath } from "../src/index.ts"
@@ -44,7 +44,7 @@ suite("WritePath onWrite", () => {
     client = new MongoClient(MONGODB_URI ?? "")
     await client.connect()
     db = client.db(dbName)
-    const policies = new PolicyEngine(createPolicySet([todos, notes]))
+    const policies = testPolicyEngine(createPolicySet([todos, notes]))
     const shared = { client, database: dbName, metaDatabase: metaName, policies }
     writes = new WritePath({ ...shared, onWrite: (event) => events.push(event) })
     throwing = new WritePath({

@@ -1,6 +1,6 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import {
   Authenticator,
   attach,
@@ -9,7 +9,7 @@ import {
   toNodeHandler,
 } from "@canopy/realtime"
 import { createRestHandler, toNodeListener } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -127,10 +127,11 @@ suite("fallback transports and fallback syncing", () => {
       client: mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(set),
+      policies: testPolicyEngine(set),
       authenticator: new Authenticator(jwt, { publishable: ["pk"] }),
     })
     const realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,

@@ -70,7 +70,8 @@ Concept 2 wraps that core with auth, APIs and a UI. Concept 3 is the client half
    evaluating a policy results in a denial. "Zero-config" never means "open".
 2. **No changes to the user's schema.** Canopy writes no fields into user documents and creates no collections
    in the user's database. Its metadata lives in its own databases. Anything that changes the database
-   (pre-/post-images, suggested indexes) is opt-in, explicit and reversible.
+   (pre-/post-images, suggested and search indexes, views, materialized view targets) is opt-in, run only by an
+   explicit admin action, audited and reversible.
 3. **Incremental adoption.** Realtime, data API, auth, Studio and the SDK each work alone, and each works with
    the user's existing backend.
 4. **One policy engine for every entry point.** REST, GraphQL, realtime, Studio impersonation and edge workers
@@ -102,10 +103,10 @@ Concept 2 wraps that core with auth, APIs and a UI. Concept 3 is the client half
   *online-first, with optimistic updates and an offline mutation queue*. A local-first mode can come after 1.0.
 - **A hosted, multi-tenant control plane.** 1.0 is "one deployment, one project". The meta-DB layout leaves room
   for multi-project support later.
-- **File storage, server functions, cron jobs, webhooks and vector-search helpers.** These are on the
-  post-1.0 roadmap ([12 §8](12-roadmap.md#8-after-10)).
+- **File storage, server functions, cron jobs and webhooks.** These are on the post-1.0 roadmap ([12 §8](12-roadmap.md#8-after-10)).
 - **Enforcing DLS for clients with direct MongoDB credentials.** Unlike Postgres RLS, DLS is enforced at
-  Canopy's API boundary, not inside `mongod`.
+  Canopy's API boundary, not inside `mongod`. Applications that use a MongoDB driver can get DLS by
+  connecting to Canopy's MongoDB wire protocol endpoint instead ([15 §4.3](15-mongodb-depth.md#43-m3-a-mongodb-wire-protocol-endpoint)).
 - **Realtime on standalone `mongod`.** Change streams need a replica set. A single-node replica set is fine
   for development.
 - **First-class support for MongoDB-compatible databases** (Amazon DocumentDB, Azure Cosmos DB for MongoDB,

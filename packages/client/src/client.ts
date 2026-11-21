@@ -20,8 +20,8 @@ import type {
   ConnectionStatus,
   DehydratedState,
   LiveQuery,
-  LiveQueryOptions,
   MutationHandle,
+  ReadOptions,
   ReplaceOptions,
   StaleMutation,
   TokenSource,
@@ -31,7 +31,14 @@ import type {
 } from "./client-types.ts"
 import { LiveQueries } from "./live-queries.ts"
 import { Outbox } from "./outbox.ts"
-import { type AnyClient, QueryBuilder } from "./query-builder.ts"
+import { type AnyClient, type Collection, CollectionBuilder } from "./query-builder.ts"
+import {
+  type DefaultSchema,
+  definitionOf,
+  type SchemaConstraint,
+  type SchemaOption,
+  type SchemaTypes,
+} from "./register.ts"
 import { createStorage, type StorageApi } from "./storage.ts"
 import { type Layer, Store } from "./store.ts"
 import { TokenRefresher } from "./token-refresh.ts"
@@ -42,8 +49,9 @@ import type {
   Filter,
   IdOf,
   InsertOf,
+  ProjectedResult,
+  Projection,
   Schema,
-  UntypedSchema,
   UpdateFilter,
 } from "./types.ts"
 
@@ -59,7 +67,10 @@ function backoff(attempt: number, maxMs: number): number {
  * The Canopy client: a document cache with live queries over `canopy.v1`, automatic reconnection
  * with full jitter backoff, resume by sequence number and resync reconciliation.
  */
-export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
+export class CanopyClient<
+  in out DB extends Schema<DB> = DefaultSchema,
+  out Auth extends TokenSource | undefined = TokenSource | undefined,
+> {
   readonly store: Store = new Store()
   /**
    * Settles once the update engine is loaded. It is a separate chunk, fetched right after the client is
@@ -142,9 +153,12 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     this.connect()
   }
 
-  /** The token source passed as `auth`, such as the `createAuth()` handle. */
-  get auth(): TokenSource | undefined {
-    return this.options.auth
+  /**
+   * The token source passed as `auth`, with its own type: the `createAuth()` handle keeps its sign in
+   * methods, and another provider's token source is returned as given.
+   */
+  get auth(): Auth {
+    return this.options.auth as Auth
   }
 
   /** Starts a fresh session as the current user: the server refuses `auth` frames that switch subject. */
@@ -239,13 +253,27 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     return new ObjectId()
   }
 
-  /** Inserts a document. The optimistic copy, with a client generated `_id`, is visible at once. */
+  /**
+   * The document an insert stores. With a schema, the collection's definition fills in defaults and
+   * generates the `_id` its builder declares; otherwise `idTypes` picks the generator.
+   */
+  private prepare(collection: string, doc: object): Document {
+    const definition = definitionOf(this.options.schema, collection)
+    if (definition !== undefined) return asDocument(definition.prepare(doc))
+    const given = asDocument(doc)["_id"]
+    return { ...asDocument(doc), _id: given === undefined ? this.newId(collection) : given }
+  }
+
+  /**
+   * Inserts a document. The optimistic copy, with its defaults and a client generated `_id`, is visible at
+   * once.
+   */
   insert<C extends CollectionName<DB>>(
     collection: C,
     doc: InsertOf<DB, C>,
   ): MutationHandle<IdOf<DocumentOf<DB, C>>> {
-    const id = asDocument(doc)["_id"] ?? this.newId(collection)
-    const full = { ...doc, _id: id }
+    const full = this.prepare(collection, doc)
+    const id = full["_id"]
     return this.outbox.mutate(
       collection,
       "insert",
@@ -260,10 +288,7 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     collection: C,
     docs: readonly InsertOf<DB, C>[],
   ): MutationHandle {
-    const full = docs.map((doc) => ({
-      ...asDocument(doc),
-      _id: asDocument(doc)["_id"] ?? this.newId(collection),
-    }))
+    const full = docs.map((doc) => this.prepare(collection, doc))
     return this.outbox.mutate(
       collection,
       "insertMany",
@@ -297,7 +322,11 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     replacement: InsertOf<DB, C>,
     options: ReplaceOptions<DocumentOf<DB, C>> = {},
   ): MutationHandle {
-    const doc = asDocument(replacement)
+    const definition = definitionOf(this.options.schema, collection)
+    const doc =
+      definition === undefined
+        ? asDocument(replacement)
+        : withoutId(definition.prepare({ ...replacement, _id: id }), replacement)
     return this.outbox.mutate(
       collection,
       "replace",
@@ -376,20 +405,30 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
     for (const listener of this.statusListeners) listener(status)
   }
 
-  /** Starts a query builder for a collection. */
+  /**
+   * A collection: its writes (`insert`, `update`, `updateMany` and the rest), and live reads that start with
+   * `find`, `sort`, `fields` or `limit`. A read query has no write methods, so the scope of a write is
+   * always its own filter or ID.
+   */
   from<C extends CollectionName<DB>>(
     collection: C,
-  ): QueryBuilder<DocumentOf<DB, C>, InsertOf<DB, C>> {
-    return new QueryBuilder(this as unknown as AnyClient, collection, {}, {})
+  ): Collection<DocumentOf<DB, C>, InsertOf<DB, C>> {
+    return new CollectionBuilder(this as unknown as AnyClient, collection) as unknown as Collection<
+      DocumentOf<DB, C>,
+      InsertOf<DB, C>
+    >
   }
 
-  /** Returns a live query; identical queries share one server subscription. */
-  live<C extends CollectionName<DB>, Out = DocumentOf<DB, C>>(
+  /**
+   * Returns a live query; identical queries share one server subscription. A literal `fields` projection
+   * narrows the documents' type, as `from(c).fields(...)` does.
+   */
+  live<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(
     collection: C,
     where: Filter<DocumentOf<DB, C>>,
-    options: LiveQueryOptions<DocumentOf<DB, C>> = {},
-  ): LiveQuery<Out> {
-    return this.queries.live<Out>(collection, asDocument(where), {
+    options: ReadOptions<DocumentOf<DB, C>, F> = {},
+  ): LiveQuery<ProjectedResult<DocumentOf<DB, C>, F>> {
+    return this.queries.live(collection, asDocument(where), {
       sort: options.sort as Readonly<Record<string, 1 | -1>> | undefined,
       limit: options.limit,
       fields: options.fields as Readonly<Record<string, 0 | 1>> | undefined,
@@ -571,13 +610,15 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   private startHeartbeat(): void {
     if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer)
     this.lastInbound = Date.now()
+    const heartbeat = this.heartbeatMs
+    const interval = heartbeat >= 100 && heartbeat <= 300_000 ? heartbeat : 25_000
     this.heartbeatTimer = setInterval(() => {
-      if (Date.now() - this.lastInbound > 2 * this.heartbeatMs) {
+      if (Date.now() - this.lastInbound > 2 * interval) {
         this.socket?.close(4000, "heartbeat timeout")
         return
       }
       this.send({ t: "ping", ts: Date.now() })
-    }, this.heartbeatMs)
+    }, interval)
   }
 
   private detach(): void {
@@ -638,12 +679,18 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
       return
     }
     this.setStatus("reconnecting")
-    const delay = Math.max(minDelayMs, backoff(this.attempt, this.options.maxBackoffMs ?? 30_000))
+    const delay = Math.max(
+      Math.min(300_000, minDelayMs),
+      backoff(this.attempt, this.options.maxBackoffMs ?? 30_000),
+    )
     this.attempt += 1
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectTimer = undefined
-      this.connect()
-    }, delay)
+    this.reconnectTimer = setTimeout(
+      () => {
+        this.reconnectTimer = undefined
+        this.connect()
+      },
+      delay >= 0 && delay <= 2_147_483_647 ? delay : 30_000,
+    )
   }
 
   /** Reconnects now, for example on `online` or when the page becomes visible. */
@@ -673,12 +720,34 @@ export class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   }
 }
 
+function withoutId(doc: Record<string, unknown>, original: object): Document {
+  if ("_id" in original) return asDocument(doc)
+  const { _id: _omitted, ...rest } = doc
+  return rest
+}
+
 /**
- * Creates a client and starts connecting. Pass the generated `Database` type to check every query and
- * write against your collections: `createClient<Database>({ ... })`.
+ * Creates a client and starts connecting. Pass the schema from your `canopy.schema.ts` (`defineSchema()`) to
+ * type every query and write and to generate IDs and defaults from the same definition:
+ * `createClient({ url, publishableKey, schema })`. Once the schema is registered through `Register`, the
+ * option is required.
  */
-export function createClient<DB extends Schema<DB> = UntypedSchema>(
+export function createClient<
+  S extends SchemaConstraint,
+  A extends TokenSource | undefined = TokenSource | undefined,
+>(
+  options: ClientOptions & { readonly schema: S; readonly auth?: A },
+): CanopyClient<SchemaTypes<S>, A>
+/**
+ * Creates a client and starts connecting, typed by the registered schema, untyped, or with an explicit
+ * database type such as a `Database` interface from `canopy gen types`.
+ */
+export function createClient<
+  DB extends Schema<DB> = DefaultSchema,
+  A extends TokenSource | undefined = TokenSource | undefined,
+>(options: ClientOptions & SchemaOption & { readonly auth?: A }): CanopyClient<DB, A>
+export function createClient<DB extends Schema<DB>, A extends TokenSource | undefined>(
   options: ClientOptions,
-): CanopyClient<DB> {
-  return new CanopyClient<DB>(options)
+): CanopyClient<DB, A> {
+  return new CanopyClient<DB, A>(options)
 }

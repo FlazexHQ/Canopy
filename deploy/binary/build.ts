@@ -14,13 +14,32 @@
  * entry also loads `reflect-metadata` first: Bun's bundler runs a CommonJS side effect import after the
  * ES modules next to it, so tsyringe (used by the passkey dependencies) would otherwise find no polyfill
  * and stop the executable at startup.
+ * When the Node-API addon of `@canopy/native` is built for a target (`bun --filter @canopy/native build:native`,
+ * with `--target` for another platform), the entry of that target imports it by its literal path, which is
+ * what makes `bun build --compile` embed it, and registers it where the loader looks first, so the `native`
+ * engine works without `node_modules`. `--require-native` fails a target whose addon is not built.
+ * `--gateway` copies the built gateway beside the executables when available. `--require-gateway`
+ * requires it. Gateway builds for multiple targets use separate folders so each gateway keeps its runtime name.
  * Writes `SHA256SUMS` next to the executables.
  */
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs"
+import { basename, dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import {
+  NATIVE_TARGETS,
+  type NativeTarget,
+  hostTarget as nativeHostTarget,
+} from "../../packages/native/src/targets.ts"
 
 interface Program {
   readonly name: string
@@ -41,20 +60,21 @@ const PROGRAMS: Readonly<Record<string, Program>> = {
     packages: ["@canopy/config", "@canopy/policy"],
   },
 }
-const TARGETS = [
-  "linux-x64",
-  "linux-arm64",
-  "linux-x64-musl",
-  "linux-arm64-musl",
-  "darwin-x64",
-  "darwin-arm64",
-  "windows-x64",
-  "windows-arm64",
-]
+/** The Bun target name of a platform with a prebuilt addon, as `--target=bun-<name>` takes it. */
+function bunTarget(target: NativeTarget): string {
+  const os = target.os === "win32" ? "windows" : target.os
+  return `${os}-${target.cpu}${target.libc === "musl" ? "-musl" : ""}`
+}
+
+const PLATFORMS: Readonly<Record<string, NativeTarget>> = Object.fromEntries(
+  NATIVE_TARGETS.map((target) => [bunTarget(target), target]),
+)
+const TARGETS = Object.keys(PLATFORMS)
+const NATIVE = join(ROOT, "packages/native")
 
 function usage(message: string): never {
   process.stderr.write(
-    `${message}\n\nUsage: bun deploy/binary/build.ts [--target <os-arch>]... [--all] [--only cli|server] [--out <dir>]\nTargets: ${TARGETS.join(", ")}\n`,
+    `${message}\n\nUsage: bun deploy/binary/build.ts [--target <os-arch>]... [--all] [--only cli|server] [--out <dir>] [--require-native] [--gateway|--require-gateway]\nTargets: ${TARGETS.join(", ")}\n`,
   )
   process.exit(1)
 }
@@ -63,6 +83,9 @@ function parse(argv: readonly string[]) {
   const targets: string[] = []
   const only: string[] = []
   let out = "dist/binaries"
+  let requireNative = false
+  let includeGateway = false
+  let requireGateway = false
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     const value = (): string => {
@@ -80,19 +103,61 @@ function parse(argv: readonly string[]) {
       if (PROGRAMS[program] === undefined) usage(`Unknown program ${program}`)
       only.push(program)
     } else if (arg === "--out") out = value()
+    else if (arg === "--require-native") requireNative = true
+    else if (arg === "--gateway") includeGateway = true
+    else if (arg === "--require-gateway") requireGateway = true
     else usage(`Unknown option ${arg}`)
   }
   return {
     targets: targets.length === 0 ? [undefined] : [...new Set(targets)],
     programs: only.length === 0 ? Object.keys(PROGRAMS) : [...new Set(only)],
     out: resolve(ROOT, out),
+    requireNative,
+    includeGateway: includeGateway || requireGateway,
+    requireGateway,
   }
 }
 
-function shim(program: Program, entryDir: string): string {
+/** The Bun target of this machine, in the names of {@link TARGETS}. */
+function hostTarget(): string {
+  const host = nativeHostTarget()
+  return host === undefined ? `${process.platform}-${process.arch}` : bunTarget(host)
+}
+
+/** The built addon of `@canopy/native` for a Bun target, when there is one. */
+function addonFor(target: string): string | undefined {
+  const suffix = PLATFORMS[target]?.suffix
+  const file = suffix === undefined ? undefined : join(NATIVE, `canopy-native.${suffix}.node`)
+  return file !== undefined && existsSync(file) ? file : undefined
+}
+
+function gatewayFor(target: string, exe: string): string | undefined {
+  const triple = PLATFORMS[target]?.triple
+  const cargo = resolve(ROOT, process.env["CARGO_TARGET_DIR"] ?? "target")
+  const name = `canopy-gateway${exe}`
+  if (triple !== undefined) {
+    const file = join(cargo, triple, "release", name)
+    if (existsSync(file)) return file
+  }
+  const host = join(cargo, "release", name)
+  return target === hostTarget() && existsSync(host) ? host : undefined
+}
+
+function checksum(out: string, file: string): string {
+  const hash = createHash("sha256").update(readFileSync(file)).digest("hex")
+  return `${hash}  ${relative(out, file).replaceAll("\\", "/")}`
+}
+
+function shim(program: Program, entryDir: string, addon: string | undefined): string {
   const imports = [
     `import "reflect-metadata"`,
     ...program.packages.map((name, index) => `import * as p${index} from "${name}"`),
+    ...(addon === undefined
+      ? []
+      : [
+          `import binding from ${JSON.stringify(addon.replaceAll("\\", "/"))}`,
+          `;(globalThis as Record<symbol, unknown>)[Symbol.for("canopy.native.binding")] = binding`,
+        ]),
   ]
   const modules = program.packages.map(
     (name, index) =>
@@ -127,22 +192,42 @@ function main(): void {
   const version = (
     JSON.parse(readFileSync(join(ROOT, "packages/cli/package.json"), "utf8")) as { version: string }
   ).version
-  const { targets, programs, out } = parse(process.argv.slice(2))
+  const { targets, programs, out, requireNative, includeGateway, requireGateway } = parse(
+    process.argv.slice(2),
+  )
   mkdirSync(out, { recursive: true })
   const sums: string[] = []
+  const outputs = targets.map((target) => {
+    const platform = target ?? hostTarget()
+    const windows =
+      target === undefined ? process.platform === "win32" : target.startsWith("windows")
+    const exe = windows ? ".exe" : ""
+    const gateway = includeGateway ? gatewayFor(platform, exe) : undefined
+    if (gateway === undefined && requireGateway) {
+      const triple = PLATFORMS[platform]?.triple
+      const flag = triple === undefined || platform === hostTarget() ? "" : ` --target ${triple}`
+      usage(
+        `No canopy-gateway executable is built for ${platform}. Run cargo build --release -p canopy-gateway${flag}`,
+      )
+    }
+    const dir = includeGateway && targets.length > 1 ? join(out, platform) : out
+    mkdirSync(dir, { recursive: true })
+    return { target, platform, exe, gateway, dir }
+  })
   for (const key of programs) {
     const program = PROGRAMS[key]
     if (program === undefined) continue
     const entryDir = dirname(join(ROOT, program.entry))
     const generated = join(entryDir, `.${program.name}.compile.ts`)
-    writeFileSync(generated, shim(program, entryDir))
     try {
-      for (const target of targets) {
+      for (const { target, platform, exe, dir } of outputs) {
+        const addon = addonFor(platform)
+        if (addon === undefined && requireNative) {
+          usage(`No @canopy/native addon is built for ${platform}`)
+        }
+        writeFileSync(generated, shim(program, entryDir, addon))
         const suffix = target === undefined ? "" : `-${target}`
-        const windows =
-          target === undefined ? process.platform === "win32" : target.startsWith("windows")
-        const exe = windows ? ".exe" : ""
-        const file = join(out, `${program.name}${suffix}${exe}`)
+        const file = join(dir, `${program.name}${suffix}${exe}`)
         const args = [
           "build",
           "--compile",
@@ -157,14 +242,20 @@ function main(): void {
         ]
         const result = spawnSync(process.execPath, args, { cwd: out, stdio: "inherit" })
         if (result.status !== 0) process.exit(result.status ?? 1)
-        const hash = createHash("sha256").update(readFileSync(file)).digest("hex")
-        sums.push(`${hash}  ${relative(out, file)}`)
+        sums.push(checksum(out, file))
         const megabytes = (statSync(file).size / 1024 / 1024).toFixed(1)
-        process.stdout.write(`${relative(process.cwd(), file)}  ${megabytes} MB\n`)
+        const engine = addon === undefined ? "without the native engine" : "with the native engine"
+        process.stdout.write(`${relative(process.cwd(), file)}  ${megabytes} MB, ${engine}\n`)
       }
     } finally {
       rmSync(generated, { force: true })
     }
+  }
+  for (const { gateway, dir } of outputs) {
+    if (gateway === undefined) continue
+    const file = join(dir, basename(gateway))
+    copyFileSync(gateway, file)
+    sums.push(checksum(out, file))
   }
   writeFileSync(join(out, "SHA256SUMS"), `${sums.join("\n")}\n`)
 }

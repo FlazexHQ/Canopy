@@ -107,6 +107,7 @@ export {
   type WelcomeLimits,
   type WelcomeMessage,
 } from "./messages.ts"
+export { trimTrailingSlashes } from "./paths.ts"
 export { sha256Hex } from "./sha256.ts"
 export { isUuidV7, uuidv7 } from "./uuid.ts"
 export {

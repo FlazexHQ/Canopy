@@ -1,8 +1,8 @@
 import type { Db } from "mongodb"
 
 /**
- * The shape of a todo, enforced by MongoDB. `canopy gen types` reads this validator to write
- * `web/canopy.gen.ts`, so the React app is typed by the same schema the database enforces.
+ * The shape of a todo, enforced by MongoDB. The app declares the same collection in
+ * `web/canopy.schema.ts`, and the server test checks that the two agree.
  */
 const todoValidator = {
   $jsonSchema: {

@@ -1,6 +1,6 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine, restrict } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
 import { CanopyError, ErrorCode } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { type Caller, WritePath, type WriteRequest } from "../src/index.ts"
@@ -48,7 +48,7 @@ suite("explained denials", () => {
       client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(createPolicySet([todos])),
+      policies: testPolicyEngine(createPolicySet([todos])),
     }
     explaining = new WritePath({ ...shared, explainDenials: true })
     quiet = new WritePath(shared)

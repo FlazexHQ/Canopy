@@ -33,4 +33,4 @@ that need a stable connection near the database. Edge functions are request-scop
 |---|---|
 | Run change streams at the edge | Not reliable or economical: long-lived cursors, driver and TCP constraints, many duplicate streams |
 | Edge as a dumb TCP or WebSocket proxy | No fan-out or authorization benefit; the core still holds every socket |
-| No edge tier | Simplest, and remains the default. Edge is optional and comes later (Phase 5). |
+| No edge tier | Simplest, and remains the default. Edge is optional and comes later (Phase 6). |

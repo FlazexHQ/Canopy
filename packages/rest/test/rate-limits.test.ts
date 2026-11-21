@@ -1,7 +1,7 @@
 import { Authenticator, RateLimits } from "@canopy/auth"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, type PolicyEngine } from "@canopy/policy"
 import { ErrorCode } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -52,7 +52,7 @@ suite("REST rate limits against MongoDB", () => {
       { jwks: { keys: [jwk] }, issuer: ISSUER },
       { publishable: [PUBLISHABLE], secret: [SECRET] },
     )
-    policies = new PolicyEngine(createPolicySet([todos]))
+    policies = testPolicyEngine(createPolicySet([todos]))
   })
 
   afterAll(async () => {

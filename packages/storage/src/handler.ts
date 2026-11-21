@@ -7,6 +7,7 @@ import {
   isDocument,
   NotFoundError,
   toCanopyError,
+  trimTrailingSlashes,
 } from "@canopy/protocol"
 import {
   type Caller,
@@ -166,7 +167,7 @@ interface Exchange {
  * Authentication, rate limits, CORS and problem documents work as in the Data API.
  */
 export function createStorageHandler(options: StorageHandlerOptions): StorageHandler {
-  const basePath = (options.basePath ?? "/storage/v1").replace(/\/+$/, "")
+  const basePath = trimTrailingSlashes(options.basePath ?? "/storage/v1")
   const { storage } = options
   const callers = {
     authenticator: options.authenticator,

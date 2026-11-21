@@ -1,0 +1,20 @@
+[package]
+name = "s12-driver-fidelity"
+description = "Spike S12: does the official Rust driver give the realtime gateway what S1, S2 and S7 rely on?"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[workspace]
+
+[dependencies]
+canopy-matcher = { path = "../../../crates/canopy-matcher" }
+canopy-protocol = { path = "../../../crates/canopy-protocol" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+mongodb = { version = "=3.10.1", default-features = false, features = ["bson-3", "compat-3-3-0", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[profile.release]
+debug = 1

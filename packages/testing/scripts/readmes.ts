@@ -7,7 +7,7 @@
  *
  * The snippets are compiled with the other docs snippets by `bun run lint:snippets`.
  */
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 
 const root = resolve(".")
@@ -80,9 +80,31 @@ export default collection("todos", {
 })`,
     guides: [["concepts/document-level-security", "Document Level Security"]],
   },
+  native: {
+    about:
+      "Set `server.engine` (or `CANOPY_ENGINE`) to `native` to run the policy engine and the event matcher in Rust. A prebuilt addon is installed for each platform, and WebAssembly is the fallback everywhere else, so no Rust toolchain is needed.",
+    snippet: `import { selectEngine } from "@canopy/native"
+
+const core = selectEngine("native")
+const open = core.compileFilter({ status: "open", total: { $gte: 100 } })
+open.matches({ status: "open", total: 120 }) // true, decided in Rust`,
+    guides: [["reference/configuration", "Configuration"]],
+  },
+  wasm: {
+    about:
+      "For Cloudflare Workers and browsers, where a Node-API addon cannot load. It exports what `@canopy/native` exports, so `engineFromBinding` of that package wraps it behind the API of the TypeScript packages.",
+    setup: ["<!-- snippet: declare const module: WebAssembly.Module -->"],
+    snippet: `import { instantiate } from "@canopy/wasm"
+
+// On Workers: import module from "@canopy/wasm/canopy_wasm_bg.wasm"
+const core = await instantiate(module)
+const open = core.Filter.fromEjson('{"status": "open"}')
+open.matchesEjson('{"status": "open", "total": 120}') // true, decided in Rust`,
+    guides: [["concepts/document-level-security", "Document Level Security"]],
+  },
   schema: {
     about:
-      "`canopy gen types` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",
+      "`canopy pull` uses it: a collection's `$jsonSchema` validator wins, then the config, then inference from sampled documents.",
     snippet: `import { generateTypes, inferSchema } from "@canopy/schema"
 
 const todos = inferSchema("todos", [{ _id: "a", title: "Write docs", done: false }])
@@ -274,12 +296,15 @@ await canopy.insert("todos", { title: "Write docs", done: false })`,
   },
   react: {
     with: ["@canopy/client"],
+    about:
+      "The hooks are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
     lang: "tsx",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { CanopyProvider, useCanopy, useQuery } from "@canopy/react"
 import { useMemo } from "react"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const query = useMemo(() => canopy.from("todos").find({ done: false }).limit(50), [canopy])
   const { data, status } = useQuery(query)
   if (status === "loading") return <p>Loading</p>
@@ -303,11 +328,14 @@ export function App() {
   },
   vue: {
     with: ["@canopy/client"],
+    about:
+      "The composables are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { canopyPlugin, useCanopy, useQuery } from "@canopy/vue"
 import { createApp, defineComponent, h } from "vue"
 
 const Todos = defineComponent(() => {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const { data } = useQuery(() => canopy.from("todos").find({ done: false }).limit(50))
   return () =>
     h(
@@ -322,23 +350,26 @@ createApp(Todos).use(canopyPlugin(canopy)).mount("#app")`,
   svelte: {
     with: ["@canopy/client"],
     about:
-      "For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store.",
+      "For Svelte 5. Call `setCanopy` in the root component and `createQuery` in any component below it; the result is reactive and also a store. Queries are typed by the schema your `canopy.schema.ts` registers.",
+    setup: ["<!-- snippet: registered -->"],
     snippet: `import { createQuery, getCanopy, setCanopy } from "@canopy/svelte"
 
 setCanopy(canopy)
-const todos = createQuery(getCanopy<Database>().from("todos").find({ done: false }).limit(50))
+const todos = createQuery(getCanopy().from("todos").find({ done: false }).limit(50))
 // in the markup: {#each todos.data as todo (todo._id)}<p>{todo.title}</p>{/each}`,
     guides: [["guides/frameworks", "Framework bindings"]],
   },
   solid: {
     with: ["@canopy/client"],
     lang: "tsx",
-    setup: ["<!-- snippet: /** @jsxImportSource solid-js */ -->"],
+    about:
+      "The primitives are typed by the schema your `canopy.schema.ts` registers, with no type argument.",
+    setup: ["<!-- snippet: registered -->", "<!-- snippet: /** @jsxImportSource solid-js */ -->"],
     snippet: `import { CanopyProvider, createQuery, useCanopy } from "@canopy/solid"
 import { For } from "solid-js"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const todos = createQuery(canopy.from("todos").find({ done: false }).limit(50))
   return <For each={todos.data()}>{(todo) => <p>{todo.title}</p>}</For>
 }
@@ -426,7 +457,12 @@ for (const [name, entry] of Object.entries(ENTRIES)) {
   }
   const text = render(name, entry, manifest.description ?? "")
   const path = join(dir, "README.md")
-  const current = existsSync(path) ? readFileSync(path, "utf8").replaceAll("\r\n", "\n") : undefined
+  let current: string | undefined
+  try {
+    current = readFileSync(path, "utf8").replaceAll("\r\n", "\n")
+  } catch (error: unknown) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+  }
   if (current !== undefined && !current.startsWith(MARKER)) {
     process.stderr.write(`packages/${name}/README.md is written by hand; remove its entry here\n`)
     stale++

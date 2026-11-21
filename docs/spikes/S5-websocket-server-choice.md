@@ -22,7 +22,7 @@ Which WebSocket server should the engine use on each runtime, and what does fan 
 
 uWebSockets.js is not used: it is a native module without prebuilt binaries for every supported platform
 (Windows, Linux glibc and musl, macOS, x64 and arm64), which the repository rules forbid for the default
-install. An optional adapter is planned for Phase 5 ([12 §3.5](../plan/12-roadmap.md#35-phase-5-scale-and-edge--v06-to-v09-9-weeks)).
+install. An optional adapter was planned for the scale phase; the native gateway of Phase 5 ([12 §3.5](../plan/12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks)) replaces it unless spike S11 rejects the gateway.
 
 Both transports share one `RealtimeSocket` abstraction with `bufferedAmount` backpressure, a 256 KiB frame
 limit and encode once fan out, so the engine's cost does not depend on the server.
@@ -38,4 +38,4 @@ limit and encode once fan out, so the engine's cost does not depend on the serve
 ## Not done
 
 A per server comparison (memory per connection, messages per second, p99) at 10k to 50k sockets. Do it on
-the reference hardware together with the Cloudflare calibration of S8 in Phase 5, then update the CPU model.
+the reference hardware in spike S11 at the start of Phase 5, against the native gateway as well, then update the CPU model.

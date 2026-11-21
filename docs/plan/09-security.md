@@ -179,6 +179,7 @@ TOTP, RBAC and audit.
 
 - **Scope:** `@canopy/query` (parser, sanitizer), `@canopy/policy` (compiler, semantics), the realtime
   authorization path (observers, re-evaluation, merge boxes), the auth integration (token minting, claims hook,
-  keys), the admin API and Studio session handling, the edge relay and edge policy evaluation.
-- **Timing:** start of Phase 6, after a feature freeze. Budgeted in the roadmap.
+  keys), the admin API and Studio session handling, the edge relay and edge policy evaluation, the Rust crates and the gateway, the MongoDB wire
+  protocol endpoint, and policies on Queryable Encryption fields.
+- **Timing:** start of Phase 8, after a feature freeze. Budgeted in the roadmap.
 - **Gate:** no open high or critical findings at the 1.0 release. Mediums need a documented plan.

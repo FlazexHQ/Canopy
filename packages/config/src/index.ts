@@ -16,7 +16,7 @@ export {
   type ResolveOptions,
   type Source,
 } from "./resolution.ts"
-export { formatConfig, isResolvedConfig, redactUri, resolveConfig } from "./resolve.ts"
+export { amendConfig, formatConfig, isResolvedConfig, redactUri, resolveConfig } from "./resolve.ts"
 export { suggest } from "./resolver.ts"
 export {
   type Auth0Input,
@@ -32,6 +32,7 @@ export {
   type ConfigFunction,
   defineConfig,
   type EmailTransportInput,
+  type Engine,
   type Environment,
   type ExternalAuthInput,
   type FirebaseInput,
@@ -45,6 +46,7 @@ export {
   type PoliciesInput,
   type RateLimitsInput,
   type RealtimeInput,
+  type RealtimeServer,
   type RelationInput,
   type ResolvedBucket,
   type ResolvedBuiltinAuth,

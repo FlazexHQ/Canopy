@@ -10,6 +10,7 @@ import {
   SUBPROTOCOL,
   unbatch,
 } from "@canopy/protocol"
+import { TEST_ENGINE } from "@canopy/testing"
 import { exportJWK, generateKeyPair, type JWK, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import WebSocket from "ws"
@@ -63,6 +64,7 @@ export async function startEngine(
   const client = new MongoClient(uri)
   await client.connect()
   const realtime = await createRealtime({
+    engine: TEST_ENGINE,
     mongo: client,
     database: dbName,
     metaDatabase: `${dbName}_meta`,
@@ -100,15 +102,25 @@ export class TestClient {
   readonly docs = new Map<string, Record<string, unknown>>()
   readonly members = new Map<string, Set<string>>()
   readonly ready = new Set<string>()
+  /**
+   * Frames of a type the protocol does not define, which a client ignores: a conforming server sends none.
+   * Malformed frames of a known type make the decoder throw, which fails the test run.
+   */
+  readonly invalid: string[] = []
   closeCode: number | undefined
+  closeReason: string | undefined
   private readonly socket: WebSocket
   private readonly waiters: { test: () => boolean; resolve: () => void }[] = []
 
   private constructor(socket: WebSocket) {
     this.socket = socket
     socket.on("message", (data) => {
-      const message = decodeServerMessage(data.toString())
-      if (message === undefined) return
+      const text = data.toString()
+      const message = decodeServerMessage(text)
+      if (message === undefined) {
+        this.invalid.push(text)
+        return
+      }
       for (const part of unbatch(message)) {
         if (part.t === "pong") continue
         this.messages.push(part)
@@ -116,8 +128,9 @@ export class TestClient {
       }
       this.check()
     })
-    socket.on("close", (code) => {
+    socket.on("close", (code, reason) => {
       this.closeCode = code
+      this.closeReason = reason.toString()
       this.check()
     })
   }
@@ -198,10 +211,12 @@ export class TestClient {
           this.docs.set(key, message.d)
           return
         }
-        const doc = { ...(this.docs.get(key) ?? {}) }
-        Object.assign(doc, message.set ?? {})
-        for (const field of message.unset ?? []) delete doc[field]
-        this.docs.set(key, doc)
+        const doc = { ...this.docs.get(key), ...message.set }
+        const unset = new Set(message.unset)
+        this.docs.set(
+          key,
+          Object.fromEntries(Object.entries(doc).filter(([field]) => !unset.has(field))),
+        )
         return
       }
       case "removed": {

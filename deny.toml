@@ -1,0 +1,64 @@
+# cargo deny check: licenses, advisories, bans and sources of every crate the Cargo workspace builds.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# The set the npm packages allow: MIT, Apache 2.0, BSD, ISC.
+allow = ["MIT", "MIT-0", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD"]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+exceptions = [
+  # Needed by every procedural macro (through proc-macro2, under napi-derive and futures-macro), so it runs
+  # in the compiler only and is never linked into the addon: `cargo tree -i unicode-ident -e no-proc-macro`
+  # prints nothing. Unicode 3.0 is a permissive, OSI approved license for its Unicode data tables.
+  { allow = ["Unicode-3.0"], crate = "unicode-ident" },
+  # canopy-gateway, decided by the maintainer on 2026-11-19 (Q12 of the roadmap). The official MongoDB driver
+  # reaches these Unicode data crates through `bson`, `url` and `idna`, and needs `unicode-normalization` and
+  # `unicode-properties` for SCRAM (stringprep). Unicode 3.0 is a permissive, OSI approved data license.
+  { allow = ["Unicode-3.0"], crate = "icu_collections" },
+  { allow = ["Unicode-3.0"], crate = "icu_locale_core" },
+  { allow = ["Unicode-3.0"], crate = "icu_normalizer" },
+  { allow = ["Unicode-3.0"], crate = "icu_normalizer_data" },
+  { allow = ["Unicode-3.0"], crate = "icu_properties" },
+  { allow = ["Unicode-3.0"], crate = "icu_properties_data" },
+  { allow = ["Unicode-3.0"], crate = "icu_provider" },
+  { allow = ["Unicode-3.0"], crate = "litemap" },
+  { allow = ["Unicode-3.0"], crate = "potential_utf" },
+  { allow = ["Unicode-3.0"], crate = "tinystr" },
+  { allow = ["Unicode-3.0"], crate = "unicode-normalization" },
+  { allow = ["Unicode-3.0"], crate = "unicode-properties" },
+  { allow = ["Unicode-3.0"], crate = "writeable" },
+  { allow = ["Unicode-3.0"], crate = "yoke" },
+  { allow = ["Unicode-3.0"], crate = "yoke-derive" },
+  { allow = ["Unicode-3.0"], crate = "zerofrom" },
+  { allow = ["Unicode-3.0"], crate = "zerofrom-derive" },
+  { allow = ["Unicode-3.0"], crate = "zerotrie" },
+  { allow = ["Unicode-3.0"], crate = "zerovec" },
+  { allow = ["Unicode-3.0"], crate = "zerovec-derive" },
+  # canopy-gateway, decided by the maintainer on 2026-11-19 (Q12): the Mozilla root certificates TLS to MongoDB
+  # and to a JWKS endpoint is verified against. CDLA Permissive 2.0 is a permissive data license.
+  { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+  { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+  # Runs only at compile time, inside the MongoDB driver's `const-random` macro, and is never linked:
+  # `cargo tree -i tiny-keccak -e no-proc-macro -p canopy-gateway` prints nothing.
+  { allow = ["CC0-1.0"], crate = "tiny-keccak" },
+]
+
+[licenses.private]
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

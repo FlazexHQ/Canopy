@@ -14,6 +14,10 @@ concurrency:
 
 env:
   BUN_VERSION: 1.4.4
+  # A quicker release profile for the addon CI tests. native-release.yml and the nightly benchmarks keep the
+  # shipping profile of Cargo.toml (thin LTO, one codegen unit), so their caches use other keys.
+  CARGO_PROFILE_RELEASE_LTO: "off"
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
 jobs:
   check:
@@ -42,10 +46,179 @@ jobs:
         run: bun run lint:api
       - run: bun --bun vitest run
 
+  rust:
+    name: Rust crates (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain pinned in rust-toolchain.toml
+        run: rustup toolchain install
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-crates-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-crates-${{ runner.os }}-${{ runner.arch }}-
+      - run: cargo fmt --all --check
+      - name: The cargo fuzz targets, a workspace of their own, are formatted and compile
+        run: |
+          cargo fmt --manifest-path fuzz/Cargo.toml --check
+          cargo check --locked --manifest-path fuzz/Cargo.toml
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Unit tests and the filter vectors recorded from MongoDB
+        run: cargo test --locked
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - name: Licenses, advisories, bans and sources of every crate (cargo deny)
+        if: runner.os == 'Linux'
+        env:
+          DENY_VERSION: 0.20.2
+          DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+        run: |
+          archive="cargo-deny-$DENY_VERSION-x86_64-unknown-linux-musl.tar.gz"
+          curl --fail --silent --show-error --location --output "$RUNNER_TEMP/$archive" \
+            "https://github.com/EmbarkStudios/cargo-deny/releases/download/$DENY_VERSION/$archive"
+          echo "$DENY_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny" --locked check
+
+  native:
+    name: Rust engine (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-22.04 for now: MongoDB 8 does not start on the kernel of ubuntu-24.04 runners (SERVER-121912).
+        os: [ubuntu-22.04, windows-2025, macos-15]
+    env:
+      CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+      CANOPY_REQUIRE_MONGODB: "1"
+      SUITES: --project native --project matcher --project policy --project realtime --project rest --project graphql --project storage --project client --project server
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - name: Build the addon of this platform, the WebAssembly fallback and the Workers and browser build
+        run: |
+          bun --filter @canopy/native build:native
+          bun --filter @canopy/wasm build:native
+      - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
+        run: cargo build --release --locked -p canopy-gateway
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - if: runner.os == 'Linux'
+        name: Start a MongoDB 8.0 replica set in Docker
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: mongo:8.0.34
+      - if: runner.os != 'Linux'
+        name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+      - if: runner.os != 'Linux'
+        name: Start a MongoDB 8.0 replica set from the official binaries
+        run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: runner.os != 'Linux' && steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
+      - name: The suites, the bypass corpus and the invariants on the native engine (Bun)
+        shell: bash
+        run: bun --bun vitest run $SUITES
+        env:
+          CANOPY_TEST_ENGINE: native
+      - name: The suites, the bypass corpus and the invariants on the native engine (Node.js)
+        shell: bash
+        run: node node_modules/vitest/vitest.mjs run $SUITES
+        env:
+          CANOPY_TEST_ENGINE: native
+      - name: The same on the WebAssembly fallback (Node.js)
+        shell: bash
+        run: node node_modules/vitest/vitest.mjs run $SUITES
+        env:
+          CANOPY_TEST_ENGINE: wasm
+      - name: The standalone server embeds the addon and runs the native engine without node_modules
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --only server --require-native --require-gateway --out "$RUNNER_TEMP/native-binary"
+          exe=""
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
+          mkdir native-smoke && cd native-smoke
+          mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
+          MONGODB_URI="$CANOPY_TEST_MONGODB_URI" CANOPY_DB=native_binary CANOPY_POLICIES=policies \
+            CANOPY_SECRET_KEYS=sk_ci PORT=18091 METRICS_PORT=19491 CANOPY_ENGINE=native \
+            "$RUNNER_TEMP/native-binary/canopy-server$exe" > server.log 2>&1 &
+          server=$!
+          for attempt in $(seq 60); do
+            if curl -fsS 127.0.0.1:18091/readyz; then break; fi
+            sleep 1
+          done
+          grep -q '"engine":"native"' server.log || { cat server.log; exit 1; }
+          curl -fsS -X POST 127.0.0.1:18091/rest/v1/notes -H "apikey: sk_ci" \
+            -H "content-type: application/json" -d '{"ownerId":"user_1"}' || { cat server.log; exit 1; }
+          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18091/realtime/v1 sk_ci || { cat server.log; exit 1; }
+          kill "$server"
+      - if: failure() && runner.os != 'Linux'
+        shell: bash
+        run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
+
   install:
     name: Install test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -58,8 +231,37 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+      - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target
+        run: |
+          rustup toolchain install
+          rustup target add wasm32-wasip1-threads
+      - name: Restore the Cargo registry and build output
+        id: cargo-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}
+          restore-keys: cargo-native-nolto-${{ runner.os }}-${{ runner.arch }}-
       - run: bun install --frozen-lockfile
-      - name: Pack every package, install the tarballs with Bun, npm, pnpm and Yarn, import every entry point
+      - name: Build and pack the addon of this platform and the WebAssembly fallback, and build the Workers and browser build
+        run: |
+          bun --filter @canopy/native build:native --pack
+          bun --filter @canopy/wasm build:native
+      - name: Save the Cargo registry and build output
+        if: steps.cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ steps.cargo-cache.outputs.cache-primary-key }}
+      - name: Pack every package, install the tarballs with Bun, npm, pnpm and Yarn, import every entry point, fall back to WebAssembly
         run: bun packages/testing/scripts/install-test.ts --build
 
   docs:
@@ -120,15 +322,23 @@ jobs:
         with:
           node-version: ${{ matrix.runtime }}
       - run: bun install --frozen-lockfile
+      - name: Restore the MongoDB 8.0.34 binaries (only the binaries, never the data)
+        id: mongodb-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
+      - if: steps.mongodb-cache.outputs.cache-hit != 'true'
+        name: Save the MongoDB 8.0.34 binaries
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/mongodb/binaries/8.0.34
+          key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
       - name: Let the canopy dev --with-mongo test run the same mongod
         shell: bash
-        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
-      - if: matrix.runtime == 'bun'
-        run: bunx biome ci .
-      - if: matrix.runtime == 'bun'
-        run: bun run typecheck
+        run: echo "CANOPY_TEST_MONGOD=$(ls "${{ runner.temp }}"/mongodb/binaries/8.0.34/mongodb-*/bin/mongod* | head -n 1)" >> "$GITHUB_ENV"
       - if: matrix.runtime == 'bun'
         name: Unit, integration and differential tests (Bun)
         run: bun --bun vitest run
@@ -136,11 +346,16 @@ jobs:
         name: Unit, integration and differential tests (Node.js)
         run: node node_modules/vitest/vitest.mjs run
       - if: matrix.runtime == 'bun'
+        name: Build the native gateway
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p canopy-gateway
+      - if: matrix.runtime == 'bun'
         name: The standalone executables run without node_modules
         shell: bash
         working-directory: ${{ runner.temp }}
         run: |
-          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --out "$RUNNER_TEMP/binaries"
+          bun "$GITHUB_WORKSPACE/deploy/binary/build.ts" --require-gateway --out "$RUNNER_TEMP/binaries"
           exe=""
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; fi
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
@@ -169,14 +384,15 @@ jobs:
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   mongo:
-    name: MongoDB ${{ matrix.mongo }} replica set
+    name: MongoDB ${{ matrix.mongo }} replica set (${{ matrix.runtime }})
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["7.0.45", "8.0.34"]
+        mongo: ["8.0.34"]
+        runtime: [node, bun]
     env:
       CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
     steps:
@@ -186,16 +402,19 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      # On both legs, so the Bun leg keeps the Node.js 24 it ran next to before the split.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
-      - name: Integration and differential tests (Node, with coverage on MongoDB 8.0)
-        run: node node_modules/vitest/vitest.mjs run ${{ matrix.mongo == '8.0.34' && '--coverage --testTimeout=60000' || '' }}
+      - if: matrix.runtime == 'node'
+        name: Integration and differential tests (Node, with coverage)
+        run: node node_modules/vitest/vitest.mjs run --coverage --testTimeout=60000
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
           CANOPY_REQUIRE_MONGODB: "1"
-      - name: Integration and differential tests (Bun)
+      - if: matrix.runtime == 'bun'
+        name: Integration and differential tests (Bun)
         run: bun --bun vitest run
         env:
           CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
@@ -286,59 +505,94 @@ jobs:
     name: Docker images and compose stack
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the standalone gateway image
+        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile -t canopy-realtime:ci .
       - name: Build the canopy image and start the compose stack
         run: docker compose -f deploy/compose/canopy.yaml up -d --build --wait --wait-timeout 180
         env:
           CANOPY_IMAGE: canopy:ci
-      - name: Smoke test the compose stack
-        run: deploy/compose/canopy-smoke.sh
-      - name: The sidecar image starts and reports ready
-        run: |
-          docker run -d --name sidecar --network canopy_default -p 18080:8080 \
-            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
-            -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
-            canopy-realtime:ci
-          for attempt in $(seq 60); do
-            if curl -fsS localhost:18080/readyz; then exit 0; fi
-            sleep 1
-          done
-          docker logs sidecar
-          exit 1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - name: Smoke test the compose stack
+        env:
+          CANOPY_IMAGE: canopy:ci
+        run: |
+          deploy/compose/canopy-smoke.sh
+          export CANOPY_REALTIME_SERVER=gateway
+          docker compose -f deploy/compose/canopy.yaml up -d --no-build --wait --wait-timeout 180 canopy
+          docker compose -f deploy/compose/canopy.yaml logs canopy | grep '"realtimeServer":"gateway"'
+          bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
+          deploy/compose/canopy-smoke.sh
+      - name: The sidecar and gateway images start and report ready
+        run: |
+          docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
+            canopy-realtime:ci
+          docker run -d --read-only --name sidecar-gateway --network canopy_default -p 127.0.0.1:18081:8080 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
+            -e CANOPY_NODE_ID=sidecar-gateway -e CANOPY_REALTIME_SERVER=gateway canopy-realtime:ci
+          docker run -d --read-only --name gateway --network canopy_default \
+            -p 127.0.0.1:18082:8080 -p 127.0.0.1:19464:9464 \
+            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy-gateway:ci
+
+          check_ready() {
+            for ((attempt = 0; attempt < 60; attempt++)); do
+              if curl -fsS --max-time 2 "http://127.0.0.1:$2/readyz"; then return 0; fi
+              sleep 1
+            done
+            docker logs "$1"
+            return 1
+          }
+          check_ready sidecar 18080
+          check_ready sidecar-gateway 18081
+          check_ready gateway 18082
+          curl -fsS --max-time 2 http://127.0.0.1:19464/metrics
       - run: bun install --frozen-lockfile
       - name: Build the standalone executables
-        run: bun deploy/binary/build.ts --target linux-x64 --out "$RUNNER_TEMP/binaries"
+        run: |
+          rustup toolchain install
+          cargo build --release --locked -p canopy-gateway
+          bun deploy/binary/build.ts --target linux-x64 --require-gateway --out "$RUNNER_TEMP/binaries"
       - name: The executables run without node_modules
         working-directory: ${{ runner.temp }}
         run: |
           mkdir policies && cp "$GITHUB_WORKSPACE"/deploy/compose/policies/*.ts policies/
           binaries/canopy-linux-x64 --version
           binaries/canopy-linux-x64 policies lint --dir policies
-          MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary \
-            CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490 \
+          smoke() (
+            export MONGODB_URI="mongodb://localhost:27017/?directConnection=true" CANOPY_DB=binary
+            export CANOPY_POLICIES=policies CANOPY_SECRET_KEYS=sk_ci PORT=18090 METRICS_PORT=19490
             binaries/canopy-server-linux-x64 > server.log 2>&1 &
-          for attempt in $(seq 60); do
-            if curl -fsS localhost:18090/readyz; then break; fi
-            sleep 1
-          done
-          curl -fsS -X POST localhost:18090/rest/v1/notes -H "apikey: sk_ci" \
-            -H "content-type: application/json" -d '{"ownerId":"user_1"}'
-          bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
-          kill -TERM %1
-          wait %1
-          grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
+            server=$!
+            trap 'status=$?; kill -TERM "$server" 2>/dev/null || true; wait "$server" || true; if [ "$status" -ne 0 ]; then cat server.log; fi' EXIT
+            curl -fsS --max-time 2 --retry 60 --retry-delay 1 --retry-connrefused http://127.0.0.1:18090/readyz
+            curl -fsS -X POST http://127.0.0.1:18090/rest/v1/notes -H "apikey: sk_ci" \
+              -H "content-type: application/json" -d '{"ownerId":"user_1"}'
+            bun "$GITHUB_WORKSPACE/deploy/binary/ws-smoke.ts" ws://127.0.0.1:18090/realtime/v1 sk_ci
+            kill -TERM "$server"
+            wait "$server"
+            trap '' EXIT
+            grep -q '"msg":"stopped"' server.log || { cat server.log; exit 1; }
+            if [ "${CANOPY_REALTIME_SERVER:-}" = gateway ]; then
+              grep -q '"realtimeServer":"gateway"' server.log || { cat server.log; exit 1; }
+            fi
+          )
+          smoke
+          CANOPY_REALTIME_SERVER=gateway smoke
       - if: failure()
         run: docker compose -f deploy/compose/canopy.yaml logs
       - if: always()
         run: |
-          docker rm -f sidecar || true
+          docker rm -f sidecar sidecar-gateway gateway || true
           docker compose -f deploy/compose/canopy.yaml down --volumes
 
   changeset:

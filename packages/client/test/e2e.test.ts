@@ -2,7 +2,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { attach, createRealtime } from "@canopy/realtime"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -61,6 +61,7 @@ suite("client against the realtime engine", () => {
       policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
     })
     const realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,

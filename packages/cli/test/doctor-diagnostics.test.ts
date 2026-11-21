@@ -1,7 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { MONGODB_URI } from "@canopy/testing"
-import { MongoClient, ObjectId } from "mongodb"
-import { describe, expect, it } from "vitest"
+import { type Db, MongoClient, MongoNetworkError, ObjectId } from "mongodb"
+import { describe, expect, it, vi } from "vitest"
+import { run } from "../src/cli.ts"
 import { doctor, sampledPaths } from "../src/commands.ts"
 
 async function runDoctor(
@@ -25,6 +29,71 @@ async function runDoctor(
 }
 
 describe("canopy doctor diagnostics", () => {
+  it.each([
+    {
+      probe: "available",
+      lines: [
+        "ok    search: 1 collections, 1 indexes ready",
+        "warn  search index notes.vector is BUILDING",
+      ],
+    },
+    { probe: "failed", lines: ["warn  search: could not be checked: MongoDB is unavailable"] },
+  ])("reports the configured search probe when $probe", async ({ probe, lines }) => {
+    const dir = await mkdtemp(join(tmpdir(), "canopy-doctor-"))
+    const collection = vi.fn(() => ({
+      aggregate: () => ({
+        toArray: async () => {
+          if (probe === "failed") throw new MongoNetworkError("private driver details")
+          return [
+            { name: "text", type: "search", status: "READY", queryable: true },
+            { name: "vector", type: "vectorSearch", status: "BUILDING", queryable: false },
+          ]
+        },
+        [Symbol.asyncDispose]: async () => {},
+      }),
+    }))
+    try {
+      await writeFile(
+        join(dir, "config.mjs"),
+        `export default {
+        mongodb: { uri: "mongodb://localhost/test" },
+        collections: { notes: { search: true }, photos: { search: false } }
+      }`,
+      )
+      using _connect = vi
+        .spyOn(MongoClient.prototype, "connect")
+        .mockImplementation(async function (this: MongoClient) {
+          return this
+        })
+      using _db = vi.spyOn(MongoClient.prototype, "db").mockReturnValue({
+        command: async () => ({
+          setName: "rs0",
+          version: "8.0",
+          featureCompatibilityVersion: { version: "8.0" },
+        }),
+        watch: () => ({ tryNext: async () => null, close: async () => {} }),
+        listCollections: () => ({ toArray: async () => [] }),
+        collection,
+      } as unknown as Db)
+      const log = vi.fn()
+      const error = vi.fn()
+      expect(await run(["doctor", "--config", "config.mjs"], {}, { log, error }, dir)).toBe(0)
+      expect(error).not.toHaveBeenCalled()
+      expect(collection.mock.calls).toEqual([["notes"]])
+      expect(log.mock.calls.flat()).toEqual([
+        "ok    connected to MongoDB",
+        "ok    topology: replica set rs0",
+        "ok    MongoDB 8.0",
+        "ok    featureCompatibilityVersion 8.0",
+        "ok    change streams can be opened on test",
+        "warn  DLS is enforced by Canopy, not inside mongod: clients holding MongoDB credentials bypass it",
+        ...lines,
+      ])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it("explains an unreachable host with its fix", async () => {
     const result = await runDoctor("mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=300")
     expect(result.code).toBe(1)
@@ -57,6 +126,11 @@ describe("canopy doctor diagnostics", () => {
     expect(
       result.lines.some((line) => /^ok {4}featureCompatibilityVersion [78]\.\d$/.test(line)),
     ).toBe(true)
+    expect(result.lines).toContainEqual(
+      expect.stringMatching(
+        /^ok {4}search: (0 collections, 0 indexes ready|Search is not available on this MongoDB deployment;)/,
+      ),
+    )
   })
 
   withMongo("warns about policy fields no sampled document has", async () => {

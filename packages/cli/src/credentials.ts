@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto"
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { CanopyError, ErrorCode } from "@canopy/protocol"
+import { CanopyError, ErrorCode, trimTrailingSlashes } from "@canopy/protocol"
 
 /** The result of running a keychain tool. */
 export interface ToolResult {
@@ -85,7 +85,7 @@ export function projectKey(url: string): string {
   const parsed = new URL(url)
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:")
     throw new TypeError(`${url} is not an http or https URL`)
-  return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`
+  return `${parsed.origin}${trimTrailingSlashes(parsed.pathname)}`
 }
 
 function errorCode(error: unknown): string | undefined {
@@ -171,6 +171,8 @@ function dpapiScript(verb: "Protect" | "Unprotect"): string {
   return [
     "$ErrorActionPreference = 'Stop'",
     "Add-Type -AssemblyName System.Security",
+    "[Console]::InputEncoding = [Text.UTF8Encoding]::new($false)",
+    "[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)",
     "$text = [Console]::In.ReadToEnd().Trim()",
     `$bytes = [Security.Cryptography.ProtectedData]::${verb}(${input}, $null, 'CurrentUser')`,
     `[Console]::Out.Write(${output})`,

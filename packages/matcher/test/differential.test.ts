@@ -1,5 +1,13 @@
 import { stringify } from "@canopy/protocol"
-import { arbitraries, DIFF_RUNS, describeWithMongo } from "@canopy/testing"
+import {
+  arbitraries,
+  DIFF_DOCS,
+  DIFF_OPERATOR_CASES,
+  DIFF_RUNS,
+  describeWithMongo,
+  RUST_SKIPPED,
+  rustEngine,
+} from "@canopy/testing"
 import fc from "fast-check"
 import type { Collection, Document } from "mongodb"
 import { beforeAll, expect, it } from "vitest"
@@ -13,9 +21,13 @@ import {
 } from "../src/index.ts"
 
 const SEED = Number(process.env["CANOPY_DIFF_SEED"] ?? "20261106")
-const DOCS = 300
+const DOCS = DIFF_DOCS
+/** Room for about 20 µs per case on top of 10 minutes, so a nightly volume run is not cut short. */
+const TIMEOUT = 600_000 + Math.ceil((DIFF_RUNS * DOCS) / 50)
 
-type Outcome<T> = { ok: true; value: T } | { ok: false; unsupported: boolean; message: string }
+type Outcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; unsupported: boolean; name: string; message: string }
 
 async function mongoOutcome<T>(run: () => Promise<T>): Promise<Outcome<T>> {
   try {
@@ -24,6 +36,7 @@ async function mongoOutcome<T>(run: () => Promise<T>): Promise<Outcome<T>> {
     return {
       ok: false,
       unsupported: false,
+      name: error instanceof Error ? error.name : typeof error,
       message: error instanceof Error ? error.message : String(error),
     }
   }
@@ -36,14 +49,53 @@ function localOutcome<T>(run: () => T): Outcome<T> {
     return {
       ok: false,
       unsupported: error instanceof UnsupportedQueryError,
+      name: error instanceof Error ? error.name : typeof error,
       message: error instanceof Error ? error.message : String(error),
     }
   }
 }
 
+function verdict(run: () => boolean): string {
+  try {
+    return String(run())
+  } catch (error: unknown) {
+    return `threw (${error instanceof Error ? error.message : String(error)})`
+  }
+}
+
+function byteVerdict(outcome: Outcome<Uint8Array>, index: number, length: number): string {
+  if (!outcome.ok) return `threw (${outcome.message})`
+  if (outcome.value.length !== length)
+    return `returned ${outcome.value.length} verdicts for ${length}`
+  const byte = outcome.value[index]
+  return byte === 0 ? "false" : byte === 1 ? "true" : `undecided (${String(byte)})`
+}
+
+function concatenate(parts: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(parts.reduce((total, part) => total + part.length, 0))
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.length
+  }
+  return out
+}
+
+function compileKind(outcome: Outcome<unknown>): string {
+  if (outcome.ok) return "compiled it"
+  return outcome.unsupported ? "found it unsupported" : `rejected it (${outcome.name})`
+}
+
+function compileText(outcome: Outcome<unknown>): string {
+  return outcome.ok ? compileKind(outcome) : `${compileKind(outcome)}: ${outcome.message}`
+}
+
 describeWithMongo("differential: matcher against MongoDB", (db) => {
   let coll: Collection<Document>
   let docs: Document[]
+  let raw: Uint8Array[]
+  let concatenated: Uint8Array
+  const rust = rustEngine()
 
   beforeAll(async () => {
     coll = db().collection("filters")
@@ -53,55 +105,154 @@ describeWithMongo("differential: matcher against MongoDB", (db) => {
       .find({}, { promoteValues: false, bsonRegExp: true })
       .sort({ _id: 1 })
       .toArray()
+    raw = (await coll.find({}, { raw: true }).sort({ _id: 1 }).toArray()) as unknown as Uint8Array[]
+    concatenated = concatenate(raw)
   })
 
-  it(`filters agree with find() on ${DOCS} documents per filter (seed ${SEED})`, async () => {
-    const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
-    const mismatches: string[] = []
-    let cases = 0
-    let unsupported = 0
-    for (const query of filters) {
-      const expected = await mongoOutcome(async () =>
-        (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
-          Number(doc["_id"]),
-        ),
+  it(
+    `filters agree with find() on ${DOCS} documents per filter (seed ${SEED})`,
+    async () => {
+      const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
+      const mismatches: string[] = []
+      let cases = 0
+      let unsupported = 0
+      for (const query of filters) {
+        const expected = await mongoOutcome(async () =>
+          (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
+            Number(doc["_id"]),
+          ),
+        )
+        const compiled = localOutcome(() => compileFilter(query))
+        if (!compiled.ok && compiled.unsupported) {
+          unsupported += 1
+          continue
+        }
+        if (!expected.ok || !compiled.ok) {
+          cases += 1
+          if (expected.ok !== compiled.ok) {
+            mismatches.push(
+              `filter ${stringify(query)}: MongoDB ${expected.ok ? "accepted it" : `rejected it (${expected.message})`}, matcher ${compiled.ok ? "accepted it" : `rejected it (${compiled.message})`}`,
+            )
+          }
+          continue
+        }
+        const want = new Set(expected.value)
+        for (const doc of docs) {
+          cases += 1
+          const got = localOutcome(() => compiled.value.matches(doc))
+          const id = Number(doc["_id"])
+          if (!got.ok || got.value !== want.has(id)) {
+            mismatches.push(
+              `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${want.has(id)}, matcher ${got.ok ? got.value : got.message}`,
+            )
+          }
+        }
+        if (mismatches.length > 20) break
+      }
+      expect(mismatches.slice(0, 20), `${mismatches.length} mismatches in ${cases} cases`).toEqual(
+        [],
       )
-      const compiled = localOutcome(() => compileFilter(query))
-      if (!compiled.ok && compiled.unsupported) {
-        unsupported += 1
-        continue
-      }
-      if (!expected.ok || !compiled.ok) {
-        cases += 1
-        if (expected.ok !== compiled.ok) {
-          mismatches.push(
-            `filter ${stringify(query)}: MongoDB ${expected.ok ? "accepted it" : `rejected it (${expected.message})`}, matcher ${compiled.ok ? "accepted it" : `rejected it (${compiled.message})`}`,
-          )
+      expect(unsupported).toBeLessThan(filters.length / 4)
+    },
+    TIMEOUT,
+  )
+
+  it.skipIf(rust === undefined)(
+    rust === undefined
+      ? RUST_SKIPPED
+      : `filters agree among find(), the TypeScript matcher and the Rust matcher (${rust.kind}) on decoded documents and BSON (seed ${SEED})`,
+    async () => {
+      if (rust === undefined) return
+      expect(raw.length).toBe(docs.length)
+      const filters = fc.sample(arbitraries.filter(2), { numRuns: DIFF_RUNS, seed: SEED })
+      const mismatches: string[] = []
+      const perOperator = new Map<string, number>()
+      let cases = 0
+      let unsupported = 0
+      for (const query of filters) {
+        const expected = await mongoOutcome(async () =>
+          (await coll.find(query, { projection: { _id: 1 } }).toArray()).map((doc) =>
+            Number(doc["_id"]),
+          ),
+        )
+        const ts = localOutcome(() => compileFilter(query))
+        const native = localOutcome(() => rust.compileFilter(query))
+        if (!ts.ok || !native.ok) {
+          if (!ts.ok && ts.unsupported && compileKind(ts) === compileKind(native)) {
+            unsupported += 1
+            continue
+          }
+          cases += 1
+          if (compileKind(ts) !== compileKind(native)) {
+            mismatches.push(
+              `filter ${stringify(query)}: TypeScript ${compileText(ts)}, Rust ${compileText(native)}`,
+            )
+          } else if (expected.ok) {
+            mismatches.push(
+              `filter ${stringify(query)}: MongoDB accepted it, TypeScript ${compileText(ts)}, Rust ${compileText(native)}`,
+            )
+          }
+          continue
         }
-        continue
-      }
-      const want = new Set(expected.value)
-      for (const doc of docs) {
-        cases += 1
-        const got = localOutcome(() => compiled.value.matches(doc))
-        const id = Number(doc["_id"])
-        if (!got.ok || got.value !== want.has(id)) {
+        if (!expected.ok) {
+          cases += 1
           mismatches.push(
-            `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${want.has(id)}, matcher ${got.ok ? got.value : got.message}`,
+            `filter ${stringify(query)}: MongoDB rejected it (${expected.message}), TypeScript and Rust compiled it`,
           )
+          continue
         }
+        for (const operator of arbitraries.filterOperators(query))
+          perOperator.set(operator, (perOperator.get(operator) ?? 0) + docs.length)
+        const want = new Set(expected.value)
+        const many = localOutcome(() => native.value.matchMany(raw))
+        const batch = localOutcome(() => native.value.matchConcatenated(concatenated))
+        for (const [index, doc] of docs.entries()) {
+          cases += 1
+          const mongo = String(want.has(Number(doc["_id"])))
+          const found = [
+            verdict(() => ts.value.matches(doc)),
+            verdict(() => native.value.matches(doc)),
+            verdict(() => native.value.matchesBson(raw[index] as Uint8Array)),
+            byteVerdict(many, index, raw.length),
+            byteVerdict(batch, index, raw.length),
+          ]
+          if (found.some((got) => got !== mongo)) {
+            mismatches.push(
+              `filter ${stringify(query)} on ${stringify(doc)}: MongoDB ${mongo}, TypeScript ${found[0]}, Rust ${found[1]}, Rust on BSON ${found[2]}, Rust matchMany ${found[3]}, Rust matchConcatenated ${found[4]}`,
+            )
+          }
+        }
+        if (mismatches.length > 20) break
       }
-      if (mismatches.length > 20) break
-    }
-    expect(mismatches.slice(0, 20), `${mismatches.length} mismatches in ${cases} cases`).toEqual([])
-    expect(unsupported).toBeLessThan(filters.length / 4)
-  }, 600_000)
+      expect(
+        mismatches.slice(0, 20),
+        `${mismatches.length} disagreements in ${cases} cases`,
+      ).toEqual([])
+      expect(unsupported).toBeLessThan(filters.length / 4)
+      const counted = arbitraries.FILTER_OPERATORS.map(
+        (operator) => [operator, perOperator.get(operator) ?? 0] as const,
+      )
+      process.stdout.write(
+        `cases per operator (${rust.kind}): ${counted.map(([operator, count]) => `${operator} ${count}`).join(", ")}
+`,
+      )
+      if (DIFF_OPERATOR_CASES > 0)
+        expect(
+          counted.filter(([, count]) => count < DIFF_OPERATOR_CASES),
+          `operators below ${DIFF_OPERATOR_CASES} cases`,
+        ).toEqual([])
+    },
+    TIMEOUT,
+  )
 
   it("sort order agrees with find().sort()", async () => {
     const specs = fc.sample(
       fc
         .uniqueArray(
-          fc.tuple(fc.constantFrom("a", "b", "a.b", "c", "a.0"), fc.constantFrom(1, -1)),
+          fc.tuple(
+            fc.constantFrom("a", "b", "a.b", "c", "a.0", "a.c", "a.0.b", "a.b.c"),
+            fc.constantFrom(1, -1),
+          ),
           {
             minLength: 1,
             maxLength: 2,

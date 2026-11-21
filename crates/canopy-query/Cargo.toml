@@ -1,0 +1,15 @@
+[package]
+name = "canopy-query"
+description = "Canopy's query validation: filters, sorts, projections, limits and updates from untrusted callers, and canonical query hashing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-protocol = { path = "../canopy-protocol" }
+
+[lints]
+workspace = true

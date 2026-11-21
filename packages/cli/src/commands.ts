@@ -24,11 +24,10 @@ import {
   mongoTarget,
 } from "@canopy/protocol"
 import { directoryPolicies } from "@canopy/realtime"
+import { fromDriverError, probeSearch, searchDiagnostics } from "@canopy/rest"
 import { MongoClient } from "mongodb"
 import { mongoBackend } from "./mongo-backend.ts"
 import type { Output } from "./output.ts"
-
-export { type GenTypesOptions, genTypes } from "./gen-types.ts"
 
 export type { Output } from "./output.ts"
 
@@ -158,6 +157,8 @@ export function sampledPaths(docs: readonly Record<string, unknown>[]): string[]
 
 /** Options of `canopy doctor`. */
 export interface DoctorOptions {
+  /** Collections configured to allow search aggregations. */
+  readonly search?: readonly string[]
   readonly mongodbUri: string
   readonly database: string
   readonly dir?: string
@@ -211,9 +212,12 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
     const version = String(info["version"] ?? "0")
     const major = Number(version.split(".")[0])
     report(
-      major >= 7
+      major >= Number.parseInt(MIN_FEATURE_COMPATIBILITY_VERSION, 10)
         ? { status: "ok", message: `MongoDB ${version}` }
-        : { status: "fail", message: `MongoDB ${version} is too old; 7.0 or newer is required` },
+        : {
+            status: "fail",
+            message: `MongoDB ${version} is too old; ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer is required`,
+          },
     )
     try {
       const fcv = await admin.command({ getParameter: 1, featureCompatibilityVersion: 1 })
@@ -303,6 +307,16 @@ export async function doctor(options: DoctorOptions, out: Output): Promise<numbe
       message:
         "DLS is enforced by Canopy, not inside mongod: clients holding MongoDB credentials bypass it",
     })
+    const search = options.search ?? []
+    try {
+      const capability = await probeSearch(db, search)
+      for (const check of searchDiagnostics(capability, search.length)) report(check)
+    } catch (error: unknown) {
+      report({
+        status: "warn",
+        message: `search: could not be checked: ${fromDriverError(error, false).message}`,
+      })
+    }
   } finally {
     await client.close()
   }

@@ -1,6 +1,6 @@
 import { Authenticator } from "@canopy/auth"
 import { applyUpdate, compileFilter, compileRegex } from "@canopy/matcher"
-import { allow, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, collection, createPolicySet } from "@canopy/policy"
 import {
   CanopyError,
   canonicalString,
@@ -10,7 +10,7 @@ import {
   stringify,
 } from "@canopy/protocol"
 import { parseFilter, parseProjection, parseSort, parseUpdate } from "@canopy/query"
-import { hostile, MONGODB_URI } from "@canopy/testing"
+import { hostile, MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -42,9 +42,14 @@ describe("fuzzing the trust boundary parsers", () => {
       fc.property(hostile.text, (text) => {
         const value = refusedOrDone(() => parse(text))
         if (value === undefined) return
-        expect(canonicalString(parse(stringify(value)))).toBe(canonicalString(value))
+        const canonical = canonicalString(value)
+        expect(canonicalString(parse(canonical))).toBe(canonical)
+        // Relaxed EJSON writes a 64 bit integer that fits a double as a plain number, so reading it back
+        // gives another numeric type by design; the relaxed text itself must still come back unchanged.
+        const relaxed = stringify(value)
+        expect(stringify(parse(relaxed))).toBe(relaxed)
       }),
-      { numRuns: RUNS },
+      { numRuns: RUNS, examples: [['{"$numberLong":"-0"}'], ['{"a":{"$numberLong":"5"}}']] },
     )
   })
 
@@ -164,7 +169,7 @@ suite("fuzzing the Data API over HTTP", () => {
       client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(createPolicySet([todos])),
+      policies: testPolicyEngine(createPolicySet([todos])),
       authenticator: new Authenticator(undefined, { publishable: ["pk_fuzz"] }),
     })
   })

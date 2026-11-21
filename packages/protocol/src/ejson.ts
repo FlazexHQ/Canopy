@@ -97,12 +97,13 @@ function decodeValue(value: unknown, depth: number, maxDepth: number, state: Dec
   state.nodes += keys.length
   if (state.nodes > state.maxNodes) throw new InvalidQueryError("Too many values")
   if (keys.some((key) => WRAPPER_KEYS.has(key))) return decodeWrapper(record, keys)
-  const out: Record<string, unknown> = Object.create(null)
-  for (const key of keys) {
-    if (FORBIDDEN_KEYS.has(key)) throw new InvalidQueryError(`The key "${key}" is not allowed`)
-    out[key] = decodeValue(record[key], depth + 1, maxDepth, state)
-  }
-  return out
+  const out = Object.fromEntries(
+    keys.map((key) => {
+      if (FORBIDDEN_KEYS.has(key)) throw new InvalidQueryError(`The key "${key}" is not allowed`)
+      return [key, decodeValue(record[key], depth + 1, maxDepth, state)]
+    }),
+  )
+  return Object.setPrototypeOf(out, null)
 }
 
 function decodeWrapper(record: Record<string, unknown>, keys: readonly string[]): unknown {
@@ -319,12 +320,11 @@ function encodeValue(value: unknown, canonical: boolean): unknown {
     return { $binary: { base64: bytesToBase64(value), subType: "00" } }
   }
   if (isDocument(value)) {
-    const out: Record<string, unknown> = {}
-    for (const key of Object.keys(value)) {
-      const item = value[key]
-      if (item !== undefined) out[key] = encodeValue(item, canonical)
-    }
-    return out
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, encodeValue(item, canonical)]),
+    )
   }
   return encodeBsonValue(value, canonical)
 }

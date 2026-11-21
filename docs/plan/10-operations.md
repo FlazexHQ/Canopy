@@ -4,23 +4,22 @@
 
 | Component | Requirement |
 |---|---|
-| **MongoDB** | Replica set or sharded cluster, version **7.0+** before 1.0 and **8.0+** from 1.0. MongoDB 7.0 reaches end of life on 2027-08-31, close to the planned 1.0 date. Majority read concern enabled. Oplog window ≥ 24 h recommended. The app DB, the meta DB and the auth DB on the **same deployment**. |
+| **MongoDB** | Replica set or sharded cluster, version **8.0+**. Majority read concern enabled. Oplog window ≥ 24 h recommended. The app DB, the meta DB and the auth DB on the **same deployment**. |
 | **Canopy node** | Development: 1 vCPU / 1 GB. Production baseline: 2 vCPU / 4 GB. Runs on Bun (primary; the container ships a pinned, tested Bun 1.x), Node.js 24 or 26 LTS, or Deno, from the container or directly on a Windows, Linux or macOS host. |
 | **Network** | A load balancer that supports WebSockets, with an idle timeout of at least 60 s (more than 2× the heartbeat). Sticky sessions are recommended for multi-node deployments ([03 §11](03-realtime-engine.md#11-delivery-guarantees-resume-and-resync)). |
 | **Edge (optional)** | Cloudflare Workers with Durable Objects; pre-/post-images enabled on collections served from the edge |
 
 ## 2. Compatibility matrix
 
-Status as planned. Every "verify" row is checked during Phase 5 certification.
+Status as planned. Every "verify" row is checked during Phase 6 certification.
 
 | Platform | Status | Notes |
 |---|---|---|
 | MongoDB Community / Enterprise 8.x, replica set | **Full** (reference) | Tested on every PR |
 | MongoDB 8.x sharded cluster | **Full** | Tested nightly. `documentKey` includes the shard key. |
-| MongoDB 7.0 | Supported until 1.0 | End of life 2027-08-31 |
 | MongoDB Atlas, dedicated clusters | **Full** | |
 | MongoDB Atlas Flex / free tier | Expected to work (verify) | Check change-stream, transaction and connection limits |
-| Percona Server for MongoDB 7/8 | Expected to work (verify) | |
+| Percona Server for MongoDB 8 | Expected to work (verify) | |
 | Standalone `mongod` | Not supported | No change streams or transactions. Use a single-node replica set. |
 | Amazon DocumentDB | Best-effort, degraded (verify) | Change streams must be enabled. Feature differences (likely no pre-/post-images) mean the polling or lookup paths. |
 | Azure Cosmos DB for MongoDB | Best-effort, degraded (verify) | Change-stream limitations vary by offering (for example, delete events) |
@@ -65,7 +64,7 @@ volumes:
 
   Pin the exact MongoDB image version you have certified. The healthcheck initializes a single-node replica set
   on first boot.
-- **Kubernetes** (Helm chart in Phase 5): Deployment, Service, Ingress with WebSocket annotations, HPA on CPU
+- **Kubernetes** (Helm chart in Phase 6): Deployment, Service, Ingress with WebSocket annotations, HPA on CPU
   and on a connections metric, a PodDisruptionBudget, and `terminationGracePeriodSeconds` at least
   `drainWindow + 10s`.
 - **Platform templates** (Fly.io, Railway, Render) come later. **Serverless functions** can host REST, but

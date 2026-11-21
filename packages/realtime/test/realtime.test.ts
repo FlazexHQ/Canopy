@@ -42,6 +42,9 @@ const archive = collection("archive", {
 })
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
+const SIM_SEEDS = Number(process.env["CANOPY_SIM_SEEDS"] ?? "5")
+/** Two minutes plus half a second per seed (one takes about 50 ms), so the nightly 10k seeds can finish. */
+const SIM_TIMEOUT = 120_000 + SIM_SEEDS * 500
 
 interface Doc extends Document {
   _id: number
@@ -296,93 +299,141 @@ suite("realtime engine against MongoDB", () => {
     engine.realtime.reloadPolicies(createPolicySet([todos, archive]))
   })
 
-  it("converges to the MongoDB result after random writes (seeded simulation)", async () => {
+  it("applies an update to a document an earlier event of the same batch brought in", async () => {
     const coll = documents()
-    const users = ["alice", "bob"]
-    const tokens = { alice, bob }
-    const filters = [{}, { done: true }, { rank: { $gte: 3 } }, { tags: "x" }]
-    const write = fc.oneof(
-      fc.record({
-        op: fc.constant("insert" as const),
-        id: fc.nat(30),
-        owner: fc.constantFrom(...users),
-        rank: fc.nat(5),
-        done: fc.boolean(),
-        tags: fc.subarray(["x", "y"]),
-      }),
-      fc.record({
-        op: fc.constant("update" as const),
-        id: fc.nat(30),
-        rank: fc.nat(5),
-        done: fc.boolean(),
-      }),
-      fc.record({
-        op: fc.constant("move" as const),
-        id: fc.nat(30),
-        owner: fc.constantFrom(...users),
-      }),
-      fc.record({ op: fc.constant("delete" as const), id: fc.nat(30) }),
-    )
-    const seeds = Number(process.env["CANOPY_SIM_SEEDS"] ?? "5")
-    for (let seed = 0; seed < seeds; seed += 1) {
-      await coll.deleteMany({})
-      const writes =
-        fc.sample(fc.array(write, { minLength: 20, maxLength: 60 }), { numRuns: 1, seed })[0] ?? []
-      const subscribers = await Promise.all(
-        users.map((user) => connect(tokens[user as "alice" | "bob"])),
-      )
-      const half = Math.floor(writes.length / 2)
-      const apply = async (w: (typeof writes)[number]): Promise<void> => {
-        if (w.op === "insert") {
-          await coll.replaceOne(
-            { _id: w.id },
-            { ownerId: w.owner, rank: w.rank, done: w.done, tags: w.tags },
-            { upsert: true },
-          )
-        } else if (w.op === "update") {
-          await coll.updateOne({ _id: w.id }, { $set: { rank: w.rank, done: w.done } })
-        } else if (w.op === "move") {
-          await coll.updateOne({ _id: w.id }, { $set: { ownerId: w.owner } })
-        } else {
-          await coll.deleteOne({ _id: w.id })
-        }
-      }
-      const subscribing = subscribers.flatMap((client) =>
-        filters.map((filter, index) => client.subscribe(`f${index}`, "todos", { filter })),
-      )
-      await Promise.all([...writes.slice(0, half).map(apply), ...subscribing])
-      for (const w of writes.slice(half)) await apply(w)
-      const markers = [1000 + seed * 2, 1001 + seed * 2]
-      await coll.insertOne({ _id: markers[0] ?? 0, ownerId: "alice", marker: true })
-      await coll.insertOne({ _id: markers[1] ?? 0, ownerId: "bob", marker: true })
-      for (const [index, client] of subscribers.entries()) {
-        await client.until(() =>
-          client
-            .ids("f0")
-            .map(Number)
-            .includes(markers[index] ?? -1),
-        )
-      }
-      for (const [index, client] of subscribers.entries()) {
-        const user = users[index] ?? ""
-        for (const [fi, filter] of filters.entries()) {
-          const expected = await coll
-            .find({ $and: [filter, { ownerId: user }, { hidden: { $ne: true } }] })
-            .sort({ _id: 1 })
-            .toArray()
-          const got = [...client.view(`f${fi}`).values()].sort(
-            (a, b) => Number(a["_id"]) - Number(b["_id"]),
-          )
-          expect(
-            got.map((doc) => canonicalString(doc)),
-            `seed ${seed}, ${user}, filter ${JSON.stringify(filter)}`,
-          ).toEqual(expected.map((doc) => canonicalString(doc)))
-          for (const doc of got) expect(compileFilter({ ownerId: user }).matches(doc)).toBe(true)
-        }
-        client.bye()
-      }
+    const client = await connect(bob)
+    await client.subscribe("s", "todos")
+    const session = engine.client.startSession()
+    try {
+      await session.withTransaction(async () => {
+        await coll.replaceOne({ _id: 5000 }, { ownerId: "bob", step: 1 }, { upsert: true, session })
+        await coll.updateOne({ _id: 5000 }, { $set: { step: 2 } }, { session })
+      })
+    } finally {
+      await session.endSession()
     }
-  }, 120_000)
+    await coll.insertOne({ _id: 5001, ownerId: "bob", marker: true })
+    await client.until(() => client.ids("s").map(Number).includes(5001))
+    const held = [...client.view("s").values()].find((doc) => Number(doc["_id"]) === 5000)
+    expect(held).toEqual({ _id: 5000, ownerId: "bob", step: 2 })
+    await coll.deleteMany({ _id: { $in: [5000, 5001] } })
+  })
+
+  it(
+    "converges to the MongoDB result after random writes (seeded simulation)",
+    async () => {
+      const coll = documents()
+      const users = ["alice", "bob"]
+      const tokens = { alice, bob }
+      const filters = [{}, { done: true }, { rank: { $gte: 3 } }, { tags: "x" }]
+      const write = fc.oneof(
+        fc.record({
+          op: fc.constant("insert" as const),
+          id: fc.nat(30),
+          owner: fc.constantFrom(...users),
+          rank: fc.nat(5),
+          done: fc.boolean(),
+          tags: fc.subarray(["x", "y"]),
+        }),
+        fc.record({
+          op: fc.constant("update" as const),
+          id: fc.nat(30),
+          rank: fc.nat(5),
+          done: fc.boolean(),
+        }),
+        fc.record({
+          op: fc.constant("move" as const),
+          id: fc.nat(30),
+          owner: fc.constantFrom(...users),
+        }),
+        fc.record({ op: fc.constant("delete" as const), id: fc.nat(30) }),
+      )
+      for (let seed = 0; seed < SIM_SEEDS; seed += 1) {
+        await coll.deleteMany({})
+        const writes =
+          fc.sample(fc.array(write, { minLength: 20, maxLength: 60 }), { numRuns: 1, seed })[0] ??
+          []
+        const subscribers = await Promise.all(
+          users.map((user) => connect(tokens[user as "alice" | "bob"])),
+        )
+        const half = Math.floor(writes.length / 2)
+        const apply = async (w: (typeof writes)[number]): Promise<void> => {
+          if (w.op === "insert") {
+            await coll.replaceOne(
+              { _id: w.id },
+              { ownerId: w.owner, rank: w.rank, done: w.done, tags: w.tags },
+              { upsert: true },
+            )
+          } else if (w.op === "update") {
+            await coll.updateOne({ _id: w.id }, { $set: { rank: w.rank, done: w.done } })
+          } else if (w.op === "move") {
+            await coll.updateOne({ _id: w.id }, { $set: { ownerId: w.owner } })
+          } else {
+            await coll.deleteOne({ _id: w.id })
+          }
+        }
+        const subscribing = subscribers.flatMap((client) =>
+          filters.map((filter, index) => client.subscribe(`f${index}`, "todos", { filter })),
+        )
+        await Promise.all([...writes.slice(0, half).map(apply), ...subscribing])
+        for (const w of writes.slice(half)) await apply(w)
+        const markers = [1000 + seed * 2, 1001 + seed * 2]
+        await coll.insertOne({ _id: markers[0] ?? 0, ownerId: "alice", marker: true })
+        await coll.insertOne({ _id: markers[1] ?? 0, ownerId: "bob", marker: true })
+        for (const [index, client] of subscribers.entries()) {
+          await client.until(() =>
+            client
+              .ids("f0")
+              .map(Number)
+              .includes(markers[index] ?? -1),
+          )
+        }
+        for (const [index, client] of subscribers.entries()) {
+          const user = users[index] ?? ""
+          for (const [fi, filter] of filters.entries()) {
+            const expected = await coll
+              .find({ $and: [filter, { ownerId: user }, { hidden: { $ne: true } }] })
+              .sort({ _id: 1 })
+              .toArray()
+            const got = [...client.view(`f${fi}`).values()].sort(
+              (a, b) => Number(a["_id"]) - Number(b["_id"]),
+            )
+            const gotText = got.map((doc) => canonicalString(doc))
+            const expectedText = expected.map((doc) => canonicalString(doc))
+            const differing = new Set(
+              [...got, ...expected]
+                .map((doc) => Number(doc["_id"]))
+                .filter(
+                  (id) =>
+                    canonicalString(got.find((doc) => Number(doc["_id"]) === id) ?? null) !==
+                    canonicalString(expected.find((doc) => Number(doc["_id"]) === id) ?? null),
+                ),
+            )
+            const history = [...differing].map((id) => {
+              const written = writes
+                .map((w, index) => ({
+                  index,
+                  phase: index < half ? "concurrent" : "sequential",
+                  ...w,
+                }))
+                .filter((w) => w.id === id)
+              const received = client.messages.filter(
+                (m) => "c" in m && "id" in m && canonicalString(m.id) === canonicalString(id),
+              )
+              return `document ${id}: writes ${JSON.stringify(written)}; messages ${received.map((m) => canonicalString(m)).join(" ")}`
+            })
+            expect(
+              gotText,
+              `seed ${seed}, ${user}, filter ${JSON.stringify(filter)}: got ${gotText.join(" ")}, MongoDB has ${expectedText.join(" ")}; ${history.join("; ")}`,
+            ).toEqual(expectedText)
+            for (const doc of got) expect(compileFilter({ ownerId: user }).matches(doc)).toBe(true)
+          }
+          client.bye()
+        }
+      }
+    },
+    SIM_TIMEOUT,
+  )
 
   it("exposes Prometheus metrics", () => {
     const text = engine.realtime.renderMetrics()

@@ -123,6 +123,6 @@ broadcast; at 1,000 events/s (99 % private) $666 and $853.
 connections, $120 to $150 at 100 events per second, and about $1,000 when 1 % of 1,000 events per second
 reach everyone. Broadcast routing is rejected: it costs 3 to 20 times more for the same delivery.
 
-**Open, for Phase 5:** a calibration run on Cloudflare (10k sockets from a load generator, then 100k from
+**Open, for Phase 6:** a calibration run on Cloudflare (10k sockets from a load generator, then 100k from
 several machines) to replace the local frame cost and memory per socket with production numbers, and to
 check how many sockets a DO can actually hold.

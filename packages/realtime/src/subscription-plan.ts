@@ -1,9 +1,5 @@
-import {
-  type CompiledProjection,
-  compileFilter,
-  compileProjection,
-  UnsupportedQueryError,
-} from "@canopy/matcher"
+import { type CompiledProjection, compileProjection, UnsupportedQueryError } from "@canopy/matcher"
+import type { CoreEngine } from "@canopy/native"
 import {
   type Compiled,
   type ContextResolver,
@@ -20,7 +16,7 @@ import {
   toFilter,
 } from "@canopy/policy"
 import { CanopyError, ErrorCode, type ExplainAs, type SubMessage } from "@canopy/protocol"
-import { DEFAULT_LIMITS, parseQuery, queryHash } from "@canopy/query"
+import { DEFAULT_LIMITS, parseQuery } from "@canopy/query"
 import type { Doc } from "./event.ts"
 import type { RealtimeMetrics } from "./metrics.ts"
 import type { ObservedQuery } from "./observers.ts"
@@ -64,6 +60,7 @@ function accessDescriptor(access: FieldAccess): unknown {
  * Subscriptions with the same plan key share one observer.
  */
 export function planSubscription(
+  core: CoreEngine,
   engine: PolicyEngine,
   ctx: RequestContext,
   message: SubMessage,
@@ -94,7 +91,7 @@ export function planSubscription(
     : "polling"
   if (type !== "polling") {
     try {
-      compileFilter(filter)
+      core.compileFilter(filter)
     } catch (error: unknown) {
       if (!(error instanceof UnsupportedQueryError)) throw error
       type = "polling"
@@ -103,7 +100,7 @@ export function planSubscription(
   const projection =
     parsed.fields === undefined ? undefined : compileProjection(parsed.fields.projection)
   const sort = parsed.sort?.sort
-  const key = queryHash({
+  const key = core.queryHash({
     collection: coll,
     filter,
     sort,

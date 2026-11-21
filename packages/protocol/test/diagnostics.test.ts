@@ -167,8 +167,8 @@ describe("diagnoseMongoError", () => {
 
 describe("diagnosticOf", () => {
   it("prefers a carried diagnostic, then the driver table, then the error itself", () => {
-    const carried = featureCompatibilityDiagnostic("6.0", { host: "db:27017" })
-    expect(carried.cause).toContain("featureCompatibilityVersion 6.0")
+    const carried = featureCompatibilityDiagnostic("7.0", { host: "db:27017" })
+    expect(carried.cause).toContain("featureCompatibilityVersion 7.0")
     const error = new DiagnosticError(carried)
     expect(error.code).toBe(ErrorCode.Unavailable)
     expect(error.details).toBe(undefined)
@@ -237,8 +237,7 @@ describe("serverErrorCode", () => {
 describe("deploymentDiagnostic", () => {
   const target = { host: "db:27017" }
 
-  it("accepts a replica set or a sharded cluster on MongoDB 7.0 or newer", () => {
-    expect(deploymentDiagnostic({ setName: "rs0" }, "7.0.45", target)).toBeUndefined()
+  it("accepts a replica set or a sharded cluster on MongoDB 8.0 or newer", () => {
     expect(deploymentDiagnostic({ setName: "rs0" }, "8.0.34", target)).toBeUndefined()
     expect(deploymentDiagnostic({ msg: "isdbgrid" }, "9.0.4", target)).toBeUndefined()
   })
@@ -252,8 +251,8 @@ describe("deploymentDiagnostic", () => {
     expect(found?.cause).toContain("db:27017")
   })
 
-  it("refuses MongoDB older than 7.0 and versions it cannot read", () => {
-    expect(deploymentDiagnostic({ setName: "rs0" }, "6.0.20", target)).toMatchObject({
+  it("refuses MongoDB older than 8.0 and versions it cannot read", () => {
+    expect(deploymentDiagnostic({ setName: "rs0" }, "7.0.45", target)).toMatchObject({
       code: ErrorCode.Unavailable,
       summary: "MongoDB is too old",
     })

@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { type Db, MongoClient, ObjectId } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import {
@@ -354,7 +354,7 @@ suite("policy lifecycle", () => {
           realtime: { checkpoints: "off" },
           policies: { source: "database" },
         }),
-        { env: {}, onSetupToken: false },
+        { env: TEST_ENV, onSetupToken: false },
       )
       server = createServer(canopy.node())
       await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))

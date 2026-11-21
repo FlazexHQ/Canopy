@@ -104,7 +104,11 @@ export interface BuiltinAuthOptions {
     /** How often a used session is extended. @default 1 day */
     readonly updateAgeSeconds?: number
   }
-  /** The response time of routes whose timing could reveal whether an email exists. @default 80 */
+  /**
+   * The least response time of routes whose timing could reveal whether an email exists. Their answers also
+   * wait as long as the third slowest of the last 64 answers on the same route, up to one second, so a fast and a slow path take
+   * the same time where the slow one outlasts this floor. @default 80
+   */
   readonly responseFloorMs?: number
   readonly logger?: AuthLogger
 }

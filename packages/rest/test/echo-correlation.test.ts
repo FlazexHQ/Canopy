@@ -1,6 +1,6 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { type ClusterTime, canonicalString, compareCt, toCt } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { type ChangeStreamDocument, type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { type Caller, WritePath, type WriteRequest, type WriteResult } from "../src/index.ts"
@@ -79,7 +79,7 @@ suite("echo correlation between write results and change events", () => {
       client,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
-      policies: new PolicyEngine(createPolicySet([items])),
+      policies: testPolicyEngine(createPolicySet([items])),
       limits: { maxBulk: KEYS },
     })
     await writes.ensureIndexes()

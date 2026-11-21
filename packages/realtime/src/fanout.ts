@@ -1,9 +1,10 @@
-import { compileFilter } from "@canopy/matcher"
+import type { CoreEngine } from "@canopy/native"
 import type { ContextResolver, PolicyEngine } from "@canopy/policy"
 import { type ClusterTime, ZERO_CT } from "@canopy/protocol"
 import type { EchoWaiter } from "./echo.ts"
 import type { Doc, NormalizedEvent } from "./event.ts"
 import type { EventLog } from "./event-log.ts"
+import { matchesDocument } from "./match.ts"
 import type { RealtimeMetrics } from "./metrics.ts"
 import type { ObserverPool } from "./observer-pool.ts"
 import type { Observer } from "./observers.ts"
@@ -15,6 +16,8 @@ type Subscriber = ObserverOutcome["subscribers"][number]
 
 /** Options of {@link Fanout}. */
 export interface FanoutOptions {
+  /** Compiles the resolved policy clauses events are checked against. */
+  readonly core: CoreEngine
   readonly engine: () => PolicyEngine
   readonly pool: ObserverPool
   readonly reader: MongoSnapshotReader
@@ -52,23 +55,47 @@ export class Fanout {
     this.options = options
   }
 
-  /** Applies one batch of events in order, then advances every observer past the batch. */
+  /**
+   * Applies one batch of events in order, then advances every observer past the batch. An update whose
+   * document an earlier event of the batch touched gets its post image even when no observer holds the
+   * document yet, because that earlier event can bring it into one before the update is applied.
+   * The last change for each document can share a snapshot at the end of the batch. Earlier changes to
+   * that document still read at their own event times.
+   */
   async process(events: NormalizedEvent[]): Promise<void> {
     const { pool, reader, resolver, metrics } = this.options
-    const lookups = new Map<string, NormalizedEvent[]>()
+    const lookups = new Map<string, Map<ClusterTime, NormalizedEvent[]>>()
+    const lastInBatch = events.at(-1)?.ct
+    const lastByKey = new Map<string, NormalizedEvent>()
+    const needed: NormalizedEvent[] = []
     for (const event of events) {
+      const earlier = lastByKey.has(event.key)
+      lastByKey.set(event.key, event)
       if (event.op !== "update" || event.post !== undefined) continue
-      if (pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll)) continue
-      const list = lookups.get(event.coll) ?? []
-      list.push(event)
-      lookups.set(event.coll, list)
+      if (!earlier && pool.registry.candidates(event).size === 0 && !resolver.watches(event.coll))
+        continue
+      needed.push(event)
     }
-    for (const [coll, list] of lookups) {
-      const found = await reader.lookup(
-        coll,
-        list.map((event) => event.id),
-      )
-      for (const event of list) event.post = found.get(event.key) ?? null
+    for (const event of needed) {
+      let byTime = lookups.get(event.coll)
+      if (byTime === undefined) {
+        byTime = new Map()
+        lookups.set(event.coll, byTime)
+      }
+      const readTime = lastByKey.get(event.key) === event ? (lastInBatch ?? event.ct) : event.ct
+      const list = byTime.get(readTime) ?? []
+      list.push(event)
+      byTime.set(readTime, list)
+    }
+    for (const [coll, byTime] of lookups) {
+      for (const [ct, list] of byTime) {
+        const found = await reader.lookup(
+          coll,
+          list.map((event) => event.id),
+          ct,
+        )
+        for (const event of list) event.post = found.get(event.key) ?? null
+      }
     }
     for (const event of events) {
       if (resolver.watches(event.coll))
@@ -124,12 +151,12 @@ export class Fanout {
     if (origin === undefined) return undefined
     if (origin.matcher === undefined) {
       try {
-        origin.matcher = compileFilter(origin.filter)
+        origin.matcher = this.options.core.compileFilter(origin.filter)
       } catch {
         origin.matcher = null
       }
     }
-    if (origin.matcher === null || !origin.matcher.matches(doc)) return undefined
+    if (origin.matcher === null || !matchesDocument(origin.matcher, doc)) return undefined
     const engine = this.options.engine()
     const coll = observer.query.coll
     const explanation = engine.explain(coll, "read", origin.context, "using")
@@ -141,7 +168,7 @@ export class Fanout {
       let matched = false
       if (policy.applies && policy.resolved !== undefined) {
         try {
-          matched = compileFilter(policy.resolved).matches(doc)
+          matched = matchesDocument(this.options.core.compileFilter(policy.resolved), doc)
         } catch {
           matched = false
         }

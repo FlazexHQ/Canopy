@@ -1,4 +1,6 @@
 export { type RestrictMode, restrictShape } from "./access.ts"
+export { diffSchemas, type SchemaDifference, toValidator } from "./diff.ts"
+export { type EmitOptions, emitSchemaFile } from "./emit.ts"
 export { type InferOptions, inferSchema } from "./infer.ts"
 export { EJSON_COMPONENTS, fromJsonSchema, toJsonSchema } from "./json-schema.ts"
 export {

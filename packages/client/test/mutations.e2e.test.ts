@@ -1,9 +1,9 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { attach, createRealtime } from "@canopy/realtime"
 import { WritePath } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -67,6 +67,7 @@ suite("optimistic mutations against the realtime engine", () => {
     await mongo.connect()
     const set = createPolicySet([todos])
     const realtime = await createRealtime({
+      engine: TEST_ENGINE,
       mongo,
       database: dbName,
       metaDatabase: `${dbName}_meta`,
@@ -78,7 +79,7 @@ suite("optimistic mutations against the realtime engine", () => {
         client: mongo,
         database: dbName,
         metaDatabase: `${dbName}_meta`,
-        policies: new PolicyEngine(set),
+        policies: testPolicyEngine(set),
       }),
     })
     const server = createServer()

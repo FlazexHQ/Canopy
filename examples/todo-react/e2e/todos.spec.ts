@@ -1,5 +1,6 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test"
 import { MongoClient } from "mongodb"
+import { add, openAs } from "./app-helpers.ts"
 
 const uri = process.env["CANOPY_TEST_MONGODB_URI"]
 
@@ -38,21 +39,6 @@ test.beforeEach(async () => {
 test.afterEach(async () => {
   for (const context of contexts.splice(0)) await context.close()
 })
-
-async function openAs(context: BrowserContext, user: string, base?: string): Promise<Page> {
-  const page = await context.newPage()
-  await page.goto(`${base ?? ""}/?user=${user}`)
-  await expect(page.getByTestId("status")).toHaveText(base === undefined ? "live" : "fallback")
-  await expect(page.getByTestId("query-status")).toHaveText("ready")
-  return page
-}
-
-async function add(page: Page, title: string, shared = true): Promise<void> {
-  const box = page.getByRole("checkbox", { name: "Shared" })
-  if ((await box.isChecked()) !== shared) await box.click()
-  await page.getByLabel("New todo").fill(title)
-  await page.getByRole("button", { name: "Add" }).click()
-}
 
 const titles = (page: Page) => page.getByTestId("todo").locator(".title")
 

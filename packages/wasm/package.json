@@ -1,0 +1,37 @@
+{
+  "name": "@canopy/wasm",
+  "version": "0.0.0",
+  "description": "The Canopy core in Rust as WebAssembly for Cloudflare Workers and browsers: the policy engine, the event matcher, query canonicalization and the EJSON codec, with the same semantics as the server.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "@canopy/source": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./canopy_wasm_bg.wasm": "./generated/canopy_wasm_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "generated",
+    "src/**/*.ts",
+    "!**/*.tsbuildinfo"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "build:native": "bun scripts/build.ts",
+    "typecheck": "tsc -b test",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@canopy/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -12,6 +12,7 @@
     "types": ["node"]
   },
   "include": ["."],
+  "exclude": ["registered"],
   "references": [
     {
       "path": ".."

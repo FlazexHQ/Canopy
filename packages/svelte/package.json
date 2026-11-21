@@ -30,6 +30,7 @@
     "svelte": "^5.7.0"
   },
   "devDependencies": {
+    "@canopy/schema": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@sveltejs/vite-plugin-svelte": "catalog:",
     "@types/node": "catalog:",

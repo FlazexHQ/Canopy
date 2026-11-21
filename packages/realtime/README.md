@@ -13,7 +13,7 @@ It runs two ways:
 
 You need:
 
-- MongoDB 7.0 or newer running as a **replica set** or sharded cluster (Atlas works; a standalone server has
+- MongoDB 8.0 or newer running as a **replica set** or sharded cluster (Atlas works; a standalone server has
   no change streams).
 - An identity provider that publishes a JWKS, such as Auth0, Clerk, Cognito or Keycloak.
 - Bun 1.4 or newer, or Node.js 24 or newer. Docker is optional.

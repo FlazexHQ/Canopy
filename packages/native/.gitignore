@@ -1,0 +1,9 @@
+/target/
+*.node
+*.wasm
+*.tgz
+/packs/
+/index.d.ts
+/browser.js
+/canopy-native.wasi*
+/wasi-worker*.mjs

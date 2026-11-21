@@ -4,6 +4,8 @@
 
 Solid bindings for the Canopy client: createQuery with signals, useCanopy and a context.
 
+The primitives are typed by the schema your `canopy.schema.ts` registers, with no type argument.
+
 Part of [Canopy](https://github.com/FlazexHQ/Canopy), an open source, self hostable backend platform for MongoDB. Nothing is
 published to npm yet: until then, use it from a clone of the repository.
 
@@ -17,6 +19,7 @@ bun add @canopy/solid @canopy/client
 
 ## Use
 
+<!-- snippet: registered -->
 <!-- snippet: /** @jsxImportSource solid-js */ -->
 
 ```tsx
@@ -24,7 +27,7 @@ import { CanopyProvider, createQuery, useCanopy } from "@canopy/solid"
 import { For } from "solid-js"
 
 function Todos() {
-  const canopy = useCanopy<Database>()
+  const canopy = useCanopy()
   const todos = createQuery(canopy.from("todos").find({ done: false }).limit(50))
   return <For each={todos.data()}>{(todo) => <p>{todo.title}</p>}</For>
 }

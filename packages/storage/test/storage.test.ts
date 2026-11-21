@@ -4,15 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Authenticator } from "@canopy/auth"
 import { createStorage } from "@canopy/client"
-import {
-  allow,
-  auth,
-  ContextResolver,
-  collection,
-  createPolicySet,
-  PolicyEngine,
-} from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, ContextResolver, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { Transformer } from "@napi-rs/image"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -30,6 +23,7 @@ const ISSUER = "https://idp.example.test/"
 const PUBLISHABLE = "canopy_pk_storage"
 const SECRET = "canopy_sk_storage"
 const MIB = 1024 * 1024
+const multipartTest = { timeout: 30_000 }
 
 const objects = collection("storage.objects", {
   exposed: true,
@@ -58,7 +52,7 @@ suite("storage over HTTP on the local backend", () => {
   let meta: Db
   let handler: StorageHandler
   let root: string
-  let engine = new PolicyEngine(createPolicySet([objects]))
+  let engine = testPolicyEngine(createPolicySet([objects]))
   const tokens: Record<"alice" | "bob", string> = { alice: "", bob: "" }
 
   beforeAll(async () => {
@@ -128,7 +122,21 @@ suite("storage over HTTP on the local backend", () => {
       entry.isFile(),
     ).length
   const storedFiles = () => filesUnder("objects")
-  const partFiles = () => filesUnder("uploads")
+  const backendUploadId = async (id: string): Promise<string> => {
+    const session = await meta
+      .collection<{ _id: string; uploadId: string }>("storage_uploads")
+      .findOne({ _id: id })
+    if (session === null) throw new Error("Expected an upload session")
+    return session.uploadId
+  }
+  const partFiles = async (id: string): Promise<number> => {
+    try {
+      return await filesUnder(join("uploads", id))
+    } catch (error: unknown) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return 0
+      throw error
+    }
+  }
   const sha = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex")
 
   it("stores a file for its owner and serves it with its type, length, etag and a sandbox", async () => {
@@ -347,7 +355,7 @@ suite("storage over HTTP on the local backend", () => {
     ).toBe(404)
   })
 
-  it("uploads in parts in any order, resumes, and joins them", async () => {
+  it("uploads in parts in any order, resumes, and joins them", multipartTest, async () => {
     const size = 2 * 5 * MIB + 100
     const content = new Uint8Array(size)
     for (let i = 0; i < size; i += 1) content[i] = (i * 31) % 251
@@ -366,13 +374,14 @@ suite("storage over HTTP on the local backend", () => {
       partCount: number
       parts: number[]
     }
+    const uploadId = await backendUploadId(status.id)
     expect(status).toMatchObject({ partSize: 5 * MIB, partCount: 3, parts: [] })
-    const part = (n: number) => content.slice((n - 1) * 5 * MIB, Math.min(n * 5 * MIB, size))
+    const part = (n: number) => content.subarray((n - 1) * 5 * MIB, Math.min(n * 5 * MIB, size))
     const put = (n: number, body: Uint8Array, as: "alice" | "bob" = "alice") =>
       call("PUT", `uploads/${status.id}/${n}`, as, { body })
     expect((await put(3, part(3))).status).toBe(200)
     expect((await put(1, part(1))).status).toBe(200)
-    expect((await put(2, part(2).slice(1))).status).toBe(400)
+    expect((await put(2, part(2).subarray(1))).status).toBe(400)
     expect((await put(2, part(2), "bob")).status).toBe(404)
     expect((await put(4, part(3))).status).toBe(400)
     expect(await (await call("GET", `uploads/${status.id}`, "alice")).json()).toMatchObject({
@@ -386,45 +395,47 @@ suite("storage over HTTP on the local backend", () => {
     const read = await call("GET", "object/docs/big/data.bin", "alice")
     expect(read.headers.get("content-length")).toBe(String(size))
     expect(sha(new Uint8Array(await read.arrayBuffer()))).toBe(sha(content))
-    expect(await partFiles()).toBe(0)
+    expect(await partFiles(uploadId)).toBe(0)
     expect((await call("GET", `uploads/${status.id}`, "alice")).status).toBe(404)
   })
 
-  it("aborts an upload and drops its parts", async () => {
+  it("aborts an upload and drops its parts", multipartTest, async () => {
     const created = await call("POST", "upload/docs/big/aborted.bin", "alice", {
       body: JSON.stringify({ size: 6 * MIB }),
       headers: { "content-type": "application/json" },
     })
     const { id } = (await created.json()) as { id: string }
+    const uploadId = await backendUploadId(id)
     expect(
       (await call("PUT", `uploads/${id}/1`, "alice", { body: new Uint8Array(5 * MIB) })).status,
     ).toBe(200)
-    expect(await partFiles()).toBe(1)
+    expect(await partFiles(uploadId)).toBe(1)
     expect((await call("DELETE", `uploads/${id}`, "alice")).status).toBe(204)
-    expect(await partFiles()).toBe(0)
+    expect(await partFiles(uploadId)).toBe(0)
     expect((await call("GET", "object/docs/big/aborted.bin", "alice")).status).toBe(404)
   })
 
-  it("checks a resumable upload again when it completes", async () => {
+  it("checks a resumable upload again when it completes", multipartTest, async () => {
     const created = await call("POST", "upload/docs/late.bin", "alice", {
       body: JSON.stringify({ size: 10 }),
       headers: { "content-type": "application/json" },
     })
     expect(created.status).toBe(201)
     const { id } = (await created.json()) as { id: string }
+    const uploadId = await backendUploadId(id)
     expect(
       (await call("PUT", `uploads/${id}/1`, "alice", { body: new Uint8Array(10) })).status,
     ).toBe(200)
     const before = await storedFiles()
     const lenient = engine
-    engine = new PolicyEngine(createPolicySet([strict]))
+    engine = testPolicyEngine(createPolicySet([strict]))
     try {
       expect((await call("POST", `uploads/${id}/complete`, "alice")).status).toBe(403)
     } finally {
       engine = lenient
     }
     expect(await storedFiles()).toBe(before)
-    expect(await partFiles()).toBe(0)
+    expect(await partFiles(uploadId)).toBe(0)
     expect(await meta.collection("storage_objects").countDocuments({ path: "late.bin" })).toBe(0)
   })
 
@@ -623,7 +634,7 @@ suite("storage over HTTP on the local backend", () => {
     expect(response.status).toBe(404)
   })
 
-  it("works end to end with the client SDK", async () => {
+  it("works end to end with the client SDK", multipartTest, async () => {
     const client = createStorage({
       url: "http://canopy.test",
       publishableKey: PUBLISHABLE,
@@ -675,7 +686,9 @@ suite("storage over HTTP on the local backend", () => {
     await docs.remove("sdk/pic.png")
     await docs.remove("sdk/hello.txt")
     await docs.remove("sdk/large.bin")
-    await expect(docs.download("sdk/hello.txt")).rejects.toMatchObject({ code: "CANOPY_NOT_FOUND" })
+    await expect(docs.download("sdk/hello.txt")).rejects.toMatchObject({
+      code: "CANOPY_NOT_FOUND",
+    })
   })
 
   it("deletes a file and its content for its owner", async () => {

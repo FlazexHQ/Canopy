@@ -1,8 +1,14 @@
-import { CanopyClient, type DocumentSchema, type WebSocketLike } from "@canopy/client"
+import {
+  CanopyClient,
+  type DocumentSchema,
+  type MutationHandle,
+  type ObjectId,
+  type WebSocketLike,
+} from "@canopy/client"
 import { memoryPersister } from "@canopy/client/persist"
 import { act, type ReactNode } from "react"
 import { createRoot } from "react-dom/client"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import {
   CanopyProvider,
   createReactDb,
@@ -47,6 +53,29 @@ interface Todo extends Record<string, unknown> {
 }
 
 const counter = { renders: 0 }
+
+interface Note {
+  _id: ObjectId
+  title: string
+  done: boolean
+}
+
+/** Type checks run by `tsc -b`; never called. */
+function useHookTypes(db: ReactDb<DocumentSchema<{ notes: Note }>>): void {
+  const [note] = db.notes.useQuery({}, { fields: { title: 1 } }).data
+  if (note !== undefined) {
+    expectTypeOf(note).toEqualTypeOf<{ _id: ObjectId; title: string }>()
+    // @ts-expect-error the projection omits done
+    void note.done
+  }
+  expectTypeOf(db.notes.useQuery({ done: false }).data).toEqualTypeOf<readonly Note[]>()
+  expectTypeOf(db.notes.insert({ title: "a", done: false })).toEqualTypeOf<
+    MutationHandle<ObjectId>
+  >()
+  // @ts-expect-error a literal projection cannot mix inclusion and exclusion
+  void db.notes.useQuery({}, { fields: { title: 1, done: 0 } })
+}
+void useHookTypes
 
 function List({ db }: { readonly db: ReactDb<DocumentSchema<{ todos: Todo }>> }): ReactNode {
   counter.renders += 1

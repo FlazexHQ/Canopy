@@ -1,5 +1,5 @@
 import type { InternalAdapter, SecretConfig } from "@better-auth/core"
-import { runWithTransaction } from "@better-auth/core/context"
+import { getCurrentDBAdapterAsyncLocalStorage, runWithTransaction } from "@better-auth/core/context"
 import { mongodbAdapter } from "@better-auth/mongo-adapter"
 import { passkey } from "@better-auth/passkey"
 import { CanopyError, ErrorCode, isDocument } from "@canopy/protocol"
@@ -80,7 +80,8 @@ export interface EngineHooks {
     session: { readonly id: string; readonly userId: string },
     path: string | undefined,
   ): void
-  sessionEnded(session: { readonly id: string; readonly userId: string }): void
+  /** Settles once the session's revocation is recorded, so the request that ended it answers after that. */
+  sessionEnded(session: { readonly id: string; readonly userId: string }): Promise<void>
   userCreated(user: { readonly id: string }, path: string | undefined): void
   /** Replaces an imported password hash with a native one after a successful sign in. */
   rehash(legacy: string, hash: string): Promise<void>
@@ -532,6 +533,37 @@ interface EngineContext {
   readonly secret: string | SecretConfig
 }
 
+type AdapterStorage = Awaited<ReturnType<typeof getCurrentDBAdapterAsyncLocalStorage>>
+
+/**
+ * Runs `fn` with no database adapter current in Better Auth. Better Auth keeps the adapter of the operation in
+ * progress in one AsyncLocalStorage for the whole process, and under Deno an adapter it entered for one
+ * operation can stay current for later, unrelated calls, which then read and write through it: with two
+ * instances in one process, through the other instance's database. Every call from Canopy into Better Auth
+ * starts here, so only Better Auth's own `runWithAdapter` and `runWithTransaction` make one current.
+ */
+async function isolated<T>(fn: () => Promise<T>): Promise<T> {
+  const storage = await getCurrentDBAdapterAsyncLocalStorage()
+  return storage.exit(fn)
+}
+
+/**
+ * The internal adapter with every call outside a transaction isolated as {@link isolated} does; a call inside
+ * a transaction keeps joining it.
+ */
+function isolatedAdapter(adapter: InternalAdapter, storage: AdapterStorage): InternalAdapter {
+  return new Proxy(adapter, {
+    get(target, key, receiver) {
+      const value: unknown = Reflect.get(target, key, receiver)
+      if (typeof value !== "function") return value
+      return (...args: unknown[]): unknown =>
+        storage.getStore()?.isTransactionActive === true
+          ? Reflect.apply(value, target, args)
+          : storage.exit(() => Reflect.apply(value, target, args))
+    },
+  })
+}
+
 /**
  * Configures Better Auth for built in mode: its own database through a `MongoClient` (so multi document
  * writes are transactional), the `/auth/v1` base path, access tokens signed only through Canopy's `/token`
@@ -540,9 +572,9 @@ interface EngineContext {
 export function createEngine(settings: EngineSettings, hooks: EngineHooks): EngineApi {
   const auth = configure(settings, hooks)
   return {
-    handler: (request) => auth.handler(request),
+    handler: (request) => isolated(() => auth.handler(request)),
     async getSession(headers) {
-      const result = await auth.api.getSession({ headers, returnHeaders: true })
+      const result = await isolated(() => auth.api.getSession({ headers, returnHeaders: true }))
       const found = result.response
       return {
         found:
@@ -556,31 +588,38 @@ export function createEngine(settings: EngineSettings, hooks: EngineHooks): Engi
       }
     },
     async signJwt(payload) {
-      const { token } = await auth.api.signJWT({ body: { payload: { ...payload } } })
+      const { token } = await isolated(() =>
+        auth.api.signJWT({ body: { payload: { ...payload } } }),
+      )
       return token
     },
     async sendMagicLink(input) {
-      await auth.api.signInMagicLink({
-        body: {
-          email: input.email,
-          callbackURL: input.callbackURL,
-          ...(input.metadata === undefined ? {} : { metadata: { ...input.metadata } }),
-        },
-        headers: new Headers(),
-      })
+      await isolated(() =>
+        auth.api.signInMagicLink({
+          body: {
+            email: input.email,
+            callbackURL: input.callbackURL,
+            ...(input.metadata === undefined ? {} : { metadata: { ...input.metadata } }),
+          },
+          headers: new Headers(),
+        }),
+      )
     },
     async sendVerificationEmail(email, callbackURL) {
-      await auth.api.sendVerificationEmail({
-        body: { email, ...(callbackURL === undefined ? {} : { callbackURL }) },
-        headers: new Headers(),
-      })
+      await isolated(() =>
+        auth.api.sendVerificationEmail({
+          body: { email, ...(callbackURL === undefined ? {} : { callbackURL }) },
+          headers: new Headers(),
+        }),
+      )
     },
     async context() {
       const context = await auth.$context
+      const storage = await getCurrentDBAdapterAsyncLocalStorage()
       return {
-        internalAdapter: context.internalAdapter,
+        internalAdapter: isolatedAdapter(context.internalAdapter, storage),
         transaction: <R>(fn: () => Promise<R>): Promise<R> =>
-          runWithTransaction(context.adapter, fn).then((value) => value),
+          isolated(() => runWithTransaction(context.adapter, fn)).then((value) => value),
         hashPassword: (password) => context.password.hash(password),
         secret: context.secretConfig,
       }

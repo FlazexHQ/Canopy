@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import process from "node:process"
 import { pathToFileURL } from "node:url"
+import { checkCargo } from "./cargo.ts"
 import { checkCommitMessage } from "./commit.ts"
 import { findDashes } from "./dashes.ts"
 import { checkWorkspace } from "./workspace.ts"
@@ -26,7 +27,7 @@ const USAGE = [
   "--root <dir> makes later checks run against <dir> instead of the working directory.",
   "",
   "checks:",
-  "  workspace            workspace packages follow the repository layout",
+  "  workspace            workspace packages and crates follow the repository layout",
   "  dashes               no punctuation dashes in repository files",
   "  commit-msg <file>    the commit message in <file> follows the commit rules",
 ].join("\n")
@@ -53,7 +54,7 @@ export async function run(args: readonly string[], context: CliContext): Promise
       }
       root = resolve(context.cwd, dir)
     } else if (command === "workspace") {
-      problems.push(...(await checkWorkspace(root)))
+      problems.push(...(await checkWorkspace(root)), ...(await checkCargo(root)))
     } else if (command === "dashes") {
       problems.push(...(await scanDashes(root, context.listFiles ?? gitFiles)))
     } else if (command === "commit-msg") {

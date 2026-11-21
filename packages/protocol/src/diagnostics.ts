@@ -289,7 +289,7 @@ export function diagnoseMongoError(
 
 /**
  * Checks a deployment at startup from its `hello` and `buildInfo` answers: it must be a replica set or a
- * sharded cluster (change streams and transactions) and run MongoDB 7.0 or newer. Returns the problem, or
+ * sharded cluster (change streams and transactions) and run MongoDB 8.0 or newer. Returns the problem, or
  * `undefined` when there is none.
  */
 export function deploymentDiagnostic(
@@ -300,7 +300,7 @@ export function deploymentDiagnostic(
   if (typeof hello["setName"] !== "string" && hello["msg"] !== "isdbgrid")
     return standaloneDiagnostic(target)
   const major = Number.parseInt(version, 10)
-  if (!Number.isInteger(major) || major < 7)
+  if (!Number.isInteger(major) || major < MIN_MAJOR_VERSION)
     return {
       code: ErrorCode.Unavailable,
       summary: "MongoDB is too old",
@@ -311,9 +311,11 @@ export function deploymentDiagnostic(
 }
 
 /** The oldest feature compatibility version Canopy supports. */
-export const MIN_FEATURE_COMPATIBILITY_VERSION = "7.0"
+export const MIN_FEATURE_COMPATIBILITY_VERSION = "8.0"
 
-/** The diagnostic for a deployment whose feature compatibility version is below 7.0. */
+const MIN_MAJOR_VERSION = Number.parseInt(MIN_FEATURE_COMPATIBILITY_VERSION, 10)
+
+/** The diagnostic for a deployment whose feature compatibility version is below the oldest Canopy supports. */
 export function featureCompatibilityDiagnostic(
   version: string | undefined,
   target: MongoTarget = {},
@@ -321,7 +323,7 @@ export function featureCompatibilityDiagnostic(
   return {
     code: ErrorCode.Unavailable,
     summary: `the feature compatibility version is below ${MIN_FEATURE_COMPATIBILITY_VERSION}`,
-    cause: `${at(target)} runs with featureCompatibilityVersion ${version ?? "below 7.0"}; Canopy needs ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer.`,
+    cause: `${at(target)} runs with featureCompatibilityVersion ${version ?? `below ${MIN_FEATURE_COMPATIBILITY_VERSION}`}; Canopy needs ${MIN_FEATURE_COMPATIBILITY_VERSION} or newer.`,
     fix: `after upgrading the binaries, run db.adminCommand({ setFeatureCompatibilityVersion: "${MIN_FEATURE_COMPATIBILITY_VERSION}", confirm: true }).`,
     docs: "feature-compatibility-version",
   }

@@ -54,12 +54,12 @@ export interface CachedDocument {
     readonly ct: ClusterTime;
 }
 
-class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
+class CanopyClient<in out DB extends Schema<DB> = DefaultSchema, out Auth extends TokenSource | undefined = TokenSource | undefined> {
   readonly store: Store
   readonly updateEngine: Promise<void>
   readonly storage: StorageApi
-  constructor<in out DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
-  get auth(): TokenSource | undefined
+  constructor<in out DB extends Schema<DB> = import("./types.ts").UntypedSchema, out Auth extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions): CanopyClient<DB, Auth>
+  get auth(): Auth
   get staleMutations(): readonly StaleMutation[]
   onStaleMutations(listener: (mutations: readonly StaleMutation[]) => void): () => void
   onMutationError(listener: (error: Error, mutationId: string) => void): () => void
@@ -73,8 +73,8 @@ class CanopyClient<in out DB extends Schema<DB> = UntypedSchema> {
   deleteMany<C extends CollectionName<DB>>(collection: C, where: Filter<DocumentOf<DB, C>>): MutationHandle
   get connectionStatus(): ConnectionStatus
   onStatus(listener: (status: ConnectionStatus) => void): () => void
-  from<C extends CollectionName<DB>>(collection: C): QueryBuilder<DocumentOf<DB, C>, InsertOf<DB, C>>
-  live<C extends CollectionName<DB>, Out = DocumentOf<DB, C>>(collection: C, where: Filter<DocumentOf<DB, C>>, options?: LiveQueryOptions<DocumentOf<DB, C>>): LiveQuery<Out>
+  from<C extends CollectionName<DB>>(collection: C): Collection<DocumentOf<DB, C>, InsertOf<DB, C>>
+  live<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(collection: C, where: Filter<DocumentOf<DB, C>>, options?: ReadOptions<DocumentOf<DB, C>, F>): LiveQuery<ProjectedResult<DocumentOf<DB, C>, F>>
   hydrate(state: DehydratedState): void
   devtools(): ClientInternals
   receive(text: string): void
@@ -115,6 +115,7 @@ export interface ClientOptions {
     readonly maxBackoffMs?: number;
     readonly sdk?: string;
     readonly idTypes?: Readonly<Record<string, "objectId" | "uuid" | "string">>;
+    readonly schema?: SchemaDefinitionLike;
     readonly maxInFlight?: number;
     readonly fallback?: FallbackSource;
     readonly fetch?: typeof fetch;
@@ -124,6 +125,42 @@ export interface ClientOptions {
     readonly mutationTtlMs?: number;
     readonly lifecycle?: boolean | LifecycleSource;
     readonly shared?: SharedConnection;
+}
+
+export interface Collection<Doc = Document, Insert = Doc> extends Query<Doc, Doc> {
+    readonly name: string;
+    insert(doc: Insert): MutationHandle<IdOf<Doc>>;
+    insertMany(docs: readonly Insert[]): MutationHandle;
+    update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle;
+    replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle;
+    delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle;
+    updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle;
+    deleteMany(filter: Filter<Doc>): MutationHandle;
+}
+
+class CollectionBuilder<in out Doc = Document, in out Insert = Doc> extends QueryBuilder<
+  Doc,
+  Doc
+> {
+  constructor<in out Doc = Document, in out Insert = Doc>(client: AnyClient, collection: string): CollectionBuilder<Doc, Insert>
+  get name(): string
+  insert(doc: Insert): MutationHandle<IdOf<Doc>>
+  insertMany(docs: readonly Insert[]): MutationHandle
+  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
+  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle
+  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle
+  deleteMany(filter: Filter<Doc>): MutationHandle
+}
+
+export interface CollectionDefinitionLike {
+    readonly name: string;
+    prepare(doc: object): Record<string, unknown>;
+    readonly "~types"?: {
+        readonly Document: object;
+        readonly Insert: object;
+        readonly Patch: object;
+    };
 }
 
 export type CollectionName<DB> = keyof DB & string;
@@ -141,6 +178,18 @@ class ConflictError extends CanopyError {
 
 export type ConnectionStatus = "connecting" | "live" | "fallback" | "reconnecting" | "offline" | "closed";
 
+export type ConsistentProjection<F> = [
+    Flagged<Omit<F, "_id">, 1>
+] extends [
+    never
+] ? unknown : [
+    Flagged<Omit<F, "_id">, 0>
+] extends [
+    never
+] ? unknown : {
+    readonly "A projection cannot mix inclusion and exclusion": never;
+};
+
 class Decimal128 {
   readonly value: string
   constructor(value: string): Decimal128
@@ -153,10 +202,18 @@ export type DeepPartial<V> = V extends Leaf ? V : V extends readonly (infer E)[]
     [K in keyof V]?: DeepPartial<V[K]>;
 };
 
+export type DefaultSchema = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? UntypedSchema : SchemaTypes<Extract<RegisteredSchema, SchemaDefinitionLike>>;
+
 export interface DehydratedState {
     readonly canopy: 1;
     readonly queries: readonly unknown[];
 }
+
+export type Doc<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Document"];
 
 export type Document = Record<string, unknown>;
 
@@ -224,6 +281,8 @@ export type Filter<T> = {
 class ForbiddenError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): ForbiddenError
 }
+
+export type Id<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = IdOf<Doc<C, S>>;
 
 export type IdOf<Doc> = Doc extends {
     readonly _id: infer I;
@@ -329,6 +388,8 @@ export interface MutationResult {
     readonly insertedIds: readonly unknown[];
 }
 
+export type NewDoc<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Insert"];
+
 class NotFoundError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): NotFoundError
 }
@@ -345,6 +406,8 @@ class ObjectId {
   toJSON(): string
   equals(other: unknown): boolean
 }
+
+export type Patch<C extends keyof S & string, S extends SchemaDefinitionLike = ResolvedSchema> = TypesOf<S, C>["Patch"];
 
 export type Path<T, D extends number = 4> = [
     D
@@ -380,23 +443,33 @@ export type Projected<T, F> = IsUnknown<T> extends true ? T : string extends key
     [K in Exclude<Extract<Head<Dotted<Flagged<F, 1>>>, keyof T>, Exclude<Flagged<F, 1>, Dotted<Flagged<F, 1>>>>]?: DeepPartial<T[K]>;
 }>;
 
+export type ProjectedResult<T, F> = [
+    F
+] extends [
+    never
+] ? T : [
+    F
+] extends [
+    undefined
+] ? T : Projection<T> extends F ? DeepPartial<T> : Projected<T, NonNullable<F>>;
+
 export type Projection<T> = {
     readonly [P in Path<T>]?: 0 | 1;
 };
 
-class QueryBuilder<in out Doc = Document, in out Insert = Doc, out Out = Doc> implements LiveQuery<Out> {
-  constructor<in out Doc = Document, in out Insert = Doc, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>): QueryBuilder<Doc, Insert, Out>
-  find(filter: Filter<Doc>): QueryBuilder<Doc, Insert, Out>
-  sort(sort: Sort<Doc>): QueryBuilder<Doc, Insert, Out>
-  limit(limit: number): QueryBuilder<Doc, Insert, Out>
-  fields<const F extends Projection<Doc>>(fields: F): QueryBuilder<Doc, Insert, Projected<Doc, F>>
-  insert(doc: Insert): MutationHandle<IdOf<Doc>>
-  insertMany(docs: readonly Insert[]): MutationHandle
-  update(id: IdOf<Doc>, update: UpdateFilter<Doc>, options?: WriteOptions<Doc>): MutationHandle
-  replace(id: IdOf<Doc>, doc: Insert, options?: ReplaceOptions<Doc>): MutationHandle
-  delete(id: IdOf<Doc>, options?: WriteOptions<Doc>): MutationHandle
-  updateMany(filter: Filter<Doc>, update: UpdateFilter<Doc>): MutationHandle
-  deleteMany(filter: Filter<Doc>): MutationHandle
+export interface Query<Doc = Document, Out = Doc> extends LiveQuery<Out> {
+    find(filter: Filter<Doc>): Query<Doc, Out>;
+    sort(sort: Sort<Doc>): Query<Doc, Out>;
+    limit(limit: number): Query<Doc, Out>;
+    fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): Query<Doc, ProjectedResult<Doc, F>>;
+}
+
+class QueryBuilder<in out Doc = Document, out Out = Doc> implements LiveQuery<Out> {
+  constructor<in out Doc = Document, out Out = Doc>(client: AnyClient, collection: string, filter: Document, options: LiveQueryOptions<Doc>): QueryBuilder<Doc, Out>
+  find(filter: Filter<Doc>): QueryBuilder<Doc, Out>
+  sort(sort: Sort<Doc>): QueryBuilder<Doc, Out>
+  limit(limit: number): QueryBuilder<Doc, Out>
+  fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): QueryBuilder<Doc, ProjectedResult<Doc, F>>
   getState(): QueryState<Out>
   subscribe(listener: (state: QueryState<Out>) => void): () => void
 }
@@ -420,9 +493,28 @@ class RateLimitError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions): RateLimitError
 }
 
+export interface ReadOptions<Doc = Document, F = never> {
+    readonly sort?: Sort<Doc>;
+    readonly limit?: number;
+    readonly fields?: F & ConsistentProjection<F>;
+}
+
+export interface Register {
+}
+
+export type RegisteredSchema = Register extends {
+    readonly schema: infer S extends SchemaDefinitionLike;
+} ? S : undefined;
+
 export interface ReplaceOptions<Doc = Document> extends WriteOptions<Doc> {
     readonly upsert?: boolean;
 }
+
+export type ResolvedSchema = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? UntypedDefinition : Extract<RegisteredSchema, SchemaDefinitionLike>;
 
 export interface ResumableUploadOptions extends UploadFileOptions {
     readonly onProgress?: (sent: number, total: number) => void;
@@ -442,14 +534,38 @@ export type Schema<DB> = {
     readonly [K in keyof DB]: CollectionTypes;
 };
 
+export type SchemaConstraint = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? SchemaDefinitionLike : Extract<RegisteredSchema, SchemaDefinitionLike>;
+
+export type SchemaDefinitionLike = {
+    readonly [name: string]: CollectionDefinitionLike;
+};
+
+export type SchemaOption = [
+    RegisteredSchema
+] extends [
+    undefined
+] ? {
+    readonly schema?: SchemaDefinitionLike;
+} : {
+    readonly schema: RegisteredSchema;
+};
+
+export type SchemaTypes<S extends SchemaDefinitionLike> = {
+    readonly [K in keyof S]: NonNullable<S[K]["~types"]> extends infer T extends CollectionTypes ? T : CollectionTypes;
+};
+
 export interface SharedConnection {
     connect(url: string, protocol: string, WebSocketImpl: WebSocketConstructor): WebSocketLike;
 }
 
-export interface Snapshot {
+export interface Snapshot<T = Document> {
     readonly c: string;
     readonly q: SubQuery;
-    readonly docs: readonly Document[];
+    readonly docs: readonly T[];
     readonly ct: ClusterTime;
 }
 
@@ -544,6 +660,18 @@ export interface TokenSource {
 class UnauthorizedError extends CanopyError {
   constructor(message: string, options?: CanopyErrorOptions, expired?: boolean): UnauthorizedError
 }
+
+export type UntypedDefinition = {
+    readonly [name: string]: {
+        readonly name: string;
+        prepare(doc: object): Record<string, unknown>;
+        readonly "~types"?: {
+            readonly Document: Document;
+            readonly Insert: Document;
+            readonly Patch: Document;
+        };
+    };
+};
 
 export type UntypedSchema = Record<string, {
     readonly Document: Document;
@@ -644,7 +772,9 @@ export interface WriteOptions<Doc = Document> {
 
 function cacheKey(coll: string, id: unknown): string
 
-function createClient<DB extends Schema<DB> = UntypedSchema>(options: ClientOptions): CanopyClient<DB>
+function createClient<S extends SchemaConstraint, A extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions & { readonly schema: S; readonly auth?: A; }): CanopyClient<SchemaTypes<S>, A>
+function createClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema, A extends TokenSource | undefined = TokenSource | undefined>(options: ClientOptions & SchemaOption & { readonly auth?: A; }): CanopyClient<DB, A>
+function createClient<DB extends Schema<DB>, A extends TokenSource | undefined>(options: ClientOptions): CanopyClient<DB, A>
 
 function createStorage(options: StorageClientOptions): StorageApi
 
@@ -793,6 +923,222 @@ export interface ReactNativeLifecycleOptions {
 function reactNativeLifecycle(options: ReactNativeLifecycleOptions): LifecycleSource
 ```
 
+## @canopy/client/rest
+
+```ts
+export interface AggregateOptions<T = unknown> {
+    readonly decode?: OutputDecoder<T>;
+    readonly signal?: AbortSignal;
+}
+
+export interface BatchDelete<C extends string, Doc> {
+    readonly op: "delete";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly where?: Filter<Doc>;
+}
+
+export interface BatchInsert<C extends string, Insert> {
+    readonly op: "insert";
+    readonly c: C;
+    readonly doc: Insert;
+}
+
+export type BatchOperation<DB> = {
+    readonly [C in CollectionName<DB>]: BatchInsert<C, InsertOf<DB, C>> | BatchUpdate<C, DocumentOf<DB, C>> | BatchReplace<C, DocumentOf<DB, C>, InsertOf<DB, C>> | BatchDelete<C, DocumentOf<DB, C>>;
+}[CollectionName<DB>];
+
+export interface BatchOptions {
+    readonly atomic: boolean;
+    readonly idempotencyKey?: string;
+    readonly signal?: AbortSignal;
+}
+
+export type BatchOutcome = (BatchResult & {
+    readonly ok: true;
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}) | {
+    readonly ok: false;
+    readonly error: CanopyError;
+};
+
+export interface BatchReplace<C extends string, Doc, Insert> {
+    readonly op: "replace";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly doc: Insert;
+    readonly where?: Filter<Doc>;
+    readonly upsert?: boolean;
+}
+
+export interface BatchResult {
+    readonly data: Document | null;
+    readonly matched?: number;
+    readonly upserted?: boolean;
+}
+
+export interface BatchUpdate<C extends string, Doc> {
+    readonly op: "update";
+    readonly c: C;
+    readonly id: IdOf<Doc>;
+    readonly update: UpdateFilter<Doc>;
+    readonly where?: Filter<Doc>;
+}
+
+export type CountMode = "exact" | "estimated";
+
+export interface CountOptions {
+    readonly mode?: CountMode;
+    readonly signal?: AbortSignal;
+}
+
+export interface DecodeIssue {
+    readonly message: string;
+    readonly path?: readonly (PropertyKey | {
+        readonly key: PropertyKey;
+    })[];
+}
+
+export type DistinctValue<V> = Exclude<V extends readonly (infer E)[] ? E : V, undefined>;
+
+export interface FindByIdOptions<F> {
+    readonly fields?: F & ConsistentProjection<F>;
+    readonly signal?: AbortSignal;
+}
+
+export type MergePatch<T> = {
+    readonly [K in Exclude<keyof T, "_id">]?: MergeValue<Exclude<T[K], undefined>> | (Record<never, never> extends Pick<T, K> ? null : never);
+};
+
+export interface OutputDecoder<T> {
+    readonly "~standard": {
+        readonly validate: (value: unknown) => {
+            readonly value: T;
+            readonly issues?: undefined;
+        } | {
+            readonly issues: readonly DecodeIssue[];
+        } | Promise<{
+            readonly value: T;
+            readonly issues?: undefined;
+        } | {
+            readonly issues: readonly DecodeIssue[];
+        }>;
+    };
+}
+
+export interface PageOptions {
+    readonly after?: string;
+    readonly count?: CountMode;
+    readonly signal?: AbortSignal;
+}
+
+export interface PatchOptions<Doc> {
+    readonly where?: Filter<Doc>;
+    readonly idempotencyKey?: string;
+    readonly signal?: AbortSignal;
+}
+
+export interface RestAtomicBatch {
+    readonly results: readonly BatchResult[];
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}
+
+export interface RestBatchOutcomes {
+    readonly results: readonly BatchOutcome[];
+}
+
+export interface RestBatchWriter<DB> {
+    batch(operations: readonly BatchOperation<DB>[], options: BatchOptions & {
+        readonly atomic: true;
+    }): Promise<RestAtomicBatch>;
+    batch(operations: readonly BatchOperation<DB>[], options: BatchOptions & {
+        readonly atomic: false;
+    }): Promise<RestBatchOutcomes>;
+}
+
+export interface RestClient<DB extends Schema<DB> = DefaultSchema> extends RestBatchWriter<DB> {
+    from<C extends CollectionName<DB>>(collection: C): RestCollection<DocumentOf<DB, C>>;
+}
+
+export interface RestClientOptions {
+    readonly url: string;
+    readonly publishableKey: string;
+    readonly auth?: Pick<TokenSource, "getToken">;
+    readonly token?: RestToken;
+    readonly fetch?: typeof fetch;
+    readonly timeoutMs?: number;
+}
+
+export interface RestCollection<Doc = Document> extends RestQuery<Doc, Doc>, RestWriter<Doc> {
+    readonly name: string;
+    findById<const F extends Projection<Doc> = never>(id: IdOf<Doc>, options?: FindByIdOptions<F>): Promise<RestDocument<ProjectedResult<Doc, F>>>;
+    count(filter?: Filter<Doc>, options?: CountOptions): Promise<RestCount>;
+    distinct<P extends Path<Doc>>(field: P, filter?: Filter<Doc>, options?: {
+        readonly signal?: AbortSignal;
+    }): Promise<RestValues<DistinctValue<PathValue<Doc, P>>>>;
+    aggregate(pipeline: readonly Document[], options?: {
+        readonly signal?: AbortSignal;
+    }): Promise<RestValues<unknown>>;
+    aggregate<T>(pipeline: readonly Document[], options: AggregateOptions<T> & {
+        readonly decode: OutputDecoder<T>;
+    }): Promise<RestValues<T>>;
+}
+
+export interface RestCount {
+    readonly data: {
+        readonly count: number;
+        readonly exact: boolean;
+    };
+    readonly ct: ClusterTime;
+}
+
+export interface RestDocument<T> {
+    readonly data: T;
+    readonly ct: ClusterTime;
+}
+
+export interface RestPage<T> {
+    readonly data: readonly T[];
+    readonly page: {
+        readonly limit: number;
+        readonly next: string | null;
+        readonly total?: number;
+    };
+    readonly ct: ClusterTime;
+}
+
+export interface RestQuery<Doc = Document, Out = Doc> {
+    find(filter: Filter<Doc>): RestQuery<Doc, Out>;
+    sort(sort: Sort<Doc>): RestQuery<Doc, Out>;
+    limit(limit: number): RestQuery<Doc, Out>;
+    fields<const F extends Projection<Doc>>(fields: F & ConsistentProjection<F>): RestQuery<Doc, ProjectedResult<Doc, F>>;
+    page(options?: PageOptions): Promise<RestPage<Out>>;
+}
+
+export type RestToken = string | null | undefined | (() => RestTokenValue | Promise<RestTokenValue>);
+
+export interface RestValues<T> {
+    readonly data: readonly T[];
+    readonly ct: ClusterTime;
+}
+
+export interface RestWrite<T> {
+    readonly data: T | null;
+    readonly ct: ClusterTime;
+    readonly replayed: boolean;
+}
+
+export interface RestWriter<Doc = Document> {
+    patch(id: IdOf<Doc>, patch: MergePatch<Doc>, options?: PatchOptions<Doc>): Promise<RestWrite<Doc>>;
+}
+
+function createRestClient<S extends SchemaConstraint>(options: RestClientOptions & { readonly schema: S; }): RestClient<SchemaTypes<S>>
+function createRestClient<DB extends Schema<DB> = import("../types.ts").UntypedSchema>(options: RestClientOptions & SchemaOption): RestClient<DB>
+function createRestClient(options: RestClientOptions): object
+```
+
 ## @canopy/client/rest-polling
 
 ```ts
@@ -811,8 +1157,8 @@ export interface CookieSource {
     }[];
 }
 
-export interface ServerClient<DB extends Schema<DB> = UntypedSchema> {
-    find<C extends CollectionName<DB>>(collection: C, filter?: Filter<DocumentOf<DB, C>>, options?: LiveQueryOptions<DocumentOf<DB, C>>): Promise<Snapshot>;
+export interface ServerClient<DB extends Schema<DB> = DefaultSchema> {
+    find<C extends CollectionName<DB>, const F extends Projection<DocumentOf<DB, C>> = never>(collection: C, filter?: Filter<DocumentOf<DB, C>>, options?: ReadOptions<DocumentOf<DB, C>, F>): Promise<Snapshot<ProjectedResult<DocumentOf<DB, C>, F>>>;
     token(): Promise<string | undefined>;
 }
 
@@ -826,7 +1172,7 @@ export interface ServerClientOptions {
 
 export type ServerToken = string | null | undefined | (() => Promise<string | null | undefined>);
 
-function createServerClient<DB extends Schema<DB> = UntypedSchema>(options: ServerClientOptions): ServerClient<DB>
+function createServerClient<DB extends Schema<DB> = import("./types.ts").UntypedSchema>(options: ServerClientOptions): ServerClient<DB>
 
-function dehydrate(snapshots: readonly Snapshot[]): DehydratedState
+function dehydrate(snapshots: readonly Snapshot<unknown>[]): DehydratedState
 ```

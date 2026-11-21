@@ -32,6 +32,7 @@
     "@canopy/config": "workspace:*",
     "@canopy/graphql": "workspace:*",
     "@canopy/matcher": "workspace:*",
+    "@canopy/native": "workspace:*",
     "@canopy/node-http": "workspace:*",
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",

@@ -7,6 +7,8 @@ The client runs in React Native and Expo with the platform's own `WebSocket` and
 to mobile: a persister for offline writes and sessions, and a lifecycle source, because React Native has no
 `online` or `visibilitychange` events.
 
+<!-- snippet: registered -->
+
 ```ts
 import { createClient } from "@canopy/client"
 import { mmkvPersister } from "@canopy/client/persist"
@@ -14,8 +16,10 @@ import { reactNativeLifecycle } from "@canopy/client/react-native"
 import NetInfo from "@react-native-community/netinfo"
 import { AppState } from "react-native"
 import { MMKV } from "react-native-mmkv"
+import { schema } from "./canopy.schema.ts"
 
-const canopy = createClient<Database>({
+const canopy = createClient({
+  schema,
   url: "https://api.example.com",
   publishableKey: "pk_app",
   persist: mmkvPersister(new MMKV({ id: "canopy" })),

@@ -1,4 +1,5 @@
 import { type Operation, type PolicyEngine, type RequestContext, Role } from "@canopy/policy"
+import { trimTrailingSlashes } from "@canopy/protocol"
 import {
   type CollectionSchema,
   EJSON_COMPONENTS,
@@ -168,7 +169,7 @@ function policyNames(
  */
 export function buildOpenApi(options: OpenApiOptions): Json {
   const { engine, ctx } = options
-  const base = (options.basePath ?? "/rest/v1").replace(/\/+$/, "")
+  const base = trimTrailingSlashes(options.basePath ?? "/rest/v1")
   const service = ctx.roles.has(Role.Service)
   const names = new Set<string>()
   for (const def of engine.set.collections.values())

@@ -68,4 +68,4 @@ Findings:
   already plans).
 - **Open:** sharded clusters. Events from different shards are merged by the change stream, and a transaction
   across shards commits at one cluster time, so the rule should hold, but this needs the same suite against a
-  sharded test cluster. Add a sharded topology to the nightly matrix before the hub mode work in Phase 5.
+  sharded test cluster. Add a sharded topology to the nightly matrix before the hub mode work in Phase 6.

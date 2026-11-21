@@ -15,6 +15,7 @@
   "dependencies": {
     "@canopy/client": "workspace:*",
     "@canopy/policy": "workspace:*",
+    "@canopy/schema": "workspace:*",
     "@canopy/server": "workspace:*",
     "esbuild": "0.28.2",
     "mongodb": "7.7.0"

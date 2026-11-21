@@ -1,5 +1,6 @@
 import { addressAllowed } from "@canopy/auth"
 import { NotFoundError, ValidationError } from "@canopy/protocol"
+import { fromDriverError, probeSearch, searchDiagnostics } from "@canopy/rest"
 import { migrationStatus } from "../../migrations.ts"
 import type { RequestSurface } from "../../request-log.ts"
 import { json } from "../http.ts"
@@ -10,7 +11,7 @@ import type { AdminDeps, Context, RouteFn } from "./core.ts"
 export function registerOps(route: RouteFn, deps: AdminDeps): void {
   const { options, config, accounts, audit, settings, realtime, environment, production, app } =
     deps
-  route("GET", "doctor", "ops.doctor", async () => {
+  route("GET", "doctor", "ops.doctor", async (context) => {
     const checks: { name: string; status: "ok" | "warn" | "fail"; message: string }[] = []
     const add = (name: string, status: "ok" | "warn" | "fail", message: string): void => {
       checks.push({ name, status, message })
@@ -21,7 +22,13 @@ export function registerOps(route: RouteFn, deps: AdminDeps): void {
       add("mongodb", "ok", `MongoDB ${String(build["version"])}`)
       if (typeof hello["setName"] === "string")
         add("replica-set", "ok", `Replica set ${hello["setName"]}`)
-      else add("replica-set", "fail", "Change streams and transactions need a replica set")
+      else if (hello["msg"] === "isdbgrid") add("replica-set", "ok", "Sharded cluster (mongos)")
+      else
+        add(
+          "replica-set",
+          "fail",
+          "Change streams and transactions need a replica set or a sharded cluster",
+        )
     } catch (error: unknown) {
       add("mongodb", "fail", error instanceof Error ? error.message : "MongoDB is unreachable")
     }
@@ -65,6 +72,20 @@ export function registerOps(route: RouteFn, deps: AdminDeps): void {
           ? "Sign outs and bans on other nodes apply here at once"
           : "Not following other nodes' revocations: their sign outs and bans apply here only once following resumes",
       )
+    const search = Object.keys(config.collections).filter(
+      (name) => config.collections[name]?.search === true,
+    )
+    try {
+      const capability = await probeSearch(app, search, { signal: context.request.signal })
+      for (const [index, check] of searchDiagnostics(capability, search.length).entries())
+        add(index === 0 ? "search" : "search-index", check.status, check.message)
+    } catch (error: unknown) {
+      add(
+        "search",
+        "warn",
+        `search: could not be checked: ${fromDriverError(error, false).message}`,
+      )
+    }
     const status = checks.some((c) => c.status === "fail")
       ? "fail"
       : checks.some((c) => c.status === "warn")

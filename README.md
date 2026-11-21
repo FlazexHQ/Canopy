@@ -8,8 +8,9 @@ dashboard. It works with an existing MongoDB deployment without changing its sch
 
 **Status: Phases 1 to 4 are implemented** (DLS core and realtime, Data API and optimistic SDK, auth, server and
 Studio, GraphQL and the framework bindings), and the repository is working through the audit plan in
-[`plans/README.md`](plans/README.md) before Phase 5 (scale and edge). Nothing is published to npm yet and no
-license has been chosen, so every quickstart starts from a clone of this repository.
+[`plans/README.md`](plans/README.md) before Phase 5 (the native core in Rust, then scale and edge in
+Phase 6 and MongoDB depth in Phase 7). Nothing is published to npm yet and no license has been chosen, so every quickstart starts from a
+clone of this repository.
 
 | Package                | Contents                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -17,7 +18,7 @@ license has been chosen, so every quickstart starts from a clone of this reposit
 | `@canopy/matcher`      | BSON comparison order, filter matching, sort, projection and update operators, checked against MongoDB     |
 | `@canopy/query`        | Parsing and validation of untrusted filters, updates and live queries: operator allowlists and limits      |
 | `@canopy/policy`       | Document Level Security: the policy DSL, compiler, field rules, explain, lint and the policy test runner   |
-| `@canopy/schema`       | Collection schemas: inference from sampled documents, `$jsonSchema` validators and TypeScript generation   |
+| `@canopy/schema`       | Schemas in code (`@canopy/schema/define`), inference from sampled documents and `$jsonSchema` validators   |
 | `@canopy/auth`         | API keys and bring your own identity provider tokens (JWKS), turned into DLS request contexts              |
 | `@canopy/auth-builtin` | Built in app user auth on Better Auth: email and password, magic links, OTP, OAuth, anonymous users, MFA   |
 | `@canopy/config`       | The config file: `defineConfig`, `env()` markers, identity provider presets and a validating loader        |
@@ -35,7 +36,7 @@ license has been chosen, so every quickstart starts from a clone of this reposit
 | `@canopy/solid`        | Solid bindings: `createQuery` with signals and a context                                                   |
 | `@canopy/tanstack-db`  | Canopy collections as TanStack DB collections, synced from live queries                                    |
 | `@canopy/devtools`     | An in page panel for the connection, subscriptions, store and pending mutations, plus development warnings |
-| `@canopy/cli`          | The `canopy` command: init, dev, doctor, policies, type generation, indexes and realtime images            |
+| `@canopy/cli`          | The `canopy` command: init, dev, doctor, policies, schema pull, diff and push, indexes and realtime images |
 | `@canopy/testing`      | Private test support: a MongoDB replica set harness and value generators                                   |
 
 ## Quickstart: sign up and see a live query in five minutes
@@ -72,16 +73,28 @@ export const notes = collection("notes", {
 })
 ```
 
-and the page reads the list with the client SDK:
+and the page declares the collection once, in `web/canopy.schema.ts`, and reads the list with the client SDK.
+The schema types every query and write, and generates each new note's ObjectId:
 
 <!-- snippet: declare const userId: string -->
 
 ```ts
 import { createClient } from "@canopy/client"
 import { createAuth } from "@canopy/client/auth"
+import { collection, defineSchema, t } from "@canopy/schema/define"
+
+// web/canopy.schema.ts (shortened)
+const schema = defineSchema(
+  collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() }),
+)
 
 const auth = createAuth({ url: location.origin })
-const canopy = createClient({ url: location.origin, publishableKey: "pk_notes_local", auth })
+const canopy = createClient({
+  url: location.origin,
+  publishableKey: "pk_notes_local",
+  auth,
+  schema,
+})
 
 canopy
   .from("notes")
@@ -89,10 +102,45 @@ canopy
   .sort({ createdAt: -1 })
   .limit(100)
   .subscribe(({ data, status }) => render(data, status))
+
+const added = canopy
+  .from("notes")
+  .insert({ text: "Buy milk", ownerId: userId, createdAt: new Date() })
+render(added.id) // the new note's ObjectId, before the server has answered
+await added // resolves once the server has stored it, rejects if a policy refused it
+```
+
+A page that only needs one read, such as a server rendered list, can fetch it over HTTP without opening a
+socket. `createRestClient` from `@canopy/client/rest` takes the same options:
+
+<!-- snippet: declare const userId: string -->
+
+```ts
+import { createAuth } from "@canopy/client/auth"
+import { createRestClient } from "@canopy/client/rest"
+import { collection, defineSchema, t } from "@canopy/schema/define"
+
+const schema = defineSchema(
+  collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() }),
+)
+const auth = createAuth({ url: location.origin })
+const rest = createRestClient({
+  url: location.origin,
+  publishableKey: "pk_notes_local",
+  auth,
+  schema,
+})
+
+const recent = rest.from("notes").find({ ownerId: userId }).sort({ createdAt: -1 }).limit(20)
+const first = await recent.page()
+render(first.data)
+if (first.page.next !== null) render((await recent.page({ after: first.page.next })).data)
 ```
 
 The [built in auth quickstart](apps/docs/src/content/docs/start/built-in-auth.md) walks through the same app
 step by step, and [`examples/auth-notes`](examples/auth-notes) has its browser tests.
+The [client SDK guide](apps/docs/src/content/docs/guides/client.md#run-from-a-clone) has a runnable
+JavaScript and TypeScript program that signs in, subscribes and fetches a REST page.
 
 ## Other ways in
 

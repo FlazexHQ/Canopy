@@ -1,11 +1,11 @@
 import type {
   CanopyClient,
   ConnectionStatus,
+  DefaultSchema,
   LiveQuery,
   QueryState,
   QueryStatus,
   Schema,
-  UntypedSchema,
 } from "@canopy/client"
 import { getContext, setContext } from "svelte"
 import { createSubscriber } from "svelte/reactivity"
@@ -13,12 +13,15 @@ import { createSubscriber } from "svelte/reactivity"
 const KEY = Symbol("canopy")
 
 /** Makes a client available to {@link getCanopy} in the component and its children. */
-export function setCanopy<DB extends Schema<DB> = UntypedSchema>(client: CanopyClient<DB>): void {
+export function setCanopy<DB extends Schema<DB> = DefaultSchema>(client: CanopyClient<DB>): void {
   setContext(KEY, client)
 }
 
-/** Returns the client from {@link setCanopy}. Pass the schema to get it back typed. */
-export function getCanopy<DB extends Schema<DB> = UntypedSchema>(): CanopyClient<DB> {
+/**
+ * Returns the client from {@link setCanopy}, typed by the registered schema. Code that cannot rely on it
+ * passes the schema's types: `getCanopy<SchemaTypes<typeof schema>>()`.
+ */
+export function getCanopy<DB extends Schema<DB> = DefaultSchema>(): CanopyClient<DB> {
   const client = getContext<CanopyClient<DB> | undefined>(KEY)
   if (client === undefined)
     throw new Error("getCanopy needs setCanopy(client) in a parent component")

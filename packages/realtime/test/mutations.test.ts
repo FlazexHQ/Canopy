@@ -1,4 +1,4 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import {
   type ClientMessage,
   canonicalString,
@@ -6,7 +6,7 @@ import {
   type SequencedMessage,
 } from "@canopy/protocol"
 import { WritePath } from "@canopy/rest"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { type Keys, makeKeys, type Running, startEngine, TestClient, token } from "./harness.ts"
@@ -101,7 +101,7 @@ suite("mutations over the socket", () => {
         client: writer,
         database: dbName,
         metaDatabase: `${dbName}_meta`,
-        policies: new PolicyEngine(createPolicySet(policies)),
+        policies: testPolicyEngine(createPolicySet(policies)),
       }),
       limits: { maxPendingMutations: 40 },
     })

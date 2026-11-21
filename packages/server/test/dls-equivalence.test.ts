@@ -1,7 +1,9 @@
+import { type ChildProcess, spawn } from "node:child_process"
 import { createServer, type Server } from "node:http"
-import type { AddressInfo } from "node:net"
+import { type AddressInfo, createServer as createNetServer } from "node:net"
 import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
-import { DIFF_RUNS, MONGODB_URI } from "@canopy/testing"
+import { findGatewayBinary, storedPolicies } from "@canopy/realtime"
+import { DIFF_RUNS, MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import fc from "fast-check"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -13,6 +15,18 @@ const ISSUER = "https://idp.equivalence.test/"
 const AUDIENCE = "https://api.equivalence.test"
 const KEY = "pk_equivalence"
 const RUNS = Math.max(10, Math.round(DIFF_RUNS / 10))
+const GATEWAY = findGatewayBinary()
+
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer()
+    probe.once("error", reject)
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address()
+      probe.close(() => resolve(typeof address === "object" && address !== null ? address.port : 0))
+    })
+  })
+}
 
 /**
  * One policy set exercising permissive and restrictive policies, a role scoped policy, an anon policy,
@@ -80,7 +94,7 @@ type Outcome = "applied" | `refused ${string}` | "no match"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-suite("DLS is the same through REST, GraphQL and realtime", () => {
+suite("DLS is the same through REST, GraphQL, realtime and the native gateway", () => {
   const dbName = `canopy_equiv_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   const metaName = `${dbName}_meta`
   let mongo: MongoClient
@@ -88,8 +102,11 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
   let canopy: Canopy
   let server: Server
   let base: string
+  let gateway: ChildProcess | undefined
+  let gatewayBase: string | undefined
   let sign: (caller: Caller) => Promise<string | undefined>
   let run = 0
+  let gatewayChecks = 0
   const seen = {
     reads: new Set<string>(),
     inserts: new Set<Outcome>(),
@@ -142,15 +159,54 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
         realtime: { checkpoints: "off", drainWindow: "1s" },
         rateLimits: false,
       }),
-      { env: {}, policies: createPolicySet([items]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([items]), onSetupToken: false },
     )
     server = createServer(canopy.node())
     await canopy.attach(server)
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  })
+    if (GATEWAY === undefined) return
+    const port = await freePort()
+    const child = spawn(GATEWAY, ["--config", "-"], { stdio: ["pipe", "ignore", "pipe"] })
+    gateway = child
+    let log = ""
+    child.stderr?.on("data", (chunk: Buffer) => {
+      log += chunk.toString()
+    })
+    child.stdin?.write(
+      `${JSON.stringify({
+        mongodb: { uri: MONGODB_URI, database: dbName, metaDatabase: metaName },
+        server: { host: "127.0.0.1", port, metricsPort: 0 },
+        auth: { issuer: ISSUER, audience: AUDIENCE, jwks: { keys: [jwk] }, rolesClaim: "roles" },
+        keys: { publishable: [KEY], secret: [] },
+        policies: storedPolicies(createPolicySet([items])),
+        realtime: { checkpoints: "off", drainWindowMs: 100 },
+        rateLimits: false,
+        mutations: { url: `${base}/rest/v1` },
+        log: { level: "error" },
+      })}\n`,
+    )
+    const started = Date.now()
+    for (;;) {
+      if (child.exitCode !== null) throw new Error(`canopy-gateway exited:\n${log}`)
+      const ready = await fetch(`http://127.0.0.1:${port}/readyz`).then(
+        (response) => response.ok,
+        () => false,
+      )
+      if (ready) break
+      if (Date.now() - started > 60_000) throw new Error(`canopy-gateway is not ready:\n${log}`)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    gatewayBase = `http://127.0.0.1:${port}`
+  }, 120_000)
 
   afterAll(async () => {
+    if (gateway !== undefined && gateway.exitCode === null) {
+      const exited = new Promise((resolve) => gateway?.once("exit", resolve))
+      gateway.stdin?.end()
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))])
+      if (gateway.exitCode === null) gateway.kill()
+    }
     await canopy?.close()
     await new Promise<void>((resolve) => server?.close(() => resolve()))
     await db?.dropDatabase()
@@ -235,8 +291,9 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
       next: (test: (m: Record<string, unknown>) => boolean) => Promise<Record<string, unknown>>,
       all: Record<string, unknown>[],
     ) => Promise<T>,
+    at: string = base,
   ): Promise<T> => {
-    const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+    const socket = new WebSocket(`${at.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
     const messages: Record<string, unknown>[] = []
     const waiters = new Set<() => void>()
     socket.on("message", (data) => {
@@ -275,25 +332,42 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
     }
   }
 
-  const realtimeRead = (caller: Caller, filter: Record<string, unknown>) =>
-    session(caller, async (send, next, all) => {
-      send({ t: "sub", id: "s", c: "items", q: { filter } })
-      const end = await next((m) => (m["t"] === "ready" || m["t"] === "nosub") && m["s"] === "s")
-      if (end["t"] === "nosub")
-        return `refused ${(end["err"] as { code?: string } | undefined)?.code}`
-      return byId(
-        all.filter((m) => m["t"] === "added").map((m) => m["d"] as Record<string, unknown>),
-      )
-    })
+  const realtimeRead = (caller: Caller, filter: Record<string, unknown>, at: string = base) =>
+    session(
+      caller,
+      async (send, next, all) => {
+        send({ t: "sub", id: "s", c: "items", q: { filter } })
+        const end = await next((m) => (m["t"] === "ready" || m["t"] === "nosub") && m["s"] === "s")
+        if (end["t"] === "nosub")
+          return `refused ${(end["err"] as { code?: string } | undefined)?.code}`
+        return byId(
+          all.filter((m) => m["t"] === "added").map((m) => m["d"] as Record<string, unknown>),
+        )
+      },
+      at,
+    )
 
-  const realtimeWrite = (caller: Caller, op: string, args: Record<string, unknown>) =>
-    session(caller, async (send, next) => {
-      send({ t: "mut", id: crypto.randomUUID(), c: "items", op, args })
-      const ack = await next((m) => m["t"] === "ack")
-      return ack["ok"] === true
-        ? "ok"
-        : `error ${(ack["err"] as { code?: string } | undefined)?.code}`
-    })
+  const realtimeWrite = (
+    caller: Caller,
+    op: string,
+    args: Record<string, unknown>,
+    at: string = base,
+  ) =>
+    session(
+      caller,
+      async (send, next) => {
+        send({ t: "mut", id: crypto.randomUUID(), c: "items", op, args })
+        const ack = await next((m) => m["t"] === "ack")
+        return ack["ok"] === true
+          ? "ok"
+          : `error ${(ack["err"] as { code?: string } | undefined)?.code}`
+      },
+      at,
+    )
+  const vias = (): readonly ("rest" | "graphql" | "realtime" | "gateway")[] =>
+    gatewayBase === undefined
+      ? ["rest", "graphql", "realtime"]
+      : ["rest", "graphql", "realtime", "gateway"]
 
   const classify = async (
     id: string,
@@ -335,6 +409,11 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
           const live = await realtimeRead(caller, filter)
           const gql = await graphqlRead(caller, filter)
           expect(live, `realtime vs REST for ${caller.name}`).toEqual(rest)
+          if (gatewayBase !== undefined) {
+            const native = await realtimeRead(caller, filter, gatewayBase)
+            expect(native, `gateway vs REST for ${caller.name}`).toEqual(rest)
+            gatewayChecks += 1
+          }
           const pickFields = (value: typeof rest) =>
             typeof value === "string"
               ? value
@@ -346,7 +425,7 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
           }
 
           const inserted: Record<string, Outcome> = {}
-          for (const via of ["rest", "graphql", "realtime"] as const) {
+          for (const via of vias()) {
             const doc = { _id: `r${run}i-${via}`, ...candidate }
             let result: string
             if (via === "rest") {
@@ -365,7 +444,8 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
                 { doc },
               )
               result = graphqlResult(body)
-            } else result = await realtimeWrite(caller, "insert", { doc })
+            } else if (via === "realtime") result = await realtimeWrite(caller, "insert", { doc })
+            else result = await realtimeWrite(caller, "insert", { doc }, gatewayBase)
             inserted[via] = await classify(doc._id, candidate, result)
           }
           expect(inserted["graphql"], `GraphQL insert vs REST for ${caller.name}`).toBe(
@@ -374,13 +454,17 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
           expect(inserted["realtime"], `realtime insert vs REST for ${caller.name}`).toBe(
             inserted["rest"],
           )
+          if (gatewayBase !== undefined)
+            expect(inserted["gateway"], `gateway insert vs REST for ${caller.name}`).toBe(
+              inserted["rest"],
+            )
           seen.inserts.add(inserted["rest"] ?? "no match")
 
           const target = docs[pick % Math.max(1, docs.length)]
           if (target === undefined) return
           const level = (target.level + step) % 6
           const updated: Record<string, Outcome> = {}
-          for (const via of ["rest", "graphql", "realtime"] as const) {
+          for (const via of vias()) {
             const id = `${target._id}-${via}`
             await coll.insertOne({ ...target, _id: id })
             let result: string
@@ -401,7 +485,12 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
               )
               result = graphqlResult(body)
             } else
-              result = await realtimeWrite(caller, "update", { id, update: { $set: { level } } })
+              result = await realtimeWrite(
+                caller,
+                "update",
+                { id, update: { $set: { level } } },
+                via === "gateway" ? gatewayBase : base,
+              )
             updated[via] = await classify(id, { level }, result)
           }
           expect(updated["graphql"], `GraphQL update vs REST for ${caller.name}`).toBe(
@@ -410,6 +499,10 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
           expect(updated["realtime"], `realtime update vs REST for ${caller.name}`).toBe(
             updated["rest"],
           )
+          if (gatewayBase !== undefined)
+            expect(updated["gateway"], `gateway update vs REST for ${caller.name}`).toBe(
+              updated["rest"],
+            )
           seen.updates.add(updated["rest"] ?? "no match")
         },
       ),
@@ -423,6 +516,7 @@ suite("DLS is the same through REST, GraphQL and realtime", () => {
       },
     )
     expect(seen.reads).toEqual(new Set(["empty", "documents"]))
+    if (GATEWAY !== undefined) expect(gatewayChecks).toBeGreaterThanOrEqual(RUNS)
     expect([...seen.inserts]).toEqual(
       expect.arrayContaining(["applied", "refused CANOPY_POLICY_VIOLATION"]),
     )

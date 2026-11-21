@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net"
 import { defaultTemplates } from "@canopy/auth-builtin"
 import { createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
@@ -182,7 +182,7 @@ suite("email templates through the admin API", () => {
         realtime: false,
       }),
       {
-        env: {},
+        env: TEST_ENV,
         logger,
         policies: createPolicySet([]),
         onSetupToken: (value) => {

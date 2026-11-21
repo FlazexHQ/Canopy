@@ -1,6 +1,6 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine, restrict } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
 import { CanopyError, ErrorCode, isClusterTime, ObjectId as WireObjectId } from "@canopy/protocol"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { type Caller, WritePath, type WriteRequest, type WriteResult } from "../src/index.ts"
@@ -179,7 +179,7 @@ suite("WritePath against MongoDB", () => {
     client = new MongoClient(MONGODB_URI ?? "", { monitorCommands: true })
     await client.connect()
     db = client.db(dbName)
-    const engine = new PolicyEngine(
+    const engine = testPolicyEngine(
       createPolicySet([todos, boards, plain, inbox, hidden, notes, slots, orders]),
     )
     writes = new WritePath({
@@ -1172,10 +1172,10 @@ suite("WritePath against MongoDB", () => {
 
     it("inserts, replaces with upsert and deletes on the fast path", async () => {
       const inserted = await commands(() =>
-        run(editor, { op: "insert", collection: "notes", doc: { _id: 3, body: "c", secret: 1 } }),
+        run(editor, { op: "insert", collection: "notes", doc: { _id: 3, body: "$5", secret: 1 } }),
       )
       expect(inserted.transactional).toBe(false)
-      expect(relaxed(inserted.value.documents)).toEqual([{ _id: 3, body: "c" }])
+      expect(relaxed(inserted.value.documents)).toEqual([{ _id: 3, body: "$5" }])
 
       const upserted = await commands(() =>
         run(editor, {

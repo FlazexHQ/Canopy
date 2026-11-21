@@ -476,9 +476,13 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
   switch (t) {
     case "welcome": {
       const limits = field(raw, "limits", isDoc, "an object")
-      const parsedLimits: Record<string, number> = { subs: 0 }
-      for (const [name, value] of Object.entries(limits)) {
-        if (isFiniteNumber(value)) parsedLimits[name] = value
+      const parsedLimits = {
+        subs: 0,
+        ...Object.fromEntries(
+          Object.entries(limits).flatMap(([name, value]) =>
+            isFiniteNumber(value) ? [[name, value] as const] : [],
+          ),
+        ),
       }
       return {
         t: "welcome",

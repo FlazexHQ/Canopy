@@ -7,6 +7,15 @@ export const MONGODB_URI = process.env["CANOPY_TEST_MONGODB_URI"]
 /** Number of generated cases per differential property; raised in nightly runs through `CANOPY_DIFF_RUNS`. */
 export const DIFF_RUNS = Number(process.env["CANOPY_DIFF_RUNS"] ?? "300")
 
+/** Number of generated documents each differential filter is matched against, from `CANOPY_DIFF_DOCS`. */
+export const DIFF_DOCS = Number(process.env["CANOPY_DIFF_DOCS"] ?? "300")
+
+/**
+ * The fewest cases (a filter decided on one document) every operator must reach in a differential run, from
+ * `CANOPY_DIFF_OPERATOR_CASES`; 0, the default, checks no floor.
+ */
+export const DIFF_OPERATOR_CASES = Number(process.env["CANOPY_DIFF_OPERATOR_CASES"] ?? "0")
+
 /**
  * Declares a suite that needs a MongoDB replica set. Without `CANOPY_TEST_MONGODB_URI` the suite is reported as
  * skipped, never as passed; CI always provides the URI.

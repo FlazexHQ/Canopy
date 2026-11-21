@@ -1,7 +1,6 @@
 import { formatConfig } from "@canopy/config"
 import { doctor } from "./commands.ts"
 import { dev } from "./dev.ts"
-import { genTypes, watchTypes } from "./gen-types.ts"
 import { indexes } from "./indexes.ts"
 import { init } from "./init.ts"
 import {
@@ -22,7 +21,9 @@ import {
   startBinaryMongo,
 } from "./mongod-binary.ts"
 import { messageOf } from "./output.ts"
+import { pull } from "./pull.ts"
 import { realtimeImages } from "./realtime-images.ts"
+import { runSchema } from "./schema-diff.ts"
 
 /** Commands that set up and inspect a project: init, dev, doctor, types, config, realtime images and indexes. */
 export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
@@ -31,12 +32,30 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
     handler: {
       kind: "app",
       load: "doctor",
-      run: (call, app) => doctor({ ...app, ...(call.dirGiven ? { dir: call.dir } : {}) }, call.out),
+      run: (call, app) =>
+        doctor(
+          {
+            ...app,
+            ...(call.dirGiven ? { dir: call.dir } : {}),
+            search: Object.keys(call.config.collections).filter(
+              (name) => call.config.collections[name]?.search === true,
+            ),
+          },
+          call.out,
+        ),
     },
   },
-  "gen types": {
-    flags: ["out", "role", "check", "infer-enums", "sample", "watch"],
-    handler: { kind: "app", load: "gen", run: runGenTypes },
+  pull: {
+    flags: ["out", "js", "collection", "force", "infer-enums", "sample"],
+    handler: { kind: "app", load: "gen", run: pull },
+  },
+  "schema diff": {
+    flags: ["file", "sample", "infer-enums", "role"],
+    handler: { kind: "config", load: "policies", run: runSchema },
+  },
+  "schema push": {
+    flags: ["file", "yes"],
+    handler: { kind: "config", load: "policies", run: runSchema },
   },
   "config print": {
     flags: ["sources"],
@@ -51,15 +70,7 @@ export const PROJECT_COMMANDS: Readonly<Record<string, CommandSpec>> = {
   },
   init: { flags: [], handler: { kind: "direct", run: runInit } },
   dev: {
-    flags: [
-      "with-mongo",
-      "mongo-binary",
-      "mongo-version",
-      "port",
-      "mongo-port",
-      "mongo-image",
-      "types",
-    ],
+    flags: ["with-mongo", "mongo-binary", "mongo-version", "port", "mongo-port", "mongo-image"],
     handler: { kind: "direct", run: runDev },
   },
   "realtime enable-images": {
@@ -116,33 +127,6 @@ function runIndexes(call: Configured, app: AppTarget, create: boolean): Promise<
   )
 }
 
-function runGenTypes(call: Configured, app: AppTarget): number | Promise<number> {
-  const { flags, config } = call
-  const sample = text(flags, "sample")
-  const role = text(flags, "role") ?? config.types.role
-  if (sample !== undefined && !/^[1-9]\d*$/.test(sample)) {
-    call.out.error("--sample needs a positive integer")
-    return 1
-  }
-  const options = {
-    ...app,
-    out: text(flags, "out") ?? config.types.out,
-    check: flags.has("check"),
-    inferEnums: flags.has("infer-enums"),
-    ...(call.dirGiven ? { dir: call.dir } : {}),
-    ...(role === undefined ? {} : { role }),
-    ...(sample === undefined ? {} : { sampleSize: Number(sample) }),
-  }
-  if (flags.has("watch")) {
-    if (flags.has("check")) {
-      call.out.error("--watch and --check do not go together")
-      return 1
-    }
-    return watchTypes(options, call.out, call.signal)
-  }
-  return genTypes(options, call.out)
-}
-
 async function runDev(call: Invocation): Promise<number> {
   const { flags, env, out, cwd, signal } = call
   const serverPort = port(text(flags, "port"), "port", out)
@@ -194,7 +178,6 @@ async function runDev(call: Invocation): Promise<number> {
         env: devEnv,
         ...(text(flags, "config") === undefined ? {} : { configFile: text(flags, "config") ?? "" }),
         ...(serverPort === undefined ? {} : { port: serverPort }),
-        ...(flags.has("types") ? { types: true } : {}),
       },
       out,
       signal,

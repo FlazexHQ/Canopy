@@ -31,6 +31,11 @@
       "@canopy/source": "./src/auth.ts",
       "default": "./dist/auth.js"
     },
+    "./rest": {
+      "types": "./dist/rest/index.d.ts",
+      "@canopy/source": "./src/rest/index.ts",
+      "default": "./dist/rest/index.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "@canopy/source": "./src/server.ts",
@@ -64,8 +69,10 @@
   },
   "devDependencies": {
     "@canopy/policy": "workspace:*",
+    "@canopy/query": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "@canopy/rest": "workspace:*",
+    "@canopy/schema": "workspace:*",
     "@canopy/server": "workspace:*",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",

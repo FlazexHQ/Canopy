@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { hashApiKey } from "@canopy/auth"
 import { allow, collection, createPolicySet } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
@@ -41,7 +41,7 @@ suite("stored API keys", () => {
         keys: { publishable: ["pk_from_config"], secret: ["sk_from_config"] },
         realtime: { checkpoints: "off", drainWindow: "1s" },
       }),
-      { env: {}, policies: createPolicySet([notes]), onSetupToken: false },
+      { env: TEST_ENV, policies: createPolicySet([notes]), onSetupToken: false },
     )
     server = createServer(canopy.node())
     await canopy.attach(server)

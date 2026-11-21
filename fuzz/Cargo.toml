@@ -1,0 +1,65 @@
+# cargo fuzz targets for the parsers on the trust boundary of the Rust core. A workspace of its own, so the
+# libFuzzer dependency and its nightly toolchain never reach the published crates or `cargo deny` of the root
+# workspace. Run one target with `cargo +nightly fuzz run <target> -- -dict=dict/<dict> -max_total_time=60`
+# from this folder (Linux or macOS; libFuzzer needs a sanitizer the MSVC toolchain does not provide).
+
+[package]
+name = "canopy-fuzz"
+description = "cargo fuzz targets for EJSON, BSON, filters, updates, regular expressions and client frames."
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+canopy-engine = { path = "../crates/canopy-engine" }
+canopy-matcher = { path = "../crates/canopy-matcher" }
+canopy-protocol = { path = "../crates/canopy-protocol" }
+libfuzzer-sys = "0.4.10"
+
+[[bin]]
+name = "ejson"
+path = "fuzz_targets/ejson.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "bson"
+path = "fuzz_targets/bson.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "filter"
+path = "fuzz_targets/filter.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update"
+path = "fuzz_targets/update.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "regex"
+path = "fuzz_targets/regex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frame"
+path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false

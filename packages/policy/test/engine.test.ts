@@ -1,5 +1,6 @@
 import { compileFilter } from "@canopy/matcher"
 import { InvalidQueryError, ObjectId, parse, stringify } from "@canopy/protocol"
+import { testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { describe, expect, it } from "vitest"
 import {
@@ -18,11 +19,11 @@ import {
   intersectProjection,
   lintPolicies,
   now,
-  PolicyEngine,
   PolicyValidationError,
   projectReadable,
   type RequestContext,
   readStored,
+  resolveClause,
   restrict,
   shiftDate,
   toFilter,
@@ -40,7 +41,7 @@ function user(claims: Record<string, unknown>, ...roles: string[]): RequestConte
 const anon: RequestContext = { roles: new Set(["anon"]), claims: null, now: NOW }
 const service: RequestContext = { roles: new Set(["service"]), claims: null, now: NOW }
 
-const engine = new PolicyEngine(createPolicySet([todos, invoices, posts, employees, secrets]))
+const engine = testPolicyEngine(createPolicySet([todos, invoices, posts, employees, secrets]))
 
 function visible(compiled: Compiled, doc: Record<string, unknown>): boolean {
   return (
@@ -126,7 +127,7 @@ describe("variables fail closed", () => {
         ],
       }),
     ])
-    const local = new PolicyEngine(set)
+    const local = testPolicyEngine(set)
     expect(local.using("docs", "read", user({ sub: "u" }))).toEqual({ kind: "deny" })
     expect(toFilter(local.using("docs", "read", user({ sub: "u", tenant_id: "t" })))).toEqual({
       tenantId: "t",
@@ -135,7 +136,7 @@ describe("variables fail closed", () => {
 
   it("checks shapes: scalars in equality positions, arrays of scalars under $in", () => {
     const issues: VariableIssue[] = []
-    const local = new PolicyEngine(createPolicySet([todos]), {
+    const local = testPolicyEngine(createPolicySet([todos]), {
       onVariableIssue: (issue) => issues.push(issue),
     })
     expect(toFilter(local.using("todos", "read", user({ sub: ["a", "b"] })))).toEqual({
@@ -164,7 +165,7 @@ describe("variables fail closed", () => {
         policies: [allow.read("authenticated").where({ x: auth("constructor") })],
       }),
     ])
-    expect(new PolicyEngine(set).using("c", "read", user({}))).toEqual({ kind: "deny" })
+    expect(testPolicyEngine(set).using("c", "read", user({}))).toEqual({ kind: "deny" })
   })
 
   it("coerces only when asked, and a failed coercion counts as missing", () => {
@@ -174,11 +175,46 @@ describe("variables fail closed", () => {
         policies: [allow.read("authenticated").where({ ownerId: auth("sub", "objectId") })],
       }),
     ])
-    const local = new PolicyEngine(set)
+    const local = testPolicyEngine(set)
     const hex = "6728f0c2a1b2c3d4e5f60718"
     const filter = toFilter(local.using("c", "read", user({ sub: hex })))
     expect(filter["ownerId"]).toBeInstanceOf(ObjectId)
     expect(local.using("c", "read", user({ sub: "not-hex" }))).toEqual({ kind: "deny" })
+  })
+
+  it("coerces dates from epoch seconds and from ISO 8601 text that does not depend on the time zone", () => {
+    const set = createPolicySet([
+      collection("c", {
+        exposed: true,
+        policies: [allow.read("authenticated").where({ at: auth("t", "date") })],
+      }),
+    ])
+    const local = testPolicyEngine(set)
+    const at = (t: unknown): Compiled => local.using("c", "read", user({ t }))
+    const filter = (iso: string): Compiled => ({ kind: "filter", filter: { at: new Date(iso) } })
+    expect(at(1_700_000_000)).toEqual(filter("2023-11-14T22:13:20.000Z"))
+    expect(at("2026-11-06T12:00:00Z")).toEqual(filter("2026-11-06T12:00:00.000Z"))
+    expect(at("2026-11-06T12:00:00.1239+05:30")).toEqual(filter("2026-11-06T06:30:00.123Z"))
+    expect(at("2026-11-06T12:00-01:00")).toEqual(filter("2026-11-06T13:00:00.000Z"))
+    expect(at("2024-02-29")).toEqual(filter("2024-02-29T00:00:00.000Z"))
+    expect(at("0001-01-01")).toEqual(filter("0001-01-01T00:00:00.000Z"))
+    for (const bad of [
+      "2026-11-06T12:00:00",
+      "Fri Nov 06 2026",
+      "2026/11/06",
+      "1 March 2022",
+      "2021-02-29",
+      "2021-02-31T00:00:00Z",
+      "2026-11-06T24:00:00Z",
+      "2026-11-06T12:00:60Z",
+      "2026-11-06T12:00:00+24:00",
+      "+002026-11-06T12:00:00Z",
+      "",
+      1e13,
+      Number.NaN,
+      true,
+    ])
+      expect(at(bad), String(bad)).toEqual({ kind: "deny" })
   })
 
   it("resolves $now with ISO 8601 offsets", () => {
@@ -191,13 +227,46 @@ describe("variables fail closed", () => {
         policies: [allow.read("authenticated").where({ createdAt: { $gte: now("-PT24H") } })],
       }),
     ])
-    const filter = toFilter(new PolicyEngine(set).using("stories", "read", user({ sub: "u" })))
+    const filter = toFilter(testPolicyEngine(set).using("stories", "read", user({ sub: "u" })))
     expect(filter).toEqual({ createdAt: { $gte: new Date("2026-11-05T12:00:00Z") } })
+  })
+
+  it("drops a policy whose $now offset leaves the range of dates", () => {
+    const issues: VariableIssue[] = []
+    const set = createPolicySet([
+      collection("stories", {
+        exposed: true,
+        policies: [
+          allow
+            .read("authenticated")
+            .where({ createdAt: { $gte: now("-P300000Y") } })
+            .named("recent"),
+        ],
+      }),
+    ])
+    const local = testPolicyEngine(set, { onVariableIssue: (issue) => issues.push(issue) })
+    expect(local.using("stories", "read", user({ sub: "u" }))).toEqual({ kind: "deny" })
+    expect(issues).toEqual([
+      { kind: "coercion", variable: "$now", collection: "stories", policy: "recent" },
+    ])
+    expect(Number.isNaN(shiftDate(NOW, "P300000Y").getTime())).toBe(true)
+  })
+
+  it("refuses to resolve a clause that is itself a variable instead of returning a value as a filter", () => {
+    const ctx = user({ sub: "u1" })
+    expect(() => resolveClause({ $auth: "sub" }, ctx)).toThrow(InvalidQueryError)
+    expect(() => resolveClause({ $now: {} }, ctx)).toThrow(
+      "A policy clause must be a filter document",
+    )
+    expect(resolveClause({ ownerId: { $auth: "sub" } }, ctx)).toEqual({
+      ok: true,
+      filter: { ownerId: "u1" },
+    })
   })
 
   it("forces DENY when evaluation throws", () => {
     const errors: unknown[] = []
-    const local = new PolicyEngine(createPolicySet([todos]), {
+    const local = testPolicyEngine(createPolicySet([todos]), {
       onEvaluationError: (error) => errors.push(error),
     })
     const hostile = {
@@ -256,7 +325,7 @@ describe("combination semantics as a property", () => {
       ],
     }),
   ])
-  const local = new PolicyEngine(set)
+  const local = testPolicyEngine(set)
   const reference = (
     c: Record<string, unknown>,
     roles: Set<string>,
@@ -680,7 +749,7 @@ describe("requiring a second factor", () => {
       restrict.update("authenticated").check({ $expr: { $eq: [auth("aal"), "aal2"] } }),
     ],
   })
-  const guarded = new PolicyEngine(createPolicySet([vault]))
+  const guarded = testPolicyEngine(createPolicySet([vault]))
 
   it("compares the aal claim of the token in a check clause, so an aal1 session cannot write", () => {
     expect(guarded.check("vault", "update", user({ sub: "u1", aal: "aal1" }))).toEqual({

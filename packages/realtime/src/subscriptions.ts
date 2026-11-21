@@ -1,3 +1,4 @@
+import type { CoreEngine } from "@canopy/native"
 import { type ContextResolver, type PolicyEngine, Role } from "@canopy/policy"
 import { ErrorCode, type SubMessage, toCanopyError, type WireError } from "@canopy/protocol"
 import type { Doc } from "./event.ts"
@@ -17,6 +18,8 @@ import {
 
 /** Options of {@link Subscriptions}. */
 export interface SubscriptionsOptions {
+  /** Compiles filters and hashes queries while planning. */
+  readonly core: CoreEngine
   readonly engine: () => PolicyEngine
   readonly sessions: SessionTable
   readonly contexts: SessionContexts
@@ -40,8 +43,8 @@ export class Subscriptions {
   }
 
   private plan(state: SessionState, message: SubMessage): SubscriptionPlan {
-    const { engine, limits, metrics } = this.options
-    return planSubscription(engine(), contextOf(state), message, limits.maxWindow, metrics)
+    const { core, engine, limits, metrics } = this.options
+    return planSubscription(core, engine(), contextOf(state), message, limits.maxWindow, metrics)
   }
 
   /**

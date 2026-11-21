@@ -4,11 +4,13 @@ import type { ResolveOptions } from "./resolution.ts"
 import { get, isLocalHost, isPlainObject, quoted, type Resolver } from "./resolver.ts"
 import { isDevelopmentKey, ROOT_FIELDS, TRIGGER_OPERATIONS } from "./spec.ts"
 import type {
+  Engine,
   Environment,
   FullDocumentMode,
   GraphqlIntrospection,
   IdType,
   LogLevel,
+  RealtimeServer,
   ResolvedBucket,
   ResolvedBuiltinAuth,
   ResolvedCollection,
@@ -404,6 +406,8 @@ export function normalize(
           resumeWindowMs: at<number>("realtime.resumeWindow"),
           checkpoints: at<"meta" | "off">("realtime.checkpoints"),
           drainWindowMs: at<number>("realtime.drainWindow"),
+          echoTimeoutMs: at<number>("realtime.echoTimeout"),
+          server: at<RealtimeServer>("realtime.server"),
         }
 
   const rateLimits: ResolvedConfig["rateLimits"] =
@@ -572,6 +576,7 @@ export function normalize(
       adminListen: at<string | undefined>("server.adminListen"),
       nodeId: at<string>("server.nodeId"),
       trustedProxies: at<string[]>("server.trustedProxies"),
+      engine: at<Engine>("server.engine"),
     },
     log: { level: at<LogLevel>("log.level") },
     types: {

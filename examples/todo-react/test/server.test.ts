@@ -1,11 +1,12 @@
 import { generateKeyPairSync } from "node:crypto"
 import type { AddressInfo } from "node:net"
-import { fileURLToPath } from "node:url"
-import { genTypes } from "@canopy/cli"
+import { loadSchema } from "@canopy/rest"
+import { toCollectionSchemas } from "@canopy/schema/define"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { createTodoServer, type TodoServer } from "../src/app.ts"
+import { schema } from "../web/canopy.schema.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const KEY = "pk_todo_test"
@@ -134,25 +135,12 @@ suite("todo-react server", () => {
     expect(await seen("bob")).toEqual([])
   })
 
-  it("keeps web/canopy.gen.ts in sync with the collection's validator", async () => {
-    const lines: string[] = []
-    const out = {
-      log: (line: string) => lines.push(line),
-      error: (line: string) => lines.push(line),
-    }
-    const code = await genTypes(
-      {
-        mongodbUri: MONGODB_URI ?? "",
-        database,
-        out: fileURLToPath(new URL("../web/canopy.gen.ts", import.meta.url)),
-        check: true,
-      },
-      out,
-    )
-    expect(code).toBe(0)
-    expect(lines).toEqual([
-      expect.stringMatching(/canopy\.gen\.ts is up to date \(1 collections\)$/),
-    ])
+  it("declares the todos collection in web/canopy.schema.ts as its validator does", async () => {
+    const declared = toCollectionSchemas(schema)
+    const enforced = await loadSchema(mongo.db(database), "todos")
+    expect(enforced.source).toBe("validator")
+    expect(declared.map((collection) => collection.name)).toEqual(["todos"])
+    expect(declared[0]?.shape.fields).toEqual(enforced.shape.fields)
   })
 
   it("refuses WebSockets on the blocked server but still serves the SSE transport", async () => {

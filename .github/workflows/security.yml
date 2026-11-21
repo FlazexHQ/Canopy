@@ -28,6 +28,34 @@ jobs:
           # BlueOak-1.0.0 is allowed for development tooling only (minimatch under Stryker); the
           # licenses step of the CI check job keeps what published packages install to the stricter set.
           allow-licenses: MIT, MIT-0, Apache-2.0, BSD-2-Clause, BSD-3-Clause, 0BSD, ISC, CC0-1.0, BlueOak-1.0.0
+          # unicode-ident (MIT or Apache 2.0, and Unicode 3.0 for its data tables) runs inside procedural macros
+          # only. The remaining Unicode and certificate data crates match the gateway exceptions in
+          # deny.toml. libfuzzer-sys is confined to the separate fuzz workspace.
+          allow-dependencies-licenses: >-
+            pkg:cargo/icu_collections,
+            pkg:cargo/icu_locale_core,
+            pkg:cargo/icu_normalizer,
+            pkg:cargo/icu_normalizer_data,
+            pkg:cargo/icu_properties,
+            pkg:cargo/icu_properties_data,
+            pkg:cargo/icu_provider,
+            pkg:cargo/libfuzzer-sys,
+            pkg:cargo/litemap,
+            pkg:cargo/potential_utf,
+            pkg:cargo/tinystr,
+            pkg:cargo/unicode-ident,
+            pkg:cargo/unicode-normalization,
+            pkg:cargo/unicode-properties,
+            pkg:cargo/webpki-root-certs,
+            pkg:cargo/webpki-roots,
+            pkg:cargo/writeable,
+            pkg:cargo/yoke,
+            pkg:cargo/yoke-derive,
+            pkg:cargo/zerofrom,
+            pkg:cargo/zerofrom-derive,
+            pkg:cargo/zerotrie,
+            pkg:cargo/zerovec,
+            pkg:cargo/zerovec-derive
           comment-summary-in-pr: never
 
   codeql:

@@ -1,0 +1,18 @@
+{
+  "source": "requirement: the Rust matcher at least 3 times the events per second of the TypeScript matcher on every scenario, per change event (decode and match against matchesBson) and batched (matchConcatenated over batches of events)",
+  "ratios": {},
+  "floors": {
+    "rust per event ÷ ts: equality (DLS owner)": 3,
+    "rust per event ÷ ts: range and $in": 3,
+    "rust per event ÷ ts: $or of 3 branches": 3,
+    "rust per event ÷ ts: dotted path": 3,
+    "rust per event ÷ ts: $elemMatch": 3,
+    "rust per event ÷ ts: DLS and user filter": 3,
+    "rust batched ÷ ts: equality (DLS owner)": 3,
+    "rust batched ÷ ts: range and $in": 3,
+    "rust batched ÷ ts: $or of 3 branches": 3,
+    "rust batched ÷ ts: dotted path": 3,
+    "rust batched ÷ ts: $elemMatch": 3,
+    "rust batched ÷ ts: DLS and user filter": 3
+  }
+}

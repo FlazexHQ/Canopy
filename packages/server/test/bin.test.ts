@@ -1,14 +1,15 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { MONGODB_URI } from "@canopy/testing"
+import { findGatewayBinary } from "@canopy/realtime"
+import { MONGODB_URI, TEST_ENGINE, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
+import { ViewTokens } from "../src/view-tokens.ts"
 
 const BIN = fileURLToPath(new URL("../src/bin/canopy-server.ts", import.meta.url))
 const POLICIES = fileURLToPath(new URL("./fixtures/policies", import.meta.url))
@@ -34,7 +35,7 @@ interface Running {
 function start(args: readonly string[], env: Record<string, string>, cwd?: string): Running {
   const child = spawn(process.execPath, ["--conditions=@canopy/source", BIN, ...args], {
     cwd: cwd ?? process.cwd(),
-    env: { ...CLEAN_ENV, ...env },
+    env: { ...CLEAN_ENV, ...TEST_ENV, ...env },
     stdio: ["ignore", "pipe", "pipe", "ipc"],
   })
   let output = ""
@@ -60,13 +61,17 @@ function requestShutdown(run: Running, how: Shutdown = SHUTDOWNS[0] ?? "shutdown
   else run.child.send("shutdown")
 }
 
-async function freePort(): Promise<number> {
-  const server = createServer()
-  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-  const address = server.address()
-  await new Promise<void>((resolve) => server.close(() => resolve()))
-  if (address === null || typeof address === "string") throw new Error("no port")
-  return address.port
+function boundPorts(output: string): { port: number; metricsPort: number } | undefined {
+  const line = output.split(/\r?\n/).find((line) => line.includes('"msg":"canopy listening"'))
+  if (line === undefined) return undefined
+  try {
+    const { port, metricsPort } = JSON.parse(line) as { port?: unknown; metricsPort?: unknown }
+    if (typeof port === "number" && port > 0 && typeof metricsPort === "number" && metricsPort > 0)
+      return { port, metricsPort }
+  } catch {
+    return undefined
+  }
+  return undefined
 }
 
 async function within<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -81,7 +86,7 @@ async function within<T>(promise: Promise<T>, ms: number, what: string): Promise
   }
 }
 
-describe("canopy-server: argument and config errors", () => {
+describe("canopy-server: argument and config errors", { timeout: 45_000 }, () => {
   let dir: string
 
   beforeAll(async () => {
@@ -147,10 +152,10 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
 
   const boot = async (
     policies = POLICIES,
+    extra: Record<string, string> = {},
   ): Promise<{ run: Running; base: string; metrics: string }> => {
-    const port = await freePort()
-    const metricsPort = await freePort()
     const run = start(["--config", config], {
+      ...extra,
       MONGODB_URI: MONGODB_URI ?? "",
       CANOPY_DB: database,
       CANOPY_META_DB: metaDatabase,
@@ -158,24 +163,29 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
       CANOPY_PUBLISHABLE_KEYS: KEY,
       CANOPY_CHECKPOINTS: "off",
       CANOPY_DRAIN_WINDOW: "5s",
-      PORT: String(port),
-      METRICS_PORT: String(metricsPort),
+      CANOPY_LOG_LEVEL: "info",
+      PORT: "0",
+      METRICS_PORT: "0",
     })
-    const base = `http://127.0.0.1:${port}`
     const started = Date.now()
     for (;;) {
       if (run.child.exitCode !== null)
         throw new Error(`canopy-server exited early:\n${run.output()}`)
-      const ready = await fetch(`${base}/readyz`).then(
-        (response) => response.status === 200,
-        () => false,
-      )
-      if (ready) break
-      if (Date.now() - started > 30_000)
+      const ports = boundPorts(run.output())
+      if (ports !== undefined) {
+        const base = `http://127.0.0.1:${ports.port}`
+        const ready = await fetch(`${base}/readyz`).then(
+          (response) => response.status === 200,
+          () => false,
+        )
+        if (ready) return { run, base, metrics: `http://127.0.0.1:${ports.metricsPort}/metrics` }
+      }
+      if (Date.now() - started > 30_000) {
+        run.child.kill()
         throw new Error(`canopy-server did not become ready:\n${run.output()}`)
+      }
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
-    return { run, base, metrics: `http://127.0.0.1:${metricsPort}/metrics` }
   }
 
   const stop = async (run: Running): Promise<number | null> => {
@@ -215,6 +225,7 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
     const { run, base, metrics } = await boot()
     try {
       expect(run.output()).toContain('"msg":"canopy listening"')
+      expect(run.output()).toContain(`"engine":"${TEST_ENGINE}"`)
       const healthz = await fetch(`${base}/healthz`)
       expect(healthz.status).toBe(200)
       expect(await healthz.text()).toBe("ok")
@@ -287,6 +298,204 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
       expect(await stop(run)).toBe(0)
     }
   })
+
+  it.skipIf(findGatewayBinary() === undefined)(
+    "runs canopy-gateway on the public port in front of REST, with socket writes acknowledged after their echo",
+    async () => {
+      const masterKey = "m".repeat(44)
+      const { run, base, metrics } = await boot(POLICIES, {
+        CANOPY_REALTIME_SERVER: "gateway",
+        CANOPY_MASTER_KEY: masterKey,
+      })
+      try {
+        expect(run.output()).toContain('"realtimeServer":"gateway"')
+        expect(await (await fetch(`${base}/healthz`)).text()).toBe("ok")
+        expect(await (await fetch(`${base}/readyz`)).text()).toBe("ready")
+        expect((await fetch(`${base}/nowhere`)).status).toBe(404)
+        const headers = async (sub: string) => ({
+          apikey: KEY,
+          authorization: `Bearer ${await sign(sub)}`,
+          "content-type": "application/json",
+        })
+        const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+        const messages: Record<string, unknown>[] = []
+        socket.on("message", (data) =>
+          messages.push(JSON.parse(data.toString()) as Record<string, unknown>),
+        )
+        const waitFor = async (test: (m: Record<string, unknown>) => boolean) => {
+          const started = Date.now()
+          for (;;) {
+            const found = messages.find(test)
+            if (found !== undefined) return found
+            if (Date.now() - started > 10_000)
+              throw new Error(`timed out: ${JSON.stringify(messages)}\n${run.output()}`)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+        }
+        await new Promise<void>((resolve, reject) => {
+          socket.once("open", () => resolve())
+          socket.once("error", reject)
+        })
+        socket.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: await sign("carol") }))
+        await waitFor((m) => m["t"] === "welcome")
+        socket.send(JSON.stringify({ t: "sub", id: "g", c: "notes", q: {} }))
+        await waitFor((m) => m["t"] === "ready")
+
+        const created = await fetch(`${base}/rest/v1/notes`, {
+          method: "POST",
+          headers: await headers("carol"),
+          body: JSON.stringify({ _id: "g1", ownerId: "carol" }),
+        })
+        expect(created.status).toBe(201)
+        expect(
+          (
+            await fetch(`${base}/rest/v1/notes`, {
+              method: "POST",
+              headers: await headers("dave"),
+              body: JSON.stringify({ _id: "g2", ownerId: "carol" }),
+            })
+          ).status,
+        ).toBe(403)
+        expect(await waitFor((m) => m["t"] === "added")).toMatchObject({ id: "g1" })
+
+        const mutation = "0192f6a1-7c2e-7b1a-9d3e-00000000a001"
+        socket.send(
+          JSON.stringify({
+            t: "mut",
+            id: mutation,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g3", ownerId: "carol" } },
+          }),
+        )
+        const ack = await waitFor((m) => m["t"] === "ack" && m["m"] === mutation)
+        expect(ack).toMatchObject({ ok: true })
+        const added = messages.findIndex((m) => m["t"] === "added" && m["id"] === "g3")
+        expect(added).toBeGreaterThanOrEqual(0)
+        expect(added).toBeLessThan(messages.indexOf(ack))
+        const refused = "0192f6a1-7c2e-7b1a-9d3e-00000000a002"
+        socket.send(
+          JSON.stringify({
+            t: "mut",
+            id: refused,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g4", ownerId: "dave" } },
+          }),
+        )
+        expect(await waitFor((m) => m["t"] === "ack" && m["m"] === refused)).toMatchObject({
+          ok: false,
+        })
+        expect(messages.some((m) => m["t"] === "added" && m["id"] === "g4")).toBe(false)
+        const started = Date.now()
+        let scraped = ""
+        while (!/canopy_gateway_sessions 1\b/.test(scraped)) {
+          if (Date.now() - started > 10_000) throw new Error(`no gateway metrics:\n${scraped}`)
+          await new Promise((resolve) => setTimeout(resolve, 200))
+          scraped = await (await fetch(metrics)).text()
+        }
+        expect(scraped).toMatch(/canopy_build_info\{runtime="(node|bun)",node_id="n1"\} 1/)
+
+        const controller = new AbortController()
+        const live = await fetch(`${base}/graphql/v1`, {
+          method: "POST",
+          signal: controller.signal,
+          headers: { ...(await headers("carol")), accept: "text/event-stream" },
+          body: JSON.stringify({ query: "subscription { liveNotes { _id } }" }),
+        })
+        expect(live.headers.get("content-type")).toContain("text/event-stream")
+        const reader = (live.body as ReadableStream<Uint8Array>).getReader()
+        const decoder = new TextDecoder()
+        let buffer = ""
+        const nextIds = async (): Promise<string[]> => {
+          for (;;) {
+            const match = /event: next\r?\ndata: (.*)\r?\n\r?\n/.exec(buffer)
+            if (match !== null) {
+              buffer = buffer.slice((match.index ?? 0) + match[0].length)
+              const body = JSON.parse(match[1] ?? "{}") as {
+                data?: { liveNotes?: { _id: string }[] }
+                errors?: unknown
+              }
+              if (body.data?.liveNotes === undefined)
+                throw new Error(`no live result: ${JSON.stringify(body)}`)
+              return body.data.liveNotes.map((note) => note._id).sort()
+            }
+            const { value, done } = await reader.read()
+            if (done) throw new Error(`the subscription ended:\n${run.output()}`)
+            buffer += decoder.decode(value, { stream: true })
+          }
+        }
+        expect(await nextIds()).toEqual(["g1", "g3"])
+        await mongo
+          .db(database)
+          .collection<{ _id: string; ownerId: string }>("notes")
+          .insertMany([
+            { _id: "g5", ownerId: "carol" },
+            { _id: "g6", ownerId: "dave" },
+          ])
+        let ids = await nextIds()
+        while (!ids.includes("g5")) ids = await nextIds()
+        expect(ids).toEqual(["g1", "g3", "g5"])
+        controller.abort()
+        await reader.cancel().catch(() => {})
+        socket.close()
+
+        const viewer = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+        const seen: Record<string, unknown>[] = []
+        viewer.on("message", (data) =>
+          seen.push(JSON.parse(data.toString()) as Record<string, unknown>),
+        )
+        await new Promise<void>((resolve, reject) => {
+          viewer.once("open", () => resolve())
+          viewer.once("error", reject)
+        })
+        const { token: view } = await new ViewTokens(masterKey).mint({
+          roles: [],
+          claims: { sub: "carol" },
+        })
+        viewer.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: view }))
+        const watch = async (test: (m: Record<string, unknown>) => boolean) => {
+          const started = Date.now()
+          for (;;) {
+            const found = seen.find(test)
+            if (found !== undefined) return found
+            if (Date.now() - started > 10_000) throw new Error(`timed out: ${JSON.stringify(seen)}`)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+        }
+        await watch((m) => m["t"] === "welcome")
+        viewer.send(JSON.stringify({ t: "sub", id: "v", c: "notes", q: {} }))
+        await watch((m) => m["t"] === "ready")
+        expect(
+          seen
+            .filter((m) => m["t"] === "added")
+            .map((m) => m["id"])
+            .sort(),
+        ).toEqual(["g1", "g3", "g5"])
+        const write = "0192f6a1-7c2e-7b1a-9d3e-00000000a003"
+        viewer.send(
+          JSON.stringify({
+            t: "mut",
+            id: write,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g7", ownerId: "carol" } },
+          }),
+        )
+        expect(await watch((m) => m["t"] === "ack" && m["m"] === write)).toMatchObject({
+          ok: false,
+          err: { code: "CANOPY_FORBIDDEN", msg: "A view token may not write" },
+        })
+        viewer.close()
+      } finally {
+        expect(await stop(run)).toBe(0)
+        await mongo
+          .db(database)
+          .collection<{ _id: string }>("notes")
+          .deleteMany({ _id: { $in: ["g1", "g3", "g5", "g6"] } })
+      }
+    },
+  )
 
   it("reloads the policy folder when a file changes", async () => {
     // Inside the package so the policy file resolves @canopy/policy, but not under node_modules, where

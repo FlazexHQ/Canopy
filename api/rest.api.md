@@ -222,6 +222,22 @@ export interface SchemaSourceOptions {
     readonly maxTimeMS?: number;
 }
 
+export type SearchCapability = {
+    readonly available: true;
+    readonly collections: readonly {
+        readonly name: string;
+        readonly indexes: readonly {
+            readonly name: string;
+            readonly type: string;
+            readonly status: string;
+            readonly queryable: boolean;
+        }[];
+    }[];
+} | {
+    readonly available: false;
+    readonly reason: string;
+};
+
 export interface WriteEvent {
     readonly subject: string;
     readonly roles: readonly string[];
@@ -362,6 +378,8 @@ function preferencesOf(headers: Headers): Preferences
 
 function preflight(cors: CorsOptions, request: Request, methods: string, allowHeaders?: string): Response
 
+function probeSearch(db: Db, collections: readonly string[], options?: { signal?: AbortSignal; }): Promise<SearchCapability>
+
 function problemResponse(problem: Problem, retryAfterSeconds?: number): Response
 
 function problemSlug(code: ErrorCode): string
@@ -371,6 +389,8 @@ function readBody(request: Request, maxBytes: number, accepted?: ReadonlySet<str
 function requestCaller(options: CallerOptions, request: Request, peer: string | undefined, collections: readonly string[] | undefined): Promise<Caller>
 
 function requestIdOf(headers: Headers): string
+
+function searchDiagnostics(capability: SearchCapability, configuredCount: number): { status: "ok" | "warn"; message: string; }[]
 
 function segmentsOf(pathname: string, basePath: string): string[] | undefined
 

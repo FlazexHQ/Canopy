@@ -31,8 +31,8 @@ masked. An invalid config stops every command before it connects, with all probl
 | `server.adminListen`    | `CANOPY_ADMIN_LISTEN`        |                             | Serves `/admin` and `/studio` only on this address       |
 | `server.nodeId`         | `CANOPY_NODE_ID`             | `n1`                        | Names this instance in logs and metrics                  |
 | `server.trustedProxies` | `CANOPY_TRUSTED_PROXIES`     |                             | Proxies whose `X-Forwarded-For` is trusted               |
+| `server.engine`         | `CANOPY_ENGINE`              | `auto`                      | `native`, `wasm` or `ts`; `auto` takes the first that loads |
 | `log.level`             | `CANOPY_LOG_LEVEL`           | `info`                      | `debug`, `info`, `warn` or `error`                       |
-| `types.out`             |                              | `src/canopy.gen.ts`         | Where `canopy gen types` writes                          |
 | `dev.insecure`          | `CANOPY_DEV_INSECURE`        | `false`                     | Development only switches; refused in production         |
 
 ## `auth`
@@ -87,6 +87,19 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `resumeWindow` | `CANOPY_RESUME_WINDOW`          | `2m`                                |
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
+| `echoTimeout`  | `CANOPY_ECHO_TIMEOUT`           | `2s`                                |
+| `server`       | `CANOPY_REALTIME_SERVER`        | `ts`                                |
+
+`server: "gateway"` serves realtime from the native `canopy-gateway` executable instead of the engine inside the
+TypeScript process. `canopy-realtime` then runs the gateway with the same configuration. `canopy-server` and
+`canopy dev` run it on the public port, where it answers `/realtime/v1` (WebSocket, SSE and long polling)
+and passes every other request to the TypeScript server, which listens on loopback only and trusts the
+gateway's `X-Forwarded-For`.
+Socket writes go to the server's REST write path, and their acknowledgements still wait for their change
+events. Built in auth works: the gateway verifies tokens with the server's own JWKS. GraphQL subscriptions
+follow their live queries through the gateway over loopback. The `canopy-server` metrics port also carries
+the gateway's metrics, scraped every second. The executable comes from `CANOPY_GATEWAY_BIN`, the container
+images, or a Cargo build of the repository.
 
 ## `rateLimits`
 

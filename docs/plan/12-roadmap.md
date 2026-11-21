@@ -30,10 +30,14 @@ gantt
   Phase 3 Auth server and Studio v0.3 v0.4    :p3, after p2, 77d
   section Ecosystem
   Phase 4 GraphQL and frameworks v0.5         :p4, after p3, 49d
+  section Native core
+  Phase 5 Native core in Rust v0.6            :p5, after p4, 70d
   section Scale
-  Phase 5 Scale and edge v0.6 to v0.9         :p5, after p4, 63d
+  Phase 6 Scale and edge v0.7 to v0.9         :p6, after p5, 63d
+  section MongoDB depth
+  Phase 7 MongoDB depth v0.10                 :p7, after p6, 49d
   section GA
-  Phase 6 Hardening and 1.0                   :p6, after p5, 42d
+  Phase 8 Hardening and 1.0                   :p8, after p7, 42d
 ```
 
 | Release | Target | Headline |
@@ -43,8 +47,10 @@ gantt
 | **v0.3** | May 2027 | Built-in auth, the all-in-one `canopy` server, `$ctx` lookups |
 | **v0.4** | Jun 2027 | Canopy Studio v1 |
 | **v0.5** | Aug 2027 | GraphQL, Vue/Svelte/Solid/React Native, 2FA and passkeys |
-| **v0.6 to v0.9** | Aug to Oct 2027 | Hub mode, Canopy Edge, certification, performance |
-| **1.0** | late Nov 2027 | External audit passed, v1 APIs and protocol frozen, MongoDB 8.0+ required |
+| **v0.6 "Native core"** | Oct 2027 | Rust policy and matcher core behind the server, `@canopy/native`, the `canopy-gateway` realtime server (opt in), the capability probe, search in development and CI |
+| **v0.7 to v0.9** | Oct to Dec 2027 | Hub mode, Canopy Edge, certification, performance, reads from secondaries, live geo queries |
+| **v0.10 "MongoDB depth"** | Feb 2028 | Search and hybrid search, the MongoDB wire protocol endpoint, Queryable Encryption, views and materialized views, time series, query settings, the App Services migrator |
+| **1.0** | late Mar 2028 | External audit passed, v1 APIs and protocol frozen, MongoDB 8.0+ required |
 
 ## 3. Phases
 
@@ -218,7 +224,7 @@ Phase 4, **P3** when the code is next touched.
 
 | Exit criterion | State |
 |---|---|
-| 5 outside developers, `docker compose up` to an authenticated todo app in ≤ 15 minutes | Not run, no record |
+| 5 outside developers, `docker compose up` to an authenticated todo app in ≤ 15 minutes | Complete by maintainer confirmation on 2026-11-20. [Exercise record](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md) |
 | Studio end-to-end tests cover the critical flows | 9 Playwright scenarios (`apps/studio/e2e/studio.spec.ts`); live data, providers and the danger zone are not covered because they cannot work yet (R2) |
 | Internal security review of auth and admin, no high findings open | Not recorded. R1 should be treated as a high finding. |
 
@@ -321,9 +327,9 @@ per package `coverage.thresholds`; this also gives the public quality dashboard 
 | ID | Item | Note |
 |---|---|---|
 | O1 | SDK core 20.3 kB against 15 kB | Dropped: the maintainer removed the size budget on 2026-11-13. |
-| O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 5. |
+| O2 | S7 on sharded clusters | Still open; needed before hub mode and certification in Phase 6. |
 | O3 | S9 decision | Done 2026-11-13: [S9](../spikes/S9-single-binary.md) has the sizes, startup times (Windows only) and the decision. |
-| O4 | Phase 3 exit criteria | The internal security review is recorded in [reviews/2026-11-13-phase-4-security-review.md](../reviews/2026-11-13-phase-4-security-review.md). The usability test (plan C14) has not been run. |
+| O4 | Phase 3 exit criteria | Closed. See the [internal security review](../reviews/2026-11-13-phase-4-security-review.md) and [maintainer confirmation of C14](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md). |
 
 #### Gate before Phase 4
 
@@ -331,10 +337,10 @@ Phase 4 starts when R1, R2 (implemented or cut), T1, T3 and T5 are done and O4 i
 fit into Phase 4: D1 to D3 and C1 to C4 should land before GraphQL adds another entry point on top of
 the admin API and the Node bridges.
 
-**Status (2026-11-13):** R1, R2, T3 and T5 were done on 2026-11-07, T1 on 2026-11-13, and the security review of
-O4 is recorded. The usability test of O4 is still open, so the gate is met except for that test; the
-maintainers decide whether to run it or to waive it. Phase 4 code was already on `master` before the gate was
-met; the review of that code found no DLS bypass and six defects, all fixed.
+**Status (2026-11-20):** The gate is met. R1, R2, T3 and T5 were done on 2026-11-07, T1 and the O4 security
+review on 2026-11-13. The maintainer confirmed completion of the O4 usability exercise on 2026-11-20.
+Phase 4 code was already on `master` before the gate closed. The review found no DLS bypass and six defects,
+all fixed.
 
 #### Progress (2026-11-07, stopped here)
 
@@ -357,7 +363,8 @@ MongoDB 8.0.34 replica set on Node and on Bun (127 files, 1262 tests), and every
   84.8, `query` 88.7 and 80.3, `realtime` 82.5 and 71.7 (87.5 % lines and 76.4 % branches overall). The
   floors in `vitest.config.ts` sit just under these; the target stays 90 % lines and 80 % branches.
 
-Still open: D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4. (T1 and the security review of O4 were closed on 2026-11-13, see the status above.)
+At this checkpoint, D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4 were still open. See
+[the gate status](#gate-before-phase-4) for the later closure of T1 and O4.
 
 ### 3.4 Phase 4: GraphQL, ecosystem and developer experience → v0.5 (7 weeks)
 
@@ -397,14 +404,64 @@ the default 5 s timeout, the slow auth and binary tests time out on a loaded Win
 did before Phase 4 (T4). Still open:
 graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on Cloudflare.
 
-### 3.5 Phase 5: Scale and edge → v0.6 to v0.9 (9 weeks)
+### 3.5 Phase 5: Native core in Rust → v0.6 (10 weeks)
+
+Decided by the maintainer on 2026-11-18 ([ADR-0014](../adr/0014-rust-native-core.md)). The engine (the code
+that runs per change event, per connection or per byte) moves to Rust; the product (REST, GraphQL, the write
+path, auth, storage, the server, the CLI, Studio and the SDKs) stays in TypeScript. The full plan, with the
+evidence for each choice, is [14: Native core in Rust](14-native-core.md). It comes before scale and edge
+because hub mode, the 100k connection target and the edge's policy bundles are built on its output.
+
+**Entry gate:** the [Phase 4 gate](#gate-before-phase-4) is met.
 
 **Deliverables**
 
-- Hub mode (leader election, NATS JetStream and Redis Streams adapters, degraded fallback).
-- Canopy Edge: signed relay with replay, topic and connection Durable Objects with hibernation, policy bundles,
-  delegated snapshots and writes, echo-before-ack at the edge, and the `edge-cloudflare` example.
-- Diff payloads, encode-once tuning, an optional uWebSockets.js adapter, compression tuning.
+- Spikes S10 (ports and distribution), S11 (native gateway prototype, which also takes the open fan out
+  measurement of S5), S12 (Rust driver fidelity) and S13 (the MongoDB wire protocol on the gateway prototype)
+  (§4).
+- From [15](15-mongodb-depth.md): the capability probe (M1), and search in development and CI on
+  `mongodb-atlas-local` (M2, item 1), so the existing `$search` and `$vectorSearch` support is tested against
+  a real index before the engine moves.
+- A Cargo workspace under `crates/` with `canopy-protocol`, `canopy-matcher`, `canopy-query` and
+  `canopy-policy`, mirroring the TypeScript packages, with the Rust policy compiler and matcher as the server's
+  source of truth once they pass the equivalence gates ([14 §5](14-native-core.md#5-one-semantics-in-two-languages)).
+- Ports: `@canopy/native` (Node-API for Bun, Node and Deno, prebuilt for Windows, Linux glibc and musl and
+  macOS on x64 and arm64, with a WebAssembly fallback) and `canopy-wasm` (Workers and browsers).
+- An `engine` option (`native`, `wasm`, `ts`) in `realtime`, `rest`, `graphql` and `storage`; `ts` stays
+  through 1.0 as the fallback and the reference.
+- `canopy-engine` and the `canopy-gateway` binary: a drop in replacement for the `canopy-realtime` sidecar on
+  wire protocol v1, with writes forwarded to the TypeScript write path and echo-before-ack kept.
+- Gated: raw BSON to EJSON encoding in Rust on the REST and GraphQL read paths
+  ([14 §8](14-native-core.md#8-stages-and-gates), stage 4).
+- Rust in the engineering setup: `cargo fmt`, Clippy, tests, `cargo deny` (allowed licenses) and the Cargo
+  workspace in `tools/repo-check`, on every pull request; cross builds, `cargo fuzz` and `cargo mutants`
+  nightly; a signed `canopy-gateway` image.
+
+**Exit criteria**
+
+- Three way differential (MongoDB, TypeScript, Rust) at 0 mismatches over 1M generated cases per operator, and
+  byte identical compiled filters from both policy compilers on the generated corpus.
+- The full suite, the bypass corpus and the I1 to I6 properties green with `engine: "native"` on Bun and
+  Node, on Linux, Windows and macOS; the install test green with Bun, pnpm, Yarn and npm.
+- The gateway passes the protocol vectors, 10k simulation seeds, the chaos tests and the cross entry point DLS
+  test.
+- At 10k connections, 50k subscriptions and 1k events/s: fan out p99 ≤ 25 ms with at most half the CPU of the
+  TypeScript engine and ≤ 8 KiB per idle connection. If the gateway misses this, it moves after 1.0 and the
+  phase closes with the native core alone.
+
+### 3.6 Phase 6: Scale and edge → v0.7 to v0.9 (9 weeks)
+
+**Deliverables**
+
+- Hub mode (leader election, NATS JetStream and Redis Streams adapters, degraded fallback), with
+  `canopy-gateway` as the gateway node.
+- Canopy Edge: signed relay with replay, topic and connection Durable Objects with hibernation, policy bundles
+  evaluated by `canopy-wasm`, delegated snapshots and writes, echo-before-ack at the edge, and the
+  `edge-cloudflare` example.
+- Diff payloads, encode-once tuning, compression tuning. The uWebSockets.js adapter only if S11 rejected the
+  gateway.
+- From [15](15-mongodb-depth.md): reads from secondaries with read your writes (M6), which is also the
+  mitigation of R4, and live geo queries in both matchers (M5).
 - Helm chart, Grafana dashboard and alert rules.
 - Compatibility certification ([10 §2](10-operations.md#2-compatibility-matrix)).
 - Load tests at 100k connections and a global edge test. The full chaos suite.
@@ -414,12 +471,53 @@ graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on
 - The targets in [10 §7](10-operations.md#7-performance-targets-and-benchmarking) are met.
 - 100k connections in hub mode with fan-out p99 ≤ 50 ms.
 - The compatibility matrix is verified and published.
+- Geo operators at 0 mismatches in the three way differential; read your writes holds in simulation with
+  lagging secondaries.
 
-### 3.6 Phase 6: Hardening and 1.0 (6 weeks)
+### 3.7 Phase 7: MongoDB depth → v0.10 (7 weeks)
+
+Decided by the maintainer on 2026-11-18 ([ADR-0015](../adr/0015-reach-through-mongodb.md)). Canopy reaches
+further through MongoDB's own features and protocol instead of more languages. The full plan is
+[15: Using all of MongoDB](15-mongodb-depth.md). It comes before hardening so that the external audit covers
+the wire endpoint and encryption.
+
+**Entry gate:** the Phase 6 exit criteria are met, and S13 is decided (go, or the wire endpoint moves after
+1.0).
 
 **Deliverables**
 
-- Feature freeze, then an external audit and remediation ([09 §7](09-security.md#7-pre-10-audit-plan)).
+- Spike S14 (Queryable Encryption end to end) in week 1.
+- Search for real (M2): declared search indexes with `canopy search indexes plan` and `apply`, index
+  definitions checked against field rules, hybrid search with `$rankFusion` and `$scoreFusion`, and live search
+  on the polling observer.
+- The MongoDB wire protocol endpoint on `canopy-gateway` (M3), if S13 passed: `MONGODB-OIDC` and
+  `SCRAM-SHA-256`, an allowlist of commands, change streams as subscriptions, cursors bound to their identity.
+- Queryable Encryption (M4), if S14 passed, with the TypeScript engine as the fallback for encrypted
+  collections.
+- `canopy migrate app-services` and `canopy link atlas` (M7).
+- Views and materialized views (M8), time series collections (M9), query settings from Studio (M10), and the
+  zone sharding example (M11).
+- Every change to the app database (search indexes, validators, views, materialized view targets) runs only
+  from an explicit admin action with an audit entry, as amended in [ADR-0011](../adr/0011-no-user-schema-intrusion.md).
+
+**Exit criteria**
+
+- The search suite is green on `mongodb-atlas-local` in CI, and DLS holds on search, hybrid search and live
+  search.
+- The wire endpoint passes the allowlisted CRUD and change stream unified spec tests with the Node, Python, Go
+  and Java drivers, is part of the cross entry point DLS test, and replays the bypass corpus with 0 bypasses.
+- Policies on encrypted fields are refused at publish time except for the supported operators, and the
+  realtime and write suites are green on encrypted collections.
+- The App Services migrator never widens access on the generated corpus.
+- Every item of [15 §5](15-mongodb-depth.md#5-does-this-make-canopy-faster) that claims a speedup has its
+  measurement recorded.
+
+### 3.8 Phase 8: Hardening and 1.0 (6 weeks)
+
+**Deliverables**
+
+- Feature freeze, then an external audit and remediation ([09 §7](09-security.md#7-pre-10-audit-plan)), covering
+  the Rust crates, the ports, and the gateway with its MongoDB wire protocol endpoint.
 - v1 API and protocol freeze.
 - Performance regression gates; LTS and support policy.
 - Docs polish; launch materials; bug bounty setup.
@@ -444,6 +542,11 @@ graphql-ws on Bun (Bun serves subscriptions over SSE), and the S8 calibration on
 | **S7** | Is echo-before-ack correct, including correlation on 8.0+ (shared `clusterTime`) and on sharded clusters? | Fuzz writes, transactions and concurrent clients, and verify that ack ordering holds | 0 ordering violations in 100k mutations | Done 2026-11-06 for replica sets on 7.0 and 8.0: 0 violations; sharded clusters still open ([write-up](../spikes/S7-echo-before-ack.md)) |
 | **S8** | How should Durable Objects fan-out be designed (topic/connection topology, hibernation, cost)? | Prototype at 10k, then 100k simulated sockets | Cost model and topology accepted | Done 2026-11-12 with a local workerd prototype at 10k sockets and a calibrated model at 100k: subject sharded connection DOs, topic DOs with a routing index; calibration on Cloudflare moves to Phase 5 ([write-up](../spikes/S8-durable-objects-fan-out.md)) |
 | **S9** | Single-binary distribution: `bun build --compile` or Node SEA, or containers only? | Build, measure size and startup, test on 3 OSes | Decision recorded | Done 2026-11-13: `bun build --compile` executables next to the container image, measured on Windows ([write-up](../spikes/S9-single-binary.md)) |
+| **S10** | Can a Node-API port of the Rust core ship to every supported platform, runtime and package manager without asking users for a Rust toolchain? | napi-rs build of a small crate for Windows, Linux glibc and musl and macOS on x64 and arm64, plus the WebAssembly fallback; load it under Bun, Node 24 and 26 and Deno; install it with Bun, pnpm, Yarn and npm; embed it with `bun build --compile` | Loads everywhere or falls back to WebAssembly; per call overhead measured for single and batched calls; release pipeline sketched | Phase 5, weeks 1 to 2 |
+| **S11** | Is a Rust gateway worth it: what do decoding, matching and fan out cost against the TypeScript engine at 10k and 50k connections? | Prototype: one change stream, the predicate index and matcher for equality and range filters, encode once WebSocket fan out; same load against `Bun.serve` and `ws`. Also the deployment shape (gateway as front door, or a routed port) | Go when fan out p99 and CPU per event are at least 2 times better and memory per idle connection is ≤ 8 KiB. Closes the open measurement of S5 | Phase 5, weeks 1 to 2 |
+| **S12** | Does the official Rust driver give what S1, S2 and S7 rely on: snapshot sessions with their cluster time, expanded change events, pre and post images, resume tokens and checkpoints, transactions? | Port the S2 randomized snapshot plus stream test to the Rust driver on MongoDB 7.0 and 8.0 | Zero gaps or duplicates in 10k runs, or a documented workaround per missing feature | Phase 5, week 1 |
+| **S13** | Can the gateway serve the MongoDB wire protocol to unmodified drivers, with DLS, and what does it cost? | On the S11 prototype: handshake, `MONGODB-OIDC`, `find`, `getMore`, `aggregate`, `insert`, `update`, `$changeStream`; the Node, Python, Go and Java drivers' CRUD unified tests through it; the bypass corpus; a benchmark against the Data API and direct `mongod` ([15 §6](15-mongodb-depth.md#6-spikes)) | All four drivers pass the allowlisted spec tests, 0 bypasses, per document cost below the Data API's | Phase 5, with S11 |
+| **S14** | Does Queryable Encryption work end to end through Canopy, on Node and in the Rust driver on every platform? | Encrypted collections with equality and range fields on 8.0 and 8.2; the realtime and write suites on them; the gateway built with in use encryption for the eight targets | Works on every platform or a documented fallback to the TypeScript engine; overhead per write and per event measured | Phase 7, week 1 |
 
 ## 5. Cut lines
 
@@ -451,12 +554,19 @@ If the schedule slips, cut in this order:
 
 1. **GraphQL** moves after 1.0. REST and the SDK cover most needs.
 2. **Vue/Svelte/Solid bindings** become community-contributed. The protocol vectors make that safe.
-3. **Canopy Edge** moves after 1.0. Hub mode covers scale.
-4. **TOTP and passkeys** move after 1.0.
-5. **Multi-tab leader election and devtools.**
+3. **The native REST read path** (Phase 5, stage 4 of [14 §8](14-native-core.md#8-stages-and-gates)).
+4. **Canopy Edge** moves after 1.0. Hub mode covers scale.
+5. **The native gateway** moves after 1.0; the TypeScript engine stays the realtime server and the native
+   policy and matcher core still ships.
+6. **The MongoDB wire protocol endpoint** (M3) moves after 1.0; the Data API and realtime serve every
+   language over HTTP and WebSocket.
+7. **Queryable Encryption** (M4), then the **App Services migrator** (M7), move after 1.0.
+8. **TOTP and passkeys** move after 1.0.
+9. **Multi-tab leader election and devtools.**
 
-**Never cut:** DLS correctness work, the differential, simulation and bypass suites, the external audit, and
-docs for shipped features.
+**Never cut:** DLS correctness work, the differential, simulation and bypass suites (including the
+equivalence suites between the TypeScript and Rust implementations), the external audit, and docs for shipped
+features.
 
 ## 6. Risk register
 
@@ -477,6 +587,14 @@ docs for shipped features.
 | R13 | The TS 6 → 7 transition breaks tooling | L | Med | Compatibility job and switch criteria ([11 §11](11-engineering.md#11-typescript-7-readiness)) | C |
 | R14 | Competitive moves (MongoDB launches a replacement, or another open-source project gains traction) | M | Med | Ship the wedge early; focus on DLS, drop-in adoption and openness | Maintainers |
 | R15 | The MongoDB driver misbehaves on Bun (it officially targets Node) | M | High | Integration and differential suites on Bun and Node for every PR; pinned Bun version; upstream reports; Node as the supported fallback | A |
+| R16 | The Rust and TypeScript implementations of DLS semantics drift, so one admits a document the other refuses | M | **Critical** | MongoDB as the oracle in a three way differential; byte identical compiled filters; the gateway in the cross entry point test; the crates in the external audit ([14 §5](14-native-core.md#5-one-semantics-in-two-languages)) | B |
+| R17 | A native build fails on one platform, runtime or package manager | M | High | Prebuilt binaries for eight targets, WebAssembly fallback, the `ts` engine through 1.0, the install test on every PR (S10) | C |
+| R18 | The Rust driver lacks a feature the engine relies on | M | Med | S12 first; per feature fallback to the TypeScript path; the gateway stays opt in until it passes | A |
+| R19 | Rust experience and review capacity on a three person team | M | Med | Crates mirror the TypeScript packages one to one; two code owners per crate; Phase 5 stages gated so a slow one can be cut | Maintainers |
+| R20 | The wire endpoint becomes a DLS bypass (an unlisted command, a cursor of another identity, an option the sanitizer misses) | M | **Critical** | Command allowlist, cursor ownership, the Data API's sanitizer, the bypass corpus over the wire, fuzzing, the external audit ([15 §7](15-mongodb-depth.md#7-risks)) | B |
+| R21 | Search differs between Atlas and self managed `mongot`, or `mongot`'s SSPL deters users | M | Med | The capability probe; the search suite on `mongodb-atlas-local`, nightly on Atlas when credentials exist; `mongot` never bundled | A |
+| R22 | Queryable Encryption limits break assumptions in the policy compiler or realtime | M | High | Encrypted fields refused at publish time except the supported operators; S14 before any code; TypeScript engine fallback | B |
+| R23 | Reads from secondaries return stale data to a client | L | High | `afterClusterTime` from the client's last seen cluster time; off by default; simulation with lagging secondaries | A |
 
 ## 7. Open questions
 
@@ -494,18 +612,26 @@ Decisions needed from the maintainers. Each has a recommendation and a deadline.
 | Q8 | GraphQL priority | Phase 4, first item on the cut list | Phase 3 review |
 | Q9 | One app DB per deployment, or several? | One for 1.0; the meta schema allows more later | Phase 1 |
 | Q10 | Telemetry | Opt-in only, with a published payload | Phase 0 |
+| Q11 | Keep the TypeScript server engine (`engine: "ts"`) after 1.0? | Keep it through 1.0 as fallback, reference and the path for contributors without Rust; decide after a release with `native` as the default | Phase 8 |
+| Q12 | Rust dependency licenses outside MIT, Apache 2.0, BSD and ISC (Unicode 3.0 in common crates, CDLA Permissive 2.0 for bundled root certificates) | Accept Unicode 3.0 for data tables; avoid CDLA by using the platform's certificate store | Phase 5, stage 0 |
+| Q13 | Native gateway as the default realtime server | Opt in for v0.6, default one release later if its gates hold, its CPU per delivered broadcast frame is at most half of `Bun.serve`'s (S11 condition 1, moved here from the opt in release on 2026-11-21) and no P0 or P1 issue is open | End of Phase 5 |
+| Q14 | How do service callers authenticate on the wire endpoint? | `SCRAM-SHA-256` with credentials derived from an API key; `MONGODB-OIDC` for users | S13 |
+| Q15 | Search needs MongoDB 8.2: raise the minimum version? | **Decided 2026-11-18:** no. 8.0 stays the 1.0 minimum; search is switched on by the capability probe where the server has it | Done |
+| Q16 | May Canopy change collection options and indexes in the app database (validators, search indexes, views, materialized view targets)? | **Decided 2026-11-18:** yes, only through an explicit admin action with an audit entry, never at startup ([ADR-0011](../adr/0011-no-user-schema-intrusion.md), amended) | Done |
 
 ## 8. After 1.0
 
 - **Storage:** File storage with DLS on objects, on local disk, Cloudflare R2 or AWS S3, with image transformations.
 - **Server functions, database triggers, webhooks and cron:** sandboxed, running with a DLS context.
 - **Broadcast and presence:** ephemeral realtime channels, as in Supabase Broadcast/Presence.
-- **Search:** DLS-aware endpoints over Atlas Search and Vector Search, and MongoDB Community search where
-  available.
 - **Local-first mode:** a client database plus sync, for apps that must work offline for days.
-- **Native SDKs** (Swift, Kotlin, Dart) built on the protocol spec and vectors.
+- **Native SDKs** (Swift, Kotlin, Dart) built on the protocol spec and vectors, sharing the Rust core through
+  UniFFI ports, and a Python server library through PyO3 ([14 §4.2](14-native-core.md#42-ports)).
+- **A functions runtime** in Rust on `deno_core`, the counterpart of Supabase's Edge Runtime, for user code
+  running in isolates with a DLS context. Until then functions are HTTP endpoints.
 - **Multi-project control plane and Canopy Cloud** (hosted), plus a Terraform provider.
-- **Scoped secret keys, column masking, organizations in auth, and SSO for admins.**
+- **Scoped secret keys, field masking beyond Queryable Encryption, organizations in auth, and SSO for admins.**
+- **Functions in any language,** as WebAssembly components on the functions runtime.
 - **A policy-authoring assistant in Studio** that explains, suggests and tests rules.
 
 ## 9. Tracking progress

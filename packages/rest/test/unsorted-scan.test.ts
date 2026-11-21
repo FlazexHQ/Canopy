@@ -1,11 +1,60 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
-import { type Document, MongoClient } from "mongodb"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
+import {
+  type Collection,
+  type Db,
+  type Document,
+  Int32,
+  MongoClient,
+  MongoServerError,
+} from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { type Caller, type ReadLimits, ReadPath } from "../src/index.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const DOCS = 100_000
+
+/** A MongoDB server error as the driver decodes it with exact BSON types, where the code is an `Int32`. */
+const serverError = (code: number, codeName: string): MongoServerError =>
+  new MongoServerError({ message: codeName, code: new Int32(code) as unknown as number, codeName })
+
+/**
+ * A client whose finds without a hint (the `_id` walk) fail with `error`, reported to `seen` like a
+ * started command. Finds with a hint run on MongoDB. A walk given 1 ms over 100,000 documents usually
+ * runs out of time, but a fast machine can finish it before MongoDB checks the clock, so tests that need
+ * the walk to time out use this client.
+ */
+function failingWalks(client: MongoClient, seen: Document[], error: MongoServerError): MongoClient {
+  const collection = (target: Collection): Collection =>
+    new Proxy(target, {
+      get(coll, key) {
+        if (key !== "find") {
+          const value: unknown = Reflect.get(coll, key, coll)
+          return typeof value === "function" ? value.bind(coll) : value
+        }
+        return (filter: Document, options: Document = {}) => {
+          if (options["hint"] !== undefined) return coll.find(filter, options)
+          seen.push({ find: coll.collectionName, filter, maxTimeMS: options["maxTimeMS"] })
+          return { toArray: () => Promise.reject(error) }
+        }
+      },
+    })
+  const database = (target: Db): Db =>
+    new Proxy(target, {
+      get(db, key) {
+        if (key === "collection") return (name: string) => collection(db.collection(name))
+        const value: unknown = Reflect.get(db, key, db)
+        return typeof value === "function" ? value.bind(db) : value
+      },
+    })
+  return new Proxy(client, {
+    get(target, key) {
+      if (key === "db") return (name: string) => database(target.db(name))
+      const value: unknown = Reflect.get(target, key, target)
+      return typeof value === "function" ? value.bind(target) : value
+    },
+  })
+}
 
 const items = collection("items", {
   exposed: true,
@@ -32,11 +81,11 @@ suite("finds without a sort on unindexed filters", () => {
     if (event.commandName === "find" && event.command["find"] === "items") finds.push(event.command)
   }
 
-  const reads = (limits: Partial<ReadLimits>): ReadPath =>
+  const reads = (limits: Partial<ReadLimits>, walkError?: MongoServerError): ReadPath =>
     new ReadPath({
-      client,
+      client: walkError === undefined ? client : failingWalks(client, finds, walkError),
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([items])),
+      policies: testPolicyEngine(createPolicySet([items])),
       limits,
     })
 
@@ -67,7 +116,10 @@ suite("finds without a sort on unindexed filters", () => {
   })
 
   it("switches a rare match to a collection scan and still pages in _id order", async () => {
-    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
+    const path = reads(
+      { unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 },
+      serverError(50, "MaxTimeMSExpired"),
+    )
     finds.length = 0
     const first = await path.find(auditor, {
       collection: "items",
@@ -120,7 +172,10 @@ suite("finds without a sort on unindexed filters", () => {
   })
 
   it("scans at once for a filter shape whose walk ran out of time twice in a row", async () => {
-    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
+    const path = reads(
+      { unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 },
+      serverError(50, "MaxTimeMSExpired"),
+    )
     const hints: unknown[][] = []
     const times: number[][] = []
     for (let round = 0; round < 4; round += 1) {
@@ -145,7 +200,10 @@ suite("finds without a sort on unindexed filters", () => {
   })
 
   it("tries the walk again after each scan that fills a page", async () => {
-    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 })
+    const path = reads(
+      { unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 },
+      serverError(50, "MaxTimeMSExpired"),
+    )
     const hints: unknown[][] = []
     for (let round = 0; round < 5; round += 1) {
       finds.length = 0
@@ -230,6 +288,16 @@ suite("finds without a sort on unindexed filters", () => {
     expect(await hints(inBucket(9))).toEqual([undefined])
     expect(await hints(auditor)).toEqual([undefined])
     expect(await hints(inBucket(8))).toEqual([{ $natural: 1 }])
+  })
+
+  it("fails a find whose walk fails for another reason, without scanning", async () => {
+    const interrupted = serverError(11601, "Interrupted")
+    const path = reads({ unsortedProbeMS: 1, scanMSPerMillion: 0, maxTimeMS: 10_000 }, interrupted)
+    finds.length = 0
+    await expect(
+      path.find(auditor, { collection: "items", filter: { rare: true }, limit: 2 }),
+    ).rejects.toHaveProperty("cause", interrupted)
+    expect(finds.map((command) => command["hint"])).toEqual([undefined])
   })
 
   it("never switches a find that has a sort, or when the probe is off", async () => {

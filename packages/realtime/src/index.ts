@@ -3,6 +3,16 @@ export { toCt } from "@canopy/protocol"
 export { EchoWaiter } from "./echo.ts"
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from "./event.ts"
 export {
+  findGatewayBinary,
+  type GatewayAuth,
+  type GatewayOverrides,
+  gatewayConfig,
+  type RunningGateway,
+  runGateway,
+  startGateway,
+  storedPolicies,
+} from "./gateway.ts"
+export {
   createHttpTransport,
   type HttpTransport,
   type HttpTransportOptions,

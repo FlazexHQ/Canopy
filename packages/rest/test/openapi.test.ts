@@ -1,6 +1,6 @@
 import { Authenticator } from "@canopy/auth"
-import { allow, auth, collection, createPolicySet, PolicyEngine } from "@canopy/policy"
-import { MONGODB_URI } from "@canopy/testing"
+import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { Validator } from "@seriousme/openapi-schema-validator"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
@@ -78,7 +78,7 @@ suite("OpenAPI and schemas against MongoDB", () => {
     rest = createRestHandler({
       client,
       database: dbName,
-      policies: new PolicyEngine(createPolicySet([todos, posts, hidden])),
+      policies: testPolicyEngine(createPolicySet([todos, posts, hidden])),
       authenticator: new Authenticator(
         { jwks: { keys: [jwk] }, issuer: ISSUER },
         { publishable: [PUBLISHABLE], secret: [SECRET] },

@@ -328,7 +328,8 @@ is idempotent.
 
 **CPU model (to be calibrated in spike S5):** cost per node ≈ `events/s × (decode + candidates/event ×
 match cost) + frames/s × encode cost (amortized by encode-once)`. The main levers are the selectivity of the
-predicate index and encode-once reuse.
+predicate index and encode-once reuse. From Phase 5 the same engine also exists as the Rust `canopy-gateway`
+([14 §4.3](14-native-core.md#43-the-native-gateway)); spike S11 calibrates this model against both.
 
 ## 14. Canopy Edge
 

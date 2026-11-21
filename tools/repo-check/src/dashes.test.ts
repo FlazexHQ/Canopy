@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { findDashes, findDashesInMarkdown, findDashesInScript, findDashesInText } from "./dashes.ts"
+import {
+  findDashes,
+  findDashesInMarkdown,
+  findDashesInRust,
+  findDashesInScript,
+  findDashesInText,
+} from "./dashes.ts"
 
 const EM = "\u2014"
 const EN = "\u2013"
@@ -139,7 +145,51 @@ describe("findDashesInScript", () => {
   })
 })
 
+describe("findDashesInRust", () => {
+  it("ignores the subtraction operator", () => {
+    expect(findDashesInRust(`let n = a${SPACED}b;\nlet m = x${SPACED}1;`)).toEqual([])
+  })
+
+  it("reports spaced hyphens in line, block and doc comments", () => {
+    expect(
+      findDashesInRust(
+        `/// fast${SPACED}safe\nlet a = 1; // one${SPACED}two\n/* x /* y${SPACED}z */ */`,
+      ),
+    ).toEqual([
+      { line: 1, column: 10, kind: "spaced hyphen" },
+      { line: 2, column: 19, kind: "spaced hyphen" },
+      { line: 3, column: 11, kind: "spaced hyphen" },
+    ])
+  })
+
+  it("reports spaced hyphens in strings, byte strings and raw strings", () => {
+    expect(
+      findDashesInRust(`f("a${SPACED}b"); g(b"c${SPACED}d"); h(r#"e${SPACED}"f"#);`),
+    ).toHaveLength(3)
+  })
+
+  it("does not mistake a quote in a character literal or a lifetime for a string", () => {
+    expect(findDashesInRust(`let q = '"'; let n = a${SPACED}b; fn f<'a>(x: &'a str) {}`)).toEqual(
+      [],
+    )
+    expect(findDashesInRust(`let e = '\\''; let n = a${SPACED}b; // x${SPACED}y`)).toHaveLength(1)
+  })
+
+  it("does not take an identifier ending in r for a raw string", () => {
+    expect(findDashesInRust(`let n = ar${SPACED}b; let s = "x";`)).toEqual([])
+  })
+
+  it("reports em dashes in code", () => {
+    expect(findDashesInRust(`let ${EM} = 1;`)).toHaveLength(1)
+  })
+})
+
 describe("findDashes", () => {
+  it("uses the Rust scanner for Rust files", () => {
+    expect(findDashes("src/lib.rs", `let n = a${SPACED}b;`)).toEqual([])
+    expect(findDashes("src/lib.rs", `// a${SPACED}b`)).toHaveLength(1)
+  })
+
   it("uses the script scanner for TypeScript and JavaScript files", () => {
     const text = `const n = a${SPACED}b\n`
     for (const path of ["a.ts", "b.mts", "c.tsx", "d.js", "e.cjs", "dir/f.MJS"]) {

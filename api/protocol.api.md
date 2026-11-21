@@ -218,7 +218,7 @@ class Long {
   toJSON(): string
 }
 
-const MIN_FEATURE_COMPATIBILITY_VERSION: "7.0"
+const MIN_FEATURE_COMPATIBILITY_VERSION: "8.0"
 
 class MaxKey {
   get _bsontype(): "MaxKey"
@@ -446,7 +446,7 @@ function encode(value: unknown): unknown
 
 function encodeMessage(message: ClientMessage | ServerMessage): string
 
-function errorFromWire(error: WireError): CanopyError
+function errorFromWire(error: WireError, options?: CanopyErrorOptions): CanopyError
 
 function featureCompatibilityDiagnostic(version: string | undefined, target?: MongoTarget): Diagnostic
 
@@ -497,6 +497,8 @@ function toCanonical(value: unknown): unknown
 function toCanopyError(error: unknown): CanopyError
 
 function toCt(value: unknown): ClusterTime | undefined
+
+function trimTrailingSlashes(path: string): string
 
 function unbatch(message: ServerMessage): readonly (SequencedMessage | PongMessage)[]
 

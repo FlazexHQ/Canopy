@@ -1,6 +1,7 @@
 import {
   type ClusterTime,
   canonicalString,
+  compareCt,
   encodeMessage,
   type SequencedMessage,
   type WireError,
@@ -79,6 +80,23 @@ interface MergeEntry {
   readonly id: unknown
   readonly subs: Set<string>
   doc: Doc
+  /** The cluster time of the version the client holds, for the fields without their own in `stamps`. */
+  ct: ClusterTime
+  /**
+   * Whether `ct` also tells that the fields `doc` lacks were absent then, as it does after a subscription
+   * that covers every field wrote the whole document. Otherwise a missing field is simply unknown.
+   */
+  whole: boolean
+  /** Fields whose value (or absence) comes from another cluster time than `ct`. */
+  stamps: Map<string, ClusterTime> | undefined
+}
+
+/** When the client's value of `field` was current, or `undefined` when nothing is known about it. */
+function stampOf(entry: MergeEntry, field: string): ClusterTime | undefined {
+  return (
+    entry.stamps?.get(field) ??
+    (entry.whole || Object.hasOwn(entry.doc, field) ? entry.ct : undefined)
+  )
 }
 
 /** Coverage of one subscription's projection: which top level fields it owns in the merge box. */
@@ -88,6 +106,51 @@ export interface Coverage {
 
 /** Every field. */
 export const FULL_COVERAGE: Coverage = { covers: () => true }
+
+/**
+ * Merges one subscription's version of a document into the version the client holds. Each field the
+ * subscription covers takes the new value (or goes, when the version lacks it) unless the client already
+ * holds that field from a later cluster time. Subscriptions read their snapshots at different times, so
+ * one whose snapshot is older must not move the client back to a version another one already replaced:
+ * nothing would correct it when that subscription later leaves the document.
+ */
+function merge(entry: MergeEntry, doc: Doc, coverage: Coverage, ct: ClusterTime): Doc {
+  if (coverage === FULL_COVERAGE && entry.stamps === undefined && compareCt(ct, entry.ct) >= 0) {
+    entry.ct = ct
+    entry.whole = true
+    return doc
+  }
+  const next: Doc = { ...entry.doc }
+  const stamps = new Map<string, ClusterTime>()
+  const fields = new Set([
+    ...Object.keys(entry.doc),
+    ...Object.keys(doc),
+    ...(entry.stamps?.keys() ?? []),
+  ])
+  for (const field of fields) {
+    const stamp = stampOf(entry, field)
+    if (stamp !== undefined) stamps.set(field, stamp)
+  }
+  let took = 0
+  for (const field of fields) {
+    if (!coverage.covers(field)) continue
+    const stamp = stamps.get(field)
+    if (stamp !== undefined && compareCt(ct, stamp) < 0) continue
+    stamps.set(field, ct)
+    took++
+    if (Object.hasOwn(doc, field)) next[field] = doc[field]
+    else delete next[field]
+  }
+  if (coverage === FULL_COVERAGE && took === fields.size) {
+    entry.ct = ct
+    entry.whole = true
+    entry.stamps = undefined
+    return next
+  }
+  entry.stamps = stamps
+  entry.whole = false
+  return next
+}
 
 /** Session limits. */
 export interface SessionLimits {
@@ -269,7 +332,7 @@ export class Session {
   ): ObserverListener & { readonly subId: string } {
     return {
       subId,
-      added: (key, id, doc, ct) => this.added(coll, key, id, subId, project(doc), ct),
+      added: (key, id, doc, ct) => this.added(coll, key, id, subId, project(doc), coverage, ct),
       changed: (key, id, doc, ct) => this.changed(coll, key, id, subId, project(doc), coverage, ct),
       removed: (key, _id, ct) => this.removed(coll, key, subId, ct),
       ready: (ct) => this.ready(subId, ct),
@@ -322,19 +385,28 @@ export class Session {
     id: unknown,
     subId: string,
     doc: Doc,
+    coverage: Coverage,
     ct: ClusterTime,
   ): void {
     this.rebinding.get(subId)?.add(key)
     const entry = this.mergeBox.get(key)
     if (entry === undefined) {
-      this.mergeBox.set(key, { coll, id, subs: new Set([subId]), doc })
+      this.mergeBox.set(key, {
+        coll,
+        id,
+        subs: new Set([subId]),
+        doc,
+        ct,
+        whole: coverage === FULL_COVERAGE,
+        stamps: undefined,
+      })
       const head = addedHeads.get([coll, key, ct, doc], () =>
         headOf({ t: "added", c: coll, id, d: doc, ct } as Outgoing),
       )
       this.sendHead(`${head}${subsSuffix(subId)}`)
       return
     }
-    const merged: Doc = { ...entry.doc, ...doc }
+    const merged = merge(entry, doc, coverage, ct)
     const known = entry.subs.has(subId)
     entry.subs.add(subId)
     if (canonicalString(merged) === canonicalString(entry.doc)) {
@@ -359,22 +431,27 @@ export class Session {
     this.rebinding.get(subId)?.add(key)
     const entry = this.mergeBox.get(key)
     if (entry === undefined || !entry.subs.has(subId)) {
-      this.added(coll, key, id, subId, doc, ct)
+      this.added(coll, key, id, subId, doc, coverage, ct)
       return
     }
-    if (coverage === FULL_COVERAGE && entry.subs.size === 1 && !this.rebinding.has(subId)) {
+    if (
+      coverage === FULL_COVERAGE &&
+      entry.subs.size === 1 &&
+      !this.rebinding.has(subId) &&
+      entry.stamps === undefined &&
+      compareCt(ct, entry.ct) >= 0
+    ) {
       const before = entry.doc
       entry.doc = doc
+      entry.ct = ct
+      entry.whole = true
       const head = changedHeads.get([coll, key, ct, before, doc, this.diffs], () =>
         changeHead(coll, id, ct, before, doc, this.diffs),
       )
       if (head !== null) this.sendHead(head)
       return
     }
-    const next: Doc = {}
-    for (const field of Object.keys(entry.doc))
-      if (!coverage.covers(field)) next[field] = entry.doc[field]
-    Object.assign(next, doc)
+    const next = merge(entry, doc, coverage, ct)
     const before = entry.doc
     entry.doc = next
     this.sendChange(coll, id, ct, before, next)

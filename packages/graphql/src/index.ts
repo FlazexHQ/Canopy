@@ -30,6 +30,7 @@ export {
   LiveQueries,
   type LiveSocket,
   type RealtimeConnector,
+  type RemoteRealtime,
 } from "./live.ts"
 export {
   type CollectionNames,

@@ -1,9 +1,10 @@
-import { allow, auth, collection, createPolicySet, PolicyEngine, restrict } from "@canopy/policy"
+import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
 import type { EventTrace } from "@canopy/realtime"
+import { testPolicyEngine } from "@canopy/testing"
 import { describe, expect, it } from "vitest"
 import { maskTrace } from "../src/admin/trace.ts"
 
-const engine = new PolicyEngine(
+const engine = testPolicyEngine(
   createPolicySet([
     collection("staff", {
       exposed: true,

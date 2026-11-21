@@ -140,6 +140,24 @@ class FilterObserver extends Observer {
 
 export type FullDocumentMode = "auto" | "updateLookup" | "images";
 
+export interface GatewayAuth {
+    readonly issuer: string;
+    readonly audience: string;
+    readonly jwksUrl: string;
+    readonly algorithms: readonly string[];
+    readonly rolesClaim: string;
+}
+
+export interface GatewayOverrides {
+    readonly port?: number;
+    readonly metricsPort?: number;
+    readonly metricsHost?: string;
+    readonly proxyUrl?: string;
+    readonly mutationsUrl?: string;
+    readonly auth?: GatewayAuth;
+    readonly viewTokenKey?: JsonWebKey;
+}
+
 class Gauge {
   readonly name: string
   readonly help: string
@@ -230,8 +248,8 @@ export interface Logger {
 
 class MongoSnapshotReader implements SnapshotReader {
   constructor(client: MongoClient, db: Db, options: { concurrency: number; metrics?: RealtimeMetrics; maxTimeMS?: number; }): MongoSnapshotReader
-  read(query: { readonly coll: string; readonly filter: Record<string, unknown>; readonly sort: Readonly<Record<string, 1 | -1>> | undefined; readonly limit: number | undefined; }): Promise<{ docs: Doc[]; ct: ClusterTime; }>
-  lookup(coll: string, ids: readonly unknown[]): Promise<Map<string, Doc>>
+  read(query: SnapshotQuery): Promise<{ docs: Doc[]; ct: ClusterTime; }>
+  lookup(coll: string, ids: readonly unknown[], ct?: ClusterTime): Promise<Map<string, Doc>>
 }
 
 export interface MutationExecutor {
@@ -496,6 +514,7 @@ export interface RealtimeOptions {
     readonly traceCapacity?: number;
     readonly span?: <T>(name: string, attributes: Readonly<Record<string, string | number | boolean>>, run: () => T) => T;
     readonly logVariableIssues?: boolean;
+    readonly engine?: EngineChoice;
 }
 
 export interface RealtimeSocket {
@@ -513,6 +532,12 @@ export interface RealtimeStats {
     readonly policyVersion: string;
     readonly streamPosition: ClusterTime;
     readonly collections: readonly string[];
+}
+
+export interface RunningGateway {
+    readonly exited: Promise<number>;
+    readonly listening: Promise<number | undefined>;
+    stop(): void;
 }
 
 class Semaphore {
@@ -578,6 +603,10 @@ function directoryPolicies(dir: string): PolicySource
 
 function docKey(coll: string, id: unknown): string
 
+function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: string): string | undefined
+
+function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv, overrides?: GatewayOverrides): Record<string, unknown>
+
 function indexableConjunct(filter: Record<string, unknown>): IndexedConjunct | undefined
 
 function isBulk(op: MutMessage["op"]): boolean
@@ -598,9 +627,15 @@ function redacting(logger: Logger): Logger
 
 function referencedTopFields(filter: unknown, out?: Set<string>): Set<string>
 
+function runGateway(config: ResolvedConfig, logger: Logger, onStop: (stop: () => void) => void): Promise<number>
+
 const silentLogger: Logger
 
+function startGateway(config: ResolvedConfig, logger: Logger, overrides?: GatewayOverrides): Promise<RunningGateway>
+
 function staticPolicies(set: PolicySet): PolicySource
+
+function storedPolicies(set: PolicySet): { stored: unknown[]; contexts: unknown; }
 
 function toCt(value: unknown): ClusterTime | undefined
 
