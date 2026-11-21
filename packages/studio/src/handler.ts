@@ -83,7 +83,9 @@ interface FileEntry {
 }
 
 function normalizeBase(basePath: string): string {
-  const trimmed = basePath.replace(/\/+$/, "")
+  let end = basePath.length
+  while (end > 0 && basePath.charCodeAt(end - 1) === 47) end -= 1
+  const trimmed = basePath.slice(0, end)
   if (!trimmed.startsWith("/") || trimmed.length < 2) {
     throw new TypeError(
       `Studio basePath must start with a slash and name a path, got "${basePath}"`,

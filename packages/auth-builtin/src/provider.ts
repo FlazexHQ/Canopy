@@ -8,7 +8,13 @@ import {
   resolveClientAddress,
   type UserAdmin,
 } from "@canopy/auth"
-import { CanopyError, ErrorCode, isDocument, UnauthorizedError } from "@canopy/protocol"
+import {
+  CanopyError,
+  ErrorCode,
+  isDocument,
+  trimTrailingSlashes,
+  UnauthorizedError,
+} from "@canopy/protocol"
 import { type JSONWebKeySet, errors as joseErrors, jwtVerify } from "jose"
 import { type ChangeStream, MongoServerError } from "mongodb"
 import { type AuditDocument, AuditLog } from "./audit.ts"
@@ -952,7 +958,7 @@ function resolveSettings(options: BuiltinAuthOptions): EngineSettings {
   }
   return {
     appName: options.appName ?? "Canopy",
-    publicUrl: publicUrl.origin + publicUrl.pathname.replace(/\/+$/, ""),
+    publicUrl: publicUrl.origin + trimTrailingSlashes(publicUrl.pathname),
     secret: options.secret,
     mongo: options.mongo,
     authDatabase: options.authDatabase ?? "canopy_auth",

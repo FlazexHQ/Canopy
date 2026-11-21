@@ -12,6 +12,7 @@ import {
   ForbiddenError,
   sha256Hex,
   toCanonical,
+  trimTrailingSlashes,
 } from "@canopy/protocol"
 import type {
   Caller,
@@ -462,7 +463,7 @@ function maskError(error: unknown, onError: ((error: unknown) => void) | undefin
  * subscriptions (`live<Plural>` and `<singular>Changes`) follow the realtime engine's observers, over SSE.
  */
 export function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHandler {
-  const path = (options.path ?? "/graphql/v1").replace(/\/+$/, "")
+  const path = trimTrailingSlashes(options.path ?? "/graphql/v1")
   const engine =
     typeof options.policies === "function"
       ? options.policies

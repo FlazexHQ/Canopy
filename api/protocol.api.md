@@ -498,6 +498,8 @@ function toCanopyError(error: unknown): CanopyError
 
 function toCt(value: unknown): ClusterTime | undefined
 
+function trimTrailingSlashes(path: string): string
+
 function unbatch(message: ServerMessage): readonly (SequencedMessage | PongMessage)[]
 
 function uuidv7(nowMs?: number): string

@@ -57,6 +57,19 @@ export function isPlainObject(value: unknown): value is Record<string, unknown> 
   return prototype === Object.prototype || prototype === null
 }
 
+/**
+ * Sets an own, enumerable property. Unlike `target[key] = value` it never reaches a prototype, even when the
+ * key is `__proto__`, so a key read from config input cannot pollute `Object.prototype`.
+ */
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  })
+}
+
 function same(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b)
 }
@@ -352,11 +365,11 @@ export class Resolver {
         if (value !== undefined && !isPlainObject(value)) continue
         const child: Record<string, unknown> = isPlainObject(value) ? value : {}
         this.fillDefaults(nested, child, `${path}.`)
-        if (value === undefined && Object.keys(child).length > 0) node[key] = child
+        if (value === undefined && Object.keys(child).length > 0) setOwn(node, key, child)
         continue
       }
       if (value === undefined && spec.def !== undefined) {
-        node[key] = Array.isArray(spec.def) ? [...spec.def] : spec.def
+        setOwn(node, key, Array.isArray(spec.def) ? [...spec.def] : spec.def)
         this.sources.set(path, { kind: "default" })
       }
       const current = node[key]
@@ -394,7 +407,7 @@ export class Resolver {
       }
       if (!isPlainObject(next)) {
         const created: Record<string, unknown> = key === "auth" ? { kind: "external" } : {}
-        parent[key] = created
+        setOwn(parent, key, created)
         parent = created
       } else {
         parent = next
@@ -403,7 +416,7 @@ export class Resolver {
     const source = this.sources.get(path)
     const envSource: Source = { kind: "env", name, envFile: this.options.envFiles?.get(name) }
     if (parent[last] === undefined || source === undefined) {
-      parent[last] = parsed
+      setOwn(parent, last, parsed)
       this.sources.set(path, envSource)
       return
     }

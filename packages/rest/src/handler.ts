@@ -7,6 +7,7 @@ import {
   InvalidQueryError,
   isDocument,
   toCanopyError,
+  trimTrailingSlashes,
 } from "@canopy/protocol"
 import type { QueryLimits } from "@canopy/query"
 import type { MongoClient } from "mongodb"
@@ -122,7 +123,7 @@ const DEFAULT_BODY_BYTES = 1024 * 1024
 
 /** Creates the REST handler of the Data API. */
 export function createRestHandler(options: RestHandlerOptions): RestHandler {
-  const basePath = (options.basePath ?? "/rest/v1").replace(/\/+$/, "")
+  const basePath = trimTrailingSlashes(options.basePath ?? "/rest/v1")
   const reads = new ReadPath({
     client: options.client,
     database: options.database,
@@ -458,7 +459,7 @@ function lookupScope(segments: readonly string[]): string[] | undefined {
  */
 export function segmentsOf(pathname: string, basePath: string): string[] | undefined {
   if (pathname !== basePath && !pathname.startsWith(`${basePath}/`)) return undefined
-  const rest = pathname.slice(basePath.length).replace(/^\/+/, "").replace(/\/+$/, "")
+  const rest = trimTrailingSlashes(pathname.slice(basePath.length).replace(/^\/+/, ""))
   if (rest === "") return []
   return rest.split("/").map((segment) => {
     try {
