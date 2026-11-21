@@ -28,5 +28,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "io-std", "signal"] }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }
+
 [lints]
 workspace = true

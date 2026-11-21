@@ -67,6 +67,13 @@ closing standard input drains the server and stops it.
 `CANOPY_GATEWAY_SHARDS` (or `server.shards`) sets the number of I/O shards, by default the number of cores up to
 four.
 
+Frames a WebSocket connection has queued go out in one `write` to the socket (up to 8 KiB each). With
+`CANOPY_GATEWAY_COALESCE_MS` (or `realtime.coalesceMs`, 0 to 1000, default 0), a frame that finds the
+connection idle still goes out at once, but frames that follow within that many milliseconds wait until the
+window ends or 64 KiB are queued, and share one `write` (and one `batch` frame for clients that negotiated
+batching). It trades delivery latency for CPU per frame on connections that receive many frames, such as a
+broadcast to thousands of viewers.
+
 The gateway looks up stored keys in `api_keys` in the configured meta database. It closes sessions when
 their key is revoked or deleted. When launched as the front door for built in auth, it follows
 `revocations` in the same database and refuses tokens from revoked sessions.

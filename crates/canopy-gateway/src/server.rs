@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
 
 use canopy_engine::ConnId;
 use futures_util::{SinkExt, StreamExt};
@@ -15,7 +16,9 @@ use hyper::header::{
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc};
+use tokio::time::Instant;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
@@ -32,6 +35,11 @@ const HARD_QUEUE_BYTES: usize = 16 * 1024 * 1024;
 const PROTOCOL: &str = "canopy.v1+json";
 /// Queue slots a connection keeps after a burst.
 const IDLE_QUEUE_CAPACITY: usize = 8;
+/// Queued bytes that end a coalescing window early.
+const COALESCE_BYTES: usize = 64 * 1024;
+/// Bytes of encoded frames gathered before a `write` to the socket. Frames written together share one system
+/// call up to this size; the buffer keeps its capacity, so it stays small.
+const WRITE_BUFFER_BYTES: usize = 8 * 1024;
 
 /// What the shards share.
 pub(crate) struct Shared {
@@ -46,6 +54,8 @@ pub(crate) struct Shared {
     pub(crate) http: Option<Arc<HttpTransport>>,
     /// The server that answers every other path, when the gateway is the front door.
     pub(crate) proxy: Option<Upstream>,
+    /// How long frames that follow a write wait to share the next one.
+    pub(crate) coalesce: Duration,
 }
 
 enum Out {
@@ -65,14 +75,18 @@ struct Queue {
 }
 
 impl Queue {
+    /// Queues a frame whose weight the caller has already added to `bytes`. Wakes the writer when the queue was
+    /// empty, or when the frame brings it to `COALESCE_BYTES`, which ends a coalescing window.
     fn push(&self, out: Out) {
+        let bytes = self.bytes.get();
+        let filled = bytes >= COALESCE_BYTES && bytes.saturating_sub(weight(&out)) < COALESCE_BYTES;
         let was_empty = {
             let mut items = self.items.borrow_mut();
             let was_empty = items.is_empty();
             items.push_back(out);
             was_empty
         };
-        if was_empty {
+        if was_empty || filled {
             self.wake.notify_one();
         }
     }
@@ -270,11 +284,7 @@ async fn route(mut request: Request<Incoming>, context: Context) -> Result<Respo
     let accept = derive_accept_key(key.as_bytes());
     let address = client_address::resolve(headers, &peer, &shared.trusted_proxies).to_owned();
     let pending = hyper::upgrade::on(&mut request);
-    let config = WebSocketConfig::default()
-        .read_buffer_size(1024)
-        .write_buffer_size(0)
-        .max_message_size(Some(shared.max_frame_bytes + 1024))
-        .max_frame_size(Some(shared.max_frame_bytes + 1024));
+    let config = socket_config(shared.max_frame_bytes);
     tokio::task::spawn_local(async move {
         let Ok(upgraded) = pending.await else { return };
         let socket =
@@ -296,8 +306,16 @@ async fn route(mut request: Request<Incoming>, context: Context) -> Result<Respo
 
 type Socket = WebSocketStream<TokioIo<hyper::upgrade::Upgraded>>;
 
-async fn write(
-    socket: &mut Socket,
+fn socket_config(max_frame_bytes: usize) -> WebSocketConfig {
+    WebSocketConfig::default()
+        .read_buffer_size(1024)
+        .write_buffer_size(WRITE_BUFFER_BYTES)
+        .max_message_size(Some(max_frame_bytes + 1024))
+        .max_frame_size(Some(max_frame_bytes + 1024))
+}
+
+async fn write<S: AsyncRead + AsyncWrite + Unpin>(
+    socket: &mut WebSocketStream<S>,
     out: Out,
     batch: &mut bool,
     pending: &mut Vec<String>,
@@ -319,7 +337,11 @@ async fn write(
     Ok(true)
 }
 
-async fn flush(socket: &mut Socket, batch: bool, pending: &mut Vec<String>) -> Result<(), ()> {
+async fn flush<S: AsyncRead + AsyncWrite + Unpin>(
+    socket: &mut WebSocketStream<S>,
+    batch: bool,
+    pending: &mut Vec<String>,
+) -> Result<(), ()> {
     if pending.is_empty() {
         return Ok(());
     }
@@ -337,6 +359,80 @@ async fn flush(socket: &mut Socket, batch: bool, pending: &mut Vec<String>) -> R
     Ok(())
 }
 
+/// The writing side of one WebSocket: when its queued frames go out, and how.
+///
+/// Without a window every wakeup drains the queue at once. With one, a frame that finds the connection idle
+/// still goes out at once, and frames that follow within the window wait for its end (or for `COALESCE_BYTES`
+/// queued), so a busy connection pays one `write` per window instead of one per frame. Every drain ends with
+/// one flush, so the frames of a drain share a `write` either way.
+struct Outbox {
+    window: Duration,
+    /// Until when frames wait after the last write.
+    hold: Option<Instant>,
+    /// Whether a wakeup was taken and the queue not yet drained. Kept here so `ready` stays cancel safe in a
+    /// `select!`.
+    woken: bool,
+    batch: bool,
+    pending: Vec<String>,
+}
+
+impl Outbox {
+    fn new(window: Duration) -> Self {
+        Self { window, hold: None, woken: false, batch: false, pending: Vec::new() }
+    }
+
+    /// Resolves when the queue should be drained.
+    async fn ready(&mut self, queue: &Queue) {
+        if !self.woken {
+            queue.wake.notified().await;
+            self.woken = true;
+        }
+        while let Some(hold) = self.hold {
+            if Instant::now() >= hold || queue.bytes.get() >= COALESCE_BYTES {
+                break;
+            }
+            tokio::select! {
+                () = tokio::time::sleep_until(hold) => {}
+                () = queue.wake.notified() => {}
+            }
+        }
+    }
+
+    /// Writes everything queued and flushes it. Returns false when the connection is done: closed by a frame, or
+    /// the socket failed.
+    async fn drain<S: AsyncRead + AsyncWrite + Unpin>(
+        &mut self,
+        socket: &mut WebSocketStream<S>,
+        queue: &Queue,
+    ) -> bool {
+        self.woken = false;
+        let mut size = 0usize;
+        let mut wrote = false;
+        let mut open = Ok(true);
+        while matches!(open, Ok(true)) {
+            let Some(out) = queue.pop() else { break };
+            size += weight(&out);
+            wrote = true;
+            open = write(socket, out, &mut self.batch, &mut self.pending).await;
+        }
+        queue.bytes.set(queue.bytes.get().saturating_sub(size));
+        queue.settle();
+        let flushed = match open {
+            Ok(true) => {
+                flush(socket, self.batch, &mut self.pending).await.is_ok() && socket.flush().await.is_ok()
+            }
+            _ => false,
+        };
+        if self.pending.capacity() > IDLE_QUEUE_CAPACITY {
+            self.pending.shrink_to_fit();
+        }
+        if wrote && !self.window.is_zero() {
+            self.hold = Some(Instant::now() + self.window);
+        }
+        flushed
+    }
+}
+
 async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry, peer: String, shard: usize) {
     let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
     let queue = Rc::new(Queue::default());
@@ -345,8 +441,7 @@ async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry,
         registry.borrow_mut().remove(&conn);
         return;
     }
-    let mut batch = false;
-    let mut pending: Vec<String> = Vec::new();
+    let mut outbox = Outbox::new(shared.coalesce);
     loop {
         tokio::select! {
             incoming = socket.next() => match incoming {
@@ -361,24 +456,8 @@ async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry,
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
                 Some(Ok(_)) => {}
             },
-            () = queue.wake.notified() => {
-                let mut size = 0usize;
-                let mut open = Ok(true);
-                while matches!(open, Ok(true)) {
-                    let Some(out) = queue.pop() else { break };
-                    size += weight(&out);
-                    open = write(&mut socket, out, &mut batch, &mut pending).await;
-                }
-                queue.bytes.set(queue.bytes.get().saturating_sub(size));
-                queue.settle();
-                let flushed = match open {
-                    Ok(true) => flush(&mut socket, batch, &mut pending).await.is_ok() && socket.flush().await.is_ok(),
-                    _ => false,
-                };
-                if pending.capacity() > IDLE_QUEUE_CAPACITY {
-                    pending.shrink_to_fit();
-                }
-                if !flushed {
+            () = outbox.ready(&queue) => {
+                if !outbox.drain(&mut socket, &queue).await {
                     break;
                 }
             }
@@ -402,5 +481,204 @@ pub(crate) async fn accept(
             let _ = shard.send(socket);
         }
         next = next.wrapping_add(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    use tokio::io::{DuplexStream, ReadBuf};
+
+    use super::*;
+
+    /// One end of an in memory pipe that counts the `write` calls made on it.
+    struct Counting {
+        inner: DuplexStream,
+        writes: Rc<Cell<usize>>,
+    }
+
+    impl AsyncRead for Counting {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.inner).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for Counting {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            let written = Pin::new(&mut self.inner).poll_write(cx, buf);
+            if written.is_ready() {
+                self.writes.set(self.writes.get() + 1);
+            }
+            written
+        }
+
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.inner).poll_flush(cx)
+        }
+
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.inner).poll_shutdown(cx)
+        }
+    }
+
+    struct Pipe {
+        server: WebSocketStream<Counting>,
+        client: WebSocketStream<DuplexStream>,
+        writes: Rc<Cell<usize>>,
+    }
+
+    async fn pipe() -> Pipe {
+        let (server, client) = tokio::io::duplex(1 << 20);
+        let writes = Rc::new(Cell::new(0));
+        let counting = Counting { inner: server, writes: Rc::clone(&writes) };
+        let server =
+            WebSocketStream::from_raw_socket(counting, Role::Server, Some(socket_config(1 << 20))).await;
+        let client = WebSocketStream::from_raw_socket(client, Role::Client, None).await;
+        Pipe { server, client, writes }
+    }
+
+    /// Queues a frame the way the shard's dispatch does: its weight first, then the frame.
+    fn enqueue(queue: &Queue, text: String) {
+        let out = Out::Text(text);
+        queue.bytes.set(queue.bytes.get() + weight(&out));
+        queue.push(out);
+    }
+
+    async fn received(client: &mut WebSocketStream<DuplexStream>, count: usize) -> Vec<String> {
+        let mut texts = Vec::new();
+        while texts.len() < count {
+            match client.next().await {
+                Some(Ok(Message::Text(text))) => texts.push(text.as_str().to_owned()),
+                other => panic!("expected a text frame, got {other:?}"),
+            }
+        }
+        texts
+    }
+
+    const TICK: Duration = Duration::from_millis(1);
+
+    #[tokio::test(start_paused = true)]
+    async fn the_frames_of_one_drain_share_one_write() {
+        let Pipe { mut server, mut client, writes } = pipe().await;
+        let queue = Queue::default();
+        let mut outbox = Outbox::new(Duration::ZERO);
+        let sent: Vec<String> = (0..10).map(|i| format!("{{\"t\":\"changed\",\"i\":{i}}}")).collect();
+        for text in &sent {
+            enqueue(&queue, text.clone());
+        }
+        outbox.ready(&queue).await;
+        assert!(outbox.drain(&mut server, &queue).await);
+        assert_eq!(writes.get(), 1);
+        assert_eq!(queue.bytes.get(), 0);
+        assert_eq!(received(&mut client, 10).await, sent);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_a_window_every_wakeup_writes_at_once() {
+        let Pipe { mut server, mut client, writes } = pipe().await;
+        let queue = Queue::default();
+        let mut outbox = Outbox::new(Duration::ZERO);
+        for text in ["a", "b"] {
+            enqueue(&queue, text.to_owned());
+            assert!(tokio::time::timeout(TICK, outbox.ready(&queue)).await.is_ok());
+            assert!(outbox.drain(&mut server, &queue).await);
+        }
+        assert_eq!(writes.get(), 2);
+        assert_eq!(received(&mut client, 2).await, ["a", "b"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn frames_after_a_write_wait_for_the_window() {
+        let Pipe { mut server, mut client, writes } = pipe().await;
+        let queue = Queue::default();
+        let window = Duration::from_millis(20);
+        let mut outbox = Outbox::new(window);
+        let start = Instant::now();
+
+        enqueue(&queue, "a".to_owned());
+        outbox.ready(&queue).await;
+        assert_eq!(Instant::now(), start, "a frame on an idle connection does not wait");
+        assert!(outbox.drain(&mut server, &queue).await);
+
+        enqueue(&queue, "b".to_owned());
+        assert!(
+            tokio::time::timeout(window - TICK, outbox.ready(&queue)).await.is_err(),
+            "a frame right after a write waits for the window"
+        );
+        enqueue(&queue, "c".to_owned());
+        outbox.ready(&queue).await;
+        assert!(Instant::now() >= start + window);
+        assert!(outbox.drain(&mut server, &queue).await);
+        assert_eq!(writes.get(), 2, "b and c share one write");
+
+        tokio::time::sleep(window * 2).await;
+        let idle = Instant::now();
+        enqueue(&queue, "d".to_owned());
+        outbox.ready(&queue).await;
+        assert_eq!(Instant::now(), idle, "once the window has passed, a frame goes out at once");
+        assert!(outbox.drain(&mut server, &queue).await);
+        assert_eq!(received(&mut client, 4).await, ["a", "b", "c", "d"]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_full_queue_ends_the_window() {
+        let Pipe { mut server, mut client, .. } = pipe().await;
+        let queue = Queue::default();
+        let mut outbox = Outbox::new(Duration::from_secs(1));
+        enqueue(&queue, "a".to_owned());
+        outbox.ready(&queue).await;
+        assert!(outbox.drain(&mut server, &queue).await);
+
+        enqueue(&queue, "b".to_owned());
+        assert!(tokio::time::timeout(TICK, outbox.ready(&queue)).await.is_err());
+        let large = "x".repeat(COALESCE_BYTES);
+        enqueue(&queue, large.clone());
+        assert!(
+            tokio::time::timeout(TICK, outbox.ready(&queue)).await.is_ok(),
+            "reaching the coalescing size wakes the writer before the window ends"
+        );
+        assert!(outbox.drain(&mut server, &queue).await);
+        assert_eq!(received(&mut client, 3).await, ["a".to_owned(), "b".to_owned(), large]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn batching_clients_get_one_batch_frame_per_window() {
+        let Pipe { mut server, mut client, .. } = pipe().await;
+        let queue = Queue::default();
+        let mut outbox = Outbox::new(Duration::from_millis(20));
+        queue.push(Out::Session(true));
+        enqueue(&queue, "{\"a\":1}".to_owned());
+        outbox.ready(&queue).await;
+        assert!(outbox.drain(&mut server, &queue).await);
+        for i in 0..3 {
+            let frame = canopy_engine::Frame {
+                head: format!("{{\"t\":\"changed\",\"i\":{i}").into(),
+                tail: None,
+                seq: i,
+            };
+            let out = Out::Frame(frame);
+            queue.bytes.set(queue.bytes.get() + weight(&out));
+            queue.push(out);
+        }
+        outbox.ready(&queue).await;
+        assert!(outbox.drain(&mut server, &queue).await);
+        let texts = received(&mut client, 2).await;
+        assert_eq!(
+            texts,
+            [
+                "{\"a\":1}",
+                "{\"t\":\"batch\",\"m\":[{\"t\":\"changed\",\"i\":0,\"seq\":0},{\"t\":\"changed\",\"i\":1,\"seq\":1},{\"t\":\"changed\",\"i\":2,\"seq\":2}]}",
+            ]
+        );
     }
 }

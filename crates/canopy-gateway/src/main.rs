@@ -181,6 +181,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             Arc::new(http::HttpTransport::new(http::HttpOptions::new(&config.node_id, config.cors.clone())))
         }),
         proxy,
+        coalesce: std::time::Duration::from_millis(config.coalesce_ms),
     });
     let mut socket_senders = Vec::new();
     let mut frame_senders = Vec::new();

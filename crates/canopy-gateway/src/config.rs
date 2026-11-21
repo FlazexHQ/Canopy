@@ -71,6 +71,8 @@ pub(crate) struct GatewayConfig {
     pub(crate) resume_window_ms: u64,
     pub(crate) drain_window_ms: u64,
     pub(crate) heartbeat_ms: u64,
+    /// How long frames that follow a write on a WebSocket wait to share the next write, 0 for no wait.
+    pub(crate) coalesce_ms: u64,
     pub(crate) messages: Option<MessageRate>,
     pub(crate) anonymous_per_address: Option<usize>,
     pub(crate) mutations_url: Option<String>,
@@ -84,6 +86,9 @@ pub(crate) struct GatewayConfig {
 }
 
 pub(crate) type ConfigResult<T> = Result<T, String>;
+
+/// The longest coalescing window, so a typo cannot hold every frame for seconds.
+const MAX_COALESCE_MS: f64 = 1000.0;
 
 fn get<'a>(json: &'a Json, path: &[&str]) -> Option<&'a Json> {
     let mut current = json;
@@ -271,6 +276,24 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         strings(&doc, &["cors", "origins"]).or_else(|| list_env("CANOPY_CORS_ORIGINS")).map(|origins| {
             if origins.iter().any(|origin| origin == "*") { Cors::Any } else { Cors::Origins(origins) }
         });
+    let coalesce_ms = match number(&doc, &["realtime", "coalesceMs"]) {
+        Some(value) => Some(value),
+        None => match env("CANOPY_GATEWAY_COALESCE_MS") {
+            Some(value) => Some(
+                value
+                    .parse::<f64>()
+                    .map_err(|_| format!("CANOPY_GATEWAY_COALESCE_MS must be a number, not {value}"))?,
+            ),
+            None => None,
+        },
+    };
+    let coalesce_ms = match coalesce_ms {
+        None => 0,
+        Some(value) if value.is_finite() && (0.0..=MAX_COALESCE_MS).contains(&value) => whole(value),
+        Some(value) => {
+            return Err(format!("realtime.coalesceMs must be between 0 and {MAX_COALESCE_MS}, not {value}"));
+        }
+    };
     Ok(GatewayConfig {
         mongodb_uri,
         database,
@@ -312,6 +335,7 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         resume_window_ms: number(&doc, &["realtime", "resumeWindowMs"]).map_or(120_000, whole),
         drain_window_ms: number(&doc, &["realtime", "drainWindowMs"]).map_or(30_000, whole),
         heartbeat_ms: number(&doc, &["realtime", "heartbeatMs"]).map_or(25_000, whole),
+        coalesce_ms,
         messages,
         anonymous_per_address,
         mutations_url: text(&doc, &["mutations", "url"]).or_else(|| env("CANOPY_GATEWAY_MUTATIONS_URL")),
@@ -371,6 +395,22 @@ mod tests {
         let wrong =
             resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"},"realtime":{"transports":["smoke"]}}"#));
         assert!(wrong.is_err());
+    }
+
+    #[test]
+    fn reads_the_coalescing_window() {
+        let off = resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"}}"#));
+        assert!(matches!(off, Ok(GatewayConfig { coalesce_ms: 0, .. })));
+        let set = resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"},"realtime":{"coalesceMs":20}}"#));
+        assert!(matches!(set, Ok(GatewayConfig { coalesce_ms: 20, .. })));
+        let longest =
+            resolve(Some(r#"{"mongodb":{"uri":"mongodb://h/app"},"realtime":{"coalesceMs":1000}}"#));
+        assert!(matches!(longest, Ok(GatewayConfig { coalesce_ms: 1000, .. })));
+        for wrong in ["1001", "-1"] {
+            let doc =
+                format!(r#"{{"mongodb":{{"uri":"mongodb://h/app"}},"realtime":{{"coalesceMs":{wrong}}}}}"#);
+            assert!(resolve(Some(&doc)).is_err(), "{wrong} is out of range");
+        }
     }
 
     #[test]
