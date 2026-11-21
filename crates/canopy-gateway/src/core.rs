@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
@@ -6,16 +6,19 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use canopy_engine::{
     ConnId, Control, Ct, Engine, Event, Frame, Mutation, MutationOutcome, Output, Principal, ReadResult,
+    close,
 };
 use canopy_policy::PolicySet;
 use canopy_protocol::{CanopyError, Document, ErrorCode};
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
+use crate::api_keys::REVOKED_KEY;
 use crate::forward::forward;
 use crate::jwt::Authenticator;
 use crate::log::Log;
 use crate::mongo::Reader;
+use crate::revocations::{REVOKED_SESSION, REVOKED_TOKEN};
 
 /// Something that happened, for the engine thread.
 pub(crate) enum Command {
@@ -23,7 +26,10 @@ pub(crate) enum Command {
     Message { conn: ConnId, text: String },
     Closed { conn: ConnId },
     Slow { conn: ConnId },
-    Authenticated { conn: ConnId, result: Result<Principal, CanopyError> },
+    Authenticated { conn: ConnId, result: Result<Principal, CanopyError>, key_generation: Option<u64> },
+    RecheckKeys,
+    KeysRevoked(HashSet<String>),
+    SessionsRevoked,
     ReadDone { id: u64, result: Result<ReadResult, CanopyError> },
     LookupDone { id: u64, coll: String, result: Result<Vec<Document>, CanopyError> },
     ContextsDone { id: u64, results: Vec<(String, Result<Vec<Document>, CanopyError>)> },
@@ -145,14 +151,56 @@ fn handle(engine: &mut Engine, state: &mut State, router: &Router, command: Comm
             engine.closed(conn, now);
         }
         Command::Slow { conn } => engine.slow(conn, now),
-        Command::Authenticated { conn, result } => {
-            let result = match result {
-                Ok(principal) if principal.subject == "anon" => {
-                    admit_anonymous(state, router, conn).map(|()| principal)
+        Command::Authenticated { conn, result, key_generation } => {
+            let result = result.and_then(|principal| {
+                if principal.key_id.is_some()
+                    && key_generation != router.auth.api_keys.as_ref().map(|keys| keys.generation())
+                {
+                    return Err(CanopyError::new(
+                        ErrorCode::Unavailable,
+                        "The API key changed during authentication",
+                    ));
                 }
-                other => other,
-            };
+                if router.auth.revocations.as_ref().is_some_and(|store| store.has(&principal)) {
+                    return Err(CanopyError::new(ErrorCode::Unauthorized, REVOKED_TOKEN));
+                }
+                if principal.subject == "anon" && !state.anonymous.contains_key(&conn) {
+                    admit_anonymous(state, router, conn)?;
+                }
+                Ok(principal)
+            });
             engine.authenticated(conn, result, now);
+        }
+        Command::RecheckKeys => {
+            if let Some(keys) = &router.auth.api_keys {
+                let ids = engine.active_key_ids().into_iter().collect();
+                let (keys, tx, log) = (Arc::clone(keys), router.engine_tx.clone(), router.log);
+                router.runtime.spawn(async move {
+                    match keys.inactive(ids).await {
+                        Ok(ids) if !ids.is_empty() => {
+                            let _ = tx.send(Command::KeysRevoked(ids));
+                        }
+                        Ok(_) => {}
+                        Err(error) => log.warn("Could not recheck API keys", &[("err", &error.to_string())]),
+                    }
+                });
+            }
+        }
+        Command::KeysRevoked(ids) => engine.close_matching(
+            |principal| principal.key_id.as_ref().is_some_and(|id| ids.contains(id)),
+            close::FORBIDDEN,
+            REVOKED_KEY,
+            now,
+        ),
+        Command::SessionsRevoked => {
+            if let Some(store) = &router.auth.revocations {
+                engine.close_matching(
+                    |principal| store.has(principal),
+                    close::UNAUTHORIZED,
+                    REVOKED_SESSION,
+                    now,
+                );
+            }
         }
         Command::ReadDone { id, result } => engine.read_done(id, result, now),
         Command::LookupDone { id, coll, result } => engine.lookup_done(id, &coll, result, now),
@@ -217,8 +265,9 @@ fn route(engine: &mut Engine, state: &mut State, router: &Router) {
             Output::Authenticate { conn, key, token, .. } => {
                 let (auth, tx) = (router.auth.clone(), router.engine_tx.clone());
                 router.runtime.spawn(async move {
+                    let key_generation = auth.api_keys.as_ref().map(|keys| keys.generation());
                     let result = auth.authenticate(&key, token.as_deref()).await;
-                    let _ = tx.send(Command::Authenticated { conn, result });
+                    let _ = tx.send(Command::Authenticated { conn, result, key_generation });
                 });
             }
             Output::Read(request) => {

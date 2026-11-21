@@ -67,8 +67,13 @@ closing standard input drains the server and stops it.
 `CANOPY_GATEWAY_SHARDS` (or `server.shards`) sets the number of I/O shards, by default the number of cores up to
 four.
 
+The gateway looks up stored keys in `api_keys` in the configured meta database. It closes sessions when
+their key is revoked or deleted. When launched as the front door for built in auth, it follows
+`revocations` in the same database and refuses tokens from revoked sessions.
+
+`CANOPY_TRUSTED_PROXIES` (or `server.trustedProxies`) lists the trusted proxy addresses and CIDR ranges.
+WebSocket and HTTP fallback connections use `X-Forwarded-For` only when the socket peer is trusted.
+
 ## Not yet supported
 
-- `sub.o.explain`, stored API keys from the meta database, session revocations and view tokens (the sidecar does
-  not have the last three either).
-- Trusted proxy headers for client addresses: the socket peer is used.
+- Studio view tokens.

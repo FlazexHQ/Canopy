@@ -114,6 +114,10 @@ export function gatewayConfig(
         ? {}
         : { metricsToken: config.server.metricsToken }),
       nodeId: config.server.nodeId,
+      trustedProxies: [
+        ...config.server.trustedProxies,
+        ...(auth?.kind === "builtin" ? auth.trustedProxies : []),
+      ],
     },
     auth:
       overrides.auth !== undefined
@@ -123,6 +127,7 @@ export function gatewayConfig(
             jwksUrl: overrides.auth.jwksUrl,
             algorithms: overrides.auth.algorithms,
             rolesClaim: overrides.auth.rolesClaim,
+            ...(auth?.kind === "builtin" ? { checkRevocations: true } : {}),
           }
         : auth === undefined || auth.kind === "builtin"
           ? null

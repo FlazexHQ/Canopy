@@ -1,6 +1,8 @@
 use canopy_engine::MessageRate;
 use canopy_protocol::json::{Json, parse_json};
 
+use crate::client_address::Rule;
+
 /// Which browser origins may call the endpoints from another origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Cors {
@@ -54,6 +56,8 @@ pub(crate) struct GatewayConfig {
     pub(crate) metrics_host: String,
     pub(crate) metrics_port: Option<u16>,
     pub(crate) metrics_token: Option<String>,
+    pub(crate) trusted_proxies: Vec<Rule>,
+    pub(crate) check_revocations: bool,
     pub(crate) node_id: String,
     pub(crate) shards: usize,
     pub(crate) auth: Option<JwtConfig>,
@@ -274,6 +278,13 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         metrics_host: text(&doc, &["server", "metricsHost"]).unwrap_or_else(|| "127.0.0.1".to_owned()),
         metrics_port: (metrics_port > 0.0).then(|| u16::try_from(whole(metrics_port)).ok()).flatten(),
         metrics_token: text(&doc, &["server", "metricsToken"]).or_else(|| env("CANOPY_METRICS_TOKEN")),
+        trusted_proxies: strings(&doc, &["server", "trustedProxies"])
+            .or_else(|| list_env("CANOPY_TRUSTED_PROXIES"))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|rule| Rule::parse(rule))
+            .collect(),
+        check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(false),
         node_id: text(&doc, &["server", "nodeId"])
             .or_else(|| env("CANOPY_NODE_ID"))
             .unwrap_or_else(|| "n1".to_owned()),

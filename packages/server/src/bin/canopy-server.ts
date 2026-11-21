@@ -170,9 +170,14 @@ function freeLoopbackPort(): Promise<number> {
   })
 }
 
-async function startFrontDoor(canopy: Canopy, logger: Logger, port: number) {
+async function startFrontDoor(
+  config: ResolvedConfig,
+  canopy: Canopy,
+  logger: Logger,
+  port: number,
+) {
   const metricsPort = await freeLoopbackPort()
-  const gateway = await startGateway(canopy.config, logger, frontDoor(canopy, port, metricsPort))
+  const gateway = await startGateway(config, logger, frontDoor(canopy, port, metricsPort))
   const bound = await gateway.listening
   if (bound === undefined)
     throw new Error(`canopy-gateway exited with code ${await gateway.exited} before it listened`)
@@ -222,7 +227,7 @@ async function main(): Promise<void> {
   const http = gatewayed
     ? await listen(canopy, 0, "127.0.0.1")
     : await listen(canopy, config.server.port)
-  const gateway = gatewayed ? await startFrontDoor(canopy, logger, http.port) : undefined
+  const gateway = gatewayed ? await startFrontDoor(loaded, canopy, logger, http.port) : undefined
   if (gateway !== undefined) gatewayUrl = `http://127.0.0.1:${gateway.port}`
 
   const metrics = await metricsServer(canopy, runtime, () => gateway?.metrics() ?? "")

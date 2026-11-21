@@ -4,6 +4,7 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { generateApiKey, hashApiKey } from "@canopy/auth"
 import {
   allow,
   auth,
@@ -27,6 +28,7 @@ import { findGatewayBinary } from "../src/gateway.ts"
 import { type Keys, makeKeys, sleep, TestClient, token } from "./harness.ts"
 
 const BIN = fileURLToPath(new URL("../src/bin/canopy-realtime.ts", import.meta.url))
+const SERVER_BIN = fileURLToPath(new URL("../../server/src/bin/canopy-server.ts", import.meta.url))
 const ISSUER = "https://issuer.test/"
 const AUDIENCE = "https://api.test"
 
@@ -102,10 +104,15 @@ interface Server {
   /** The HTTP base of the realtime endpoints, for the SSE and long poll transports. */
   readonly base: string
   readonly db: Db
+  readonly meta: Db
   stop(): Promise<void>
 }
 
-async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promise<Server> {
+async function start(
+  kind: "ts" | "gateway" | "server",
+  keys: Keys,
+  dbName: string,
+): Promise<Server> {
   const uri = MONGODB_URI ?? ""
   const dir = await mkdtemp(join(tmpdir(), `canopy-${kind}-`))
   const policies = join(dir, "policies")
@@ -119,8 +126,9 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
     JSON.stringify({ _id: "_context", lookups: toCanonical(contexts) }),
   )
   const port = await freePort()
+  const metaName = `${dbName}_meta`
   const config = {
-    mongodb: { uri, database: dbName, metaDatabase: `${dbName}_meta` },
+    mongodb: { uri, database: dbName, metaDatabase: metaName },
     auth: {
       kind: "external",
       issuer: ISSUER,
@@ -147,7 +155,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
   if (kind === "gateway") env["CANOPY_REALTIME_SERVER"] = "gateway"
   const child: ChildProcess = spawn(
     process.execPath,
-    ["--conditions=@canopy/source", BIN, "--config", file],
+    ["--conditions=@canopy/source", kind === "server" ? SERVER_BIN : BIN, "--config", file],
     { cwd: dir, env, stdio: ["ignore", "ignore", "pipe"] },
   )
   let log = ""
@@ -171,6 +179,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
     url: `ws://127.0.0.1:${port}/realtime/v1`,
     base: `http://127.0.0.1:${port}/realtime/v1`,
     db: client.db(dbName),
+    meta: client.db(metaName),
     async stop() {
       if (child.exitCode === null) {
         const exited = new Promise((resolve) => child.once("exit", resolve))
@@ -179,6 +188,7 @@ async function start(kind: "ts" | "gateway", keys: Keys, dbName: string): Promis
         if (child.exitCode === null) child.kill("SIGKILL")
       }
       await client.db(dbName).dropDatabase()
+      await client.db(metaName).dropDatabase()
       await client.close()
       await rm(dir, { recursive: true, force: true })
     },
@@ -322,6 +332,65 @@ for (const kind of servers) {
       await bad.until(() => bad.closeCode !== undefined)
       expect(bad.closeCode).toBe(4001)
     })
+
+    it("accepts stored keys and closes their sessions when revoked or deleted", async () => {
+      const keyed = kind === "gateway" ? server : await start("server", keys, `${dbName}_keys`)
+      const collection = keyed.meta.collection<{
+        _id: string
+        kind: "publishable" | "secret"
+        hash: string
+        revokedAt?: Date
+      }>("api_keys")
+      const clients: TestClient[] = []
+      const connectKey = async (
+        key: string,
+        signed?: string,
+        resume?: { sid: string; seq: number },
+      ) => {
+        const client = await TestClient.connect(keyed.url, signed, { key, resume })
+        clients.push(client)
+        return client
+      }
+      try {
+        const publishable = generateApiKey("publishable")
+        const secret = generateApiKey("secret")
+        await collection.insertMany([
+          { _id: "key_publishable", kind: "publishable", hash: hashApiKey(publishable) },
+          { _id: "key_secret", kind: "secret", hash: hashApiKey(secret) },
+        ])
+        const signed = await token(keys, { sub: "alice" })
+        const anonymous = await connectKey(publishable)
+        const authenticated = await connectKey(publishable, signed)
+        const detached = await connectKey(publishable, signed)
+        const service = await connectKey(secret, "a secret key takes precedence over a bad token")
+        const configured = await connectKey("pk_test")
+        for (const client of clients) expect(client.welcome).toBeDefined()
+        const resume = { sid: detached.welcome?.sid ?? "", seq: detached.lastSeq }
+        detached.terminate()
+        await detached.until(() => detached.closeCode !== undefined)
+        await collection.updateOne({ _id: "key_publishable" }, { $set: { revokedAt: new Date() } })
+        for (const client of [anonymous, authenticated]) {
+          await client.until(() => client.closeCode !== undefined)
+          expect(client.closeCode).toBe(4003)
+          expect(client.closeReason).toBe("The API key was revoked")
+        }
+        const refused = await connectKey(publishable)
+        expect(refused.closeCode).toBe(4003)
+        expect(refused.messages).toContainEqual(
+          expect.objectContaining({ t: "err", code: "CANOPY_FORBIDDEN" }),
+        )
+        const fresh = await connectKey("pk_test", signed, resume)
+        expect(fresh.welcome).toMatchObject({ resumed: false })
+        await collection.deleteOne({ _id: "key_secret" })
+        await service.until(() => service.closeCode !== undefined)
+        expect(service.closeCode).toBe(4003)
+        expect(service.closeReason).toBe("The API key was revoked")
+        expect(configured.closeCode).toBeUndefined()
+      } finally {
+        for (const client of clients) client.bye()
+        if (kind === "ts") await keyed.stop()
+      }
+    }, 30_000)
 
     it("resumes a session and replays what the client missed", async () => {
       const signed = await token(keys, { sub: "alice" })

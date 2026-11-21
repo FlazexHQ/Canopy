@@ -10,7 +10,9 @@ use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 use ring::signature;
 use tokio::sync::Mutex;
 
+use crate::api_keys::{ApiKeys, REVOKED_KEY};
 use crate::config::JwtConfig;
+use crate::revocations::{REVOKED_TOKEN, Revocations};
 
 const DEFAULT_ALGORITHMS: [&str; 7] = ["EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256"];
 const FORBIDDEN_ALGORITHMS: [&str; 4] = ["none", "HS256", "HS384", "HS512"];
@@ -160,6 +162,8 @@ pub(crate) struct Authenticator {
     publishable: Option<Arc<Vec<String>>>,
     secret: Arc<Vec<String>>,
     jwt: Option<Arc<Jwt>>,
+    pub(crate) api_keys: Option<Arc<ApiKeys>>,
+    pub(crate) revocations: Option<Arc<Revocations>>,
 }
 
 impl Authenticator {
@@ -197,7 +201,13 @@ impl Authenticator {
                 }))
             }
         };
-        Ok(Authenticator { publishable: publishable.map(Arc::new), secret: Arc::new(secret), jwt })
+        Ok(Authenticator {
+            publishable: publishable.map(Arc::new),
+            secret: Arc::new(secret),
+            jwt,
+            api_keys: None,
+            revocations: None,
+        })
     }
 
     /// Authenticates a `hello` or `auth`. An empty token gives `anon`; a secret key gives `service`.
@@ -209,12 +219,28 @@ impl Authenticator {
         if self.secret.iter().any(|secret| secret == key) {
             return Ok(Principal::service());
         }
-        if self.publishable.as_ref().is_some_and(|keys| !keys.iter().any(|known| known == key)) {
+        let stored = match &self.api_keys {
+            Some(store) => store.find(key).await?,
+            None => None,
+        };
+        if let Some(stored) = &stored {
+            if stored.revoked {
+                return Err(CanopyError::new(ErrorCode::Forbidden, REVOKED_KEY));
+            }
+            if stored.secret {
+                return Ok(Principal { key_id: Some(stored.id.clone()), ..Principal::service() });
+            }
+        } else if self.publishable.as_ref().is_some_and(|keys| !keys.iter().any(|known| known == key)) {
             return Err(unauthorized("Unknown API key"));
         }
-        let Some(token) = token.filter(|token| !token.is_empty()) else { return Ok(Principal::anon()) };
-        let Some(jwt) = &self.jwt else { return Err(unauthorized("User tokens are not accepted")) };
-        jwt.verify(token).await
+        let mut principal = if let Some(token) = token.filter(|token| !token.is_empty()) {
+            let Some(jwt) = &self.jwt else { return Err(unauthorized("User tokens are not accepted")) };
+            jwt.verify(token, self.revocations.as_deref()).await?
+        } else {
+            Principal::anon()
+        };
+        principal.key_id = stored.map(|stored| stored.id);
+        Ok(principal)
     }
 }
 
@@ -244,7 +270,7 @@ impl Jwt {
         guard.0.clone()
     }
 
-    async fn verify(&self, token: &str) -> Result<Principal, CanopyError> {
+    async fn verify(&self, token: &str, revocations: Option<&Revocations>) -> Result<Principal, CanopyError> {
         let invalid = || unauthorized("Invalid token");
         let mut parts = token.split('.');
         let (Some(header), Some(payload), Some(signed), None) =
@@ -324,6 +350,9 @@ impl Jwt {
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let expires_at_ms = Some((exp * 1000.0).max(0.0) as u64);
         let subject = text(&payload_json, "sub").map(str::to_owned);
+        if revocations.is_some_and(|store| store.has_claims(&claims)) {
+            return Err(unauthorized(REVOKED_TOKEN));
+        }
         let mut roles = Roles::new();
         roles.insert(Role::AUTHENTICATED);
         if let Some(Json::Array(claimed)) =

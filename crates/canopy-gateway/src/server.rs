@@ -22,6 +22,7 @@ use tokio_tungstenite::tungstenite::handshake::derive_accept_key;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig};
 
+use crate::client_address::{self, Rule};
 use crate::core::{Command, EngineSender, ShardMessage};
 use crate::http::{Body, HttpSession, HttpTransport, Origin, full};
 use crate::proxy::{Pool, Upstream, forward};
@@ -38,6 +39,7 @@ pub(crate) struct Shared {
     pub(crate) next_conn: AtomicU64,
     pub(crate) ready: Arc<AtomicBool>,
     pub(crate) max_frame_bytes: usize,
+    pub(crate) trusted_proxies: Vec<Rule>,
     /// Whether WebSocket upgrades are served.
     pub(crate) websocket: bool,
     /// The SSE and long poll transports, when either is offered.
@@ -239,7 +241,8 @@ async fn route(mut request: Request<Incoming>, context: Context) -> Result<Respo
             };
             let origin = Origin {
                 engine: &shared.engine,
-                address: peer,
+                address: client_address::resolve(request.headers(), &peer, &shared.trusted_proxies)
+                    .to_owned(),
                 shard,
                 next_conn: &shared.next_conn,
                 register: &register,
@@ -265,6 +268,7 @@ async fn route(mut request: Request<Incoming>, context: Context) -> Result<Respo
         return Ok(reply(StatusCode::BAD_REQUEST, "Unsupported subprotocol"));
     }
     let accept = derive_accept_key(key.as_bytes());
+    let address = client_address::resolve(headers, &peer, &shared.trusted_proxies).to_owned();
     let pending = hyper::upgrade::on(&mut request);
     let config = WebSocketConfig::default()
         .read_buffer_size(1024)
@@ -275,7 +279,7 @@ async fn route(mut request: Request<Incoming>, context: Context) -> Result<Respo
         let Ok(upgraded) = pending.await else { return };
         let socket =
             WebSocketStream::from_raw_socket(TokioIo::new(upgraded), Role::Server, Some(config)).await;
-        connection(socket, shared, registry, peer, shard).await;
+        connection(socket, shared, registry, address, shard).await;
     });
     let mut response = full(StatusCode::SWITCHING_PROTOCOLS, Bytes::new());
     let headers = response.headers_mut();

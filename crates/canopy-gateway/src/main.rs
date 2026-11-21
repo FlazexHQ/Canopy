@@ -3,6 +3,8 @@
 //! with the same policies, and writes forwarded to the TypeScript write path so `check` rules, transactions and
 //! idempotency keep one implementation.
 
+mod api_keys;
+mod client_address;
 mod config;
 mod core;
 mod forward;
@@ -12,6 +14,7 @@ mod jwt;
 mod log;
 mod mongo;
 mod proxy;
+mod revocations;
 mod server;
 
 use std::convert::Infallible;
@@ -171,6 +174,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         next_conn: AtomicU64::new(1),
         ready: Arc::clone(&stream_open),
         max_frame_bytes: limits.max_frame_bytes,
+        trusted_proxies: config.trusted_proxies.clone(),
         websocket: config.websocket,
         http: config.http_fallback.then(|| {
             Arc::new(http::HttpTransport::new(http::HttpOptions::new(&config.node_id, config.cors.clone())))
@@ -188,12 +192,48 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         frame_senders.push(frame_tx);
     }
     let http = reqwest::Client::builder().build().map_err(|error| error.to_string())?;
-    let auth = jwt::Authenticator::new(
+    let mut auth = jwt::Authenticator::new(
         config.auth.clone(),
         config.publishable.clone(),
         config.secret.clone(),
         http.clone(),
     )?;
+    let api_keys = Arc::new(api_keys::ApiKeys::new(&meta));
+    let (key_watcher, tx) = (Arc::clone(&api_keys), engine_tx.clone());
+    let key_watch = tokio::spawn(async move {
+        key_watcher
+            .watch(
+                |id| {
+                    let _ = tx.send(Command::KeysRevoked([id].into_iter().collect()));
+                },
+                || {
+                    let _ = tx.send(Command::RecheckKeys);
+                },
+                log,
+            )
+            .await;
+    });
+    auth.api_keys = Some(api_keys);
+    let revocation_watch = if config.check_revocations {
+        let revocations = Arc::new(revocations::Revocations::new(&meta));
+        let stream =
+            revocations.start().await.map_err(|error| format!("Could not load revocations: {error}"))?;
+        auth.revocations = Some(Arc::clone(&revocations));
+        let tx = engine_tx.clone();
+        Some(tokio::spawn(async move {
+            revocations
+                .watch(
+                    stream,
+                    || {
+                        let _ = tx.send(Command::SessionsRevoked);
+                    },
+                    log,
+                )
+                .await;
+        }))
+    } else {
+        None
+    };
     let router = Router {
         shards: frame_senders,
         runtime: tokio::runtime::Handle::current(),
@@ -278,6 +318,10 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         &[("port", &port), ("database", &config.database), ("shards", &config.shards.to_string())],
     );
     shutdown_signal(stdin_closed).await;
+    key_watch.abort();
+    if let Some(watch) = revocation_watch {
+        watch.abort();
+    }
     log.info("draining", &[("drainMs", &config.drain_window_ms.to_string())]);
     let _ = engine_tx.send(Command::Drain(config.drain_window_ms));
     drop(engine_tx);

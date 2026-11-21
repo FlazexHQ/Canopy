@@ -108,6 +108,7 @@ export class TestClient {
    */
   readonly invalid: string[] = []
   closeCode: number | undefined
+  closeReason: string | undefined
   private readonly socket: WebSocket
   private readonly waiters: { test: () => boolean; resolve: () => void }[] = []
 
@@ -127,8 +128,9 @@ export class TestClient {
       }
       this.check()
     })
-    socket.on("close", (code) => {
+    socket.on("close", (code, reason) => {
       this.closeCode = code
+      this.closeReason = reason.toString()
       this.check()
     })
   }

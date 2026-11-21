@@ -513,7 +513,7 @@ export interface RealtimeOptions {
     readonly traceCapacity?: number;
     readonly span?: <T>(name: string, attributes: Readonly<Record<string, string | number | boolean>>, run: () => T) => T;
     readonly logVariableIssues?: boolean;
-    readonly engine?: EngineKind;
+    readonly engine?: EngineChoice;
 }
 
 export interface RealtimeSocket {

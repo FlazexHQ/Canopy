@@ -60,6 +60,7 @@ describe("gatewayConfig", () => {
     const config = resolved({
       realtime: { transports: ["websocket", "sse"] },
       cors: { origins: ["https://app.test"] },
+      server: { trustedProxies: ["10.0.0.0/8", "::1"] },
     })
     const json = gatewayConfig(
       config,
@@ -75,7 +76,12 @@ describe("gatewayConfig", () => {
     )
     expect(json["realtime"]).toMatchObject({ transports: ["websocket", "sse"] })
     expect(json["cors"]).toEqual({ origins: ["https://app.test"] })
-    expect(json["server"]).toMatchObject({ port: 9000, metricsPort: 0, metricsHost: "127.0.0.1" })
+    expect(json["server"]).toMatchObject({
+      port: 9000,
+      metricsPort: 0,
+      metricsHost: "127.0.0.1",
+      trustedProxies: ["10.0.0.0/8", "::1"],
+    })
     expect(json["proxy"]).toEqual({ url: "http://127.0.0.1:4000" })
     expect(json["mutations"]).toEqual({ url: "http://127.0.0.1:4000/rest/v1" })
   })
@@ -91,7 +97,9 @@ describe("gatewayConfig", () => {
 
   it("refuses built in auth unless the launcher gives the verification, and then uses it", () => {
     const config = resolved({
-      auth: { kind: "builtin", secret: "s".repeat(32) },
+      mongodb: { uri: URI, database: "app", metaDatabase: "project_meta" },
+      auth: { kind: "builtin", secret: "s".repeat(32), trustedProxies: ["fd00::/8"] },
+      server: { trustedProxies: ["10.0.0.0/8"] },
       publicUrl: "https://api.test",
     })
     expect(() => gatewayConfig(config, undefined, {})).toThrow(TypeError)
@@ -115,6 +123,9 @@ describe("gatewayConfig", () => {
       jwksUrl: "http://127.0.0.1:4000/auth/v1/jwks",
       algorithms: ["EdDSA"],
       rolesClaim: "roles",
+      checkRevocations: true,
     })
+    expect(json["mongodb"]).toMatchObject({ metaDatabase: "project_meta" })
+    expect(json["server"]).toMatchObject({ trustedProxies: ["10.0.0.0/8", "fd00::/8"] })
   })
 })

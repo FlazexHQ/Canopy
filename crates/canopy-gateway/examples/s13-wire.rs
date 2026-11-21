@@ -1,6 +1,12 @@
 //! Loopback-only S13 feasibility probe for the native gateway.
 
 #[allow(dead_code)]
+#[path = "../src/api_keys.rs"]
+mod api_keys;
+#[allow(dead_code)]
+#[path = "../src/client_address.rs"]
+mod client_address;
+#[allow(dead_code)]
 #[path = "../src/config.rs"]
 mod config;
 #[path = "../src/forward.rs"]
@@ -8,8 +14,14 @@ mod forward;
 #[path = "../src/jwt.rs"]
 mod jwt;
 #[allow(dead_code)]
+#[path = "../src/log.rs"]
+mod log;
+#[allow(dead_code)]
 #[path = "../src/mongo.rs"]
 mod mongo;
+#[allow(dead_code)]
+#[path = "../src/revocations.rs"]
+mod revocations;
 
 use std::collections::HashMap;
 use std::error::Error;
