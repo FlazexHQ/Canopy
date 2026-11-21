@@ -9,13 +9,13 @@ on:
         description: Nightly jobs to run
         type: choice
         default: all
-        options: [all, sharded]
+        options: [all, sharded, cargo-mutants]
 
 permissions:
   contents: read
 
 concurrency:
-  group: nightly
+  group: ${{ inputs.suite == 'cargo-mutants' && 'nightly-cargo-mutants' || 'nightly' }}
   cancel-in-progress: false
 
 env:
@@ -24,7 +24,7 @@ env:
 
 jobs:
   replica-set:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: ${{ matrix.name }}
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
@@ -121,7 +121,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   platform-e2e:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Browser end to end tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
@@ -170,7 +170,7 @@ jobs:
         run: grep -v '"ctx":"ftdc"' "$RUNNER_TEMP/mongodb/mongod.log" | tail -n 100 || true
 
   linux-arm64:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Linux arm64 (Bun and Node.js 24, MongoDB 8.0)
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04-arm runners (SERVER-121912).
     runs-on: ubuntu-22.04-arm
@@ -195,6 +195,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   sharded:
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'sharded'
     name: Snapshots, resume and write acknowledgements on a sharded cluster (MongoDB 8.0, Node.js 24)
     # A single member replica set cannot show sharded behaviour, so this runs against two shards behind mongos.
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
@@ -220,7 +221,7 @@ jobs:
         run: docker compose -f deploy/compose/sharded.yaml down --volumes
 
   search:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Text and vector search with ready indexes (MongoDB Atlas Local 8.0, Node.js 24)
     # mongodb-atlas-local runs mongod with mongot, so search indexes build and answer queries. The
     # search-unavailable case runs in the main suite against the plain replica set.
@@ -255,7 +256,7 @@ jobs:
         run: docker rm -f atlas-local
 
   mutation:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Mutation testing (${{ matrix.package }})
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
@@ -292,7 +293,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   cargo-mutants:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all' || inputs.suite == 'cargo-mutants'
     name: cargo mutants (${{ matrix.package }})
     runs-on: ubuntu-24.04
     timeout-minutes: 240
@@ -316,9 +317,12 @@ jobs:
       - name: Run mutation testing; missed mutants and timeouts are judged by the score gate below
         env:
           MUTATION_PACKAGE: ${{ matrix.package }}
+          # A mutant can allocate indefinitely. Limit test processes without capping the compiler.
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: prlimit --as=1073741824 --core=0 --
         run: |
           status=0
-          timeout --signal=INT --kill-after=1m 210m cargo mutants --package "$MUTATION_PACKAGE" --timeout 60 || status=$?
+          timeout --signal=INT --kill-after=1m 210m cargo mutants --package "$MUTATION_PACKAGE" \
+            --jobs 4 --minimum-test-timeout 15 --timeout-multiplier 3 || status=$?
           if [ "$status" -ne 0 ] && [ "$status" -ne 2 ] && [ "$status" -ne 3 ]; then exit "$status"; fi
       - name: Fail below the crate's break threshold
         env:
@@ -332,7 +336,7 @@ jobs:
           if-no-files-found: ignore
 
   fuzz:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: cargo fuzz (${{ matrix.target }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -381,7 +385,7 @@ jobs:
           if-no-files-found: ignore
 
   alpine:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Alpine Linux (musl, Bun and Node.js 24)
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912).
     runs-on: ubuntu-22.04
@@ -404,7 +408,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml down --volumes
 
   deno:
-    if: inputs.suite != 'sharded'
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: Deno (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
