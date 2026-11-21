@@ -83,6 +83,16 @@ describe("gatewayConfig", () => {
       trustedProxies: ["10.0.0.0/8", "::1"],
     })
     expect(json["proxy"]).toEqual({ url: "http://127.0.0.1:4000" })
+    expect(json["viewTokens"]).toBeUndefined()
+    const viewed = gatewayConfig(
+      config,
+      undefined,
+      {},
+      {
+        viewTokenKey: { kty: "OKP", crv: "Ed25519", x: "AAAA" },
+      },
+    )
+    expect(viewed["viewTokens"]).toEqual({ jwk: { kty: "OKP", crv: "Ed25519", x: "AAAA" } })
     expect(json["mutations"]).toEqual({ url: "http://127.0.0.1:4000/rest/v1" })
   })
 

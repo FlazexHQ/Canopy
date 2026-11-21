@@ -3,11 +3,11 @@ import { watch } from "node:fs"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { basename, dirname, relative } from "node:path"
-import { ConfigError, type ResolvedConfig, redactUri } from "@canopy/config"
+import { amendConfig, ConfigError, type ResolvedConfig, redactUri } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import { lintPolicies } from "@canopy/policy"
 import type { Logger } from "@canopy/realtime"
-import { type Canopy, createCanopy } from "@canopy/server"
+import { type Canopy, createCanopy, startGatewayFrontDoor } from "@canopy/server"
 import { messageOf, type Output } from "./output.ts"
 import { findSchemaFile, watchSchemaDrift } from "./schema-diff.ts"
 
@@ -45,9 +45,7 @@ function devLogger(out: Output): Logger {
 }
 
 interface Running {
-  readonly canopy: Canopy
-  readonly server: Server
-  readonly url: string
+  stop(): Promise<void>
   readonly schemaStop: AbortController
   readonly schemaWatch: Promise<number> | undefined
 }
@@ -83,7 +81,7 @@ function summary(
     `Canopy dev  (config ${config.file === undefined ? "none, CANOPY_* variables" : relative(cwd, config.file)})`,
     "",
     `  REST      ${canopy.rest === undefined ? "off" : `${url}/rest/v1`}`,
-    `  Realtime  ${canopy.realtime === undefined ? "off" : `${ws}/realtime/v1`}`,
+    `  Realtime  ${config.realtime === false ? "off" : `${ws}/realtime/v1`}`,
     `  GraphQL   ${canopy.graphql === undefined ? "off" : `${url}/graphql/v1`}`,
     `  MongoDB   ${redactUri(config.mongodb.uri)}  (app database ${config.mongodb.database})`,
   ]
@@ -160,18 +158,35 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
 
   const logger = devLogger(out)
   const start = async (config: ResolvedConfig): Promise<Running | undefined> => {
-    let canopy: Canopy | undefined
+    let stopServer: (() => Promise<void>) | undefined
     try {
       let setupToken: string | undefined
-      canopy = await createCanopy(config, {
-        logger,
-        onSetupToken: (token) => {
-          setupToken = token
-        },
-      })
-      const server = createServer(canopy.node())
-      await canopy.attach(server)
-      const port = await listen(server, options.port ?? config.server.port)
+      const onSetupToken = (token: string): void => {
+        setupToken = token
+      }
+      const requestedPort = options.port ?? config.server.port
+      let canopy: Canopy
+      let port: number
+      if (config.realtime !== false && config.realtime.server === "gateway") {
+        const gatewayConfig = amendConfig(config, {
+          server: { ...config.server, port: requestedPort },
+        })
+        const gateway = await startGatewayFrontDoor(gatewayConfig, logger, { onSetupToken }, signal)
+        stopServer = () => gateway.stop()
+        canopy = gateway.canopy
+        port = gateway.port
+        await canopy.admin.listen()
+      } else {
+        canopy = await createCanopy(config, { logger, onSetupToken })
+        const server = createServer(canopy.node())
+        stopServer = async () => {
+          await canopy.close({ drainMs: 0 })
+          server.closeAllConnections()
+          await new Promise<void>((done) => server.close(() => done()))
+        }
+        await canopy.attach(server)
+        port = await listen(server, requestedPort)
+      }
       const url = `http://localhost:${port}`
       const file = findSchemaFile(options.cwd)
       for (const line of summary(config, canopy, url, options.cwd, generated, setupToken, file))
@@ -191,10 +206,10 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
               out,
               AbortSignal.any([signal, schemaStop.signal]),
             )
-      return { canopy, server, url, schemaStop, schemaWatch }
+      return { stop: stopServer, schemaStop, schemaWatch }
     } catch (error: unknown) {
       out.error(`error  Canopy did not start: ${messageOf(error)}`)
-      await canopy?.close({ drainMs: 0 })
+      await stopServer?.()
       return undefined
     }
   }
@@ -202,9 +217,7 @@ export async function dev(options: DevOptions, out: Output, signal: AbortSignal)
     if (running === undefined) return
     running.schemaStop.abort()
     await running.schemaWatch
-    await running.canopy.close({ drainMs: 0 })
-    running.server.closeAllConnections()
-    await new Promise<void>((done) => running.server.close(() => done()))
+    await running.stop()
   }
 
   const first = await tryLoad()

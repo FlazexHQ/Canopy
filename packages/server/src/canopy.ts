@@ -1,3 +1,4 @@
+import type { JsonWebKey } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
 import {
@@ -184,6 +185,8 @@ export interface Canopy extends AsyncDisposable {
   readonly keys: ApiKeys
   /** The admin API, Studio and the stores behind them. */
   readonly admin: AdminSurface
+  /** The public key of Studio's view tokens as a JWK, for a native gateway that must accept them. */
+  readonly viewTokenKey: JsonWebKey
   /** Database triggers and schedules, when the config has any. */
   readonly webhooks: Webhooks | undefined
   /** File storage at `/storage/v1`, when the config has buckets. */
@@ -1158,6 +1161,7 @@ ${webhooks.metrics.render()}`
 }`,
     auth: builtin,
     keys: auth.apiKeys,
+    viewTokenKey: auth.viewTokens.publicJwk,
     admin: admin.surface,
     webhooks,
     storage: data.storage?.storage,

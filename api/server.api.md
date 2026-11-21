@@ -297,6 +297,7 @@ export interface Canopy extends AsyncDisposable {
     readonly policies: PolicyEngine;
     readonly keys: ApiKeys;
     readonly admin: AdminSurface;
+    readonly viewTokenKey: JsonWebKey;
     readonly webhooks: Webhooks | undefined;
     readonly storage: Storage | undefined;
     fetch(request: Request, fallback?: FetchHandler, info?: {
@@ -424,6 +425,15 @@ export interface DeadLetter {
 }
 
 export type FetchHandler = (request: Request) => Response | Promise<Response>;
+
+export interface GatewayFrontDoor {
+    readonly canopy: Canopy;
+    readonly port: number;
+    readonly upstreamPort: number;
+    readonly exited: Promise<number>;
+    metrics(): string;
+    stop(): Promise<void>;
+}
 
 export interface HookInfo {
     readonly name: string;
@@ -807,6 +817,8 @@ function migrateMeta(meta: Db, options?: MigrateOptions): Promise<MigrateResult>
 function migrationStatus(meta: Db, migrations?: readonly MetaMigration[]): Promise<MigrationStatus[]>
 
 const policyInput: import("./schema.ts").Schema<{ readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; readonly realtime: boolean; readonly exposed: boolean; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
+
+function startGatewayFrontDoor(config: ResolvedConfig, logger: Logger, options?: Pick<CreateCanopyOptions, "onSetupToken">, signal?: AbortSignal): Promise<GatewayFrontDoor>
 
 function totp(secret: Uint8Array, timeMs: number, options?: TotpOptions): string
 

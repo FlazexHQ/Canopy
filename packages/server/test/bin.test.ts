@@ -9,6 +9,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
+import { ViewTokens } from "../src/view-tokens.ts"
 
 const BIN = fileURLToPath(new URL("../src/bin/canopy-server.ts", import.meta.url))
 const POLICIES = fileURLToPath(new URL("./fixtures/policies", import.meta.url))
@@ -301,7 +302,11 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   it.skipIf(findGatewayBinary() === undefined)(
     "runs canopy-gateway on the public port in front of REST, with socket writes acknowledged after their echo",
     async () => {
-      const { run, base, metrics } = await boot(POLICIES, { CANOPY_REALTIME_SERVER: "gateway" })
+      const masterKey = "m".repeat(44)
+      const { run, base, metrics } = await boot(POLICIES, {
+        CANOPY_REALTIME_SERVER: "gateway",
+        CANOPY_MASTER_KEY: masterKey,
+      })
       try {
         expect(run.output()).toContain('"realtimeServer":"gateway"')
         expect(await (await fetch(`${base}/healthz`)).text()).toBe("ok")
@@ -434,6 +439,54 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
         controller.abort()
         await reader.cancel().catch(() => {})
         socket.close()
+
+        const viewer = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+        const seen: Record<string, unknown>[] = []
+        viewer.on("message", (data) =>
+          seen.push(JSON.parse(data.toString()) as Record<string, unknown>),
+        )
+        await new Promise<void>((resolve, reject) => {
+          viewer.once("open", () => resolve())
+          viewer.once("error", reject)
+        })
+        const { token: view } = await new ViewTokens(masterKey).mint({
+          roles: [],
+          claims: { sub: "carol" },
+        })
+        viewer.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: view }))
+        const watch = async (test: (m: Record<string, unknown>) => boolean) => {
+          const started = Date.now()
+          for (;;) {
+            const found = seen.find(test)
+            if (found !== undefined) return found
+            if (Date.now() - started > 10_000) throw new Error(`timed out: ${JSON.stringify(seen)}`)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+        }
+        await watch((m) => m["t"] === "welcome")
+        viewer.send(JSON.stringify({ t: "sub", id: "v", c: "notes", q: {} }))
+        await watch((m) => m["t"] === "ready")
+        expect(
+          seen
+            .filter((m) => m["t"] === "added")
+            .map((m) => m["id"])
+            .sort(),
+        ).toEqual(["g1", "g3", "g5"])
+        const write = "0192f6a1-7c2e-7b1a-9d3e-00000000a003"
+        viewer.send(
+          JSON.stringify({
+            t: "mut",
+            id: write,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g7", ownerId: "carol" } },
+          }),
+        )
+        expect(await watch((m) => m["t"] === "ack" && m["m"] === write)).toMatchObject({
+          ok: false,
+          err: { code: "CANOPY_FORBIDDEN", msg: "A view token may not write" },
+        })
+        viewer.close()
       } finally {
         expect(await stop(run)).toBe(0)
         await mongo

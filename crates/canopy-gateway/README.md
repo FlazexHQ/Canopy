@@ -73,7 +73,3 @@ their key is revoked or deleted. When launched as the front door for built in au
 
 `CANOPY_TRUSTED_PROXIES` (or `server.trustedProxies`) lists the trusted proxy addresses and CIDR ranges.
 WebSocket and HTTP fallback connections use `X-Forwarded-For` only when the socket peer is trusted.
-
-## Not yet supported
-
-- Studio view tokens.

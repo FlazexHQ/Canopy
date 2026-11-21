@@ -13,6 +13,7 @@
 #   CANOPY_DB                The app database. Default: app
 #   CANOPY_ENV               development (default) or production. Production needs CANOPY_MASTER_KEY.
 #   CANOPY_LOG_LEVEL         debug, info (default), warn or error.
+#   CANOPY_REALTIME_SERVER   ts (default) or gateway.
 #   CANOPY_PORT, CANOPY_METRICS_PORT, CANOPY_MONGO_PORT
 #                            Host ports. Defaults: 8080, 9464, 27017.
 # Inside the network the replica set member is mongo:27017. From the host, connect with
@@ -63,6 +64,7 @@ services:
       CANOPY_JWT_AUDIENCE: ${CANOPY_JWT_AUDIENCE:-}
       CANOPY_JWT_ROLES_CLAIM: ${CANOPY_JWT_ROLES_CLAIM:-}
       CANOPY_LOG_LEVEL: ${CANOPY_LOG_LEVEL:-info}
+      CANOPY_REALTIME_SERVER: ${CANOPY_REALTIME_SERVER:-ts}
       CANOPY_POLICIES: /app/policies
     volumes:
       - ${CANOPY_POLICY_DIR:-./policies}:/app/policies:ro

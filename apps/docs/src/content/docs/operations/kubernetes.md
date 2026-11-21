@@ -18,10 +18,11 @@ Build the server image from `deploy/docker/canopy.Dockerfile` and push it to you
 `ghcr.io/flazexhq/canopy-realtime:<tag>` and `ghcr.io/flazexhq/canopy-gateway:<tag>`. All three images
 target Linux x64 and arm64.
 
-The realtime sidecar image includes the native gateway. Set `CANOPY_REALTIME_SERVER=gateway` on the
-sidecar to use it with your existing sidecar configuration and policy files. The standalone gateway
-image reads policies from the meta database by default and listens on ports 8080 and 9464 for
-realtime and metrics, respectively.
+The Canopy server and realtime sidecar images include the native gateway. Set `CANOPY_REALTIME_SERVER=gateway`
+on either image to use it with your existing configuration and policy files. In the Canopy server image,
+the gateway serves realtime on the public port and proxies the other routes to the TypeScript server.
+The standalone gateway image reads policies from the meta database by default and listens on ports
+8080 and 9464 for realtime and metrics, respectively.
 
 ## Secrets
 

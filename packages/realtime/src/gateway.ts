@@ -1,4 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process"
+import type { JsonWebKey } from "node:crypto"
 import { existsSync } from "node:fs"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -79,6 +80,8 @@ export interface GatewayOverrides {
   readonly mutationsUrl?: string
   /** JWT verification for built in auth. */
   readonly auth?: GatewayAuth
+  /** The public key of Studio's view tokens as a JWK, so the gateway accepts them. */
+  readonly viewTokenKey?: JsonWebKey
 }
 
 /**
@@ -169,6 +172,9 @@ export function gatewayConfig(
           },
     ...(mutationsUrl === undefined ? {} : { mutations: { url: mutationsUrl } }),
     ...(overrides.proxyUrl === undefined ? {} : { proxy: { url: overrides.proxyUrl } }),
+    ...(overrides.viewTokenKey === undefined
+      ? {}
+      : { viewTokens: { jwk: overrides.viewTokenKey } }),
     log: { level: config.log.level },
   }
 }

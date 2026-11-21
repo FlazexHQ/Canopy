@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { findGatewayBinary } from "@canopy/realtime"
 import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -43,7 +44,7 @@ suite("canopy dev", () => {
     `export default { mongodb: { uri: ${JSON.stringify(MONGODB_URI)}, database: ${JSON.stringify(database)}, metaDatabase: ${JSON.stringify(`${database}_meta`)} }, policies: { dir: "./policies" }${extra} }\n`
   const policy = (shared: boolean): string =>
     `import { allow, collection } from "@canopy/policy"
-export default collection("todos", { exposed: true, policies: [allow.read("public").where({ shared: ${shared} }).named("shared")] })
+export default collection("todos", { exposed: true, realtime: true, policies: [allow.read("public").where({ shared: ${shared} }).named("shared")] })
 `
 
   async function project(extra: string): Promise<string> {
@@ -145,6 +146,71 @@ export default collection("todos", { exposed: true, policies: [allow.read("publi
     stop.abort()
     expect(await running).toBe(0)
   })
+
+  it.skipIf(findGatewayBinary() === undefined)(
+    "serves REST and realtime through the gateway and restarts it on config edits",
+    async () => {
+      const key = "canopy_pk_test"
+      const gateway = `, keys: { publishable: ["${key}"] }, realtime: { server: "gateway", drainWindow: "1s" }`
+      const root = await project(gateway)
+      const lines: string[] = []
+      const errors: string[] = []
+      const urls: string[] = []
+      const stop = new AbortController()
+      const running = dev(
+        { cwd: root, env: {}, port: 0, onReady: (url) => urls.push(url) },
+        { log: (line) => lines.push(line), error: (line) => errors.push(line) },
+        stop.signal,
+      )
+      let socket: WebSocket | undefined
+      try {
+        await until(
+          async () => urls.length + errors.length,
+          (count) => count > 0,
+        )
+        expect(errors).toEqual([])
+        const base = urls[0] ?? ""
+        const realtime = `${base.replace(/^http/, "ws")}/realtime/v1`
+        expect(lines).toContain(`  REST      ${base}/rest/v1`)
+        expect(lines).toContain(`  Realtime  ${realtime}`)
+        expect(lines).toContain(`  GraphQL   ${base}/graphql/v1`)
+        expect(lines).toContain(`  Studio    ${base}/studio`)
+        expect(await ids(base, key)).toEqual(["a"])
+
+        const ws = new WebSocket(realtime, "canopy.v1+json")
+        socket = ws
+        type Frame = { t?: string; s?: string; id?: unknown; m?: Frame[] }
+        const frames: Frame[] = []
+        ws.addEventListener("open", () => ws.send(JSON.stringify({ t: "hello", v: 1, key })))
+        ws.addEventListener("message", (event) => {
+          const frame = JSON.parse(String(event.data)) as Frame
+          for (const message of frame.t === "batch" ? (frame.m ?? []) : [frame]) {
+            frames.push(message)
+            if (message.t === "welcome")
+              ws.send(JSON.stringify({ t: "sub", id: "todos", c: "todos", q: {} }))
+          }
+        })
+        await expect
+          .poll(() => frames, { timeout: 10_000 })
+          .toContainEqual(expect.objectContaining({ t: "ready", s: "todos" }))
+        expect(frames.filter((frame) => frame.t === "added").map((frame) => frame.id)).toEqual([
+          "a",
+        ])
+        await writeFile(join(root, "canopy.config.mjs"), config(`${gateway}, rest: false`))
+        await until(async () => urls.length === 2 || errors.length > 0, Boolean)
+        expect(errors).toEqual([])
+        expect(urls).toHaveLength(2)
+        await expect.poll(() => ws.readyState).toBe(WebSocket.CLOSED)
+        expect(await ids(urls[1] ?? "", key)).toBe(404)
+      } finally {
+        socket?.close()
+        stop.abort()
+        expect(await running).toBe(0)
+      }
+      await expect(fetch(`${urls[1]}/readyz`)).rejects.toThrow()
+    },
+    90_000,
+  )
 
   it("warns on schema drift and leaves legacy generated files untouched", async () => {
     const legacy = await project(`, keys: { publishable: ["canopy_pk_test"] }`)
