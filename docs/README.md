@@ -16,14 +16,14 @@
 
 | | |
 |---|---|
-| **Status** | Phases 1 to 4 are implemented on `master` (DLS core and realtime, Data API and optimistic SDK, auth, server and Studio, GraphQL and the framework bindings). Phase 4's entry gate (security review O4, test gap T1) is not recorded as closed. Phase 5 (scale and edge) has not started; spike S8 is written up. Nothing is published yet. The repository is set up by hand (no `bun init` or other generators). |
-| **Language** | TypeScript 6.x |
+| **Status** | Phases 1 to 4 are implemented on `master` (DLS core and realtime, Data API and optimistic SDK, auth, server and Studio, GraphQL and the framework bindings). Phase 4's entry gate (security review O4, test gap T1) is not recorded as closed. Phase 5 (the native core in Rust, [14](plan/14-native-core.md)) has not started; scale and edge follow as Phase 6, MongoDB depth ([15](plan/15-mongodb-depth.md)) is Phase 7, and spike S8 is written up. Nothing is published yet. The repository is set up by hand (no `bun init` or other generators). |
+| **Language** | TypeScript 6.x; Rust for the engine from Phase 5 ([ADR-0014](adr/0014-rust-native-core.md)) |
 | **Runtime** | Bun (primary), then Node.js 26 LTS (24 LTS minimum), then Deno; Cloudflare Workers for the edge worker |
 | **Operating systems** | Windows (10, 11, Server 2022+), Linux (Debian, Ubuntu, Fedora, RHEL, Arch, Alpine and other distributions) and macOS (Apple silicon and Intel), x64 and arm64, natively on every runtime |
 | **Package manager** | Bun (primary), then pnpm, Yarn and npm |
 | **Database** | MongoDB 7.0+ replica set or sharded cluster (8.0+ required from 1.0), self-hosted or Atlas |
 | **License** | Apache-2.0 (proposed) |
-| **Last updated** | 2026-11-13 |
+| **Last updated** | 2026-11-18 |
 
 ## Reading order
 
@@ -43,6 +43,8 @@
 | 11 | [Engineering](plan/11-engineering.md) | Monorepo, TypeScript 6 setup, testing strategy, CI/CD, releases |
 | 12 | [Roadmap](plan/12-roadmap.md) | Phases, milestones, exit criteria, technical spikes, risks, open questions |
 | 13 | [Open source](plan/13-open-source.md) | License, governance, contribution model, naming |
+| 14 | [Native core in Rust](plan/14-native-core.md) | Where Rust makes Canopy faster and where it does not, the crates and ports, equivalence with the TypeScript code, stages and gates |
+| 15 | [Using all of MongoDB](plan/15-mongodb-depth.md) | Search, the MongoDB wire protocol endpoint, Queryable Encryption, geo, secondaries, views, time series; what each does to performance |
 | ADR | [Architecture Decision Records](adr/README.md) | Each key decision with the alternatives considered |
 
 ## The plan on one page
@@ -73,8 +75,10 @@
   (Cloudflare Durable Objects) terminates WebSockets and applies DLS to relayed events, but never reads the
   oplog.
 - **Delivery order:** v0.1 *Realtime drop-in* (about 3 months) → v0.2 *writes + optimistic SDK* →
-  v0.3/v0.4 *auth + Studio + all-in-one server* → v0.5 *GraphQL + frameworks* → v0.6 to 0.9 *scale + edge* →
-  **1.0** about 12 months after start with a 3-person core team. See [12, Roadmap](plan/12-roadmap.md).
+  v0.3/v0.4 *auth + Studio + all-in-one server* → v0.5 *GraphQL + frameworks* → v0.6 *native core in Rust* →
+  v0.7 to 0.9 *scale + edge* → v0.10 *MongoDB depth* → **1.0** about 16 months after start with a 3-person
+  core team. See
+  [12, Roadmap](plan/12-roadmap.md).
 
 ## Glossary
 

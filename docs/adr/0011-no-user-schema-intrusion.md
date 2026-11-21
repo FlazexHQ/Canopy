@@ -1,8 +1,9 @@
 # ADR-0011: No changes to the user's schema
 
 - **Status:** Proposed
-- **Date:** 2026-11-05
-- **Related:** [00 §5](../plan/00-vision.md#5-design-principles), [01 §6](../plan/01-architecture.md#6-where-canopy-writes-data)
+- **Date:** 2026-11-05, amended 2026-11-18
+- **Related:** [00 §5](../plan/00-vision.md#5-design-principles), [01 §6](../plan/01-architecture.md#6-where-canopy-writes-data),
+  [ADR-0015](0015-reach-through-mongodb.md), [15](../plan/15-mongodb-depth.md)
 
 ## Context
 
@@ -11,13 +12,20 @@ API layer". Teams will only adopt it if they can trust that Canopy leaves their 
 
 ## Decision
 
-- Canopy **never** writes fields into user documents and **never** creates collections in the app DB. It only
-  writes app data on behalf of callers through its APIs.
+- Canopy **never** writes fields into user documents and **never** creates collections in the app DB on its
+  own. It only writes app data on behalf of callers through its APIs.
 - All Canopy state lives in separate databases (`canopy`, `canopy_auth`) on the same deployment.
 - Anything that changes the database is **opt-in, explicit and run by the CLI with admin credentials**:
   enabling pre-/post-images (`collMod`) and creating suggested indexes.
+- **Amendment (2026-11-18, Q16):** an admin may also have Canopy apply search and vector search indexes,
+  validators, views and materialized view targets in the app DB. Each change runs only from an explicit admin
+  action (the CLI, Studio or the admin API, with admin credentials), is shown as a plan before it is applied,
+  and writes an entry to the audit log. Nothing is applied at startup or as a side effect of configuration
+  alone. Collections Canopy creates this way belong to the user afterwards and are never removed silently.
 - An automated Phase 1 test checks this: collections, indexes and sample documents are compared before and
-  after running the full test suite in sidecar mode.
+  after running the full test suite in sidecar mode, and the same check runs with the server started from a
+  configuration that declares search indexes, views and materialized views, which must change nothing until an
+  admin applies them.
 
 ## Consequences
 

@@ -18,8 +18,10 @@ ADRs record **why** an important decision was made and which alternatives were r
 | [0008](0008-auth-better-auth-and-byo-jwks.md) | Auth: Better Auth embedded, plus bring-your-own JWKS | Proposed |
 | [0009](0009-wire-protocol-v1.md) | Wire protocol v1: JSON + EJSON, sequenced, resumable | Proposed |
 | [0010](0010-edge-is-fanout-only.md) | The edge is a fan-out tier only | Proposed |
-| [0011](0011-no-user-schema-intrusion.md) | No changes to the user's schema | Proposed |
+| [0011](0011-no-user-schema-intrusion.md) | No changes to the user's schema | Proposed (amended 2026-11-18) |
 | [0012](0012-license-apache-2.md) | License: Apache-2.0 | Proposed |
 | [0013](0013-one-project-per-deployment.md) | One project per deployment until 1.0 | Accepted |
+| [0014](0014-rust-native-core.md) | A native core in Rust | Accepted (direction) |
+| [0015](0015-reach-through-mongodb.md) | Reach further through MongoDB, not through more languages | Accepted (direction) |
 
 New ADRs copy [0000-template.md](0000-template.md) and take the next number.

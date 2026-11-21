@@ -11,7 +11,7 @@
 
 ## 2. Compatibility matrix
 
-Status as planned. Every "verify" row is checked during Phase 5 certification.
+Status as planned. Every "verify" row is checked during Phase 6 certification.
 
 | Platform | Status | Notes |
 |---|---|---|
@@ -64,7 +64,7 @@ volumes:
 
   Pin the exact MongoDB image version you have certified. The healthcheck initializes a single-node replica set
   on first boot.
-- **Kubernetes** (Helm chart in Phase 5): Deployment, Service, Ingress with WebSocket annotations, HPA on CPU
+- **Kubernetes** (Helm chart in Phase 6): Deployment, Service, Ingress with WebSocket annotations, HPA on CPU
   and on a connections metric, a PodDisruptionBudget, and `terminationGracePeriodSeconds` at least
   `drainWindow + 10s`.
 - **Platform templates** (Fly.io, Railway, Render) come later. **Serverless functions** can host REST, but

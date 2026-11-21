@@ -25,7 +25,7 @@ source. Claims marked "survey" were reported by a survey and not opened again.
 
 ## 2. How complete it is
 
-Against the roadmap in `docs/plan/12-roadmap.md` (seven phases, 0 to 6):
+Against the roadmap in `docs/plan/12-roadmap.md` (nine phases, 0 to 8, since Phase 5 became the native core in Rust and Phase 7 MongoDB depth on 2026-11-18):
 
 | Phase | State |
 |-------|-------|
@@ -34,8 +34,10 @@ Against the roadmap in `docs/plan/12-roadmap.md` (seven phases, 0 to 6):
 | 2 Data API and optimistic SDK | Done. The 15 kB SDK size goal was dropped by the maintainer on 2026-11-13 |
 | 3 Auth, server, Studio | The [security review](../docs/reviews/2026-11-13-phase-4-security-review.md) is recorded and the maintainer confirmed the [usability exercise](003-sdk-dx-and-canopy-rest/o4-exercise.md). |
 | 4 GraphQL and frameworks | Code is on `master`. The [entry gate](../docs/plan/12-roadmap.md#gate-before-phase-4) is met. |
-| 5 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
-| 6 Hardening and 1.0 | Not started |
+| 5 Native core in Rust | Not started. Planned in `docs/plan/14-native-core.md` |
+| 6 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
+| 7 MongoDB depth | Not started. Planned in `docs/plan/15-mongodb-depth.md` |
+| 8 Hardening and 1.0 | Not started |
 
 Estimate: about **60% of the way to 1.0** by roadmap scope, and about **50% of Supabase's surface**.
 
@@ -109,6 +111,8 @@ Rule from here on: no new feature package merges while a P0 item is open.
 
 ### C. Developer experience (P1)
 
+[Plan 003](003-sdk-dx-and-canopy-rest/README.md) covers SDK types (a schema in code with `canopy pull`, replacing the generated `Database` interface), collection and query objects, the stateless REST client and its proposed folder structure. The [companion report](003-sdk-dx-and-canopy-rest/report.md) documents the current behavior.
+
 | ID | Item | Evidence | Effort |
 |----|------|----------|--------|
 | C1 | Rewrite the root README: current status, the full package list, one quickstart that ends with a live query in the browser | `README.md` says Phase 1 and lists 8 of 23 packages | S |
@@ -176,8 +180,8 @@ The designs are in [plan 002](002-product-gaps.md).
 | F1 | Storage: uploads with DLS style policies on file metadata documents, S3 compatible backends first, GridFS for small deployments, signed URLs, resumable uploads | The largest gap against the comparison, and the feature most apps need next after auth |
 | F1b | Storage backends `local` (disk, the default), `r2` and `s3`, replacing GridFS, and image transformations (resize, format, quality) on every backend | Decided by the maintainer on 2026-11-18; design in plan 002 |
 | F2 | Database triggers and webhooks on the existing change stream ingestor, with retries and a dead letter collection | Cheap, because the stream and checkpoints exist |
-| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Rejected in aggregations today |
-| F4 | Phase 5 as planned: edge fan out on Durable Objects, starting from spike S8 | Not started |
+| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Accepted as a first stage now, never run against a real index; the real index work (M2) is in `docs/plan/15-mongodb-depth.md` |
+| F4 | Phase 6 as planned: edge fan out on Durable Objects, starting from spike S8 | Not started |
 | F5 | Scheduled jobs and functions | After F2; consider running user code out of process only |
 | F6 | Several projects per deployment | Decide if it is a goal at all before 1.0 |
 
@@ -208,7 +212,7 @@ and F12 (same files). C2 before C4 and C5. D1 before any public demo instance.
 - Decided: the SDK size budget is dropped (E17, 2026-11-13).
 - From the earlier plan, still open: read back of every inserted document on bulk insert, and whether SDK
   mutations may use the transaction free fast path.
-- Whether storage (F1) moves ahead of Phase 5 (F4). Recommendation: yes, storage first.
+- Whether storage (F1) moves ahead of the edge (F4, now Phase 6). Recommendation: yes, storage first.
 - Decided: one project per deployment until 1.0 (F6, [ADR 0013](../docs/adr/0013-one-project-per-deployment.md)).
 
 ## 7. Considered and not planned

@@ -3,7 +3,7 @@
 Internal review of the code that landed after the audit of 2026-11-11, done for the Phase 4 gate (roadmap
 [§3.3a, O4 and T1](../plan/12-roadmap.md#gate-before-phase-4); security plan
 [09](../plan/09-security.md)). Reviewer: the implementation agent, on branch `improve/audit-remediation`.
-This is a code review with targeted probes, not an outside audit; the outside audit stays a Phase 6 exit
+This is a code review with targeted probes, not an outside audit; the outside audit stays a Phase 8 exit
 criterion.
 
 ## Scope

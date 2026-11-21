@@ -1,6 +1,6 @@
 # ADR-0001: TypeScript 6 with Bun as the primary runtime
 
-- **Status:** Proposed
+- **Status:** Proposed; amended by [ADR-0014](0014-rust-native-core.md) (the engine moves to Rust, everything else stays as decided here)
 - **Date:** 2026-11-05 (revised 2026-11-06: Bun made primary; revised 2026-11-07: Windows, Linux and macOS support)
 - **Related:** [01 §8](../plan/01-architecture.md#8-runtime-strategy), [11 §3](../plan/11-engineering.md#3-typescript-6-configuration), [11 §11](../plan/11-engineering.md#11-typescript-7-readiness), spikes S5 and S9
 

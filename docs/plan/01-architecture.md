@@ -220,7 +220,7 @@ sequenceDiagram
 
 | Database | Collections | Written by | Notes |
 |---|---|---|---|
-| **Your app DB** | Your collections only | Canopy REST/GraphQL/WS writes on behalf of callers | No Canopy fields or collections, ever |
+| **Your app DB** | Your collections only | Canopy REST/GraphQL/WS writes on behalf of callers | No Canopy fields, ever. Indexes, collection options, views and materialized view targets only from an explicit, audited admin action ([ADR-0011](../adr/0011-no-user-schema-intrusion.md)) |
 | **`canopy`** (meta, configurable) | `policies`, `policy_history`, `checkpoints`, `mutations` (TTL), `revocations` (TTL), `api_keys`, `admin_users`, `admin_sessions`, `audit_log`, `settings`, `schema_cache`, `leases`, `migrations` | Canopy | Must be on the same deployment as the app DB, because write transactions span both |
 | **`canopy_auth`** (configurable) | Better Auth collections (`user`, `session`, `account`, `verification`, `jwks`, plus plugin collections) | Built-in auth | Absent in BYO-auth mode |
 
@@ -232,6 +232,7 @@ Policy filter expressions are stored as **canonical EJSON strings**. This avoids
 | Concern | Choice | Why | Alternatives considered |
 |---|---|---|---|
 | Language | **TypeScript 6.x** | Project decision. Its stable compiler API still serves tooling while TS 7's API stabilizes. Config is kept TS 7-ready ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Go (proposed for Concept 1); TS 7 now |
+| Engine language | **Rust** (stable, edition 2024) for the matcher, query, policy compiler, realtime engine and the `canopy-gateway` server, from Phase 5 | Per event and per connection work without a garbage collector; one core compiled to native code, Node-API and WebAssembly ([ADR-0014](../adr/0014-rust-native-core.md), [14](14-native-core.md)) | TypeScript only; Go; uWebSockets.js |
 | Server runtime | **Bun** (latest stable 1.x), then **Node.js 26 LTS** (min 24 LTS), then **Deno** | Bun: native TypeScript, fast `Bun.serve` WebSockets, its own package manager and single binary compile. Node stays fully supported because the driver targets it first ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Node.js as primary (the earlier plan) |
 | MongoDB driver | **`mongodb` 7.x** | Official. Change streams, sessions, explicit resource management. Officially targets Node ≥ 20.19; runs on Bun through its Node compatibility layer, verified on every PR. | none |
 | HTTP framework | **Hono** | Fetch-standard and runs on Bun, Node, Deno and Workers, so one router serves every mode | Fastify, Express |
@@ -304,7 +305,9 @@ Policy filter expressions are stored as **canonical EJSON strings**. This avoids
   - servers listen on TCP ports by default; Unix domain sockets and named pipes are optional extras;
   - native (compiled) dependencies are avoided. Any that cannot be must ship prebuilt binaries for every
     platform and architecture above, or be optional with a pure JavaScript fallback (as the uWebSockets.js
-    adapter is).
+    adapter is). The Rust core ([14 §6](14-native-core.md#6-platforms-toolchain-and-distribution)) follows
+    this rule: prebuilt Node-API binaries for every target above, a WebAssembly fallback, and the TypeScript
+    engine through 1.0.
 - **Workers** host only `@canopy/edge` and the universal packages. Change-stream ingestion never runs at the
   edge ([ADR-0010](../adr/0010-edge-is-fanout-only.md)).
 

@@ -17,6 +17,7 @@ canopy/
 │  ├─ client/    react/  vue/  svelte/  solid/   # SDK + bindings
 │  ├─ edge/                                      # Cloudflare Worker + Durable Objects
 │  └─ testing/                                   # fixtures, policy test harness, in-process server
+├─ crates/                    # Rust engine from Phase 5: protocol, matcher, query, policy, engine, gateway (plan 14)
 ├─ examples/                  # todo-react, chat-nextjs, saas-multitenant, express-dropin, edge-cloudflare, expo-app
 ├─ bench/                     # k6 scripts, ws-loadgen, scenarios, result history
 ├─ deploy/                    # Dockerfiles, compose files, Helm chart, Grafana dashboard, alert rules
@@ -24,7 +25,8 @@ canopy/
 ├─ .changeset/
 ├─ .github/                   # workflows, CODEOWNERS, issue and PR templates
 ├─ biome.json
-├─ bun.lock                   # the only lockfile
+├─ bun.lock                   # the only JavaScript lockfile
+├─ Cargo.toml  Cargo.lock     # Rust workspace and its lockfile (Phase 5)
 ├─ package.json               # workspaces, catalogs and scripts
 ├─ tsconfig.base.json         # shared compiler options (TS 6)
 ├─ tsconfig.json              # solution file: references every package
@@ -124,6 +126,7 @@ packages have **no runtime dependencies** outside the workspace.
 | Client + bindings | `tsc -b` for types; **tsdown** (Rolldown) for size-optimized ESM bundles | ESM + `.d.ts` | Bun, Node 24/26, Deno, Chromium/Firefox/WebKit (Playwright), React Native (smoke) |
 | Studio | Vite | Static assets copied into `@canopy/server` | Playwright |
 | Edge | Wrangler | Worker bundle | `@cloudflare/vitest-pool-workers` (workerd) |
+| Rust crates and ports (Phase 5) | `cargo build`; napi-rs for `@canopy/native`; wasm-bindgen for `canopy-wasm` | Node-API binaries for 8 targets, WebAssembly, the static `canopy-gateway` binary | Bun, Node 24/26 (PR); Deno, workerd, every cross target (nightly). Details in [14 §6](14-native-core.md#6-platforms-toolchain-and-distribution) and [14 §7](14-native-core.md#7-engineering-changes) |
 | Container | Multi stage Dockerfile: `bun install --production`, then a distroless Bun base (plus a Node variant) | Image | Smoke tests in CI |
 
 Every row that names Bun, Node or Deno is tested on **Linux, Windows and macOS**

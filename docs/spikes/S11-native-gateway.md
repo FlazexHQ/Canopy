@@ -241,6 +241,13 @@ As condition 1 foresaw, the gateway ships opt in, which is what stage 3 does in 
 efficiency waits for writes that carry several frames per `write` call (coalescing per connection within a
 short window, at the cost of latency) or for hub mode in Phase 6.
 
+**Since then (2026-11-21).** The gateway writes everything a connection has queued in one `write` (it wrote
+each frame on its own before), and `realtime.coalesceMs` adds the window: frames that follow a write within it
+wait and share the next `write`. The release decision is recorded in
+[14 §8](../plan/14-native-core.md#remaining-acceptance-work-2026-11-21): condition 1 no longer holds back the
+opt in release and becomes a condition of the default. The broadcast measurement with windows of 0 and 100 ms
+is the `gateway` job of the `Benchmarks` workflow, not yet run.
+
 ### Correctness gates of stage 3
 
 | Gate | Status |

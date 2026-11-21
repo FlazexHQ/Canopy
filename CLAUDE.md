@@ -8,7 +8,9 @@ Canopy (working name) is an open source, self hostable backend platform for Mong
 Phases 1 to 4 are implemented on `master`: the DLS core and Canopy Realtime, the Data API and optimistic SDK,
 auth, the server and Studio, and GraphQL with the framework bindings. Phase 4's exit criteria pass, but its
 entry gate (the security review O4 and test gap T1 of the Phase 3 review) is not recorded as closed, and the
-repository is working through `plans/README.md` before Phase 5 (scale and edge, starting from spike S8).
+repository is working through `plans/README.md` before Phase 5 (the native core in
+Rust, `docs/plan/14-native-core.md`, starting from spikes S10 to S12; scale and edge follow as Phase 6, then MongoDB depth as Phase 7,
+`docs/plan/15-mongodb-depth.md`).
 Nothing is published to npm yet and no license has been chosen. Packages (`packages/`):
 `protocol`, `matcher`, `query`, `policy` (universal), `schema` (schema inference, validators and type
 generation), `auth` (API keys, JWKS tokens and the `AuthProvider` contract), `auth-builtin` (built in app user
@@ -52,6 +54,13 @@ Fixed decisions (do not change without the user saying so):
   workspaces with `bun.lock` as the only lockfile; published packages, examples and quickstarts must install
   and run with all four. Shared code stays portable across all three runtimes; Bun specific APIs live only
   behind adapters with a Node counterpart. Details: ADR 0001, ADR 0002, `docs/plan/01-architecture.md` §8.
+- **Rust for the engine, TypeScript for the product** (decided 2026-11-18, ADR 0014, `docs/plan/14-native-core.md`).
+  Phase 5 moves the per event, per connection and per byte code (matcher, query, policy compiler, realtime
+  engine, a native gateway) to a Cargo workspace under `crates/`, exposed through ports (`@canopy/native` on
+  Node-API with a WebAssembly fallback, `canopy-wasm`). REST, GraphQL, the write path, auth, storage, the
+  server, the CLI, Studio and the SDKs stay TypeScript. A component moves only through a measured gate, and
+  anything touching DLS must pass the TypeScript, Rust and MongoDB equivalence suites first. Users never need
+  a Rust toolchain: prebuilt binaries for every platform above, or the WebAssembly fallback.
 - **All platforms.** Every runtime must work natively on **Windows** (10, 11, Server 2022+, not only WSL),
   **Linux** (Debian, Ubuntu, Fedora, RHEL, Arch, Alpine and other glibc or musl distributions) and **macOS**
   (Apple silicon and Intel), on x64 and arm64. This covers the repository's own scripts and hooks, published
@@ -194,7 +203,9 @@ client ----------+ (client depends on matcher + protocol, never on policy)
 - **Edge** (Cloudflare Durable Objects) only terminates WebSockets and fans out with DLS applied; it never reads
   the oplog.
 - **No schema intrusion:** never add fields to user documents or create collections in the user's app database.
-  Canopy state lives only in the `canopy` and `canopy_auth` databases.
+  Canopy state lives only in the `canopy` and `canopy_auth` databases. The one exception (ADR 0011, amended
+  2026-11-18): indexes, collection options, views and materialized view targets, applied only by an explicit,
+  audited admin action, never at startup.
 
 ## Docs conventions
 

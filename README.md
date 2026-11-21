@@ -8,8 +8,9 @@ dashboard. It works with an existing MongoDB deployment without changing its sch
 
 **Status: Phases 1 to 4 are implemented** (DLS core and realtime, Data API and optimistic SDK, auth, server and
 Studio, GraphQL and the framework bindings), and the repository is working through the audit plan in
-[`plans/README.md`](plans/README.md) before Phase 5 (scale and edge). Nothing is published to npm yet and no
-license has been chosen, so every quickstart starts from a clone of this repository.
+[`plans/README.md`](plans/README.md) before Phase 5 (the native core in Rust, then scale and edge in
+Phase 6 and MongoDB depth in Phase 7). Nothing is published to npm yet and no license has been chosen, so every quickstart starts from a
+clone of this repository.
 
 | Package                | Contents                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
