@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises"
+import { open } from "node:fs/promises"
 import { extname, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -131,15 +131,20 @@ export function createStudioHandler(options: StudioHandlerOptions = {}): StudioH
     const absolute = resolve(root, relative)
     if (absolute !== root && !absolute.startsWith(root + sep)) return undefined
     try {
-      const info = await stat(absolute)
-      if (!info.isFile()) return undefined
-      const body = new Uint8Array(await readFile(absolute))
-      const entry = {
-        body,
-        etag: `W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`,
+      const handle = await open(absolute, "r")
+      try {
+        const info = await handle.stat()
+        if (!info.isFile()) return undefined
+        const body = new Uint8Array(await handle.readFile())
+        const entry = {
+          body,
+          etag: `W/"${info.size.toString(16)}-${Math.trunc(info.mtimeMs).toString(16)}"`,
+        }
+        if (immutable) immutableCache.set(relative, entry)
+        return entry
+      } finally {
+        await handle.close()
       }
-      if (immutable) immutableCache.set(relative, entry)
-      return entry
     } catch (error: unknown) {
       if (error instanceof Error && "code" in error) return undefined
       throw error
