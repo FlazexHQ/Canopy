@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createServer, type Server } from "node:http"
-import type { AddressInfo } from "node:net"
+import { type AddressInfo, createServer as createNetServer } from "node:net"
 import { amendConfig, ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import {
@@ -91,7 +91,7 @@ async function listen(canopy: Canopy, port: number, hostname?: string): Promise<
   }
 }
 
-function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
+function metricsServer(canopy: Canopy, runtime: string, extra: () => string): Promise<Server> {
   const started = Date.now()
   const { metricsPort, metricsHost, metricsToken } = canopy.config.server
   return serveMetrics({
@@ -107,7 +107,9 @@ function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
         "# TYPE canopy_uptime_seconds gauge",
         `canopy_uptime_seconds ${((Date.now() - started) / 1000).toFixed(3)}`,
         "",
-      ].join("\n") + canopy.renderMetrics(),
+      ].join("\n") +
+      canopy.renderMetrics() +
+      extra(),
   })
 }
 
@@ -130,13 +132,14 @@ function behindGateway(config: ResolvedConfig): ResolvedConfig {
 }
 
 /** The gateway's settings when it is the front door of a server listening on loopback at `port`. */
-function frontDoor(canopy: Canopy, port: number): GatewayOverrides {
+function frontDoor(canopy: Canopy, port: number, metricsPort: number): GatewayOverrides {
   const local = `http://127.0.0.1:${port}`
   const verification = canopy.auth?.verification
   const audience = verification?.audience
   return {
     port: canopy.config.server.port,
-    metricsPort: 0,
+    metricsPort,
+    metricsHost: "127.0.0.1",
     proxyUrl: local,
     ...(canopy.config.rest === false ? {} : { mutationsUrl: `${local}/rest/v1` }),
     ...(verification === undefined
@@ -155,12 +158,54 @@ function frontDoor(canopy: Canopy, port: number): GatewayOverrides {
   }
 }
 
+/** A port that was free on loopback a moment ago. */
+function freeLoopbackPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createNetServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const { port } = server.address() as AddressInfo
+      server.close(() => resolve(port))
+    })
+  })
+}
+
 async function startFrontDoor(canopy: Canopy, logger: Logger, port: number) {
-  const gateway = await startGateway(canopy.config, logger, frontDoor(canopy, port))
+  const metricsPort = await freeLoopbackPort()
+  const gateway = await startGateway(canopy.config, logger, frontDoor(canopy, port, metricsPort))
   const bound = await gateway.listening
   if (bound === undefined)
     throw new Error(`canopy-gateway exited with code ${await gateway.exited} before it listened`)
-  return { ...gateway, port: bound }
+  let metrics = ""
+  const token = canopy.config.server.metricsToken
+  const scrape = (): void => {
+    fetch(`http://127.0.0.1:${metricsPort}/metrics`, {
+      headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(2000),
+    })
+      .then((response) => (response.ok ? response.text() : ""))
+      .then(
+        (text) => {
+          metrics = text
+        },
+        () => {
+          metrics = ""
+        },
+      )
+  }
+  scrape()
+  const timer = setInterval(scrape, 1000)
+  timer.unref()
+  return {
+    ...gateway,
+    port: bound,
+    /** The gateway's latest metrics, scraped every second, for the server's metrics endpoint. */
+    metrics: () => metrics,
+    stop() {
+      clearInterval(timer)
+      gateway.stop()
+    },
+  }
 }
 
 async function main(): Promise<void> {
@@ -175,7 +220,7 @@ async function main(): Promise<void> {
     : await listen(canopy, config.server.port)
   const gateway = gatewayed ? await startFrontDoor(canopy, logger, http.port) : undefined
 
-  const metrics = await metricsServer(canopy, runtime)
+  const metrics = await metricsServer(canopy, runtime, () => gateway?.metrics() ?? "")
   const admin = await canopy.admin.listen()
   if (admin !== undefined) logger.info({ address: admin.address }, "admin listening")
   const realtime = config.realtime

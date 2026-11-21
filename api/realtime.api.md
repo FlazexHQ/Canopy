@@ -151,6 +151,7 @@ export interface GatewayAuth {
 export interface GatewayOverrides {
     readonly port?: number;
     readonly metricsPort?: number;
+    readonly metricsHost?: string;
     readonly proxyUrl?: string;
     readonly mutationsUrl?: string;
     readonly auth?: GatewayAuth;

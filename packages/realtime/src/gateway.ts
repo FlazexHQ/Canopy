@@ -58,6 +58,8 @@ export interface GatewayOverrides {
   readonly port?: number
   /** The gateway's metrics port, `0` for none. Defaults to `server.metricsPort`. */
   readonly metricsPort?: number
+  /** The address the metrics port binds. Defaults to `server.metricsHost`. */
+  readonly metricsHost?: string
   /** `http://host:port` of the server that answers every path the gateway does not serve. */
   readonly proxyUrl?: string
   /** The REST base URL `mut` frames are forwarded to. Defaults to `CANOPY_GATEWAY_MUTATIONS_URL`. */
@@ -94,7 +96,7 @@ export function gatewayConfig(
     server: {
       port: overrides.port ?? config.server.port,
       metricsPort: overrides.metricsPort ?? config.server.metricsPort,
-      metricsHost: config.server.metricsHost,
+      metricsHost: overrides.metricsHost ?? config.server.metricsHost,
       ...(config.server.metricsToken === undefined
         ? {}
         : { metricsToken: config.server.metricsToken }),

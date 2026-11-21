@@ -96,7 +96,7 @@ on the public port, where it answers `/realtime/v1` (WebSocket, SSE and long pol
 request to the TypeScript server, which listens on loopback only and trusts the gateway's `X-Forwarded-For`.
 Socket writes go to the server's REST write path, and their acknowledgements still wait for their change
 events. Built in auth works: the gateway verifies tokens with the server's own JWKS. GraphQL subscriptions are
-not available in this mode, and the gateway's metrics are not exposed on the server's metrics port. The
+not available in this mode, and the server's metrics port also carries the gateway's metrics, scraped every second. The
 executable comes from `CANOPY_GATEWAY_BIN`, the container images, or a Cargo build of the repository.
 
 ## `rateLimits`
