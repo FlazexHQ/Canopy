@@ -38,6 +38,34 @@ export function storedPolicies(set: PolicySet): { stored: unknown[]; contexts: u
   }
 }
 
+/** JWT verification the gateway uses instead of the config's, for tokens a server issues itself. */
+export interface GatewayAuth {
+  /** The expected `iss`. */
+  readonly issuer: string
+  /** The expected `aud`. */
+  readonly audience: string
+  /** Where the verification keys are, normally the server's own JWKS on loopback. */
+  readonly jwksUrl: string
+  /** The accepted signature algorithms. */
+  readonly algorithms: readonly string[]
+  /** The claim holding the caller's roles. */
+  readonly rolesClaim: string
+}
+
+/** What a server that runs the gateway in front of itself changes in the gateway's configuration. */
+export interface GatewayOverrides {
+  /** The port the gateway listens on. Defaults to `server.port`. */
+  readonly port?: number
+  /** The gateway's metrics port, `0` for none. Defaults to `server.metricsPort`. */
+  readonly metricsPort?: number
+  /** `http://host:port` of the server that answers every path the gateway does not serve. */
+  readonly proxyUrl?: string
+  /** The REST base URL `mut` frames are forwarded to. Defaults to `CANOPY_GATEWAY_MUTATIONS_URL`. */
+  readonly mutationsUrl?: string
+  /** JWT verification for built in auth. */
+  readonly auth?: GatewayAuth
+}
+
 /**
  * The gateway's configuration from the resolved config of `canopy-realtime`. Policies from a directory are
  * passed in stored form, because the gateway cannot evaluate TypeScript; policies in the database are read and
@@ -47,14 +75,16 @@ export function gatewayConfig(
   config: ResolvedConfig,
   policies: { stored: unknown[]; contexts: unknown } | undefined,
   env: NodeJS.ProcessEnv = process.env,
+  overrides: GatewayOverrides = {},
 ): Record<string, unknown> {
   const realtime = config.realtime === false ? undefined : config.realtime
   const auth = config.auth
-  if (auth?.kind === "builtin")
+  if (auth?.kind === "builtin" && overrides.auth === undefined)
     throw new TypeError(
       "built in auth runs in the canopy server; point the gateway at its JWKS with external() instead",
     )
   const limits = config.rateLimits
+  const mutationsUrl = overrides.mutationsUrl ?? env["CANOPY_GATEWAY_MUTATIONS_URL"]
   return {
     mongodb: {
       uri: config.mongodb.uri,
@@ -62,8 +92,8 @@ export function gatewayConfig(
       metaDatabase: config.mongodb.metaDatabase,
     },
     server: {
-      port: config.server.port,
-      metricsPort: config.server.metricsPort,
+      port: overrides.port ?? config.server.port,
+      metricsPort: overrides.metricsPort ?? config.server.metricsPort,
       metricsHost: config.server.metricsHost,
       ...(config.server.metricsToken === undefined
         ? {}
@@ -71,20 +101,28 @@ export function gatewayConfig(
       nodeId: config.server.nodeId,
     },
     auth:
-      auth === undefined
-        ? null
-        : {
-            issuer: auth.issuer,
-            ...(auth.audience === undefined ? {} : { audience: auth.audience }),
-            ...(auth.jwks === undefined ? {} : { jwks: auth.jwks }),
-            ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
-            ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
-            ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
-            allowServiceRoleFromJwt: auth.allowServiceRoleFromJwt === true,
-            ...(auth.clockToleranceSeconds === undefined
-              ? {}
-              : { clockToleranceSeconds: auth.clockToleranceSeconds }),
-          },
+      overrides.auth !== undefined
+        ? {
+            issuer: overrides.auth.issuer,
+            audience: overrides.auth.audience,
+            jwksUrl: overrides.auth.jwksUrl,
+            algorithms: overrides.auth.algorithms,
+            rolesClaim: overrides.auth.rolesClaim,
+          }
+        : auth === undefined || auth.kind === "builtin"
+          ? null
+          : {
+              issuer: auth.issuer,
+              ...(auth.audience === undefined ? {} : { audience: auth.audience }),
+              ...(auth.jwks === undefined ? {} : { jwks: auth.jwks }),
+              ...(auth.jwksUrl === undefined ? {} : { jwksUrl: auth.jwksUrl }),
+              ...(auth.algorithms === undefined ? {} : { algorithms: auth.algorithms }),
+              ...(auth.rolesClaim === undefined ? {} : { rolesClaim: auth.rolesClaim }),
+              allowServiceRoleFromJwt: auth.allowServiceRoleFromJwt === true,
+              ...(auth.clockToleranceSeconds === undefined
+                ? {}
+                : { clockToleranceSeconds: auth.clockToleranceSeconds }),
+            },
     keys: {
       ...(config.keys.publishable === undefined ? {} : { publishable: config.keys.publishable }),
       secret: config.keys.secret ?? [],
@@ -109,11 +147,30 @@ export function gatewayConfig(
             anonymousConnectionsPerAddress: limits.anonymousConnectionsPerAddress,
             exemptService: limits.exemptService,
           },
-    ...(env["CANOPY_GATEWAY_MUTATIONS_URL"] === undefined
-      ? {}
-      : { mutations: { url: env["CANOPY_GATEWAY_MUTATIONS_URL"] } }),
+    ...(mutationsUrl === undefined ? {} : { mutations: { url: mutationsUrl } }),
+    ...(overrides.proxyUrl === undefined ? {} : { proxy: { url: overrides.proxyUrl } }),
     log: { level: config.log.level },
   }
+}
+
+function listeningPort(line: string): number | undefined {
+  if (!line.startsWith('{"t":"listening"')) return undefined
+  try {
+    const parsed = JSON.parse(line) as { t?: unknown; port?: unknown }
+    return parsed.t === "listening" && typeof parsed.port === "number" ? parsed.port : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** A gateway running as a child process. */
+export interface RunningGateway {
+  /** Resolves with the gateway's exit code. */
+  readonly exited: Promise<number>
+  /** Resolves with the port the gateway listens on, or with `undefined` when it exits first. */
+  readonly listening: Promise<number | undefined>
+  /** Drains the gateway and stops it, by closing its standard input. */
+  stop(): void
 }
 
 /**
@@ -126,6 +183,20 @@ export async function runGateway(
   logger: Logger,
   onStop: (stop: () => void) => void,
 ): Promise<number> {
+  const gateway = await startGateway(config, logger)
+  onStop(() => gateway.stop())
+  return gateway.exited
+}
+
+/**
+ * Starts the native gateway for a resolved config: policies from a directory are sent in stored form and again
+ * whenever they change, policies in the database are read by the gateway itself.
+ */
+export async function startGateway(
+  config: ResolvedConfig,
+  logger: Logger,
+  overrides: GatewayOverrides = {},
+): Promise<RunningGateway> {
   const binary = findGatewayBinary()
   if (binary === undefined)
     throw new TypeError(
@@ -134,10 +205,10 @@ export async function runGateway(
   const source = "dir" in config.policies ? directoryPolicies(config.policies.dir) : undefined
   const initial = source === undefined ? undefined : storedPolicies(await source.load())
   const child: ChildProcess = spawn(binary, ["--config", "-"], {
-    stdio: ["pipe", "inherit", "inherit"],
+    stdio: ["pipe", "pipe", "inherit"],
     windowsHide: true,
   })
-  child.stdin?.write(`${JSON.stringify(gatewayConfig(config, initial))}\n`)
+  child.stdin?.write(`${JSON.stringify(gatewayConfig(config, initial, process.env, overrides))}\n`)
   const stopWatching =
     source?.watch !== undefined && "dir" in config.policies && config.policies.watch !== false
       ? source.watch(
@@ -148,18 +219,41 @@ export async function runGateway(
             logger.error({ err: error }, "policy reload rejected, keeping the previous policies"),
         )
       : undefined
-  onStop(() => {
-    stopWatching?.()
-    child.stdin?.end()
+  let reported: (port: number | undefined) => void = () => {}
+  const listening = new Promise<number | undefined>((resolve) => {
+    reported = resolve
   })
-  return new Promise((done) => {
+  let pending = ""
+  child.stdout?.on("data", (chunk: Buffer) => {
+    pending += chunk.toString()
+    let end = pending.indexOf("\n")
+    while (end >= 0) {
+      const line = pending.slice(0, end).replace(/\r$/, "")
+      pending = pending.slice(end + 1)
+      end = pending.indexOf("\n")
+      const port = listeningPort(line)
+      if (port === undefined) process.stdout.write(`${line}\n`)
+      else reported(port)
+    }
+  })
+  const exited = new Promise<number>((done) => {
     child.on("exit", (code) => {
       stopWatching?.()
+      reported(undefined)
       done(code ?? 1)
     })
     child.on("error", (error) => {
       logger.error({ err: error }, "canopy-gateway could not start")
+      reported(undefined)
       done(1)
     })
   })
+  return {
+    exited,
+    listening,
+    stop() {
+      stopWatching?.()
+      child.stdin?.end()
+    },
+  }
 }

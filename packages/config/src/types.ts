@@ -19,6 +19,9 @@ export interface ConfigContext {
 /** How full documents are obtained for change events. */
 export type FullDocumentMode = "auto" | "updateLookup" | "images"
 
+/** Which server answers realtime: the TypeScript engine or the native gateway. */
+export type RealtimeServer = "ts" | "gateway"
+
 /** The realtime transports a server offers. */
 export type Transport = "websocket" | "sse" | "long-poll"
 
@@ -340,6 +343,13 @@ export interface RealtimeInput {
    * @default "2s"
    */
   readonly echoTimeout?: Value<number | string>
+  /**
+   * Which server answers realtime: `ts`, the engine inside the TypeScript process, or `gateway`, the native
+   * `canopy-gateway` executable. With `gateway`, `canopy-server` runs the gateway on the public port, where it
+   * serves realtime and passes every other request to the TypeScript server on loopback.
+   * @default "ts"
+   */
+  readonly server?: Value<RealtimeServer>
 }
 
 /** One token bucket: the rate a caller can sustain and the burst it can spend at once. */
@@ -777,6 +787,7 @@ export interface ResolvedConfig {
         readonly checkpoints: "meta" | "off"
         readonly drainWindowMs: number
         readonly echoTimeoutMs: number
+        readonly server: RealtimeServer
       }
   readonly rateLimits:
     | false

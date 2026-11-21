@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
-import { ConfigError, type ResolvedConfig } from "@canopy/config"
+import { amendConfig, ConfigError, type ResolvedConfig } from "@canopy/config"
 import { loadConfig } from "@canopy/config/load"
 import {
   type BinaryArgs,
@@ -11,7 +11,7 @@ import {
   UsageError,
 } from "@canopy/config/process"
 import { serveMetrics } from "@canopy/node-http"
-import { redacting } from "@canopy/realtime"
+import { type GatewayOverrides, type Logger, redacting, startGateway } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
 
 const USAGE = `Usage: canopy-server [--config <file>]
@@ -62,10 +62,14 @@ interface Listening {
   stop(): Promise<void>
 }
 
-async function listen(canopy: Canopy, port: number): Promise<Listening> {
+async function listen(canopy: Canopy, port: number, hostname?: string): Promise<Listening> {
   const bun = (globalThis as { Bun?: BunRuntime }).Bun
   if (bun !== undefined) {
-    const server = bun.serve({ port, ...canopy.bun() })
+    const server = bun.serve({
+      port,
+      ...(hostname === undefined ? {} : { hostname }),
+      ...canopy.bun(),
+    })
     return {
       port: server.port,
       stop: async () => server.stop(true),
@@ -75,7 +79,8 @@ async function listen(canopy: Canopy, port: number): Promise<Listening> {
   await canopy.attach(server)
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)
-    server.listen(port, () => resolve())
+    if (hostname === undefined) server.listen(port, () => resolve())
+    else server.listen(port, hostname, () => resolve())
   })
   return {
     port: (server.address() as AddressInfo).port,
@@ -106,19 +111,78 @@ function metricsServer(canopy: Canopy, runtime: string): Promise<Server> {
   })
 }
 
+/** Whether `canopy-gateway` answers realtime and the public port, in front of this process. */
+function gatewayMode(config: ResolvedConfig): boolean {
+  return config.realtime !== false && config.realtime.server === "gateway"
+}
+
+/**
+ * The config this process runs with behind the gateway: requests arrive from loopback with the client in
+ * `X-Forwarded-For`, which the rate limits and the admin allowlist must believe.
+ */
+function behindGateway(config: ResolvedConfig): ResolvedConfig {
+  return amendConfig(config, {
+    server: {
+      ...config.server,
+      trustedProxies: [...config.server.trustedProxies, "127.0.0.1", "::1"],
+    },
+  })
+}
+
+/** The gateway's settings when it is the front door of a server listening on loopback at `port`. */
+function frontDoor(canopy: Canopy, port: number): GatewayOverrides {
+  const local = `http://127.0.0.1:${port}`
+  const verification = canopy.auth?.verification
+  const audience = verification?.audience
+  return {
+    port: canopy.config.server.port,
+    metricsPort: 0,
+    proxyUrl: local,
+    ...(canopy.config.rest === false ? {} : { mutationsUrl: `${local}/rest/v1` }),
+    ...(verification === undefined
+      ? {}
+      : {
+          auth: {
+            issuer: Array.isArray(verification.issuer)
+              ? String(verification.issuer[0])
+              : String(verification.issuer),
+            audience: Array.isArray(audience) ? String(audience[0]) : String(audience),
+            jwksUrl: `${local}/auth/v1/jwks`,
+            algorithms: verification.algorithms ?? ["EdDSA", "ES256"],
+            rolesClaim: verification.rolesClaim ?? "roles",
+          },
+        }),
+  }
+}
+
+async function startFrontDoor(canopy: Canopy, logger: Logger, port: number) {
+  const gateway = await startGateway(canopy.config, logger, frontDoor(canopy, port))
+  const bound = await gateway.listening
+  if (bound === undefined)
+    throw new Error(`canopy-gateway exited with code ${await gateway.exited} before it listened`)
+  return { ...gateway, port: bound }
+}
+
 async function main(): Promise<void> {
-  const config = await load()
+  const loaded = await load()
+  const gatewayed = gatewayMode(loaded)
+  const config = gatewayed ? behindGateway(loaded) : loaded
   const logger = redacting(jsonLogger(config.log.level))
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
   const canopy = await createCanopy(config, { logger })
-  const http = await listen(canopy, config.server.port)
+  const http = gatewayed
+    ? await listen(canopy, 0, "127.0.0.1")
+    : await listen(canopy, config.server.port)
+  const gateway = gatewayed ? await startFrontDoor(canopy, logger, http.port) : undefined
+
   const metrics = await metricsServer(canopy, runtime)
   const admin = await canopy.admin.listen()
   if (admin !== undefined) logger.info({ address: admin.address }, "admin listening")
   const realtime = config.realtime
   logger.info(
     {
-      port: http.port,
+      port: gateway === undefined ? http.port : gateway.port,
+      ...(gateway === undefined ? {} : { realtimeServer: "gateway", upstreamPort: http.port }),
       metricsPort: (metrics.address() as AddressInfo).port,
       database: config.mongodb.database,
       environment: config.environment,
@@ -132,13 +196,23 @@ async function main(): Promise<void> {
   )
 
   let stopping = false
+  void gateway?.exited.then((code) => {
+    if (stopping) return
+    logger.error({ code }, "canopy-gateway stopped, so the server stops too")
+    process.exit(1)
+  })
+  const stopGateway = async (): Promise<void> => {
+    if (gateway === undefined) return
+    gateway.stop()
+    await gateway.exited
+  }
   const shutdown = (signal: string): void => {
     if (stopping) return
     stopping = true
     const drainMs = realtime === false ? 0 : realtime.drainWindowMs
     logger.info({ signal, drainMs }, "draining")
-    canopy
-      .close({ drainMs })
+    stopGateway()
+      .then(() => canopy.close({ drainMs }))
       .then(() => admin?.close())
       .then(() => http.stop())
       .then(() => new Promise<void>((resolve) => metrics.close(() => resolve())))

@@ -119,7 +119,7 @@ async function load(): Promise<ResolvedConfig> {
 async function main(): Promise<void> {
   const config = await load()
   const logger = redacting(jsonLogger(config.log.level))
-  if (process.env["CANOPY_REALTIME_SERVER"] === "gateway") {
+  if (config.realtime !== false && config.realtime.server === "gateway") {
     const code = await runGateway(config, logger, (stop) => onShutdown(stop))
     process.exit(code)
   }

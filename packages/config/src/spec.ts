@@ -81,6 +81,7 @@ const TRANSPORTS = ["websocket", "sse", "long-poll"] as const
 const ID_TYPES = ["auto", "objectId", "string", "uuid", "number"] as const
 const LOG_LEVELS = ["debug", "info", "warn", "error"] as const
 const ENGINES = ["ts", "native", "wasm"] as const
+const REALTIME_SERVERS = ["ts", "gateway"] as const
 /** The change events a trigger can react to. */
 export const TRIGGER_OPERATIONS = ["insert", "update", "replace", "delete"] as const
 
@@ -207,6 +208,7 @@ export const ROOT_FIELDS: Readonly<Record<string, Spec>> = {
       checkpoints: withDefault(oneOf("meta", "off"), "meta"),
       drainWindow: withDefault(duration, 30_000),
       echoTimeout: withDefault(duration, 2000),
+      server: withDefault(oneOf(...REALTIME_SERVERS), "ts"),
     }),
   },
   graphql: {
@@ -352,6 +354,7 @@ export const WELL_KNOWN: readonly (readonly [string, string, Spec])[] = [
   ["CANOPY_CHECKPOINTS", "realtime.checkpoints", oneOf("meta", "off")],
   ["CANOPY_DRAIN_WINDOW", "realtime.drainWindow", duration],
   ["CANOPY_ECHO_TIMEOUT", "realtime.echoTimeout", duration],
+  ["CANOPY_REALTIME_SERVER", "realtime.server", oneOf(...REALTIME_SERVERS)],
   ["CANOPY_RATE_LIMITS", "rateLimits.enabled", bool],
   ["CANOPY_RATE_LIMIT_REQUESTS", "rateLimits.requests.perSecond", int],
   ["CANOPY_RATE_LIMIT_REQUEST_BURST", "rateLimits.requests.burst", int],

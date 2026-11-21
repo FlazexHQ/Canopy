@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { findGatewayBinary } from "@canopy/realtime"
 import { MONGODB_URI, TEST_ENGINE, TEST_ENV } from "@canopy/testing"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
@@ -150,8 +151,10 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
 
   const boot = async (
     policies = POLICIES,
+    extra: Record<string, string> = {},
   ): Promise<{ run: Running; base: string; metrics: string }> => {
     const run = start(["--config", config], {
+      ...extra,
       MONGODB_URI: MONGODB_URI ?? "",
       CANOPY_DB: database,
       CANOPY_META_DB: metaDatabase,
@@ -294,6 +297,101 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
       expect(await stop(run)).toBe(0)
     }
   })
+
+  it.skipIf(findGatewayBinary() === undefined)(
+    "runs canopy-gateway on the public port in front of REST, with socket writes acknowledged after their echo",
+    async () => {
+      const { run, base } = await boot(POLICIES, { CANOPY_REALTIME_SERVER: "gateway" })
+      try {
+        expect(run.output()).toContain('"realtimeServer":"gateway"')
+        expect(await (await fetch(`${base}/healthz`)).text()).toBe("ok")
+        expect(await (await fetch(`${base}/readyz`)).text()).toBe("ready")
+        expect((await fetch(`${base}/nowhere`)).status).toBe(404)
+        const headers = async (sub: string) => ({
+          apikey: KEY,
+          authorization: `Bearer ${await sign(sub)}`,
+          "content-type": "application/json",
+        })
+        const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+        const messages: Record<string, unknown>[] = []
+        socket.on("message", (data) =>
+          messages.push(JSON.parse(data.toString()) as Record<string, unknown>),
+        )
+        const waitFor = async (test: (m: Record<string, unknown>) => boolean) => {
+          const started = Date.now()
+          for (;;) {
+            const found = messages.find(test)
+            if (found !== undefined) return found
+            if (Date.now() - started > 10_000)
+              throw new Error(`timed out: ${JSON.stringify(messages)}\n${run.output()}`)
+            await new Promise((resolve) => setTimeout(resolve, 20))
+          }
+        }
+        await new Promise<void>((resolve, reject) => {
+          socket.once("open", () => resolve())
+          socket.once("error", reject)
+        })
+        socket.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token: await sign("carol") }))
+        await waitFor((m) => m["t"] === "welcome")
+        socket.send(JSON.stringify({ t: "sub", id: "g", c: "notes", q: {} }))
+        await waitFor((m) => m["t"] === "ready")
+
+        const created = await fetch(`${base}/rest/v1/notes`, {
+          method: "POST",
+          headers: await headers("carol"),
+          body: JSON.stringify({ _id: "g1", ownerId: "carol" }),
+        })
+        expect(created.status).toBe(201)
+        expect(
+          (
+            await fetch(`${base}/rest/v1/notes`, {
+              method: "POST",
+              headers: await headers("dave"),
+              body: JSON.stringify({ _id: "g2", ownerId: "carol" }),
+            })
+          ).status,
+        ).toBe(403)
+        expect(await waitFor((m) => m["t"] === "added")).toMatchObject({ id: "g1" })
+
+        const mutation = "0192f6a1-7c2e-7b1a-9d3e-00000000a001"
+        socket.send(
+          JSON.stringify({
+            t: "mut",
+            id: mutation,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g3", ownerId: "carol" } },
+          }),
+        )
+        const ack = await waitFor((m) => m["t"] === "ack" && m["m"] === mutation)
+        expect(ack).toMatchObject({ ok: true })
+        const added = messages.findIndex((m) => m["t"] === "added" && m["id"] === "g3")
+        expect(added).toBeGreaterThanOrEqual(0)
+        expect(added).toBeLessThan(messages.indexOf(ack))
+        const refused = "0192f6a1-7c2e-7b1a-9d3e-00000000a002"
+        socket.send(
+          JSON.stringify({
+            t: "mut",
+            id: refused,
+            c: "notes",
+            op: "insert",
+            args: { doc: { _id: "g4", ownerId: "dave" } },
+          }),
+        )
+        expect(await waitFor((m) => m["t"] === "ack" && m["m"] === refused)).toMatchObject({
+          ok: false,
+        })
+        expect(messages.some((m) => m["t"] === "added" && m["id"] === "g4")).toBe(false)
+        socket.close()
+      } finally {
+        expect(await stop(run)).toBe(0)
+        await mongo
+          .db(database)
+          .collection<{ _id: string }>("notes")
+          .deleteMany({ _id: { $in: ["g1", "g3"] } })
+      }
+    },
+  )
 
   it("reloads the policy folder when a file changes", async () => {
     // Inside the package so the policy file resolves @canopy/policy, but not under node_modules, where

@@ -261,7 +261,10 @@ export interface RealtimeInput {
     readonly checkpoints?: Value<"meta" | "off">;
     readonly drainWindow?: Value<number | string>;
     readonly echoTimeout?: Value<number | string>;
+    readonly server?: Value<RealtimeServer>;
 }
+
+export type RealtimeServer = "ts" | "gateway";
 
 export interface RelationInput {
     readonly to: string;
@@ -394,6 +397,7 @@ export interface ResolvedConfig {
         readonly checkpoints: "meta" | "off";
         readonly drainWindowMs: number;
         readonly echoTimeoutMs: number;
+        readonly server: RealtimeServer;
     };
     readonly rateLimits: false | {
         readonly requests: {
@@ -636,6 +640,8 @@ export interface WebhooksInput {
     readonly triggers?: Readonly<Record<string, TriggerInput>>;
     readonly schedules?: Readonly<Record<string, ScheduleInput>>;
 }
+
+function amendConfig(config: ResolvedConfig, changes: Partial<Omit<ResolvedConfig, "file">>): ResolvedConfig
 
 function builtin<Hook extends ClaimsHookFunction = ClaimsHookFunction>(options?: Without<BuiltinAuthInput<Hook>>): BuiltinAuthInput<Hook>
 

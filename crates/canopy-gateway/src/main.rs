@@ -11,6 +11,7 @@ mod ingest;
 mod jwt;
 mod log;
 mod mongo;
+mod proxy;
 mod server;
 
 use std::convert::Infallible;
@@ -42,7 +43,8 @@ use crate::server::Shared;
 const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -]
 
 Runs Canopy's native realtime server. With --config -, the first line of standard input is the configuration as
-JSON (the canopy launcher writes it), later lines may replace the policies, and closing standard input drains
+JSON (the canopy launcher writes it), the bound port is reported on standard output as {\"t\":\"listening\",
+\"port\":N}, later lines may replace the policies, and closing standard input drains
 and stops the server. Without --config, the variables of canopy-realtime apply: MONGODB_URI, CANOPY_DB,
 CANOPY_META_DB, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS, CANOPY_JWT_*, PORT, METRICS_PORT and the others,
 with policies read from the meta database.
@@ -131,6 +133,7 @@ fn stored_policies(line: &Json) -> Result<PolicySet, String> {
 }
 
 async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), String> {
+    let proxy = config.proxy_url.as_deref().map(proxy::Upstream::parse).transpose()?;
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
@@ -172,6 +175,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         http: config.http_fallback.then(|| {
             Arc::new(http::HttpTransport::new(http::HttpOptions::new(&config.node_id, config.cors.clone())))
         }),
+        proxy,
     });
     let mut socket_senders = Vec::new();
     let mut frame_senders = Vec::new();
@@ -264,6 +268,11 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .map_err(|error| format!("Could not listen on {}: {error}", config.port))?;
     let port = listener.local_addr().map(|addr| addr.port().to_string()).unwrap_or_default();
     tokio::spawn(server::accept(listener, socket_senders));
+    if control {
+        let line = format!("{{\"t\":\"listening\",\"port\":{port}}}\n");
+        let _ = std::io::Write::write_all(&mut std::io::stdout(), line.as_bytes());
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
     log.info(
         "canopy-gateway listening",
         &[("port", &port), ("database", &config.database), ("shards", &config.shards.to_string())],

@@ -10,6 +10,7 @@ import type {
   GraphqlIntrospection,
   IdType,
   LogLevel,
+  RealtimeServer,
   ResolvedBucket,
   ResolvedBuiltinAuth,
   ResolvedCollection,
@@ -406,6 +407,7 @@ export function normalize(
           checkpoints: at<"meta" | "off">("realtime.checkpoints"),
           drainWindowMs: at<number>("realtime.drainWindow"),
           echoTimeoutMs: at<number>("realtime.echoTimeout"),
+          server: at<RealtimeServer>("realtime.server"),
         }
 
   const rateLimits: ResolvedConfig["rateLimits"] =

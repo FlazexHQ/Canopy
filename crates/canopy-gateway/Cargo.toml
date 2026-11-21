@@ -19,7 +19,7 @@ canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = "0.1"
-hyper = { version = "1", features = ["http1", "server"] }
+hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 mongodb = { version = "=3.10.1", default-features = false, features = ["bson-3", "compat-3-3-0", "rustls-tls"] }
 ring = "0.17"

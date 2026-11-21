@@ -73,6 +73,8 @@ pub(crate) struct GatewayConfig {
     /// Whether the SSE and long poll transports are offered.
     pub(crate) http_fallback: bool,
     pub(crate) cors: Option<Cors>,
+    /// The upstream server of every path the gateway does not serve, as `http://host:port`.
+    pub(crate) proxy_url: Option<String>,
 }
 
 pub(crate) type ConfigResult<T> = Result<T, String>;
@@ -305,6 +307,7 @@ pub(crate) fn resolve(json: Option<&str>) -> ConfigResult<GatewayConfig> {
         websocket: transports.iter().any(|t| t == "websocket"),
         http_fallback: transports.iter().any(|t| t == "sse" || t == "long-poll"),
         cors,
+        proxy_url: text(&doc, &["proxy", "url"]).or_else(|| env("CANOPY_GATEWAY_PROXY_URL")),
     })
 }
 

@@ -651,6 +651,7 @@ export interface ResolvedConfig {
         readonly checkpoints: "meta" | "off";
         readonly drainWindowMs: number;
         readonly echoTimeoutMs: number;
+        readonly server: RealtimeServer;
     };
     readonly rateLimits: false | {
         readonly requests: {
@@ -804,7 +805,7 @@ function migrateMeta(meta: Db, options?: MigrateOptions): Promise<MigrateResult>
 
 function migrationStatus(meta: Db, migrations?: readonly MetaMigration[]): Promise<MigrationStatus[]>
 
-const policyInput: import("./schema.ts").Schema<{ readonly exposed: boolean; readonly realtime: boolean; readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
+const policyInput: import("./schema.ts").Schema<{ readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; readonly realtime: boolean; readonly exposed: boolean; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
 
 function totp(secret: Uint8Array, timeMs: number, options?: TotpOptions): string
 

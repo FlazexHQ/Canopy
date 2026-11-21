@@ -11,7 +11,6 @@
 //! frames are written by the shard that opened them, like a WebSocket's.
 
 use std::collections::{HashMap, VecDeque};
-use std::convert::Infallible;
 use std::pin::pin;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -34,8 +33,8 @@ use tokio::sync::Notify;
 use crate::config::Cors;
 use crate::core::{Command, EngineSender};
 
-/// The body of every response the gateway sends.
-pub(crate) type Body = UnsyncBoxBody<Bytes, Infallible>;
+/// The body of every response the gateway sends; proxied responses carry the upstream's errors.
+pub(crate) type Body = UnsyncBoxBody<Bytes, hyper::Error>;
 
 const CLIENT_TYPES: [&str; 5] = ["sub", "unsub", "mut", "auth", "ping"];
 const HELLO_TIMEOUT: Duration = Duration::from_secs(15);
@@ -271,7 +270,7 @@ fn guard<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 /// A response with a fixed body.
 pub(crate) fn full(status: StatusCode, body: impl Into<Bytes>) -> Response<Body> {
-    let mut response = Response::new(Full::new(body.into()).boxed_unsync());
+    let mut response = Response::new(Full::new(body.into()).map_err(|never| match never {}).boxed_unsync());
     *response.status_mut() = status;
     response
 }
@@ -687,7 +686,7 @@ impl HttpTransport {
         let start = SseState { session, start: after, generation, opened: false, done: false, keep_alive };
         let body = stream::unfold(start, |mut state| async move {
             let chunk = state.next().await?;
-            Some((Ok::<_, Infallible>(Frame::data(Bytes::from(chunk))), state))
+            Some((Ok::<_, hyper::Error>(Frame::data(Bytes::from(chunk))), state))
         });
         let mut response = Response::new(StreamBody::new(body).boxed_unsync());
         let headers = response.headers_mut();

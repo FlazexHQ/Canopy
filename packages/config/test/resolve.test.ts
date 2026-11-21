@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  amendConfig,
   type CanopyConfigInput,
   type Command,
   ConfigError,
@@ -81,6 +82,7 @@ describe("resolveConfig", () => {
       checkpoints: "meta",
       drainWindowMs: 30_000,
       echoTimeoutMs: 2000,
+      server: "ts",
     })
     expect(config.server).toEqual({
       port: 8080,
@@ -194,6 +196,28 @@ describe("resolveConfig", () => {
     expect(config.server.port).toBe(9000)
     expect(config.realtime !== false && config.realtime.resumeWindowMs).toBe(30_000)
     expect(sources.get("server.port")).toEqual({ kind: "env", name: "PORT", envFile: undefined })
+  })
+
+  it("amends a resolved config into one that is still recognised as resolved", () => {
+    const config = resolve({ mongodb: { uri: URI } }).config
+    const amended = amendConfig(config, {
+      server: { ...config.server, trustedProxies: ["127.0.0.1"] },
+    })
+    expect(isResolvedConfig(amended)).toBe(true)
+    expect(isResolvedConfig({ ...config })).toBe(false)
+    expect(amended.server.trustedProxies).toEqual(["127.0.0.1"])
+    expect(config.server.trustedProxies).toEqual([])
+    expect(amended.mongodb).toBe(config.mongodb)
+  })
+
+  it("reads the realtime server from the file or CANOPY_REALTIME_SERVER, and refuses an unknown one", () => {
+    const fromFile = resolve({ mongodb: { uri: URI }, realtime: { server: "gateway" } }).config
+    expect(fromFile.realtime !== false && fromFile.realtime.server).toBe("gateway")
+    const fromEnv = resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "gateway" }).config
+    expect(fromEnv.realtime !== false && fromEnv.realtime.server).toBe("gateway")
+    expect(() => resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "rust" })).toThrow(
+      ConfigError,
+    )
   })
 
   it("reads the echo timeout from the file or CANOPY_ECHO_TIMEOUT, and refuses one that is not a duration", () => {

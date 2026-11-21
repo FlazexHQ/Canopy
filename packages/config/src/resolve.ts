@@ -33,6 +33,19 @@ export function resolveConfig(input: unknown, options: ResolveOptions): Resoluti
   return { config, sources: resolver.sources, secrets: resolver.secrets }
 }
 
+/**
+ * A copy of a resolved config with some sections replaced, still recognised by {@link isResolvedConfig}. For a
+ * launcher that runs a server with settings of its own, such as the proxies it trusts.
+ */
+export function amendConfig(
+  config: ResolvedConfig,
+  changes: Partial<Omit<ResolvedConfig, "file">>,
+): ResolvedConfig {
+  const amended: ResolvedConfig = { ...config, ...changes }
+  Object.defineProperty(amended, RESOLVED, { value: true })
+  return amended
+}
+
 /** Masks the password of a MongoDB connection string. */
 export function redactUri(uri: string): string {
   return uri.replace(/^(mongodb(?:\+srv)?:\/\/[^:/@]+:)[^@]*@/, "$1••••@")

@@ -466,7 +466,8 @@ function trustedProxiesOf(config: ResolvedConfig): string[] {
 
 /**
  * The policy source with hot reload, the context lookup resolver, REST and the realtime engine. With
- * realtime on, its engine holds the policies; otherwise a standalone engine follows the source.
+ * realtime on in this process, its engine holds the policies; otherwise (realtime off, or served by the native
+ * gateway) a standalone engine follows the source.
  */
 async function buildData(
   config: ResolvedConfig,
@@ -562,7 +563,7 @@ async function buildData(
         })
 
   const realtimeConfig = config.realtime
-  if (realtimeConfig !== false) {
+  if (realtimeConfig !== false && realtimeConfig.server === "ts") {
     realtime = await connection.diagnosed(() =>
       createRealtime({
         mongo,

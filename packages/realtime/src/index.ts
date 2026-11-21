@@ -2,7 +2,16 @@ export { Authenticator, type JwtAuthOptions, type KeyOptions, type Principal } f
 export { toCt } from "@canopy/protocol"
 export { EchoWaiter } from "./echo.ts"
 export { type ControlEvent, type Doc, docKey, type NormalizedEvent, normalize } from "./event.ts"
-export { findGatewayBinary, gatewayConfig, runGateway, storedPolicies } from "./gateway.ts"
+export {
+  findGatewayBinary,
+  type GatewayAuth,
+  type GatewayOverrides,
+  gatewayConfig,
+  type RunningGateway,
+  runGateway,
+  startGateway,
+  storedPolicies,
+} from "./gateway.ts"
 export {
   createHttpTransport,
   type HttpTransport,

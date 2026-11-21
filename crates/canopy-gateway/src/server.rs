@@ -24,6 +24,7 @@ use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Role, WebSocketConfig
 
 use crate::core::{Command, EngineSender, ShardMessage};
 use crate::http::{Body, HttpSession, HttpTransport, Origin, full};
+use crate::proxy::{Pool, Upstream, forward};
 
 /// Bytes queued for a connection beyond which it is a slow consumer.
 const HARD_QUEUE_BYTES: usize = 16 * 1024 * 1024;
@@ -41,6 +42,8 @@ pub(crate) struct Shared {
     pub(crate) websocket: bool,
     /// The SSE and long poll transports, when either is offered.
     pub(crate) http: Option<Arc<HttpTransport>>,
+    /// The server that answers every other path, when the gateway is the front door.
+    pub(crate) proxy: Option<Upstream>,
 }
 
 enum Out {
@@ -170,16 +173,25 @@ pub(crate) fn start_shard(
         local.spawn_local(dispatch);
         let accept = {
             let registry = Rc::clone(&registry);
+            let pool = Rc::new(Pool::default());
             async move {
                 while let Some(socket) = sockets.recv().await {
                     let Ok(socket) = tokio::net::TcpStream::from_std(socket) else { continue };
                     let shared = Arc::clone(&shared);
                     let registry = Rc::clone(&registry);
+                    let pool = Rc::clone(&pool);
                     tokio::task::spawn_local(async move {
                         let peer =
                             socket.peer_addr().map_or_else(|_| String::new(), |addr| addr.ip().to_string());
                         let service = service_fn(move |request| {
-                            route(request, Arc::clone(&shared), Rc::clone(&registry), peer.clone(), index)
+                            let context = Context {
+                                shared: Arc::clone(&shared),
+                                registry: Rc::clone(&registry),
+                                pool: Rc::clone(&pool),
+                                peer: peer.clone(),
+                                shard: index,
+                            };
+                            route(request, context)
                         });
                         let _ = hyper::server::conn::http1::Builder::new()
                             .serve_connection(TokioIo::new(socket), service)
@@ -197,26 +209,30 @@ fn reply(status: StatusCode, body: &'static str) -> Response<Body> {
     full(status, Bytes::from_static(body.as_bytes()))
 }
 
-async fn route(
-    mut request: Request<Incoming>,
+/// What a request needs from the shard and the connection it arrived on.
+struct Context {
     shared: Arc<Shared>,
     registry: Registry,
+    pool: Rc<Pool>,
     peer: String,
     shard: usize,
-) -> Result<Response<Body>, Infallible> {
+}
+
+async fn route(mut request: Request<Incoming>, context: Context) -> Result<Response<Body>, Infallible> {
+    let Context { shared, registry, pool, peer, shard } = context;
     match request.uri().path() {
-        "/healthz" => return Ok(reply(StatusCode::OK, "ok")),
-        "/readyz" => {
-            return Ok(if shared.ready.load(Ordering::Acquire) {
-                reply(StatusCode::OK, "ok")
-            } else {
-                reply(StatusCode::SERVICE_UNAVAILABLE, "not ready: change stream")
-            });
+        "/healthz" if shared.proxy.is_none() => return Ok(reply(StatusCode::OK, "ok")),
+        "/readyz" if !shared.ready.load(Ordering::Acquire) => {
+            return Ok(reply(StatusCode::SERVICE_UNAVAILABLE, "not ready: change stream"));
         }
+        "/readyz" if shared.proxy.is_none() => return Ok(reply(StatusCode::OK, "ok")),
         "/realtime/v1" if shared.websocket => {}
         path => {
             let Some(http) = shared.http.as_ref().filter(|http| http.matches(path)) else {
-                return Ok(reply(StatusCode::NOT_FOUND, "Not found"));
+                return Ok(match &shared.proxy {
+                    Some(upstream) => forward(upstream, &pool, request, &peer).await,
+                    None => reply(StatusCode::NOT_FOUND, "Not found"),
+                });
             };
             let register = |conn: ConnId, session: Arc<HttpSession>| {
                 registry.borrow_mut().insert(conn, Sink::Http(session));

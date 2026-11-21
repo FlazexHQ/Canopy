@@ -140,6 +140,22 @@ class FilterObserver extends Observer {
 
 export type FullDocumentMode = "auto" | "updateLookup" | "images";
 
+export interface GatewayAuth {
+    readonly issuer: string;
+    readonly audience: string;
+    readonly jwksUrl: string;
+    readonly algorithms: readonly string[];
+    readonly rolesClaim: string;
+}
+
+export interface GatewayOverrides {
+    readonly port?: number;
+    readonly metricsPort?: number;
+    readonly proxyUrl?: string;
+    readonly mutationsUrl?: string;
+    readonly auth?: GatewayAuth;
+}
+
 class Gauge {
   readonly name: string
   readonly help: string
@@ -516,6 +532,12 @@ export interface RealtimeStats {
     readonly collections: readonly string[];
 }
 
+export interface RunningGateway {
+    readonly exited: Promise<number>;
+    readonly listening: Promise<number | undefined>;
+    stop(): void;
+}
+
 class Semaphore {
   constructor(capacity: number, onDepth?: (depth: number) => void): Semaphore
   run<T>(task: () => Promise<T>): Promise<T>
@@ -581,7 +603,7 @@ function docKey(coll: string, id: unknown): string
 
 function findGatewayBinary(env?: NodeJS.ProcessEnv): string | undefined
 
-function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv): Record<string, unknown>
+function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv, overrides?: GatewayOverrides): Record<string, unknown>
 
 function indexableConjunct(filter: Record<string, unknown>): IndexedConjunct | undefined
 
@@ -606,6 +628,8 @@ function referencedTopFields(filter: unknown, out?: Set<string>): Set<string>
 function runGateway(config: ResolvedConfig, logger: Logger, onStop: (stop: () => void) => void): Promise<number>
 
 const silentLogger: Logger
+
+function startGateway(config: ResolvedConfig, logger: Logger, overrides?: GatewayOverrides): Promise<RunningGateway>
 
 function staticPolicies(set: PolicySet): PolicySource
 
