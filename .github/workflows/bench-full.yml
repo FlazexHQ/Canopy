@@ -1,0 +1,185 @@
+name: Full benchmark
+
+# Runs the full benchmark suite on Linux, comparing Bun and Node v26 against MongoDB 9.
+on:
+  push:
+    branches: [bench/full-linux]
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner label
+        type: string
+        default: ubuntu-22.04
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-full-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  BUN_VERSION: 1.4.4
+  NODE_VERSION: 26
+  NODE_OPTIONS: "--conditions=@canopy/source"
+  CANOPY_MONGO_IMAGE: mongo:9
+  CANOPY_BENCH_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+  CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
+
+jobs:
+  matcher:
+    name: Matcher throughput and event cost (Bun against Node v26)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Rust toolchain
+        run: rustup toolchain install && rustup target add wasm32-wasip1-threads
+      - run: bun install --frozen-lockfile
+      - name: Build the native core addon
+        run: bun --filter @canopy/native build:native
+      - name: Matcher throughput across 1M documents
+        run: |
+          mkdir -p bench-results
+          CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-throughput-bun.json" bun packages/matcher/bench/throughput.ts
+          CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-throughput-node26.json" node --conditions=@canopy/source packages/matcher/bench/throughput.ts
+      - name: Matcher event cost over BSON change events
+        run: |
+          mkdir -p bench-results
+          for run in 1 2 3; do
+            CANOPY_BENCH_DOCS="50000" CANOPY_BENCH_ROUNDS="3" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-events-bun-$run.json" bun packages/matcher/bench/event-cost.ts
+            CANOPY_BENCH_DOCS="50000" CANOPY_BENCH_ROUNDS="3" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-events-node26-$run.json" node --conditions=@canopy/source packages/matcher/bench/event-cost.ts
+          done
+      - name: Record machine metadata
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; node --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-matcher
+          path: bench-results/
+
+  write-cost:
+    name: Write path cost (Bun against Node v26, MongoDB 9)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Start MongoDB 9 replica set
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: ${{ env.CANOPY_MONGO_IMAGE }}
+      - run: bun install --frozen-lockfile
+      - name: Write path cost at 500, 1000 and 2000 writes per second
+        run: |
+          mkdir -p bench-results
+          for rate in 500 1000 2000; do
+            CANOPY_BENCH_RATE="$rate" CANOPY_BENCH_SECONDS="5" node --conditions=@canopy/source packages/rest/bench/write-cost.ts --json > "$GITHUB_WORKSPACE/bench-results/write-cost-node26-$rate.json"
+            CANOPY_BENCH_RATE="$rate" CANOPY_BENCH_SECONDS="5" bun packages/rest/bench/write-cost.ts --json > "$GITHUB_WORKSPACE/bench-results/write-cost-bun-$rate.json"
+          done
+      - name: Record machine and MongoDB metadata
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; node --version; docker compose -f deploy/compose/dev.yaml exec -T mongo mongod --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-write-cost
+          path: bench-results/
+
+  scale:
+    name: REST scale (Bun against Node v26, MongoDB 9)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Start MongoDB 9 replica set
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: ${{ env.CANOPY_MONGO_IMAGE }}
+      - run: bun install --frozen-lockfile
+      - name: REST scale benchmark at 10k and 100k document tiers
+        run: |
+          mkdir -p bench-results
+          CANOPY_BENCH_TIERS="10000,100000" CANOPY_BENCH_SECONDS="5" CANOPY_BENCH_ROUNDS="2" CANOPY_BENCH_INGEST="50000" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/scale-node26.json" node --conditions=@canopy/source packages/rest/bench/scale.ts
+          CANOPY_BENCH_TIERS="10000,100000" CANOPY_BENCH_SECONDS="5" CANOPY_BENCH_ROUNDS="2" CANOPY_BENCH_INGEST="50000" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/scale-bun.json" bun packages/rest/bench/scale.ts
+      - name: Record machine and MongoDB metadata
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; node --version; docker compose -f deploy/compose/dev.yaml exec -T mongo mongod --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-scale
+          path: bench-results/
+
+  realtime:
+    name: Realtime sidecar and fan out (Bun against Node v26, MongoDB 9)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - run: bun install --frozen-lockfile
+      - name: Build the S11 load driver
+        run: cargo build --release --locked --manifest-path docs/spikes/S11-prototype/Cargo.toml --bin bench
+      - name: Start MongoDB 9 replica set
+        run: docker compose -f deploy/compose/dev.yaml up -d --wait
+        env:
+          CANOPY_MONGO_IMAGE: ${{ env.CANOPY_MONGO_IMAGE }}
+      - name: Realtime sidecar WebSocket benchmark on Bun and Node v26
+        run: |
+          ulimit -n "$(ulimit -Hn)"
+          uri="${CANOPY_BENCH_MONGODB_URI:-mongodb://localhost:27017/?replicaSet=rs0}"
+          bench=docs/spikes/S11-prototype/target/release/bench
+          scenarios="idle:10000,owners:10000:5:1000,hot:5000:20"
+          mkdir -p bench-results
+          "$bench" --uri "$uri" --server bun --engine ts --scenarios "$scenarios" --out "$GITHUB_WORKSPACE/bench-results/sidecar-bun.json"
+          "$bench" --uri "$uri" --server node --node node --engine ts --scenarios "$scenarios" --out "$GITHUB_WORKSPACE/bench-results/sidecar-node26.json"
+      - name: Realtime in-process fan out benchmark on Bun and Node v26
+        run: |
+          mkdir -p bench-results
+          CANOPY_TEST_ENGINE="ts" CANOPY_BENCH_DOCS="200000" CANOPY_BENCH_SECONDS="6" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/fanout-bun.json" bun packages/realtime/bench/fanout.ts
+          CANOPY_TEST_ENGINE="ts" CANOPY_BENCH_DOCS="200000" CANOPY_BENCH_SECONDS="6" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/fanout-node26.json" node --conditions=@canopy/source packages/realtime/bench/fanout.ts
+      - name: Record machine and MongoDB metadata
+        if: always()
+        run: |
+          mkdir -p bench-results
+          { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; node --version; docker compose -f deploy/compose/dev.yaml exec -T mongo mongod --version; } | tee bench-results/machine.txt
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bench-realtime
+          path: bench-results/
