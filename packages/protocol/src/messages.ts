@@ -85,13 +85,7 @@ export interface UnsubMessage {
 
 /** Mutation operations carried by `mut`. */
 export type MutationOp =
-  | "insert"
-  | "insertMany"
-  | "update"
-  | "updateMany"
-  | "replace"
-  | "delete"
-  | "deleteMany"
+  "insert" | "insertMany" | "update" | "updateMany" | "replace" | "delete" | "deleteMany"
 
 /** `mut`: a mutation, identified by a UUIDv7 that doubles as the idempotency key. */
 export interface MutMessage {
@@ -115,13 +109,7 @@ export interface ByeMessage {
 
 /** Every message a client may send. */
 export type ClientMessage =
-  | HelloMessage
-  | AuthMessage
-  | SubMessage
-  | UnsubMessage
-  | MutMessage
-  | PingMessage
-  | ByeMessage
+  HelloMessage | AuthMessage | SubMessage | UnsubMessage | MutMessage | PingMessage | ByeMessage
 
 /** Limits advertised in `welcome.limits`. */
 export interface WelcomeLimits {

@@ -13,7 +13,10 @@
  * PATH runs through `bun x` instead, so the script needs nothing installed globally. The packages depend on
  * each other with exact versions that are not published, so the test serves the tarballs from a registry on
  * localhost and points the `@canopy` scope of each package manager at it (`.npmrc`, or `.yarnrc.yml` for
- * Yarn); every other package comes from the default registry. Imports run under Node. The package managers
+ * Yarn); every other package comes from the default registry. canopy.js, the TypeScript library the server
+ * packages depend on, lives in its own repository next to this one (`../Canopy.js`, or `CANOPY_JS_DIR`): it is
+ * packed from there and pinned to that tarball with the override field of each package manager, since it is
+ * not on npm yet. Imports run under Node. The package managers
  * run concurrently, each in its own folder with its own cache; every progress line starts with the name of the
  * manager, and a failure is printed at the end with the whole output of the step that failed.
  *
@@ -76,6 +79,8 @@ interface Addon {
 interface Tarballs {
   /** The tarball of each published package, by name. */
   readonly files: Map<string, string>
+  /** The absolute path of the canopy.js tarball. */
+  readonly library: string
   /** The tarballs only reached as optional dependencies, by name. */
   readonly optional: Map<string, string>
   readonly addons: Addon[]
@@ -360,7 +365,23 @@ async function pack(packages: readonly Workspace[], into: string): Promise<Tarba
     await copyFile(join(target, tarball), join(into, name))
     files.set(json.name, name)
   }
-  return { files, optional, addons }
+  return { files, optional, addons, library: await packLibrary(into) }
+}
+
+/** Packs canopy.js from its checkout next to this repository. Its `dist` must be built. */
+async function packLibrary(into: string): Promise<string> {
+  const dir = resolve(process.env["CANOPY_JS_DIR"] ?? join(root, "..", "Canopy.js"))
+  if (!existsSync(join(dir, "dist", "client", "index.js")))
+    usage(`canopy.js is not built in ${dir} (run bun run build there, or set CANOPY_JS_DIR)`)
+  const target = join(into, "raw", "canopy.js")
+  await mkdir(target, { recursive: true })
+  const result = await run(bunPath(), ["pm", "pack", "--destination", target], dir)
+  const tarball = readdirSync(target).find((name) => name.endsWith(".tgz"))
+  if (result.code !== 0 || tarball === undefined)
+    throw new Error(`Packing canopy.js failed:\n${result.output}`)
+  const file = join(into, "canopy.js.tgz")
+  await copyFile(join(target, tarball), file)
+  return file
 }
 
 function peers(packages: readonly Workspace[]): Record<string, string> {
@@ -457,20 +478,20 @@ async function serve(dir: string, tarballs: Iterable<[string, string]>): Promise
 }
 
 /**
- * A TypeScript consumer of the packed declarations: it declares collections with `@canopy/schema/define`,
- * registers the schema with the client and reads through `@canopy/client/rest`. The `@ts-expect-error` lines
+ * A TypeScript consumer of the packed declarations: it declares collections with `canopy.js/schema`,
+ * registers the schema with the client and reads through `canopy.js/rest`. The `@ts-expect-error` lines
  * fail the compile when the registered types stop reaching the installed packages.
  */
-const CONSUMER = `import { createClient, type Doc, type Id, type ObjectId } from "@canopy/client"
-import { createRestClient } from "@canopy/client/rest"
-import { collection, defineSchema, t } from "@canopy/schema/define"
+const CONSUMER = `import { createClient, type Doc, type Id, type ObjectId } from "canopy.js"
+import { createRestClient } from "canopy.js/rest"
+import { collection, defineSchema, t } from "canopy.js/schema"
 
 export const schema = defineSchema(
   collection("todos", { title: t.string(), done: t.bool().default(false) }),
   collection("notes", { _id: t.string(), body: t.string() }),
 )
 
-declare module "@canopy/client" {
+declare module "canopy.js" {
   interface Register {
     schema: typeof schema
   }
@@ -536,12 +557,17 @@ async function scratchProject(
   await mkdir(directory, { recursive: true })
   const dependencies: Record<string, string> = { ...peers(packages) }
   for (const { json } of packages) dependencies[json.name] = json.version
+  const library = `file:${tarballs.library.replaceAll("\\", "/")}`
+  dependencies["canopy.js"] = library
   const manifest = {
     name: `canopy-install-test-${manager}`,
     version: "0.0.0",
     private: true,
     type: "module",
     dependencies,
+    overrides: { "canopy.js": library },
+    pnpm: { overrides: { "canopy.js": library } },
+    resolutions: { "canopy.js": library },
   }
   await writeFile(join(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
   if (manager === "yarn")

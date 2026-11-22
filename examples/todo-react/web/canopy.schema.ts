@@ -1,5 +1,5 @@
-import type {} from "@canopy/client"
-import { collection, defineSchema, t } from "@canopy/schema/define"
+import type {} from "canopy.js"
+import { collection, defineSchema, t } from "canopy.js/schema"
 
 /**
  * The todos collection, declared once. The client, the React hooks and the helper types (`Doc<"todos">`,
@@ -16,7 +16,7 @@ const todos = collection("todos", {
 
 export const schema = defineSchema(todos)
 
-declare module "@canopy/client" {
+declare module "canopy.js" {
   interface Register {
     schema: typeof schema
   }

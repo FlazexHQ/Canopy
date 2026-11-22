@@ -26,7 +26,7 @@ record whichever way it is sent.
   closed. Query results are cached too (`cacheDocuments`), so a reload starts with the last known list,
   marked `stale` until the server answers. Changes older than the server's idempotency window are not
   replayed silently; the app offers to send or discard them.
-- **Fallback transports.** The client loads `@canopy/client/fallback` only when two WebSocket handshakes
+- **Fallback transports.** The client loads `canopy.js/fallback` only when two WebSocket handshakes
   fail, then works over SSE and probes WebSocket again every minute.
 
 ## Run it

@@ -50,8 +50,7 @@ export async function realtimeImages(options: ImagesOptions, out: Output): Promi
     const pending = options.collections.filter((name) => {
       const info = infos.get(name) as { options?: Record<string, unknown> } | undefined
       const current = info?.options?.["changeStreamPreAndPostImages"] as
-        | { enabled?: boolean }
-        | undefined
+        { enabled?: boolean } | undefined
       const enabled = current?.enabled === true
       if (enabled === options.enable)
         out.log(`${name}: pre and post images are already ${enabled ? "on" : "off"}`)

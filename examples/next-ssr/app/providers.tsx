@@ -1,7 +1,7 @@
 "use client"
 
-import { createClient } from "@canopy/client"
-import { CanopyProvider } from "@canopy/react"
+import { createClient } from "canopy.js"
+import { CanopyProvider } from "canopy.js/react"
 import { type ReactNode, useState } from "react"
 import { CANOPY_KEY, CANOPY_URL, type Database } from "./canopy.ts"
 

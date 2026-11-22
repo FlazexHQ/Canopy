@@ -405,6 +405,7 @@ export interface CreateCanopyOptions {
     readonly studio?: FetchHandler | false;
     readonly onSetupToken?: ((token: string) => void) | false;
     readonly gatewayUrl?: () => string;
+    readonly realtimeUrl?: () => string;
 }
 
 export interface CreatedAdminToken {
@@ -725,6 +726,11 @@ export interface ResolvedConfig {
     };
 }
 
+export interface RolePlan {
+    readonly config: ResolvedConfig;
+    readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl">;
+}
+
 const SESSION_COOKIE: "__Host-canopy_admin"
 
 const STUDIO_CSP: string
@@ -736,6 +742,8 @@ class SecretBox {
   open(sealed: string, context: string): string
   isCurrent(sealed: string, context: string): boolean
 }
+
+export type ServerRole = "all" | "api" | "realtime";
 
 export interface Settings {
     readonly auditRetentionDays: number | null;
@@ -815,6 +823,10 @@ function isAdminRole(value: unknown): value is AdminRole
 function migrateMeta(meta: Db, options?: MigrateOptions): Promise<MigrateResult>
 
 function migrationStatus(meta: Db, migrations?: readonly MetaMigration[]): Promise<MigrationStatus[]>
+
+function parseServerRole(value: string | undefined): ServerRole
+
+function planServerRole(config: ResolvedConfig, role: ServerRole, realtimeUrl?: string): RolePlan
 
 const policyInput: import("./schema.ts").Schema<{ readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; readonly realtime: boolean; readonly exposed: boolean; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
 

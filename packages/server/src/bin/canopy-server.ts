@@ -16,10 +16,16 @@ import { redacting } from "@canopy/realtime"
 import { type Canopy, createCanopy } from "../canopy.ts"
 import { startGatewayFrontDoor } from "../gateway-front-door.ts"
 import { listenCanopy } from "../listen.ts"
+import { parseServerRole, planServerRole, type ServerRole } from "../roles.ts"
 
 const USAGE = `Usage: canopy-server [--config <file>]
 
 Starts the Canopy server: the Data API, realtime, health and metrics on one process.
+
+CANOPY_ROLE splits the platform into services: all (the default) runs everything, api runs the
+Data API, GraphQL, auth, storage, the admin API and webhooks, and realtime runs realtime
+connections. With api, CANOPY_REALTIME_URL is the internal URL of the realtime service, for
+GraphQL subscriptions.
 
 Options:
   --config <file>  The config file. Without it, canopy.config.ts or canopy/canopy.config.ts is
@@ -32,7 +38,7 @@ function fail(message: string): never {
   process.exit(1)
 }
 
-async function load(): Promise<ResolvedConfig> {
+async function load(): Promise<{ config: ResolvedConfig; role: ServerRole }> {
   let args: BinaryArgs
   try {
     args = parseBinaryArgs(process.argv.slice(2))
@@ -49,7 +55,7 @@ async function load(): Promise<ResolvedConfig> {
       command: "start",
       ...(args.file === undefined ? {} : { file: args.file }),
     })
-    return loaded.config
+    return { config: loaded.config, role: parseServerRole(process.env["CANOPY_ROLE"]) }
   } catch (error: unknown) {
     if (error instanceof ConfigError) fail(error.message)
     throw error
@@ -79,14 +85,22 @@ function metricsServer(canopy: Canopy, runtime: string, extra: () => string): Pr
 }
 
 async function main(): Promise<void> {
-  const config = await load()
+  const loaded = await load()
+  let plan: ReturnType<typeof planServerRole>
+  try {
+    plan = planServerRole(loaded.config, loaded.role, process.env["CANOPY_REALTIME_URL"])
+  } catch (error: unknown) {
+    if (error instanceof ConfigError) fail(error.message)
+    throw error
+  }
+  const { config } = plan
   const logger = redacting(jsonLogger(config.log.level))
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
   const gateway =
     config.realtime !== false && config.realtime.server === "gateway"
       ? await startGatewayFrontDoor(config, logger)
       : undefined
-  const canopy = gateway?.canopy ?? (await createCanopy(config, { logger }))
+  const canopy = gateway?.canopy ?? (await createCanopy(config, { logger, ...plan.options }))
   const http = gateway ?? (await listenCanopy(canopy, config.server.port))
 
   const metrics = await metricsServer(canopy, runtime, () => gateway?.metrics() ?? "")
@@ -96,6 +110,7 @@ async function main(): Promise<void> {
   logger.info(
     {
       port: http.port,
+      role: loaded.role,
       ...(gateway === undefined
         ? {}
         : { realtimeServer: "gateway", upstreamPort: gateway.upstreamPort }),

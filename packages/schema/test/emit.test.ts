@@ -65,11 +65,10 @@ function evaluate(js: string): SchemaDefinition {
 
 describe("emitSchemaFile", () => {
   it("writes editable TypeScript definitions in deterministic order", () => {
-    expect(
-      emitSchemaFile(example),
-    ).toBe(`// Written by canopy pull. This file is yours now: edit it, review it and commit it.
-import type {} from "@canopy/client"
-import { collection, defineSchema, t } from "@canopy/schema/define"
+    expect(emitSchemaFile(example))
+      .toBe(`// Written by canopy pull. This file is yours now: edit it, review it and commit it.
+import type {} from "canopy.js"
+import { collection, defineSchema, t } from "canopy.js/schema"
 
 export const notes = collection("notes", {
   _id: t.string(),
@@ -89,7 +88,7 @@ export const todos = collection("todos", {
 
 export const schema = defineSchema(notes, todos)
 
-declare module "@canopy/client" {
+declare module "canopy.js" {
   interface Register {
     schema: typeof schema
   }

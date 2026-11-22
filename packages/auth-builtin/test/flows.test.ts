@@ -477,7 +477,7 @@ describeMongo("built in auth flows", () => {
     // Revocations apply in memory at once and are written in the background.
     const revocations = h.side.db(h.names.meta).collection("revocations")
     const filter = { sub: decodeJwt(webToken).sub }
-    for (const started = Date.now(); Date.now() - started < 5_000; )
+    for (const started = Date.now(); Date.now() - started < 5_000;)
       if ((await revocations.countDocuments(filter)) >= 2) break
       else await new Promise((resolve) => setTimeout(resolve, 50))
     const stored = await revocations.find(filter).toArray()

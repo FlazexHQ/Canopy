@@ -60,7 +60,8 @@ export function appendCollection(source: string, generated: string): string {
   const binding = block?.[1]
   const declaration =
     /^export const schema = defineSchema\(\s*((?:[\w$]+\s*,\s*)*(?:[\w$]+\s*)?)\)/m
-  const builderImport = /^import\s*\{([^{}]*)\}\s*from\s*["']@canopy\/schema\/define["']/m
+  const builderImport =
+    /^import\s*\{([^{}]*)\}\s*from\s*["'](?:canopy\.js\/schema|@canopy\/schema\/define)["']/m
   const schema = declaration.exec(source)
   const imports = builderImport.exec(source)
   if (!binding || !block || !schema || !imports)

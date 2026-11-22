@@ -13,7 +13,7 @@ stay on screen while the extra ones arrive.
 <!-- snippet: declare function Spinner(): null -->
 
 ```tsx
-import { useCanopy, useQuery } from "@canopy/react"
+import { useCanopy, useQuery } from "canopy.js/react"
 import { useMemo, useState } from "react"
 
 const PAGE = 30

@@ -14,18 +14,8 @@ export {
 export { equalityKey } from "./equality-key.ts"
 export { UnsupportedQueryError, UpdateError } from "./errors.ts"
 export type { CompiledFilter, DocTest } from "./filter.ts"
-export {
-  compareNumeric,
-  isInt32,
-  type NumericValue,
-  readNumeric,
-} from "./numeric.ts"
-export {
-  anyPathValue,
-  isArrayIndex,
-  type LeafTest,
-  splitPath,
-} from "./path.ts"
+export { compareNumeric, isInt32, type NumericValue, readNumeric } from "./numeric.ts"
+export { anyPathValue, isArrayIndex, type LeafTest, splitPath } from "./path.ts"
 export {
   buildTree,
   type CompiledProjection,

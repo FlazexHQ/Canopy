@@ -5,7 +5,7 @@ A Next.js App Router page on Canopy that is rendered on the server and then stay
 - `canopy/server.ts` runs Canopy (`createCanopy`) with one public collection: anyone with the publishable key
   reads the `articles` whose `published` is `true`.
 - `app/page.tsx` is a Server Component. It reads the latest articles with `createServerClient` from
-  `@canopy/client/server`, under the same policies, and passes the result through `dehydrate`.
+  `canopy.js/server`, under the same policies, and passes the result through `dehydrate`.
 - `app/articles.tsx` is a Client Component. `Hydrate` seeds its live query with the server's result, so the
   first paint already has the list (marked `stale`), and the socket takes over from the cluster time of that
   read: articles published, unpublished or edited later show up without a reload.

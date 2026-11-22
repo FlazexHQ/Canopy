@@ -7,3 +7,4 @@ export {
   studioAssetsDir,
 } from "./handler.ts"
 export { toNodeListener } from "./node.ts"
+export { studioService } from "./service.ts"

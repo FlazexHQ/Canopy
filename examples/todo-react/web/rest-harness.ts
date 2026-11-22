@@ -1,5 +1,5 @@
-import { isCanopyError, ObjectId } from "@canopy/client"
-import { createRestClient } from "@canopy/client/rest"
+import { isCanopyError, ObjectId } from "canopy.js"
+import { createRestClient } from "canopy.js/rest"
 import { schema } from "./canopy.schema.ts"
 import { token, user } from "./session.ts"
 

@@ -3,15 +3,15 @@ title: TanStack DB
 description: Use Canopy collections as TanStack DB collections, with live sync and Canopy mutations.
 ---
 
-`@canopy/tanstack-db` exposes a Canopy collection as a TanStack DB collection, so TanStack DB's live queries,
+`canopy.js/tanstack-db` exposes a Canopy collection as a TanStack DB collection, so TanStack DB's live queries,
 joins and optimistic transactions work on top of Canopy's realtime sync and policies.
 
 ```bash
-bun add @canopy/client @canopy/tanstack-db @tanstack/db
+bun add canopy.js canopy.js/tanstack-db @tanstack/db
 ```
 
 ```ts
-import { canopyCollectionOptions } from "@canopy/tanstack-db"
+import { canopyCollectionOptions } from "canopy.js/tanstack-db"
 import { createCollection } from "@tanstack/db"
 
 const todos = createCollection(

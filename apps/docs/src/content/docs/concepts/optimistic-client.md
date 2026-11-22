@@ -28,8 +28,8 @@ returns the stored result.
 With a persister, pending mutations survive reloads and are sent when the connection returns:
 
 ```ts
-import { createClient } from "@canopy/client"
-import { indexedDbPersister } from "@canopy/client/persist"
+import { createClient } from "canopy.js"
+import { indexedDbPersister } from "canopy.js/persist"
 
 const canopy = createClient({
   url: "https://api.example.com",

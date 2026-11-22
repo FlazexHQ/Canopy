@@ -13,10 +13,9 @@
     "e2e:install": "playwright install chromium"
   },
   "dependencies": {
-    "@canopy/client": "workspace:*",
+    "canopy.js": "0.0.0",
     "@canopy/policy": "workspace:*",
     "@canopy/server": "workspace:*",
-    "@canopy/vue": "workspace:*",
     "esbuild": "0.28.2",
     "mongodb": "7.7.0",
     "vue": "3.5.44"

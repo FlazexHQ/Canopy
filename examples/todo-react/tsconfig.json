@@ -12,13 +12,26 @@
   },
   "include": ["src", "test", "e2e", "playwright.config.ts", "web/canopy.schema.ts"],
   "references": [
-    { "path": "./web" },
-    { "path": "../../packages/cli" },
-    { "path": "../../packages/client" },
-    { "path": "../../packages/policy" },
-    { "path": "../../packages/realtime" },
-    { "path": "../../packages/rest" },
-    { "path": "../../packages/schema" },
-    { "path": "../../packages/testing" }
+    {
+      "path": "./web"
+    },
+    {
+      "path": "../../packages/cli"
+    },
+    {
+      "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/realtime"
+    },
+    {
+      "path": "../../packages/rest"
+    },
+    {
+      "path": "../../packages/schema"
+    },
+    {
+      "path": "../../packages/testing"
+    }
   ]
 }

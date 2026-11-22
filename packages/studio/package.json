@@ -5,6 +5,9 @@
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
+  "bin": {
+    "canopy-studio": "./dist/bin/canopy-studio.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -1,9 +1,10 @@
-# The all in one canopy server image (deployment mode B): REST, realtime, health and metrics in one
-# process. Build from the repository root:
-#   docker build -f deploy/docker/canopy.Dockerfile -t canopy .
+# The canopy server image: REST, GraphQL, auth, storage, realtime, health and metrics. CANOPY_ROLE picks
+# what one container runs: all (the default), api or realtime, so the container stack runs this image as
+# separate services. Build from the repository root, with Canopy.js checked out next to Canopy:
+#   docker build -f deploy/docker/canopy.Dockerfile --build-context canopyjs=../Canopy.js -t canopy .
 # Mount policy files at /app/policies, and optionally a config file (--config). The isolated linker keeps
-# workspace packages out of the root node_modules, so @canopy/policy and @canopy/config are linked there for
-# policy and config files to import.
+# workspace packages out of the root node_modules, so canopy.js (and @canopy/policy and @canopy/config, for
+# older files) are linked there for policy and config files to import.
 
 FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS gateway-build
 WORKDIR /src
@@ -23,18 +24,24 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS build
 WORKDIR /src
+COPY --from=canopyjs . /Canopy.js
 COPY package.json bun.lock bunfig.toml tsconfig*.json ./
 COPY packages ./packages
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts \
+    && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json /Canopy.js/src/tsconfig.config.json \
+    && bun install --frozen-lockfile --ignore-scripts
 RUN bunx tsc -b packages/server
-RUN bun install --frozen-lockfile --production --ignore-scripts
+RUN bun install --frozen-lockfile --production --ignore-scripts && mkdir -p /src/storage
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy \
-    && ln -s ../../packages/config node_modules/@canopy/config
+    && ln -s ../../packages/config node_modules/@canopy/config \
+    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/graphql/node_modules/canopy.js)")" node_modules/canopy.js \
+    && test -f node_modules/canopy.js/dist/core/policy/index.js
 
 FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7f561029e26cf9fbed23470
 WORKDIR /app
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/packages ./packages
+COPY --chown=65532:65532 --from=build /src/storage ./storage
 COPY --from=gateway-build /src/canopy-gateway /usr/local/bin/canopy-gateway
 ENV NODE_ENV=production \
     PORT=8080 \

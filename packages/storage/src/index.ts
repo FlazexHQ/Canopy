@@ -1,9 +1,5 @@
 export type { ByteRange, StorageBackend, UploadedPart } from "./backend.ts"
-export {
-  createStorageHandler,
-  type StorageHandler,
-  type StorageHandlerOptions,
-} from "./handler.ts"
+export { createStorageHandler, type StorageHandler, type StorageHandlerOptions } from "./handler.ts"
 export {
   type ImageFormat,
   type ImageLimits,

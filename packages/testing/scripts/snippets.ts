@@ -31,7 +31,7 @@ const REGISTERED = "registered"
 const DIRECTIVE = /^\s*<!--\s*snippet:\s*(.*?)\s*-->\s*$/
 
 /** The generated types file snippets import, as `canopy gen types` would write it for the examples. */
-const GENERATED = `import type { DocumentSchema } from "@canopy/client"
+const GENERATED = `import type { DocumentSchema } from "canopy.js"
 
 export interface Todo {
   readonly _id: string
@@ -67,7 +67,7 @@ export type Database = DocumentSchema<{ todos: Todo; posts: Post; orders: Order 
  * share one program, so registering a schema would type every other snippet's client too. The global
  * `canopy` and the `Todo` and `Order` types of {@link CONTEXT} come from it.
  */
-const SCHEMA = `import { collection, defineSchema, t } from "@canopy/schema/define"
+const SCHEMA = `import { collection, defineSchema, t } from "canopy.js/schema"
 
 export const todos = collection("todos", {
   _id: t.string().generate(() => crypto.randomUUID()),
@@ -107,8 +107,8 @@ export const schema = defineSchema(todos, notes, posts, orders)
 `
 
 /** The names snippets may use without declaring them. */
-const CONTEXT = `import type { CanopyClient, Doc, SchemaTypes } from "@canopy/client"
-import type { CanopyAuth } from "@canopy/client/auth"
+const CONTEXT = `import type { CanopyClient, Doc, SchemaTypes } from "canopy.js"
+import type { CanopyAuth } from "canopy.js/auth"
 import type { schema } from "./canopy.schema.ts"
 
 declare global {
@@ -132,7 +132,7 @@ export {}
 
 /** The schema file of the program for `<!-- snippet: registered -->` blocks: the same file, registered. */
 const REGISTERED_SCHEMA = `${SCHEMA}
-declare module "@canopy/client" {
+declare module "canopy.js" {
   interface Register {
     schema: typeof schema
   }
@@ -236,7 +236,7 @@ function snippetsOf(file: string): Snippet[] {
     const setup: string[] = []
     let above = index - 1
     while (above >= 0 && (lines[above] ?? "").trim() === "") above--
-    for (let match = DIRECTIVE.exec(lines[above] ?? ""); match !== null; ) {
+    for (let match = DIRECTIVE.exec(lines[above] ?? ""); match !== null;) {
       setup.unshift(match[1] ?? "")
       above--
       match = DIRECTIVE.exec(lines[above] ?? "")

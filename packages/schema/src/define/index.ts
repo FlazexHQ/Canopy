@@ -13,13 +13,7 @@ export {
   t,
 } from "./fields.ts"
 export type { StandardIssue, StandardProps, StandardResult } from "./standard.ts"
-export type {
-  CollectionTypesOf,
-  DocOf,
-  IdBuilderOf,
-  NewDocOf,
-  PatchOf,
-} from "./types.ts"
+export type { CollectionTypesOf, DocOf, IdBuilderOf, NewDocOf, PatchOf } from "./types.ts"
 
 /** How a collection's `_id` is assigned. */
 export interface IdStrategy {
@@ -48,8 +42,10 @@ export interface AnyCollectionDefinition {
  * A collection declared in code with {@link collection}. It is a plain, frozen value: the client reads its
  * `_id` strategy and defaults at runtime, and its types reach the SDK through the `Register` interface.
  */
-export interface CollectionDefinition<N extends string = string, F extends Fields = Fields>
-  extends AnyCollectionDefinition {
+export interface CollectionDefinition<
+  N extends string = string,
+  F extends Fields = Fields,
+> extends AnyCollectionDefinition {
   readonly name: N
   /** The fields as declared, without the implicit `_id`. */
   readonly fields: F

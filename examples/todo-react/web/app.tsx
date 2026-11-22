@@ -1,4 +1,4 @@
-import { type Doc, isCanopyError } from "@canopy/client"
+import { type Doc, isCanopyError } from "canopy.js"
 import {
   createReactDb,
   type ReactDb,
@@ -6,7 +6,7 @@ import {
   useCanopyStatus,
   useMutationError,
   useStaleMutations,
-} from "@canopy/react"
+} from "canopy.js/react"
 import { type FormEvent, useMemo, useState } from "react"
 /** A todo as stored in MongoDB, typed from `canopy.schema.ts`. */
 export type Todo = Doc<"todos">

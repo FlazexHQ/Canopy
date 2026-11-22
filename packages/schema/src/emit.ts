@@ -4,9 +4,9 @@ import type { CollectionSchema, ObjectShape, Shape } from "./shape.ts"
 export interface EmitOptions {
   /** Writes JavaScript without a module augmentation. */
   readonly js?: boolean
-  /** Module the builders are imported from. Defaults to `@canopy/schema/define`. */
+  /** Module the builders are imported from. Defaults to `canopy.js/schema`. */
   readonly importFrom?: string
-  /** Module whose Register interface the file augments. Defaults to `@canopy/client`. */
+  /** Module whose Register interface the file augments. Defaults to `canopy.js`. */
   readonly registerModule?: string
 }
 
@@ -134,11 +134,11 @@ export function emitSchemaFile(
     "defineSchema",
     ...(usesFields ? ["t"] : []),
   ]
-  const register = JSON.stringify(options.registerModule ?? "@canopy/client")
+  const register = JSON.stringify(options.registerModule ?? "canopy.js")
   blocks.unshift(
     "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\n" +
       (options.js ? "" : `import type {} from ${register}\n`) +
-      `import { ${imports.join(", ")} } from ${JSON.stringify(options.importFrom ?? "@canopy/schema/define")}`,
+      `import { ${imports.join(", ")} } from ${JSON.stringify(options.importFrom ?? "canopy.js/schema")}`,
   )
   blocks.push(`export const schema = defineSchema(${names.join(", ")})`)
   if (!options.js)

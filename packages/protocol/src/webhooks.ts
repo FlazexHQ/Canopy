@@ -86,9 +86,7 @@ export async function webhookHeaders(
 export async function verifyWebhook(
   secret: string,
   headers:
-    | Headers
-    | WebhookHeaders
-    | Readonly<Record<string, string | readonly string[] | undefined>>,
+    Headers | WebhookHeaders | Readonly<Record<string, string | readonly string[] | undefined>>,
   body: string,
   options: VerifyWebhookOptions = {},
 ): Promise<boolean> {

@@ -141,7 +141,7 @@ describe("first run setup", () => {
   it("builds the SDK snippet with the url, the key and a first collection", () => {
     expect(sdkSnippet("https://api.example.com", "canopy_pk_x", "todos")).toBe(
       [
-        'import { createClient } from "@canopy/client"',
+        'import { createClient } from "canopy.js"',
         "",
         "const canopy = createClient({",
         '  url: "https://api.example.com",',

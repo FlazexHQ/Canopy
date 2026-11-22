@@ -26,8 +26,7 @@ const DOCS = DIFF_DOCS
 const TIMEOUT = 600_000 + Math.ceil((DIFF_RUNS * DOCS) / 50)
 
 type Outcome<T> =
-  | { ok: true; value: T }
-  | { ok: false; unsupported: boolean; name: string; message: string }
+  { ok: true; value: T } | { ok: false; unsupported: boolean; name: string; message: string }
 
 async function mongoOutcome<T>(run: () => Promise<T>): Promise<Outcome<T>> {
   try {

@@ -84,8 +84,8 @@ port 9464.
 <!-- snippet: declare function getAccessTokenSilently(): Promise<string> -->
 
 ```tsx
-import { createClient, type DocumentSchema } from "@canopy/client"
-import { CanopyProvider, createReactDb } from "@canopy/react"
+import { createClient, type DocumentSchema } from "canopy.js"
+import { CanopyProvider, createReactDb } from "canopy.js/react"
 
 interface Order {
   readonly _id: string

@@ -23,5 +23,6 @@ ADRs record **why** an important decision was made and which alternatives were r
 | [0013](0013-one-project-per-deployment.md) | One project per deployment until 1.0 | Accepted |
 | [0014](0014-rust-native-core.md) | A native core in Rust | Accepted (direction) |
 | [0015](0015-reach-through-mongodb.md) | Reach further through MongoDB, not through more languages | Accepted (direction) |
+| [0016](0016-canopy-js-and-container-services.md) | canopy.js as one library, and Canopy as separate container services | Accepted |
 
 New ADRs copy [0000-template.md](0000-template.md) and take the next number.

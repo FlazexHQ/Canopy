@@ -4,7 +4,7 @@ description: An in page panel for connections, subscriptions, the cache and muta
 ---
 
 ```ts
-import { attachDevtools } from "@canopy/devtools"
+import { attachDevtools } from "canopy.js/devtools"
 
 if (import.meta.env.DEV) attachDevtools(canopy)
 ```
@@ -29,7 +29,7 @@ query with operators the client cannot evaluate, so optimistic writes do not mov
 and a mutation the server refused, with its error code.
 
 ```ts
-import { attachDevtools } from "@canopy/devtools"
+import { attachDevtools } from "canopy.js/devtools"
 
 attachDevtools(canopy, { open: true, logSize: 500, warnings: false })
 ```

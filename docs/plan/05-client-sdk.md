@@ -1,7 +1,7 @@
 # 05: Client SDK
 
-> `@canopy/client` is Concept 3. It is a small, typed, framework-agnostic SDK: live queries that stay current,
-> mutations that feel instant, and a connection layer that recovers by itself. Framework bindings (`@canopy/react`
+> `canopy.js` is Concept 3. It is a small, typed, framework-agnostic SDK: live queries that stay current,
+> mutations that feel instant, and a connection layer that recovers by itself. Framework bindings (`canopy.js/react`
 > first) are thin layers on top.
 
 ## 1. Goals
@@ -20,12 +20,12 @@
 
 | Package / entry | Contents |
 |---|---|
-| `@canopy/client` | Store, live queries, mutations, WebSocket transport, EJSON-lite, matcher subset, REST query builder |
-| `@canopy/client/auth` | Built-in auth client (sessions, refresh, OAuth redirects) |
-| `@canopy/client/fallback` | SSE and long-poll transports (lazy-loaded) |
-| `@canopy/client/persist` | IndexedDB / AsyncStorage persisters |
-| `@canopy/react` | Provider, hooks, `createReactDb` |
-| `@canopy/vue`, `@canopy/svelte`, `@canopy/solid` | Bindings |
+| `canopy.js` | Store, live queries, mutations, WebSocket transport, EJSON-lite, matcher subset, REST query builder |
+| `canopy.js/auth` | Built-in auth client (sessions, refresh, OAuth redirects) |
+| `canopy.js/fallback` | SSE and long-poll transports (lazy-loaded) |
+| `canopy.js/persist` | IndexedDB / AsyncStorage persisters |
+| `canopy.js/react` | Provider, hooks, `createReactDb` |
+| `canopy.js/vue`, `canopy.js/svelte`, `canopy.js/solid` | Bindings |
 
 Bundle size budgets were dropped by the maintainer on 2026-11-13, and CI no longer measures bundle size. All packages are ESM-only,
 `sideEffects: false`, and have no runtime dependencies beyond workspace packages.
@@ -45,13 +45,13 @@ export const schema = defineSchema(
   }),
 );
 
-declare module '@canopy/client' {
+declare module 'canopy.js' {
   interface Register { schema: typeof schema }         // types createClient, the hooks and Doc<'todos'>
 }
 
 // src/canopy.ts
-import { createClient } from '@canopy/client';
-import { createRestClient } from '@canopy/client/rest';
+import { createClient } from 'canopy.js';
+import { createRestClient } from 'canopy.js/rest';
 import { schema } from '../canopy.schema';
 
 export const canopy = createClient({
@@ -85,7 +85,7 @@ await todos
 React, matching the original concept's `db.useQuery({ status: 'active' })`:
 
 ```tsx
-import { CanopyProvider, createReactDb, useCanopyStatus } from '@canopy/react';
+import { CanopyProvider, createReactDb, useCanopyStatus } from 'canopy.js/react';
 import { canopy } from './canopy';
 
 export const db = createReactDb(canopy);  // typed hooks per collection: db.todos.useQuery(...)
@@ -234,8 +234,8 @@ stateDiagram-v2
 3. Moving back up the ladder is seamless: the client re-subscribes and reconciles (§9).
 
 > **Implementation notes (Phase 2).** Each fallback transport implements the same `WebSocketLike` surface, so
-> the client handles every rung alike. `fallback: () => import("@canopy/client/fallback")` loads SSE and
-> long-polling lazily; REST polling is `restPolling()` from `@canopy/client/rest-polling` (or
+> the client handles every rung alike. `fallback: () => import("canopy.js/fallback")` loads SSE and
+> long-polling lazily; REST polling is `restPolling()` from `canopy.js/rest-polling` (or
 > `withRestPolling(ladder)`). The `fallback` connection status is used on every rung below WebSocket, and
 > queries are `stale` only while REST polling.
 
@@ -259,7 +259,7 @@ then:            re-send pending mutations in order, with the same IDs
 
 ## 10. Offline queue and persistence
 
-- `@canopy/client/persist` provides `indexedDbPersister()` (web) and `asyncStoragePersister()` /
+- `canopy.js/persist` provides `indexedDbPersister()` (web) and `asyncStoragePersister()` /
   `mmkvPersister()` (React Native). Persisted data:
   - **pending mutations**, required for durability across reloads;
   - optionally the **document cache**, for instant startup. It is shown as `stale` until `ready`.
@@ -282,13 +282,13 @@ then:            re-send pending mutations in order, with the same IDs
 
 | Binding | API | Notes |
 |---|---|---|
-| React (`@canopy/react`) | `CanopyProvider`, `useQuery(query, opts)`, `createReactDb(client)` → `db.<coll>.useQuery(filter, opts)`, `useDocument(coll, id)`, `useMutation(fn)`, `useCanopyStatus()`, `useSession()` | Built on `useSyncExternalStore`. `{ suspense: true }` opt-in. SSR helpers `prefetch()`, `dehydrate()`, `<Hydrate>`. |
+| React (`canopy.js/react`) | `CanopyProvider`, `useQuery(query, opts)`, `createReactDb(client)` → `db.<coll>.useQuery(filter, opts)`, `useDocument(coll, id)`, `useMutation(fn)`, `useCanopyStatus()`, `useSession()` | Built on `useSyncExternalStore`. `{ suspense: true }` opt-in. SSR helpers `prefetch()`, `dehydrate()`, `<Hydrate>`. |
 | Next.js / RSC | Server Components call `canopy.from(...).find()` with the user's token through `createServerClient({ cookies })`, then pass `{ docs, ct }` to a client component, which hydrates and subscribes | The snapshot `ct` lets the client discard older events |
-| Vue (`@canopy/vue`) | `useQuery()` returns `ShallowRef`s; `useMutation()` | Phase 4 |
-| Svelte 5 (`@canopy/svelte`) | `createQuery()` returns a rune-friendly reactive object | Phase 4 |
-| Solid (`@canopy/solid`) | `createQuery()` with signals | Phase 4 |
+| Vue (`canopy.js/vue`) | `useQuery()` returns `ShallowRef`s; `useMutation()` | Phase 4 |
+| Svelte 5 (`canopy.js/svelte`) | `createQuery()` returns a rune-friendly reactive object | Phase 4 |
+| Solid (`canopy.js/solid`) | `createQuery()` with signals | Phase 4 |
 | React Native / Expo | Same as React, plus `AppState`-driven reconnect and AsyncStorage/MMKV persisters | Phase 4 |
-| TanStack DB adapter (`@canopy/tanstack-db`, optional) | Exposes Canopy collections as TanStack DB collections (sync from realtime, writes through Canopy mutations) | Evaluate API stability first |
+| TanStack DB adapter (`canopy.js/tanstack-db`, optional) | Exposes Canopy collections as TanStack DB collections (sync from realtime, writes through Canopy mutations) | Evaluate API stability first |
 
 ## 12. Types
 
@@ -298,7 +298,7 @@ file augments the client's `Register`, so `createClient`, `createRestClient`, th
 helpers are typed without a type argument:
 
 ```ts
-import type { Doc, Id, NewDoc, Patch } from '@canopy/client';
+import type { Doc, Id, NewDoc, Patch } from 'canopy.js';
 
 type Todo = Doc<'todos'>;        // { _id: ObjectId; title: string; status: 'active' | 'done' | 'archived'; ownerId: string; createdAt: Date }
 type TodoId = Id<'todos'>;       // ObjectId, the same builder that makes the client generate one
@@ -338,7 +338,7 @@ for that document, or after the timeout.
 
 ## 14. Devtools
 
-- `@canopy/devtools` (Phase 4) is an in-page panel, later also a browser extension. It shows the connection and
+- `canopy.js/devtools` (Phase 4) is an in-page panel, later also a browser extension. It shows the connection and
   transport, subscriptions with their observer type and counts, a store inspector, the pending-mutation queue
   (with replay and discard actions), and a protocol log with `seq`/`ct`.
 - Development builds warn about common mistakes: a subscription with no `limit` on a large collection, a query

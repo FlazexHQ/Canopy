@@ -18,7 +18,7 @@ export const ownerOnly: PolicyTemplate = {
     `Every document belongs to the user in ${field}; nobody else can see or change it.`,
     "Set exposed: true once the policies below match your data.",
   ])}
-import { allow, auth, collection } from "@canopy/policy"
+import { allow, auth, collection } from "canopy.js/policy"
 
 export default collection(${JSON.stringify(collection)}, {
   exposed: false,
@@ -57,7 +57,7 @@ export const tenantScoped: PolicyTemplate = {
     'a context lookup in policies/_context.ts and compare with ctx("tenantIds") using $in.',
     "Set exposed: true once the policies below match your data.",
   ])}
-import { allow, auth, collection } from "@canopy/policy"
+import { allow, auth, collection } from "canopy.js/policy"
 
 export default collection(${JSON.stringify(collection)}, {
   exposed: false,
@@ -91,7 +91,7 @@ export const publicReadOwnerWrite: PolicyTemplate = {
     "sees their drafts.",
     "Set exposed: true once the policies below match your data.",
   ])}
-import { allow, auth, collection } from "@canopy/policy"
+import { allow, auth, collection } from "canopy.js/policy"
 
 export default collection(${JSON.stringify(collection)}, {
   exposed: false,
@@ -130,7 +130,7 @@ const writeOnlyIntake: PolicyTemplate = {
     "one through Canopy. Read submissions with a secret key on your server.",
     "Set exposed: true once the policies below match your data.",
   ])}
-import { allow, collection } from "@canopy/policy"
+import { allow, collection } from "canopy.js/policy"
 
 export default collection(${JSON.stringify(collection)}, {
   exposed: false,
@@ -164,7 +164,7 @@ export const TEMPLATES: readonly {
 export function closedPolicy(collection: string): string {
   return `// Nothing in ${collection} is reachable through Canopy yet. Copy a policy from ./templates,
 // then set exposed: true.
-import { collection } from "@canopy/policy"
+import { collection } from "canopy.js/policy"
 
 export default collection(${JSON.stringify(collection)}, {
   exposed: false,

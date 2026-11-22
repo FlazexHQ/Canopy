@@ -40,6 +40,7 @@
   "devDependencies": {
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
+    "canopy.js": "0.0.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

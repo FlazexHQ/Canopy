@@ -1,3 +1,4 @@
+import { CanopyError, type Document, ErrorCode, SUBPROTOCOL, type SubQuery } from "@canopy/protocol"
 import {
   type CanopyClient,
   createClient,
@@ -5,8 +6,7 @@ import {
   type QueryState,
   type WebSocketConstructor,
   type WebSocketLike,
-} from "@canopy/client"
-import { CanopyError, type Document, ErrorCode, SUBPROTOCOL, type SubQuery } from "@canopy/protocol"
+} from "canopy.js"
 import type { LiveResult } from "./schema.ts"
 
 /** The realtime socket surface the engine writes to. */

@@ -132,7 +132,10 @@ export interface PolicyKit<T extends PolicyTypes = Registered> {
   collection<
     const N extends CollectionName<T>,
     const P extends readonly PolicyItem[] = readonly PolicyItem[],
-  >(name: N, options?: CollectionOptions<T, DocumentOf<T, N>, P>): CollectionPolicies
+  >(
+    name: N,
+    options?: CollectionOptions<T, DocumentOf<T, N>, P>,
+  ): CollectionPolicies
   /** Declares context lookups. */
   context<const L extends Readonly<Record<string, ContextLookup>>>(
     lookups: L & CheckLookups<T, L>,

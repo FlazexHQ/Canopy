@@ -1,8 +1,6 @@
 ---
 "@canopy/matcher": minor
 "@canopy/realtime": patch
-"@canopy/client": patch
-"@canopy/react": patch
 ---
 
 Add `@canopy/matcher/lite`, the matcher without the regex translator: the same results as the full entry,

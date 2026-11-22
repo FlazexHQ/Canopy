@@ -83,14 +83,14 @@ describe("the TypeScript DSL writer", () => {
   it("uses the helpers for variables and imports only what it uses", () => {
     const source = collectionModule(tasks)
     expect(source.split("\n")[0]).toBe(
-      'import { allow, auth, collection, ctx, now, restrict } from "@canopy/policy"',
+      'import { allow, auth, collection, ctx, now, restrict } from "canopy.js/policy"',
     )
     expect(source).toContain('auth("sub", "objectId")')
     expect(source).toContain('now("-P7D")')
     expect(source).toContain('allow.ops(["read", "update"], "authenticated", "editor")')
     expect(source).toContain('"meta.kind": { $in: ["a", "b"] }')
     expect(collectionModule(collection("x")).split("\n")[0]).toBe(
-      'import { collection } from "@canopy/policy"',
+      'import { collection } from "canopy.js/policy"',
     )
   })
 

@@ -5,8 +5,6 @@
 "@canopy/query": minor
 "@canopy/policy": minor
 "@canopy/realtime": minor
-"@canopy/client": minor
-"@canopy/react": minor
 "@canopy/cli": minor
 ---
 

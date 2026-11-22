@@ -14,7 +14,7 @@ The file imports its builders from `@canopy/schema`, so the app depends on it ne
 `canopy` command comes from `@canopy/cli`:
 
 ```bash
-bun add @canopy/client @canopy/schema
+bun add canopy.js @canopy/schema
 bun add -d @canopy/cli
 bunx canopy pull
 ```
@@ -31,7 +31,7 @@ instead; `--force` replaces it, and `--collection <name>` adds one collection to
 
 ```ts
 // canopy.schema.ts
-import type {} from "@canopy/client"
+import type {} from "canopy.js"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 export const todos = collection("todos", {
@@ -50,7 +50,7 @@ export const notes = collection("notes", {
 
 export const schema = defineSchema(todos, notes)
 
-declare module "@canopy/client" {
+declare module "canopy.js" {
   interface Register {
     schema: typeof schema
   }
@@ -84,7 +84,7 @@ has `.generate(() => ...)`. Because the client reads the same definition the typ
 mutation handle always has the type the schema declares.
 
 ```ts
-import { createClient } from "@canopy/client"
+import { createClient } from "canopy.js"
 import { schema } from "./canopy.schema.ts"
 
 const client = createClient({ url, publishableKey, schema })
@@ -110,7 +110,7 @@ With the schema registered, the helpers take a collection name:
 <!-- snippet: not checked -->
 
 ```ts
-import type { Doc, Id, NewDoc, Patch } from "@canopy/client"
+import type { Doc, Id, NewDoc, Patch } from "canopy.js"
 
 function TodoRow(props: { todo: Doc<"todos"> }) {
   return props.todo.title
@@ -144,7 +144,7 @@ no annotation and no `Register` block:
 
 ```js
 // @ts-check
-import { createClient } from "@canopy/client"
+import { createClient } from "canopy.js"
 import { schema } from "./canopy.schema.js"
 
 const canopy = createClient({ url, publishableKey, schema })

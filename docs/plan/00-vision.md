@@ -142,7 +142,7 @@ As of 2026-11. Competitor claims should be re-checked during Phase 0.
 
 | Area | Metric | 1.0 target | Year-one aspiration |
 |---|---|---|---|
-| Adoption | GitHub stars / weekly npm downloads of `@canopy/client` | 2k / 2k | 10k / 20k |
+| Adoption | GitHub stars / weekly npm downloads of `canopy.js` | 2k / 2k | 10k / 20k |
 | Activation | Share of new installs that reach their first live query within 1 hour (opt-in telemetry, off by default) | ≥ 60 % | ≥ 75 % |
 | Quality | DLS bypass CVEs | 0 open | 0 open; median fix time < 72 h |
 | Performance | Fan-out p99 in the nightly benchmark | ≤ 25 ms | ≤ 15 ms |

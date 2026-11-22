@@ -88,7 +88,7 @@ flowchart LR
   PO --> WASM
   NAPI --> TS["realtime, rest, graphql,<br/>storage (TypeScript)"]
   WASM --> EDGE["@canopy/edge (Phase 6)"]
-  CL["@canopy/client"] --> TSM["@canopy/matcher<br/>(TypeScript, kept)"]
+  CL["canopy.js"] --> TSM["@canopy/matcher<br/>(TypeScript, kept)"]
 ```
 
 ### 4.1 Crates

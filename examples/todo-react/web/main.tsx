@@ -1,6 +1,6 @@
-import { createClient } from "@canopy/client"
-import { indexedDbPersister } from "@canopy/client/persist"
-import { CanopyProvider } from "@canopy/react"
+import { createClient } from "canopy.js"
+import { indexedDbPersister } from "canopy.js/persist"
+import { CanopyProvider } from "canopy.js/react"
 import { createRoot } from "react-dom/client"
 import { App } from "./app.tsx"
 import { schema } from "./canopy.schema.ts"
@@ -13,7 +13,7 @@ const client = createClient({
   auth: { getToken: token },
   persist: indexedDbPersister({ name: "todo-react" }),
   cacheDocuments: true,
-  fallback: () => import("@canopy/client/fallback"),
+  fallback: () => import("canopy.js/fallback"),
 })
 
 const root = document.getElementById("root")

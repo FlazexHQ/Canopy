@@ -137,8 +137,7 @@ export interface UploadOptions {
 
 /** A requested byte range: from `start` to `end` (or the end of the file), or the last `suffix` bytes. */
 export type RangeRequest =
-  | { readonly start: number; readonly end?: number }
-  | { readonly suffix: number }
+  { readonly start: number; readonly end?: number } | { readonly suffix: number }
 
 /** A file being read: its metadata, the content and the range served. */
 export interface OpenedObject {

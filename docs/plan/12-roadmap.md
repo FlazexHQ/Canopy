@@ -87,7 +87,7 @@ gantt
   - limits, resume buffers, resync and metrics;
   - `attach()` for Node http, Express, Fastify and Hono;
   - the `canopy-realtime` image.
-- `@canopy/client` read path (store, live queries, reconnect, resume, resync) and `@canopy/react`
+- `canopy.js` read path (store, live queries, reconnect, resume, resync) and `canopy.js/react`
   (`useQuery`, `createReactDb`).
 - CLI: `canopy doctor`, `canopy policies lint|test`.
 - The `express-dropin` example (Express + Mongoose + Auth0 turned into a live dashboard) and the sidecar
@@ -161,7 +161,7 @@ Deviations from the plan made during Phase 2:
   over REST.
 - A resume from a new connection takes over a session whose old connection is still attached (half open
   sockets, transport switches); the per subject connection limit counts only connected sessions.
-- REST polling lives in its own entry, `@canopy/client/rest-polling`, so `@canopy/client/fallback` fits 2 kB.
+- REST polling lives in its own entry, `canopy.js/rest-polling`, so `canopy.js/fallback` fits 2 kB.
 - `ETag` and `304` are on `GET /rest/v1/{collection}` only, since conditional `304` belongs on GET.
 - The SDK moves down the ladder after two failed handshakes within 10 s; browsers do not expose the HTTP
   status of a failed WebSocket handshake, so there is no immediate move on a proxy shaped failure.
@@ -388,7 +388,7 @@ At this checkpoint, D7, C6, T1, T2 on Windows CI, T4, T6 and O2 to O4 were still
 **Status (2026-11-12).** Every deliverable is on `master`: `@canopy/graphql` with the Studio
 explorer (CodeMirror with `cm6-graphql` instead of GraphiQL, whose Monaco editor conflicts with Studio's CSP),
 the Vue, Svelte 5 and Solid bindings, React Native support, the SSR helpers, leader tab sharing,
-`@canopy/devtools`, TOTP, passkeys and `aal2`, `canopy auth import`, `@canopy/tanstack-db`, the docs site in
+`canopy.js/devtools`, TOTP, passkeys and `aal2`, `canopy auth import`, `canopy.js/tanstack-db`, the docs site in
 `apps/docs` with the three migration guides and a generated API reference, and S8. Exit criteria:
 
 - Protocol vectors pass through the React, Vue, Svelte and Solid bindings.

@@ -32,7 +32,7 @@
     "mongodb": "catalog:"
   },
   "devDependencies": {
-    "@canopy/client": "workspace:*",
+    "canopy.js": "0.0.0",
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "jose": "catalog:",

@@ -29,8 +29,10 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - run: bun install --frozen-lockfile
       - run: bunx biome ci .
+      - run: bun fmt --check
       - name: Repository rules (workspace layout and dashes)
         run: bun tools/repo-check/src/cli.ts workspace dashes
       - name: Licenses of what the published packages install (MIT, Apache 2.0, BSD, ISC)
@@ -133,6 +135,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -228,6 +231,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -273,6 +277,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -293,6 +298,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
@@ -317,6 +323,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - if: matrix.runtime != 'bun'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -402,6 +409,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       # On both legs, so the Bun leg keeps the Node.js 24 it ran next to before the split.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -435,6 +443,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -478,6 +487,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -508,40 +518,43 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Build the standalone gateway image
-        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
-      - name: Build the canopy-realtime sidecar image
-        run: docker build -f deploy/docker/canopy-realtime.Dockerfile -t canopy-realtime:ci .
-      - name: Build the canopy image and start the compose stack
-        run: docker compose -f deploy/compose/canopy.yaml up -d --build --wait --wait-timeout 180
-        env:
-          CANOPY_IMAGE: canopy:ci
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
-      - name: Smoke test the compose stack
+      - uses: ./.github/actions/canopy-js
+      - name: Build the standalone gateway image
+        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
+      - name: Build the canopy-realtime sidecar image
+        run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
+      - name: Build the canopy and Studio images and start the stack of separate services
+        run: docker compose -f deploy/compose/canopy.yaml up -d --build --wait --wait-timeout 240
         env:
           CANOPY_IMAGE: canopy:ci
+          CANOPY_STUDIO_IMAGE: canopy-studio:ci
+      - name: Smoke test the stack, then the native gateway as the realtime service
+        env:
+          CANOPY_IMAGE: canopy:ci
+          CANOPY_STUDIO_IMAGE: canopy-studio:ci
         run: |
           deploy/compose/canopy-smoke.sh
           export CANOPY_REALTIME_SERVER=gateway
-          docker compose -f deploy/compose/canopy.yaml up -d --no-build --wait --wait-timeout 180 canopy
-          docker compose -f deploy/compose/canopy.yaml logs canopy | grep '"realtimeServer":"gateway"'
+          docker compose -f deploy/compose/canopy.yaml up -d --no-build --wait --wait-timeout 180 api realtime
+          docker compose -f deploy/compose/canopy.yaml logs realtime | grep '"realtimeServer":"gateway"'
           bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
           deploy/compose/canopy-smoke.sh
       - name: The sidecar and gateway images start and report ready
         run: |
           docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \
-            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e MONGODB_URI="mongodb://database:27017/?replicaSet=rs0" -e CANOPY_DB=app \
             -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
             canopy-realtime:ci
           docker run -d --read-only --name sidecar-gateway --network canopy_default -p 127.0.0.1:18081:8080 \
-            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e MONGODB_URI="mongodb://database:27017/?replicaSet=rs0" -e CANOPY_DB=app \
             -e CANOPY_PUBLISHABLE_KEYS=pk_dev -v "$PWD/deploy/compose/policies:/app/policies:ro" \
             -e CANOPY_NODE_ID=sidecar-gateway -e CANOPY_REALTIME_SERVER=gateway canopy-realtime:ci
           docker run -d --read-only --name gateway --network canopy_default \
             -p 127.0.0.1:18082:8080 -p 127.0.0.1:19464:9464 \
-            -e MONGODB_URI="mongodb://mongo:27017/?replicaSet=rs0" -e CANOPY_DB=app \
+            -e MONGODB_URI="mongodb://database:27017/?replicaSet=rs0" -e CANOPY_DB=app \
             -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy-gateway:ci
 
           check_ready() {
@@ -607,6 +620,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - run: bun install --frozen-lockfile
       - run: bunx changeset status --since=origin/${{ github.base_ref }}
 
@@ -622,6 +636,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: ${{ env.BUN_VERSION }}
+      - uses: ./.github/actions/canopy-js
       - run: bun install --frozen-lockfile
       - name: Conventional Commits, sign off and dashes
         run: |

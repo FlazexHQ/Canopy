@@ -1,4 +1,4 @@
-import type { Document, ObjectId } from "@canopy/client"
+import type { Document, ObjectId } from "canopy.js"
 
 /** Ticket states, in workflow order. */
 export const STATUSES = ["open", "in_progress", "closed"] as const

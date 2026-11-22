@@ -37,12 +37,7 @@ export {
 } from "./admin/tokens.ts"
 export { generateTotpSecret, hotp, totp, totpUri, verifyTotp } from "./admin/totp.ts"
 export type { AdminEventTrace, MaskedOutcome } from "./admin/trace.ts"
-export {
-  type ApiKeyDocument,
-  type ApiKeyInfo,
-  ApiKeys,
-  type ApiKeysOptions,
-} from "./api-keys.ts"
+export { type ApiKeyDocument, type ApiKeyInfo, ApiKeys, type ApiKeysOptions } from "./api-keys.ts"
 export {
   type Actor,
   type AuditEntry,
@@ -92,5 +87,6 @@ export {
   type RequestLogQuery,
   type RequestSurface,
 } from "./request-log.ts"
+export { parseServerRole, planServerRole, type RolePlan, type ServerRole } from "./roles.ts"
 export type { DeadLetter, HookKind } from "./webhooks/queue.ts"
 export type { HookInfo, Webhooks } from "./webhooks/webhooks.ts"

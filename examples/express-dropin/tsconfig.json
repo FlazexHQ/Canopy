@@ -12,9 +12,14 @@
   },
   "include": ["src", "canopy", "test"],
   "references": [
-    { "path": "../../packages/policy" },
-    { "path": "../../packages/client" },
-    { "path": "../../packages/cli" },
-    { "path": "../../packages/testing" }
+    {
+      "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/cli"
+    },
+    {
+      "path": "../../packages/testing"
+    }
   ]
 }

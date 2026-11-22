@@ -66,9 +66,9 @@ from the database (see [Schema in code](/guides/schema/)); the client types ever
 generates each note's ObjectId.
 
 ```ts
-import { createClient } from "@canopy/client"
-import { createAuth } from "@canopy/client/auth"
-import { indexedDbPersister } from "@canopy/client/persist"
+import { createClient } from "canopy.js"
+import { createAuth } from "canopy.js/auth"
+import { indexedDbPersister } from "canopy.js/persist"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 const schema = defineSchema(
@@ -94,7 +94,7 @@ stays signed in; `auth.signOut()` ends it. A wrong password rejects with an `Aut
 
 ## 4. Write and read live
 
-<!-- snippet: import { createClient } from "@canopy/client" -->
+<!-- snippet: import { createClient } from "canopy.js" -->
 <!-- snippet: import { collection, defineSchema, t } from "@canopy/schema/define" -->
 <!-- snippet: const schema = defineSchema(collection("notes", { text: t.string(), ownerId: t.string(), createdAt: t.date() })) -->
 <!-- snippet: const canopy = createClient({ url, publishableKey, auth, schema }) -->

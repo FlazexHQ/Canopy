@@ -25,5 +25,7 @@ function createStudioHandler(options?: StudioHandlerOptions): StudioHandler
 
 const studioAssetsDir: string
 
+function studioService(studio: (request: Request) => Promise<Response>): (request: Request) => Promise<Response>
+
 function toNodeListener(handler: StudioHandler): NodeListener
 ```

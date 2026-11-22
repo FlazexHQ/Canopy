@@ -84,7 +84,7 @@ against MongoDB itself.
 
 Replace `app.currentUser.mongoClient("mongodb-atlas").db("app").collection("items")` reads with live queries:
 
-<!-- snippet: declare const canopy: import("@canopy/client").CanopyClient -->
+<!-- snippet: declare const canopy: import("canopy.js").CanopyClient -->
 
 ```ts
 const items = canopy.from("items").find({ status: "open" }).sort({ createdAt: -1 }).limit(100)

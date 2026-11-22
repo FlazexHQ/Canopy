@@ -1094,7 +1094,7 @@ export class AdminApi {
     }
   }
 
-  /** A short lived token and the publishable key, for following data live through `@canopy/react`. */
+  /** A short lived token and the publishable key, for following data live through `canopy.js/react`. */
   realtimeToken(as?: ViewAs): Promise<{ readonly token: string; readonly publishableKey: string }> {
     return this.request("POST", "/realtime/token", wireRealtimeToken, {
       body: as === undefined ? {} : { as: wireAs(as) },

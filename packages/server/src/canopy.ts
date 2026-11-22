@@ -132,6 +132,12 @@ export interface CreateCanopyOptions {
    * subscriptions follow their live queries through it; without it the schema has no subscriptions.
    */
   readonly gatewayUrl?: () => string
+  /**
+   * With realtime turned off in this process, the HTTP base URL of the Canopy realtime service that runs
+   * next to it (a server started with the `realtime` role). GraphQL subscriptions follow their live
+   * queries through it; without it the schema has no subscriptions.
+   */
+  readonly realtimeUrl?: () => string
 }
 
 /** The admin surface: `/admin/v1` and `/studio`. */
@@ -629,11 +635,13 @@ async function buildData(
           schemas,
           ...(engineRealtime !== undefined
             ? { realtime: engineRealtime }
-            : realtimeConfig !== false &&
-                realtimeConfig.server === "gateway" &&
-                options.gatewayUrl !== undefined
-              ? { realtime: { url: options.gatewayUrl } }
-              : {}),
+            : realtimeConfig === false && options.realtimeUrl !== undefined
+              ? { realtime: { url: options.realtimeUrl } }
+              : realtimeConfig !== false &&
+                  realtimeConfig.server === "gateway" &&
+                  options.gatewayUrl !== undefined
+                ? { realtime: { url: options.gatewayUrl } }
+                : {}),
           collections: config.collections,
           limits: {
             maxDepth: config.graphql.maxDepth,
@@ -1154,11 +1162,11 @@ export async function createCanopy(
     realtime,
     renderMetrics: () => `${data.httpRateLimited.render()}
 ${realtime?.renderMetrics() ?? ""}${
-  webhooks === undefined
-    ? ""
-    : `
+      webhooks === undefined
+        ? ""
+        : `
 ${webhooks.metrics.render()}`
-}`,
+    }`,
     auth: builtin,
     keys: auth.apiKeys,
     viewTokenKey: auth.viewTokens.publicJwk,

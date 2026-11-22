@@ -191,7 +191,7 @@ export function toDsl(draft: PolicyDraft): string {
   for (const name of ["auth", "ctx", "now"]) if (text.includes(`${name}(`)) used.add(name)
   const imports = [...used].sort().join(", ")
   const parts = [
-    `import { ${imports} } from "@canopy/policy"`,
+    `import { ${imports} } from "canopy.js/policy"`,
     "",
     `export default collection(${JSON.stringify(authoring.collection)}, {`,
     `  exposed: ${authoring.exposed},`,
@@ -384,7 +384,7 @@ export function testSnippet(input: TestCaseInput): string {
       call = `expect(actor).${verb}.${input.op}(doc(${doc}))`
   }
   return [
-    'import { as, describePolicies } from "@canopy/policy/testing"',
+    'import { as, describePolicies } from "canopy.js/policy/testing"',
     "",
     `describePolicies(${JSON.stringify(input.collection)}, ({ doc, expect }) => {`,
     `  const actor = ${actorCode(input.as)}`,

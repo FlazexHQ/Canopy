@@ -4,8 +4,8 @@ description: Share one realtime connection between the tabs of a browser.
 ---
 
 ```ts
-import { createClient } from "@canopy/client"
-import { leaderTab } from "@canopy/client/leader-tab"
+import { createClient } from "canopy.js"
+import { leaderTab } from "canopy.js/leader-tab"
 
 const canopy = createClient({ url, publishableKey, shared: leaderTab() })
 ```

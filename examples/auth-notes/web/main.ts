@@ -1,6 +1,6 @@
-import { createClient, type Doc } from "@canopy/client"
-import { AuthError, createAuth } from "@canopy/client/auth"
-import { indexedDbPersister } from "@canopy/client/persist"
+import { createClient, type Doc } from "canopy.js"
+import { AuthError, createAuth } from "canopy.js/auth"
+import { indexedDbPersister } from "canopy.js/persist"
 import { schema } from "./canopy.schema.ts"
 
 const byId = <E extends HTMLElement>(id: string): E => {

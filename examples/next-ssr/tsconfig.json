@@ -11,9 +11,12 @@
     "tsBuildInfoFile": "node_modules/.cache/app-types/.tsbuildinfo",
     "types": ["node"],
     "allowJs": true,
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
   "include": ["app", "next-env.d.ts", ".next/types/**/*.ts", ".next/dev/types/**/*.ts"],
-  "exclude": ["node_modules"],
-  "references": [{ "path": "../../packages/client" }, { "path": "../../packages/react" }]
+  "exclude": ["node_modules"]
 }

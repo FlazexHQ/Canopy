@@ -76,7 +76,7 @@ responsible.
 - **Stack:** React 19, Vite, TanStack Router (file-based), TanStack Query for the admin API, Tailwind CSS v4 with
   shadcn/ui, CodeMirror 6 (EJSON language support, plus autocomplete for field names and operators driven by
   the schema cache), uPlot for live charts, Scalar for OpenAPI, GraphiQL.
-- **Dogfooding:** Studio uses `@canopy/react` for live data, with an admin-scoped session, so it exercises the
+- **Dogfooding:** Studio uses `canopy.js/react` for live data, with an admin-scoped session, so it exercises the
   SDK every day.
 - **Shipping:** built to static assets inside `@canopy/server` and served at `/studio` with immutable caching.
   There is no separate deployment.

@@ -1,11 +1,6 @@
 /** The emails built in auth sends. */
 export type EmailKind =
-  | "verification"
-  | "magic_link"
-  | "otp"
-  | "reset_password"
-  | "invite"
-  | "email_change"
+  "verification" | "magic_link" | "otp" | "reset_password" | "invite" | "email_change"
 
 /** What a template can use. Values are plain text; templates escape them for HTML. */
 export interface EmailTemplateData {

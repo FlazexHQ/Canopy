@@ -72,7 +72,7 @@ export const setup = {
     description:
       "Browsers use the publishable key. It is public by design; the policies decide what it can reach.",
     key: "Publishable key",
-    snippet: "Install @canopy/client, then:",
+    snippet: "Install canopy.js, then:",
     snippetLabel: "the SDK snippet",
     keyLabel: "the publishable key",
     creating: "Creating a publishable key…",
