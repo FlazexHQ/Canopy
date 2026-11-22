@@ -33,7 +33,7 @@
 - **RFC process** (`docs/rfcs/NNNN-title.md`) is required for:
   - wire-protocol changes;
   - changes to the DLS policy language or semantics;
-  - public API changes in `@canopy/client` and the bindings;
+  - public API changes in `canopy.js` and the bindings;
   - new deployment modes.
 
   RFCs are open for comment for 2 weeks. The decision and its rationale are recorded, and accepted RFCs update

@@ -151,7 +151,7 @@ since Node 22.18 and 23.6) on Node. This works because sources only use erasable
 - **Hot-path discipline** (matcher, fan-out, codec): avoid megamorphic call sites and per-event closure
   allocation, and serialize each payload once. Microbenchmarks (`tinybench` or `mitata`) live next to the
   code and are tracked in CI.
-- **Lint and format with Biome.** A thin typescript-eslint pass is used only for type-aware rules Biome doesn't
+- **Lint with Biome, format with `bun fmt`.** A thin typescript-eslint pass is used only for type-aware rules Biome doesn't
   cover yet, if any are needed. Both run in CI and through a pre-commit hook (lefthook).
 - **Public APIs** carry TSDoc comments. The docs site generates API reference pages from them (TypeDoc → MDX).
 - **Dependencies:** licenses must be MIT, Apache-2.0, BSD or ISC. Server packages need a written justification

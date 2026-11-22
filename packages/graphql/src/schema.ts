@@ -494,7 +494,7 @@ export function buildSchema(input: SchemaInput): GraphQLSchema {
         description: `The full result of a ${name} query, sent again on every change.`,
         args: listArgs(model),
         subscribe: (_source, args, context) =>
-          liveDocuments(context, name, findRequest(model, args)),
+          liveSubscription(context, name, findRequest(model, args), (source) => source),
         resolve: (payload: unknown) => (payload as LiveResult).docs,
       }
       const change = new GraphQLObjectType<LiveChange, CanopyContext>({
@@ -511,7 +511,7 @@ export function buildSchema(input: SchemaInput): GraphQLSchema {
         description: `Changes of a ${name} query: added, changed and removed documents, then ready.`,
         args: listArgs(model),
         subscribe: (_source, args, context) =>
-          liveChanges(liveDocuments(context, name, findRequest(model, args))),
+          liveSubscription(context, name, findRequest(model, args), liveChanges),
         resolve: (payload: unknown) => payload,
       }
     }
@@ -788,11 +788,12 @@ function relationConfigs(
   return out
 }
 
-function liveDocuments(
+function liveSubscription<T>(
   context: CanopyContext,
   collection: string,
   request: FindRequest,
-): AsyncIterable<LiveResult> {
+  results: (source: AsyncIterable<LiveResult>) => AsyncIterable<T>,
+): AsyncIterable<T> {
   const live = context.canopy.live
   if (live === undefined) throw new TypeError("Live queries need realtime")
   const query: SubQuery = {
@@ -804,7 +805,7 @@ function liveDocuments(
   const source = live.call(context.canopy, collection, query, controller.signal)
   return {
     [Symbol.asyncIterator]() {
-      const iterator = source[Symbol.asyncIterator]()
+      const iterator = results(source)[Symbol.asyncIterator]()
       return {
         next: () => iterator.next(),
         return: async (value?: unknown) => {

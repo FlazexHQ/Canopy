@@ -13,6 +13,7 @@
         "@stryker-mutator/vitest-runner": "catalog:",
         "@types/node": "catalog:",
         "@vitest/coverage-v8": "catalog:",
+        "canopy.js": "0.0.0",
         "knip": "catalog:",
         "lefthook": "catalog:",
         "reflect-metadata": "0.2.2",
@@ -38,10 +39,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@canopy/auth": "workspace:*",
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
-        "@canopy/react": "workspace:*",
         "@codemirror/autocomplete": "catalog:",
         "@codemirror/commands": "catalog:",
         "@codemirror/lang-json": "catalog:",
@@ -56,6 +55,7 @@
         "@tanstack/react-router": "catalog:",
         "@ui-sdk/core": "catalog:",
         "@ui-sdk/react": "catalog:",
+        "canopy.js": "0.0.0",
         "class-variance-authority": "catalog:",
         "clsx": "catalog:",
         "cm6-graphql": "catalog:",
@@ -93,10 +93,10 @@
       "name": "@canopy/example-auth-notes",
       "version": "0.0.0",
       "dependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/schema": "workspace:*",
         "@canopy/server": "workspace:*",
+        "canopy.js": "0.0.0",
         "esbuild": "0.28.2",
         "mongodb": "7.7.0",
       },
@@ -108,40 +108,14 @@
         "vitest": "5.0.5",
       },
     },
-    "examples/chatapp": {
-      "name": "@canopy/example-chatapp",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-        "@canopy/config": "workspace:*",
-        "@canopy/policy": "workspace:*",
-        "@canopy/schema": "workspace:*",
-        "@ui-sdk/core": "0.1.0-beta.6",
-        "@ui-sdk/react": "0.1.0-beta.6",
-        "next": "16.4.5",
-        "react": "19.3.1",
-        "react-dom": "19.3.1",
-      },
-      "devDependencies": {
-        "@playwright/test": "1.64.1",
-        "@testing-library/react": "16.3.3",
-        "@types/node": "24.19.2",
-        "@types/react": "19.3.0",
-        "@types/react-dom": "19.3.0",
-        "happy-dom": "21.0.4",
-        "typescript": "6.0.3",
-        "vitest": "5.0.5",
-      },
-    },
     "examples/express-dropin": {
       "name": "@canopy/example-express-dropin",
       "version": "0.0.0",
       "dependencies": {
         "@auth0/auth0-react": "2.29.0",
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
-        "@canopy/react": "workspace:*",
         "@canopy/realtime": "workspace:*",
+        "canopy.js": "0.0.0",
         "esbuild": "0.28.2",
         "express": "5.3.0",
         "express-oauth2-jwt-bearer": "1.11.0",
@@ -166,10 +140,9 @@
       "name": "@canopy/example-graphql-vue",
       "version": "0.0.0",
       "dependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/server": "workspace:*",
-        "@canopy/vue": "workspace:*",
+        "canopy.js": "0.0.0",
         "esbuild": "0.28.2",
         "mongodb": "7.7.0",
         "vue": "3.5.44",
@@ -186,10 +159,9 @@
       "name": "@canopy/example-next-ssr",
       "version": "0.0.0",
       "dependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
-        "@canopy/react": "workspace:*",
         "@canopy/server": "workspace:*",
+        "canopy.js": "0.0.0",
         "mongodb": "7.7.0",
         "next": "16.4.5",
         "react": "19.3.1",
@@ -207,12 +179,11 @@
       "name": "@canopy/example-todo-react",
       "version": "0.0.0",
       "dependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/policy": "workspace:*",
-        "@canopy/react": "workspace:*",
         "@canopy/realtime": "workspace:*",
         "@canopy/rest": "workspace:*",
         "@canopy/schema": "workspace:*",
+        "canopy.js": "0.0.0",
         "esbuild": "0.28.2",
         "jose": "6.2.14",
         "mongodb": "7.7.0",
@@ -253,6 +224,7 @@
         "@better-auth/passkey": "1.7.17",
         "@canopy/auth": "workspace:*",
         "@canopy/protocol": "workspace:*",
+        "@noble/hashes": "2.4.0",
         "better-auth": "1.7.18",
         "better-call": "1.4.5",
         "hash-wasm": "catalog:",
@@ -287,30 +259,7 @@
       "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
-    "packages/client": {
-      "name": "@canopy/client",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/matcher": "workspace:*",
-        "@canopy/protocol": "workspace:*",
-      },
-      "devDependencies": {
-        "@canopy/policy": "workspace:*",
-        "@canopy/query": "workspace:*",
-        "@canopy/realtime": "workspace:*",
-        "@canopy/rest": "workspace:*",
-        "@canopy/schema": "workspace:*",
-        "@canopy/server": "workspace:*",
-        "@canopy/testing": "workspace:*",
-        "@types/node": "catalog:",
-        "fake-indexeddb": "catalog:",
-        "fast-check": "catalog:",
-        "jose": "catalog:",
-        "mongodb": "catalog:",
+        "canopy.js": "0.0.0",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },
@@ -327,26 +276,12 @@
         "vitest": "catalog:",
       },
     },
-    "packages/devtools": {
-      "name": "@canopy/devtools",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-        "@canopy/matcher": "workspace:*",
-      },
-      "devDependencies": {
-        "@types/node": "catalog:",
-        "happy-dom": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-    },
     "packages/graphql": {
       "name": "@canopy/graphql",
       "version": "0.0.0",
       "dependencies": {
         "@canopy/auth": "workspace:*",
-        "@canopy/client": "workspace:*",
+        "@canopy/matcher": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/rest": "workspace:*",
@@ -464,26 +399,6 @@
         "vitest": "catalog:",
       },
     },
-    "packages/react": {
-      "name": "@canopy/react",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-      },
-      "devDependencies": {
-        "@canopy/testing": "workspace:*",
-        "@types/react": "catalog:",
-        "@types/react-dom": "catalog:",
-        "happy-dom": "catalog:",
-        "react": "catalog:",
-        "react-dom": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "react": "^19.0.0",
-      },
-    },
     "packages/realtime": {
       "name": "@canopy/realtime",
       "version": "0.0.0",
@@ -499,6 +414,7 @@
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
         "@canopy/query": "workspace:*",
+        "canopy.js": "0.0.0",
         "ws": "catalog:",
       },
       "devDependencies": {
@@ -558,6 +474,30 @@
         "vitest": "catalog:",
       },
     },
+    "packages/sdk-e2e": {
+      "name": "@canopy/sdk-e2e",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@canopy/config": "workspace:*",
+        "@canopy/matcher": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/protocol": "workspace:*",
+        "@canopy/query": "workspace:*",
+        "@canopy/realtime": "workspace:*",
+        "@canopy/rest": "workspace:*",
+        "@canopy/schema": "workspace:*",
+        "@canopy/server": "workspace:*",
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "canopy.js": "0.0.0",
+        "fast-check": "catalog:",
+        "graphql-ws": "catalog:",
+        "jose": "catalog:",
+        "mongodb": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/server": {
       "name": "@canopy/server",
       "version": "0.0.0",
@@ -578,6 +518,7 @@
         "@canopy/rest": "workspace:*",
         "@canopy/storage": "workspace:*",
         "@canopy/studio": "workspace:*",
+        "canopy.js": "0.0.0",
         "mongodb": "catalog:",
       },
       "devDependencies": {
@@ -603,25 +544,6 @@
         "@opentelemetry/api",
       ],
     },
-    "packages/solid": {
-      "name": "@canopy/solid",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-      },
-      "devDependencies": {
-        "@canopy/schema": "workspace:*",
-        "@canopy/testing": "workspace:*",
-        "@types/node": "catalog:",
-        "happy-dom": "catalog:",
-        "solid-js": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "solid-js": "^1.8.0",
-      },
-    },
     "packages/storage": {
       "name": "@canopy/storage",
       "version": "0.0.0",
@@ -634,9 +556,9 @@
         "mongodb": "catalog:",
       },
       "devDependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
+        "canopy.js": "0.0.0",
         "jose": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
@@ -645,6 +567,9 @@
     "packages/studio": {
       "name": "@canopy/studio",
       "version": "0.0.0",
+      "bin": {
+        "canopy-studio": "./dist/bin/canopy-studio.js",
+      },
       "dependencies": {
         "@canopy/node-http": "workspace:*",
       },
@@ -654,47 +579,10 @@
         "vitest": "catalog:",
       },
     },
-    "packages/svelte": {
-      "name": "@canopy/svelte",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-      },
-      "devDependencies": {
-        "@canopy/schema": "workspace:*",
-        "@canopy/testing": "workspace:*",
-        "@sveltejs/vite-plugin-svelte": "catalog:",
-        "@types/node": "catalog:",
-        "happy-dom": "catalog:",
-        "svelte": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "svelte": "^5.7.0",
-      },
-    },
-    "packages/tanstack-db": {
-      "name": "@canopy/tanstack-db",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-      },
-      "devDependencies": {
-        "@tanstack/db": "catalog:",
-        "@types/node": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-      },
-      "peerDependencies": {
-        "@tanstack/db": "^1.0.0-rc.1",
-      },
-    },
     "packages/testing": {
       "name": "@canopy/testing",
       "version": "0.0.0",
       "dependencies": {
-        "@canopy/client": "workspace:*",
         "@canopy/native": "workspace:*",
         "@canopy/policy": "workspace:*",
         "@canopy/protocol": "workspace:*",
@@ -707,25 +595,6 @@
         "@canopy/query": "workspace:*",
         "@types/node": "catalog:",
         "typescript": "catalog:",
-      },
-    },
-    "packages/vue": {
-      "name": "@canopy/vue",
-      "version": "0.0.0",
-      "dependencies": {
-        "@canopy/client": "workspace:*",
-      },
-      "devDependencies": {
-        "@canopy/schema": "workspace:*",
-        "@canopy/testing": "workspace:*",
-        "@types/node": "catalog:",
-        "happy-dom": "catalog:",
-        "typescript": "catalog:",
-        "vitest": "catalog:",
-        "vue": "catalog:",
-      },
-      "peerDependencies": {
-        "vue": "^3.4.0",
       },
     },
     "packages/wasm": {
@@ -742,6 +611,9 @@
     },
   },
   "trustedDependencies": [],
+  "overrides": {
+    "canopy.js": "file:../Canopy.js",
+  },
   "catalog": {
     "@astrojs/starlight": "0.42.9",
     "@biomejs/biome": "2.6.4",
@@ -984,17 +856,11 @@
 
     "@canopy/cli": ["@canopy/cli@workspace:packages/cli"],
 
-    "@canopy/client": ["@canopy/client@workspace:packages/client"],
-
     "@canopy/config": ["@canopy/config@workspace:packages/config"],
-
-    "@canopy/devtools": ["@canopy/devtools@workspace:packages/devtools"],
 
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
 
     "@canopy/example-auth-notes": ["@canopy/example-auth-notes@workspace:examples/auth-notes"],
-
-    "@canopy/example-chatapp": ["@canopy/example-chatapp@workspace:examples/chatapp"],
 
     "@canopy/example-express-dropin": ["@canopy/example-express-dropin@workspace:examples/express-dropin"],
 
@@ -1018,17 +884,15 @@
 
     "@canopy/query": ["@canopy/query@workspace:packages/query"],
 
-    "@canopy/react": ["@canopy/react@workspace:packages/react"],
-
     "@canopy/realtime": ["@canopy/realtime@workspace:packages/realtime"],
 
     "@canopy/rest": ["@canopy/rest@workspace:packages/rest"],
 
     "@canopy/schema": ["@canopy/schema@workspace:packages/schema"],
 
-    "@canopy/server": ["@canopy/server@workspace:packages/server"],
+    "@canopy/sdk-e2e": ["@canopy/sdk-e2e@workspace:packages/sdk-e2e"],
 
-    "@canopy/solid": ["@canopy/solid@workspace:packages/solid"],
+    "@canopy/server": ["@canopy/server@workspace:packages/server"],
 
     "@canopy/storage": ["@canopy/storage@workspace:packages/storage"],
 
@@ -1036,13 +900,7 @@
 
     "@canopy/studio-app": ["@canopy/studio-app@workspace:apps/studio"],
 
-    "@canopy/svelte": ["@canopy/svelte@workspace:packages/svelte"],
-
-    "@canopy/tanstack-db": ["@canopy/tanstack-db@workspace:packages/tanstack-db"],
-
     "@canopy/testing": ["@canopy/testing@workspace:packages/testing"],
-
-    "@canopy/vue": ["@canopy/vue@workspace:packages/vue"],
 
     "@canopy/wasm": ["@canopy/wasm@workspace:packages/wasm"],
 
@@ -1306,7 +1164,7 @@
 
     "@internationalized/number": ["@internationalized/number@3.6.9", "", { "dependencies": { "@swc/helpers": "^0.5.0" } }, "sha512-GgWy2caO/+hV9sT/oCTWGHvbjmJMPT9kkXzoKRLnkEq7adghhR7UprhvY9sXrKfrp3NcDfhF6QQHXR1KfQbB8g=="],
 
-    "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
+    "@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@jridgewell/remapping": ["@jridgewell/remapping@2.3.5", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ=="],
 
@@ -2095,6 +1953,8 @@
     "call-bound": ["call-bound@1.0.4", "", { "dependencies": { "call-bind-apply-helpers": "^1.0.2", "get-intrinsic": "^1.3.0" } }, "sha512-+ys997U96po4Kx/ABpBCqhA9EuxJaQWDQg7295H4hBphv3IZg0boBKuwYpt4YXp6MZ5AmZQnU/tyMTlRpaSejg=="],
 
     "caniuse-lite": ["caniuse-lite@1.0.30001820", "", {}, "sha512-gfWD6MxqVCqAOwmODfZf7DchWvlrA+SRdNX7ceLfg3xRqe5ssjjpF7EgslC/0tiLiNTajdaNN/q8c/5u/7Gz8w=="],
+
+    "canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
 
     "ccount": ["ccount@2.0.1", "", {}, "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg=="],
 
@@ -3164,8 +3024,6 @@
 
     "@babel/generator/@babel/types": ["@babel/types@8.1.0", "", { "dependencies": { "@babel/helper-string-parser": "^8.0.8", "@babel/helper-validator-identifier": "^8.0.6" } }, "sha512-8V8aSTDx012YPmDQF30vrokyxVFdRAU2YBS2VzrnfLAGkP8floVnjckwgFcD0Jrvf6GWMSRdCrYVsk3tyMwZRg=="],
 
-    "@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
-
     "@babel/helper-annotate-as-pure/@babel/types": ["@babel/types@8.1.0", "", { "dependencies": { "@babel/helper-string-parser": "^8.0.8", "@babel/helper-validator-identifier": "^8.0.6" } }, "sha512-8V8aSTDx012YPmDQF30vrokyxVFdRAU2YBS2VzrnfLAGkP8floVnjckwgFcD0Jrvf6GWMSRdCrYVsk3tyMwZRg=="],
 
     "@babel/helper-compilation-targets/@babel/helper-validator-option": ["@babel/helper-validator-option@7.29.7", "", {}, "sha512-N9ZErrD+yW5geCDtBqnOoxmR8+tNKiGuxKlDpuJxfsqpa2dFcexaziGAE/qoHLiDDreVNMupxGmSoNlyvsA3gw=="],
@@ -3208,6 +3066,28 @@
 
     "@bruits/satteri-wasm32-wasi/@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.6", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || 2.0.0-beta.2", "@emnapi/runtime": "^1.7.1 || 2.0.0-beta.2" } }, "sha512-mRyDmEw9/fCDXCGfL1sbgIw/GUK0PVxRW4YwgPN61F3LQ+fSyoBFarJVzgGyhF6kRzEQZ0FejDqm4WLXSeqQmw=="],
 
+    "@canopy/cli/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/example-auth-notes/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/example-express-dropin/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/example-graphql-vue/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/example-next-ssr/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/example-todo-react/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/realtime/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/sdk-e2e/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/server/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/storage/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
+    "@canopy/studio-app/canopy.js": ["canopy.js@file:../Canopy.js", { "devDependencies": { "@biomejs/biome": "2.6.4", "@changesets/cli": "3.0.3", "@sveltejs/vite-plugin-svelte": "7.3.1", "@tanstack/db": "1.0.0-rc.1.3", "@testing-library/dom": "10.4.2", "@testing-library/react": "16.3.3", "@types/node": "24.19.2", "@types/react": "19.3.0", "@types/react-dom": "19.3.0", "@vitest/coverage-v8": "5.0.5", "fake-indexeddb": "6.2.7", "fast-check": "4.10.2", "happy-dom": "21.0.4", "react": "19.3.1", "react-dom": "19.3.1", "solid-js": "1.9.18", "svelte": "5.57.3", "typescript": "6.0.3", "vite": "8.3.5", "vitest": "5.0.5", "vue": "3.5.44" }, "peerDependencies": { "@tanstack/db": "^1.0.0-rc.1", "react": "^19.0.0", "solid-js": "^1.8.0", "svelte": "^5.7.0", "vue": "^3.4.0" }, "optionalPeers": ["@tanstack/db", "react", "solid-js", "svelte", "vue"] }],
+
     "@emnapi/core/tslib": ["tslib@2.9.1", "", {}, "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA=="],
 
     "@emnapi/runtime/tslib": ["tslib@2.9.1", "", {}, "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA=="],
@@ -3235,6 +3115,8 @@
     "@graphql-yoga/typed-event-target/tslib": ["tslib@2.9.1", "", {}, "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA=="],
 
     "@img/sharp-wasm32/@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
+
+    "@jridgewell/remapping/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@napi-rs/cli/semver": ["semver@7.8.6", "", { "bin": { "semver": "bin/semver.js" } }, "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw=="],
 
@@ -3418,6 +3300,8 @@
 
     "@astrojs/compiler-binding-wasm32-wasi/@emnapi/runtime/tslib": ["tslib@2.9.1", "", {}, "sha512-a4Ux9VKuIMHsOS7ENbEq6hK2ZGYIT27Rtl0E4eD9KqwxhKiQeMZE/9xb3IdYwWaSOyIBQLExhQgXDTYoiCxnWA=="],
 
+    "@babel/core/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
+
     "@babel/core/@babel/traverse/@babel/helper-globals": ["@babel/helper-globals@7.29.7", "", {}, "sha512-3nQVUAtvkKH9zahfWgw96Jc/uFOmjACE1kQz82E2lqWmHBgjzbNlsC22nuQTfahmWeQtTq5nQ/4Nnd2A1wj4zA=="],
 
     "@babel/generator/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
@@ -3473,8 +3357,6 @@
     "@babel/parser/@babel/types/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
 
     "@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
-
-    "@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@babel/traverse/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
 
@@ -3564,6 +3446,8 @@
 
     "@tailwindcss/node/lightningcss/lightningcss-win32-x64-msvc": ["lightningcss-win32-x64-msvc@1.32.0", "", { "os": "win32", "cpu": "x64" }, "sha512-Amq9B/SoZYdDi1kFrojnoqPLxYhQ4Wo5XiL8EVJrVsB8ARoC1PWW6VGtT0WKCemjy8aC+louJnjS7U18x3b06Q=="],
 
+    "@tanstack/router-utils/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
+
     "@vue/compiler-sfc/postcss/nanoid": ["nanoid@3.3.20", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-uKdg2G3GNCKQn9byYOpxbGqrT2fGO5KRt5J/8b3pok8rT6qxGWF6hxMyJiEYtAf+FVyYuD9hRaDqX5uPFYJ4ZQ=="],
 
     "babel-dead-code-elimination/@babel/traverse/@babel/generator": ["@babel/generator@7.29.12", "", { "dependencies": { "@babel/parser": "^7.29.12", "@babel/types": "^7.29.11", "@jridgewell/gen-mapping": "^0.3.12", "@jridgewell/trace-mapping": "^0.3.28", "jsesc": "^3.0.2" } }, "sha512-2W76mhjrpQFO1lK5e8IvGYB2D0YZ7S2R1Z2BjO2ZUYuW+amcpK/z60U6ZZmzskwoa7sJ6XohP/Wg8H5KxXI/IA=="],
@@ -3580,15 +3464,13 @@
 
     "@babel/helper-member-expression-to-functions/@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
 
-    "@babel/helper-member-expression-to-functions/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
+    "@babel/helper-module-imports/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
+
+    "@babel/helper-module-transforms/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@babel/helper-skip-transparent-expression-wrappers/@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
 
-    "@babel/helper-skip-transparent-expression-wrappers/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
-
     "@stryker-mutator/instrumenter/@babel/core/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
-
-    "@stryker-mutator/instrumenter/@babel/core/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@stryker-mutator/instrumenter/@babel/core/@babel/helper-compilation-targets/@babel/compat-data": ["@babel/compat-data@8.0.5", "", {}, "sha512-YLsYoQMvL8l8WrGpN3Zj7O1wK5LEBN+cQtux7BcuHyxIXve724XG+zuJ1n3U1cUweRtTzQOA4IHbuQw3N34SZw=="],
 
@@ -3611,6 +3493,8 @@
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/helper-create-class-features-plugin": ["@babel/helper-create-class-features-plugin@8.0.10", "", { "dependencies": { "@babel/helper-annotate-as-pure": "^8.0.0", "@babel/helper-member-expression-to-functions": "^8.0.5", "@babel/helper-optimise-call-expression": "^8.0.0", "@babel/helper-replace-supers": "^8.0.1", "@babel/helper-skip-transparent-expression-wrappers": "^8.0.0", "@babel/traverse": "^8.0.10", "verkit": "^0.5.0" }, "peerDependencies": { "@babel/core": "^8.0.0" } }, "sha512-a97s55BatmvDeeQ9rngs/IPi1aeQ3vVUbXr0DsNGhzF/vB2w49N+FqD+D0/YEGLziU7zALhrKFlk6FGlvbM38w=="],
 
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/plugin-syntax-typescript": ["@babel/plugin-syntax-typescript@8.0.3", "", { "dependencies": { "@babel/helper-plugin-utils": "^8.0.1" }, "peerDependencies": { "@babel/core": "^8.0.0" } }, "sha512-jmTPwps7oSQSZaV1SxkQ3C12UWyufGysGc5OzDpZzvPAIX4mO7dJT3hoqkWVrSImvkcMiknir1iLN1SNV/CZzg=="],
+
+    "babel-dead-code-elimination/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.3.13", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA=="],
 
     "@stryker-mutator/instrumenter/@babel/plugin-proposal-decorators/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/code-frame": ["@babel/code-frame@8.0.6", "", { "dependencies": { "@babel/helper-validator-identifier": "^8.0.6", "js-tokens": "^10.0.0" } }, "sha512-uMHhvmDmwFiLuiozaoRYTZHqMFuu3fem/X9JY78lohAuLoh8LSGGC8JqUzo2cVuBsBxkjMZNk56CE7ock8Xxkw=="],
 
@@ -3639,8 +3523,6 @@
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/helper-create-class-features-plugin/@babel/traverse": ["@babel/traverse@8.1.0", "", { "dependencies": { "@babel/code-frame": "^8.0.6", "@babel/generator": "^8.1.0", "@babel/helper-globals": "^8.0.6", "@babel/parser": "^8.1.0", "@babel/template": "^8.0.0", "@babel/types": "^8.1.0", "obug": "^3.0.0" } }, "sha512-oQ0QI6MR4cm6bOR/Ua5HLPxvO7vborT7Le5HNt9GmZUKpNsaPl2yj4gsQ440lXaZjc4vmUbSeVgEcK4cHuCL2A=="],
 
     "@stryker-mutator/instrumenter/@babel/plugin-proposal-decorators/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
-
-    "@stryker-mutator/instrumenter/@babel/plugin-proposal-decorators/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@stryker-mutator/instrumenter/@babel/plugin-proposal-decorators/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
 
@@ -3678,17 +3560,11 @@
 
     "@stryker-mutator/instrumenter/@babel/preset-react/@babel/plugin-transform-react-jsx/@babel/helper-module-imports/@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
 
-    "@stryker-mutator/instrumenter/@babel/preset-react/@babel/plugin-transform-react-jsx/@babel/helper-module-imports/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
-
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-modules-commonjs/@babel/helper-module-transforms/@babel/helper-module-imports/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
-
-    "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-modules-commonjs/@babel/helper-module-transforms/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-modules-commonjs/@babel/helper-module-transforms/@babel/traverse/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
 
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/code-frame/@babel/helper-validator-identifier": ["@babel/helper-validator-identifier@8.0.6", "", {}, "sha512-HYx0YmuchRxRSpnjvcNffnPS8DCauKNmnumIuHG3jnQAVewRA7kfJGwF13ayEpSZs7s4R/oBH4eppuXcAQd5JQ=="],
-
-    "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/generator/@jridgewell/gen-mapping": ["@jridgewell/gen-mapping@0.4.0-beta.0", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.6.0-beta.0", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-JdGNkbE4GlNPYQhM0L95fBQr7ctLZJ276QXQLTad4t1oSdnnCI3fDq9DW3BqYAWv8Wc3+HS+4Gsii1oPMCfz1w=="],
 
     "@stryker-mutator/instrumenter/@babel/preset-typescript/@babel/plugin-transform-typescript/@babel/helper-create-class-features-plugin/@babel/traverse/@babel/types/@babel/helper-string-parser": ["@babel/helper-string-parser@8.0.8", "", {}, "sha512-fVM+gSuKbdv9cpmyRNh5EvsDHUZCdxQH3FdnFKSkNYHpbsn95bbrxm+ES3MVeQjcqwi2O5ur/DjLfmTQaO60ng=="],
 

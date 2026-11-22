@@ -1,0 +1,32 @@
+{
+  "name": "@canopy/sdk-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End to end tests of the Canopy server through canopy.js, the TypeScript library: realtime, REST, auth, offline queues, sharded clusters and generated types.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -b",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@canopy/config": "workspace:*",
+    "@canopy/matcher": "workspace:*",
+    "@canopy/policy": "workspace:*",
+    "@canopy/protocol": "workspace:*",
+    "@canopy/query": "workspace:*",
+    "@canopy/realtime": "workspace:*",
+    "@canopy/rest": "workspace:*",
+    "@canopy/schema": "workspace:*",
+    "@canopy/server": "workspace:*",
+    "@canopy/testing": "workspace:*",
+    "@types/node": "catalog:",
+    "canopy.js": "0.0.0",
+    "fast-check": "catalog:",
+    "graphql-ws": "catalog:",
+    "jose": "catalog:",
+    "mongodb": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

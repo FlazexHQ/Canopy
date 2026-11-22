@@ -24,7 +24,7 @@ The second factor is active once a first code is confirmed. `disableTwoFactor({ 
 ## Signing in with a second factor
 
 ```ts
-import { AuthError } from "@canopy/client/auth"
+import { AuthError } from "canopy.js/auth"
 
 try {
   await auth.signInWithPassword({ email, password })

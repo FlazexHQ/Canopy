@@ -4,3 +4,8 @@ exact = true
 minimumReleaseAge = 604800
 # ui-sdk is newer than the release age window; Studio pins its exact beta in the catalog.
 minimumReleaseAgeExcludes = ["@ui-sdk/core", "@ui-sdk/react"]
+
+[fmt]
+printWidth = 100
+semi = false
+ignorePatterns = ["docs/**", "plans/**", "api/**", "crates/*/tests/vectors/**", ".changeset/*.md", "apps/docs/src/content/**", "**/routeTree.gen.ts", "deploy/helm/*/templates/**", "**/.next/**", "**/next-env.d.ts", ".canopy/**", "target/**", "**/dist/**", "packages/studio/app/**", "**/canopy-gateway.json", "**/*.toml"]

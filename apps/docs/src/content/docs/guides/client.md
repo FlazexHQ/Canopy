@@ -1,6 +1,6 @@
 ---
 title: Client SDK
-description: Live queries, optimistic writes and typed collections with @canopy/client.
+description: Live queries, optimistic writes and typed collections with canopy.js.
 ---
 
 ## Run from a clone
@@ -27,9 +27,9 @@ Both use the same schema value and infer types from the `schema` option. Run `no
 
 ```js
 // @ts-check
-import { createClient } from "@canopy/client"
-import { createAuth } from "@canopy/client/auth"
-import { createRestClient } from "@canopy/client/rest"
+import { createClient } from "canopy.js"
+import { createAuth } from "canopy.js/auth"
+import { createRestClient } from "canopy.js/rest"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 const schema = defineSchema(
@@ -77,7 +77,7 @@ the `@ts-check` directive enables editor diagnostics, including checks on the pr
 <!-- snippet: declare const identityProvider: { getAccessToken(): Promise<string> } -->
 
 ```ts
-import { createClient } from "@canopy/client"
+import { createClient } from "canopy.js"
 
 const canopy = createClient({
   url: "https://api.example.com",
@@ -87,7 +87,7 @@ const canopy = createClient({
 ```
 
 `auth` is anything with a `getToken()` method: your identity provider's SDK, or `createAuth()` from
-`@canopy/client/auth` for [built in auth](/concepts/auth/). The token is read on every connect and before it
+`canopy.js/auth` for [built in auth](/concepts/auth/). The token is read on every connect and before it
 expires.
 
 ## Live queries
@@ -140,7 +140,7 @@ Declare your collections in `canopy.schema.ts` and pass the schema to the client
 the schema, and inserts take their `_id` generator and defaults from it. See [Schema in code](/guides/schema/).
 
 ```ts
-import { createClient } from "@canopy/client"
+import { createClient } from "canopy.js"
 import { schema } from "./canopy.schema.ts"
 
 const typed = createClient({ url, publishableKey, schema })
@@ -152,14 +152,14 @@ Existing handwritten `Database` types still work with `createClient<Database>()`
 
 ## One-off reads over HTTP
 
-For an export, a filter dropdown or a server job, `@canopy/client/rest` reads through the Data API with the
+For an export, a filter dropdown or a server job, `canopy.js/rest` reads through the Data API with the
 same identity and policies as a live query, without a WebSocket or a document cache. Building a query sends
 nothing; `page()`, `findById()` and `count()` each make one request.
 
 <!-- snippet: declare const signal: AbortSignal -->
 
 ```ts
-import { createRestClient } from "@canopy/client/rest"
+import { createRestClient } from "canopy.js/rest"
 import { schema } from "./canopy.schema.ts"
 
 const rest = createRestClient({ url, publishableKey, auth: { getToken }, schema })
@@ -185,7 +185,7 @@ optional field. `batch` sends several writes in one request, and you choose whet
 stored result and `replayed: true` instead of writing again.
 
 <!-- snippet: import { schema } from "./canopy.schema.ts" -->
-<!-- snippet: const rest = (await import("@canopy/client/rest")).createRestClient({ url, publishableKey, auth: { getToken }, schema }) -->
+<!-- snippet: const rest = (await import("canopy.js/rest")).createRestClient({ url, publishableKey, auth: { getToken }, schema }) -->
 
 ```ts
 await rest.from("notes").patch(
@@ -220,7 +220,7 @@ reports changes. Mutations made offline are queued and sent in order on reconnec
 | ---------------- | ------------------------------------------------------------------------------------------- |
 | `persist`        | A persister, so pending mutations and the session survive reloads                           |
 | `cacheDocuments` | Also persist live query results and show them `stale` at startup                            |
-| `fallback`       | Transports to use when WebSockets are blocked (`transports` from `@canopy/client/fallback`) |
+| `fallback`       | Transports to use when WebSockets are blocked (`transports` from `canopy.js/fallback`) |
 | `lifecycle`      | Reconnect on `online` and `visibilitychange`; `false` turns it off                          |
 | `shared`         | Share one connection between tabs, see [multi tab](/guides/multi-tab/)                      |
 | `schema`         | The schema from `canopy.schema.ts`: types, `_id` generators and defaults                    |

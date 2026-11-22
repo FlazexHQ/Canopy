@@ -29,15 +29,49 @@ clone of this repository.
 | `@canopy/storage`      | File storage with DLS policies on file metadata, on GridFS or S3 compatible stores, signed URLs, resumable |
 | `@canopy/server`       | The server: REST, GraphQL, realtime, auth and policies composed from one config with `createCanopy`        |
 | `@canopy/studio`       | The built Studio assets and a fetch style handler that serves them at `/studio`                            |
-| `@canopy/client`       | The client SDK: document cache, live queries, optimistic mutations, offline queue, reconnect and resume    |
-| `@canopy/react`        | React bindings: `CanopyProvider`, `useQuery`, `useCanopyStatus` and `createReactDb`                        |
-| `@canopy/vue`          | Vue bindings: `useQuery` returning `ShallowRef`s, `useMutation` and a plugin                               |
-| `@canopy/svelte`       | Svelte 5 bindings: `createQuery` returns a reactive object that is also a store                            |
-| `@canopy/solid`        | Solid bindings: `createQuery` with signals and a context                                                   |
-| `@canopy/tanstack-db`  | Canopy collections as TanStack DB collections, synced from live queries                                    |
-| `@canopy/devtools`     | An in page panel for the connection, subscriptions, store and pending mutations, plus development warnings |
 | `@canopy/cli`          | The `canopy` command: init, dev, doctor, policies, schema pull, diff and push, indexes and realtime images |
 | `@canopy/testing`      | Private test support: a MongoDB replica set harness and value generators                                   |
+| `@canopy/sdk-e2e`      | Private end to end tests of the server through canopy.js                                                   |
+
+Applications use Canopy through **canopy.js**, the TypeScript library, which lives in its own repository
+([FlazexHQ/Canopy.js](https://github.com/FlazexHQ/Canopy.js), cloned next to this one): the client, the React, Vue, Svelte, Solid and TanStack DB
+bindings, devtools, and the policy, schema and config DSLs, all in one package (`canopy.js`,
+`canopy.js/react`, `canopy.js/policy`, ...). Canopy depends on it for Studio, GraphQL subscriptions and the
+end to end tests; until it is on npm, the root `package.json` points `canopy.js` at that checkout, so clone
+both side by side and run `bun install && bun run build` in Canopy.js first.
+
+## Run Canopy as containers
+
+The quickest way to run the whole platform is the container stack: each part of Canopy is its own container
+with its own health check and restart policy, so one that fails leaves the others up.
+
+| Service    | Serves                                                                                                |
+| ---------- | ----------------------------------------------------------------------------------------------------- |
+| `database` | MongoDB as a single node replica set (change streams and transactions need one)                       |
+| `api`      | The Data API (`/rest/v1`), GraphQL, built in auth, storage, the admin API and webhooks                |
+| `realtime` | Realtime connections (`/realtime/v1`): live queries and optimistic mutations                          |
+| `studio`   | The admin dashboard (`/studio`), static files with no database access of its own                      |
+| `edge`     | The one public entry: routes each path to its service and answers 503 only for a service that is down |
+
+```bash
+git clone https://github.com/FlazexHQ/Canopy.git
+git clone https://github.com/FlazexHQ/Canopy.js.git
+cd Canopy
+bun run stack:up
+```
+
+Then open <http://localhost:8080/studio> and claim the project with the setup token from
+`docker compose -f deploy/compose/canopy.yaml logs api`. Policies are read from `deploy/compose/policies`
+(`CANOPY_POLICY_DIR` picks another folder) and reloaded when they change; write them with
+`canopy.js/policy`. `deploy/compose/production.yaml` is the same stack against your own replica set, with
+every secret required and automatic HTTPS when `CANOPY_SITE` is a domain name. The api and realtime services
+run one image, `deploy/docker/canopy.Dockerfile`, with `CANOPY_ROLE` set to `api` or `realtime`; without
+it the image runs the whole platform in one process.
+
+Projects using canopy.js can start their own development stack with `bun run canopy-stack up --build ../Canopy`
+from the project directory. Adjust the checkout path to match your layout. The command uses the Canopy.js
+checkout next to Canopy by default. The local build is required while the images are unpublished.
+See [Run Canopy in the canopy.js README](https://github.com/FlazexHQ/Canopy.js#run-canopy).
 
 ## Quickstart: sign up and see a live query in five minutes
 
@@ -79,8 +113,8 @@ The schema types every query and write, and generates each new note's ObjectId:
 <!-- snippet: declare const userId: string -->
 
 ```ts
-import { createClient } from "@canopy/client"
-import { createAuth } from "@canopy/client/auth"
+import { createClient } from "canopy.js"
+import { createAuth } from "canopy.js/auth"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 // web/canopy.schema.ts (shortened)
@@ -111,13 +145,13 @@ await added // resolves once the server has stored it, rejects if a policy refus
 ```
 
 A page that only needs one read, such as a server rendered list, can fetch it over HTTP without opening a
-socket. `createRestClient` from `@canopy/client/rest` takes the same options:
+socket. `createRestClient` from `canopy.js/rest` takes the same options:
 
 <!-- snippet: declare const userId: string -->
 
 ```ts
-import { createAuth } from "@canopy/client/auth"
-import { createRestClient } from "@canopy/client/rest"
+import { createAuth } from "canopy.js/auth"
+import { createRestClient } from "canopy.js/rest"
 import { collection, defineSchema, t } from "@canopy/schema/define"
 
 const schema = defineSchema(
@@ -179,6 +213,7 @@ checks both against `mongodb://localhost:27017/?replicaSet=rs0`.
 | Run tests through Turborepo    | `bun run test`                                                  |
 | Add a changeset                | `bun run changeset`                                             |
 | Run Canopy locally from source | `bun run dev` (uses `deploy/dev/`, needs the replica set above) |
+| Run the container stack        | `bun run stack:up`, then `bun run stack:down`                   |
 | Stop the database              | `bun run db:down`                                               |
 
 ## Repository layout
@@ -187,8 +222,8 @@ checks both against `mongodb://localhost:27017/?replicaSet=rs0`.
 | ----------------- | ----------------------------------------------------------------------------------------------- |
 | `packages/`       | The `@canopy/*` libraries (not published yet)                                                   |
 | `apps/`           | `studio` (the admin dashboard) and `docs` (the documentation site)                              |
-| `examples/`       | Runnable example apps with end to end tests                                                     |
-| `deploy/`         | Docker Compose files and deployment assets                                                      |
+| `examples/`       | Runnable example apps that embed the server, with end to end tests                              |
+| `deploy/`         | The container stack (`compose/`), Dockerfiles, the edge (`compose/edge/Caddyfile`) and binaries |
 | `docs/`           | Design documents, decision records and spike write ups, from [`docs/README.md`](docs/README.md) |
 | `plans/`          | The improvement plan and its status                                                             |
 | `tools/`          | Standalone repository tools (`repo-check`), not workspace members                               |

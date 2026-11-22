@@ -1,4 +1,6 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes } from "node:crypto"
+import { sha256 as hashSha256 } from "@canopy/auth/crypto"
+import { needsPasswordRehash } from "@canopy/auth-builtin/password-hashing"
 import type { Environment } from "@canopy/config"
 import {
   ConflictError,
@@ -20,6 +22,7 @@ import {
   checkPasswordStrength,
   DUMMY_PASSWORD_HASH,
   hashPassword,
+  verifyLoginPassword,
   verifyPassword,
 } from "./passwords.ts"
 import { lockoutMs, RateLimiter } from "./rate-limit.ts"
@@ -134,7 +137,7 @@ const INVALID_LOGIN = "Invalid email or password"
 
 /** The hex SHA-256 of a token, which is all the meta database stores of session and API tokens. */
 export function sha256(value: string): string {
-  return createHash("sha256").update(value).digest("hex")
+  return hashSha256(value).toString("hex")
 }
 
 function token(prefix: string): string {
@@ -403,7 +406,10 @@ export class AdminAccounts {
         details: { retryAfterSeconds: Math.ceil((user.lockedUntil.getTime() - this.now()) / 1000) },
       })
     }
-    const matches = await verifyPassword(input.password, user?.passwordHash ?? DUMMY_PASSWORD_HASH)
+    const matches = await verifyLoginPassword(
+      input.password,
+      user?.passwordHash ?? DUMMY_PASSWORD_HASH,
+    )
     if (user === null || !matches || user.disabled)
       return this.failLogin(
         user,
@@ -438,6 +444,14 @@ export class AdminAccounts {
         { $set: { "totp.lastStep": step, "totp.confirmed": true } },
       )
       if (claimed.modifiedCount === 0) return this.failLogin(user, email, origin, "totp reused")
+    }
+
+    if (needsPasswordRehash(user.passwordHash)) {
+      const passwordHash = await hashPassword(input.password)
+      await this.users.updateOne(
+        { _id: user._id, passwordHash: user.passwordHash },
+        { $set: { passwordHash } },
+      )
     }
 
     const now = new Date(this.now())

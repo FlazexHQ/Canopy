@@ -1,5 +1,5 @@
-import { createServerClient, dehydrate } from "@canopy/client/server"
-import { Hydrate } from "@canopy/react"
+import { Hydrate } from "canopy.js/react"
+import { createServerClient, dehydrate } from "canopy.js/server"
 import type { ReactNode } from "react"
 import { Articles } from "./articles.tsx"
 import { CANOPY_KEY, CANOPY_URL, type Database, LATEST } from "./canopy.ts"

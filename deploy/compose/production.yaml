@@ -1,6 +1,11 @@
-# Canopy in production with Docker Compose, against a MongoDB replica set you run elsewhere (Atlas, a managed
-# service, or your own three member set). From the repository root:
+# Canopy in production with Docker Compose, as separate containers, against a MongoDB replica set you run
+# elsewhere (Atlas, a managed service, or your own three member set). From a folder that holds Canopy and
+# Canopy.js side by side:
 #   docker compose -f deploy/compose/production.yaml --env-file canopy.env up -d --build --wait
+#
+# Services: api (Data API, GraphQL, auth, storage, admin API, webhooks), realtime (/realtime/v1), studio
+# (/studio) and edge, the only one that publishes a public port. Each has its own restart policy and health
+# check, and the edge answers 503 for the routes of a service that is down while the others keep working.
 #
 # Nothing here has a default: compose refuses to start until every required setting is in canopy.env (or the
 # environment). Generate the keys once and keep them in a secret store:
@@ -10,55 +15,132 @@
 #   CANOPY_METRICS_TOKEN=$(openssl rand -hex 24)
 #
 # Required: MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS, CANOPY_METRICS_TOKEN.
-# Optional: CANOPY_DB (app), CANOPY_PORT (8080), CANOPY_PUBLIC_URL, CANOPY_CORS_ORIGINS, CANOPY_TRUSTED_PROXIES,
-# the CANOPY_JWT_* settings of an external identity provider, CANOPY_POLICY_DIR (./policies), CANOPY_IMAGE.
-# The metrics port is published on the host loopback address only. Put a TLS terminating proxy in front of
-# port 8080 and list it in CANOPY_TRUSTED_PROXIES.
+# Optional: CANOPY_SITE (a domain name for automatic HTTPS on ports 80 and 443; ":8080" serves plain HTTP for
+# a TLS proxy of your own), CANOPY_DB (app), CANOPY_PUBLIC_URL, CANOPY_CORS_ORIGINS, the CANOPY_JWT_* settings
+# of an external identity provider, CANOPY_POLICY_DIR (./policies), CANOPY_IMAGE, CANOPY_STUDIO_IMAGE.
+# The metrics ports (9464 for api, 9465 for realtime) are published on the host loopback address only.
 
 name: canopy-production
 
+x-canopy-image: &canopy-image
+  build:
+    context: ../..
+    dockerfile: deploy/docker/canopy.Dockerfile
+    additional_contexts:
+      canopyjs: ../../../Canopy.js
+  image: ${CANOPY_IMAGE:-canopy:latest}
+
+x-canopy-hardening: &canopy-hardening
+  restart: unless-stopped
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+
+x-canopy-environment: &canopy-environment
+  CANOPY_ENV: production
+  MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI to a replica set}
+  CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:?set CANOPY_MASTER_KEY (openssl rand -base64 32)}
+  CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:?set CANOPY_PUBLISHABLE_KEYS}
+  CANOPY_SECRET_KEYS: ${CANOPY_SECRET_KEYS:?set CANOPY_SECRET_KEYS}
+  CANOPY_METRICS_TOKEN: ${CANOPY_METRICS_TOKEN:?set CANOPY_METRICS_TOKEN (16 characters or more)}
+  CANOPY_DB: ${CANOPY_DB:-app}
+  CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-}
+  CANOPY_CORS_ORIGINS: ${CANOPY_CORS_ORIGINS:-}
+  CANOPY_TRUSTED_PROXIES: 172.29.0.10
+  CANOPY_JWT_JWKS_URL: ${CANOPY_JWT_JWKS_URL:-}
+  CANOPY_JWT_ISSUER: ${CANOPY_JWT_ISSUER:-}
+  CANOPY_JWT_AUDIENCE: ${CANOPY_JWT_AUDIENCE:-}
+  CANOPY_JWT_ROLES_CLAIM: ${CANOPY_JWT_ROLES_CLAIM:-}
+  CANOPY_LOG_LEVEL: ${CANOPY_LOG_LEVEL:-info}
+  CANOPY_POLICIES: /app/policies
+
+x-canopy-health: &canopy-health
+  test:
+    - CMD
+    - bun
+    - -e
+    - "const r = await fetch('http://127.0.0.1:8080/readyz'); process.exit(r.ok ? 0 : 1)"
+  interval: 5s
+  timeout: 5s
+  retries: 12
+  start_period: 10s
+
 services:
-  canopy:
-    build:
-      context: ../..
-      dockerfile: deploy/docker/canopy.Dockerfile
-    image: ${CANOPY_IMAGE:-canopy:latest}
-    restart: unless-stopped
-    read_only: true
-    tmpfs: [/tmp]
-    security_opt: ["no-new-privileges:true"]
-    cap_drop: [ALL]
+  api:
+    <<: [*canopy-image, *canopy-hardening]
     ports:
-      - "${CANOPY_PORT:-8080}:8080"
       - "127.0.0.1:9464:9464"
     environment:
-      CANOPY_ENV: production
-      MONGODB_URI: ${MONGODB_URI:?set MONGODB_URI to a replica set}
-      CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:?set CANOPY_MASTER_KEY (openssl rand -base64 32)}
-      CANOPY_PUBLISHABLE_KEYS: ${CANOPY_PUBLISHABLE_KEYS:?set CANOPY_PUBLISHABLE_KEYS}
-      CANOPY_SECRET_KEYS: ${CANOPY_SECRET_KEYS:?set CANOPY_SECRET_KEYS}
-      CANOPY_METRICS_TOKEN: ${CANOPY_METRICS_TOKEN:?set CANOPY_METRICS_TOKEN (16 characters or more)}
-      CANOPY_DB: ${CANOPY_DB:-app}
-      CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-}
-      CANOPY_CORS_ORIGINS: ${CANOPY_CORS_ORIGINS:-}
-      CANOPY_TRUSTED_PROXIES: ${CANOPY_TRUSTED_PROXIES:-}
-      CANOPY_JWT_JWKS_URL: ${CANOPY_JWT_JWKS_URL:-}
-      CANOPY_JWT_ISSUER: ${CANOPY_JWT_ISSUER:-}
-      CANOPY_JWT_AUDIENCE: ${CANOPY_JWT_AUDIENCE:-}
-      CANOPY_JWT_ROLES_CLAIM: ${CANOPY_JWT_ROLES_CLAIM:-}
-      CANOPY_LOG_LEVEL: ${CANOPY_LOG_LEVEL:-info}
+      <<: *canopy-environment
+      CANOPY_ROLE: api
+      CANOPY_NODE_ID: api-1
+      CANOPY_REALTIME_URL: http://realtime:8080
+      CANOPY_DRAIN_WINDOW: 10s
+    volumes:
+      - ${CANOPY_POLICY_DIR:-./policies}:/app/policies:ro
+    stop_grace_period: 20s
+    healthcheck: *canopy-health
+
+  realtime:
+    <<: [*canopy-image, *canopy-hardening]
+    ports:
+      - "127.0.0.1:9465:9464"
+    environment:
+      <<: *canopy-environment
+      CANOPY_ROLE: realtime
+      CANOPY_NODE_ID: realtime-1
       CANOPY_DRAIN_WINDOW: 30s
-      CANOPY_POLICIES: /app/policies
     volumes:
       - ${CANOPY_POLICY_DIR:-./policies}:/app/policies:ro
     stop_grace_period: 45s
+    healthcheck: *canopy-health
+
+  studio:
+    <<: *canopy-hardening
+    build:
+      context: ../..
+      dockerfile: deploy/docker/canopy-studio.Dockerfile
+      additional_contexts:
+        canopyjs: ../../../Canopy.js
+    image: ${CANOPY_STUDIO_IMAGE:-canopy-studio:latest}
     healthcheck:
       test:
         - CMD
         - bun
         - -e
-        - "const r = await fetch('http://127.0.0.1:8080/readyz'); process.exit(r.ok ? 0 : 1)"
-      interval: 5s
+        - "const r = await fetch('http://127.0.0.1:8080/healthz'); process.exit(r.ok ? 0 : 1)"
+      interval: 10s
       timeout: 5s
-      retries: 12
-      start_period: 10s
+      retries: 6
+      start_period: 5s
+
+  edge:
+    image: ${CANOPY_EDGE_IMAGE:-caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b}
+    restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "${CANOPY_PORT:-8080}:8080"
+    environment:
+      CANOPY_SITE: ${CANOPY_SITE:-:8080}
+    volumes:
+      - ./edge/Caddyfile:/etc/caddy/Caddyfile:ro
+      - edge-data:/data
+      - edge-config:/config
+    networks:
+      default:
+        ipv4_address: 172.29.0.10
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  edge-data: {}
+  edge-config: {}

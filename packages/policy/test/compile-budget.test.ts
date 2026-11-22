@@ -80,44 +80,48 @@ function schema(dir: string): string {
 }
 
 describe("typed policies on a large schema", () => {
-  it(`check ${COLLECTIONS} collections of ${FIELDS} fields within the instantiation budget`, {
-    timeout: 120_000,
-  }, async () => {
-    await mkdir(cache, { recursive: true })
-    const dir = await mkdtemp(join(cache, "budget-"))
-    try {
-      await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }))
-      await writeFile(join(dir, "policies.ts"), schema(dir))
-      await writeFile(
-        join(dir, "tsconfig.json"),
-        JSON.stringify({
-          extends: resolve(import.meta.dirname, "../../../tsconfig.universal.json"),
-          compilerOptions: {
-            noEmit: true,
-            composite: false,
-            incremental: false,
-            declaration: false,
-            declarationMap: false,
-            isolatedDeclarations: false,
-            allowImportingTsExtensions: true,
-            customConditions: ["@canopy/source"],
-          },
-          files: ["policies.ts"],
-        }),
-      )
-      const result = await run(
-        process.execPath,
-        [tsc, "-p", join(dir, "tsconfig.json"), "--extendedDiagnostics"],
-        { maxBuffer: 16 * 1024 * 1024 },
-      ).catch((error: unknown) => {
-        const failed = error as { stdout?: string; stderr?: string }
-        throw new Error(`tsc failed:\n${failed.stdout ?? ""}${failed.stderr ?? ""}`)
-      })
-      const instantiations = Number(/Instantiations:\s+(\d+)/.exec(result.stdout)?.[1] ?? NaN)
-      expect(instantiations).toBeGreaterThan(0)
-      expect(instantiations).toBeLessThan(INSTANTIATION_BUDGET)
-    } finally {
-      await rm(dir, { recursive: true, force: true })
-    }
-  })
+  it(
+    `check ${COLLECTIONS} collections of ${FIELDS} fields within the instantiation budget`,
+    {
+      timeout: 120_000,
+    },
+    async () => {
+      await mkdir(cache, { recursive: true })
+      const dir = await mkdtemp(join(cache, "budget-"))
+      try {
+        await writeFile(join(dir, "package.json"), JSON.stringify({ type: "module" }))
+        await writeFile(join(dir, "policies.ts"), schema(dir))
+        await writeFile(
+          join(dir, "tsconfig.json"),
+          JSON.stringify({
+            extends: resolve(import.meta.dirname, "../../../tsconfig.universal.json"),
+            compilerOptions: {
+              noEmit: true,
+              composite: false,
+              incremental: false,
+              declaration: false,
+              declarationMap: false,
+              isolatedDeclarations: false,
+              allowImportingTsExtensions: true,
+              customConditions: ["@canopy/source"],
+            },
+            files: ["policies.ts"],
+          }),
+        )
+        const result = await run(
+          process.execPath,
+          [tsc, "-p", join(dir, "tsconfig.json"), "--extendedDiagnostics"],
+          { maxBuffer: 16 * 1024 * 1024 },
+        ).catch((error: unknown) => {
+          const failed = error as { stdout?: string; stderr?: string }
+          throw new Error(`tsc failed:\n${failed.stdout ?? ""}${failed.stderr ?? ""}`)
+        })
+        const instantiations = Number(/Instantiations:\s+(\d+)/.exec(result.stdout)?.[1] ?? NaN)
+        expect(instantiations).toBeGreaterThan(0)
+        expect(instantiations).toBeLessThan(INSTANTIATION_BUDGET)
+      } finally {
+        await rm(dir, { recursive: true, force: true })
+      }
+    },
+  )
 })

@@ -19,7 +19,7 @@ One Node server (`src/app.ts`) runs everything:
   policies in `src/policies.ts` decide: a post must carry the caller's own id as `ownerId`, may only have the
   listed fields, and only its owner can delete it (another visitor's delete resolves to `null` and changes
   nothing).
-- **Live updates in Vue.** `useQuery` from `@canopy/vue` follows a live query of the posts; when it changes,
+- **Live updates in Vue.** `useQuery` from `canopy.js/vue` follows a live query of the posts; when it changes,
   the page reads the board again through GraphQL, so a post from another visitor appears at once.
 - **Types from validators.** `src/schema.ts` gives both collections a `$jsonSchema` validator, which the
   GraphQL schema is generated from, so the fields are typed before the first post exists.

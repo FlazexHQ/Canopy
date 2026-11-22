@@ -2,7 +2,7 @@ import { createCipheriv, pbkdf2, scrypt, timingSafeEqual } from "node:crypto"
 import { promisify } from "node:util"
 import type { ImportedPasswordHash } from "@canopy/auth"
 import { ValidationError } from "@canopy/protocol"
-import { argon2Verify, bcryptVerify } from "hash-wasm"
+import { argon2id, bcryptVerify } from "hash-wasm"
 
 const pbkdf2Async = promisify(pbkdf2)
 const scryptAsync = promisify(scrypt) as (
@@ -104,6 +104,27 @@ function equal(a: Buffer, b: Buffer): boolean {
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
+async function verifyImportedArgon2id(stored: string, password: string): Promise<boolean> {
+  const match =
+    /^\$argon2id\$v=19\$(?:[mtp]=\d+,){2}[mtp]=\d+\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)$/.exec(
+      stored,
+    )
+  if (match?.[1] === undefined || match[2] === undefined) return false
+  checkArgon2(stored)
+  const tag = Buffer.from(match[2], "base64")
+  if (tag.toString("base64").replace(/=+$/, "") !== match[2]) return false
+  const derived = await argon2id({
+    password,
+    salt: Buffer.from(match[1], "base64"),
+    memorySize: argon2Parameter(stored, "m"),
+    iterations: argon2Parameter(stored, "t"),
+    parallelism: argon2Parameter(stored, "p"),
+    hashLength: tag.length,
+    outputType: "binary",
+  })
+  return equal(Buffer.from(derived), tag)
+}
+
 /**
  * Checks a password against an imported hash. bcrypt and argon2id use their encoded parameters; PBKDF2
  * uses the given digest and iterations; Firebase's modified scrypt derives a key with scrypt over the salt
@@ -121,7 +142,7 @@ export async function verifyLegacyHash(stored: string, password: string): Promis
       case "bcrypt":
         return await bcryptVerify({ password, hash: rest })
       case "argon2id":
-        return await argon2Verify({ password, hash: rest })
+        return await verifyImportedArgon2id(rest, password)
       case "pbkdf2-sha1":
       case "pbkdf2-sha256":
       case "pbkdf2-sha512": {

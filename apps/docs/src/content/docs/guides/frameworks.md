@@ -11,13 +11,13 @@ and accessors below are typed by it with no type argument.
 ## React
 
 ```bash
-bun add @canopy/client @canopy/react
+bun add canopy.js canopy.js/react
 ```
 
 <!-- snippet: registered -->
 
 ```tsx
-import { CanopyProvider, createReactDb, useCanopyStatus, useDocument } from "@canopy/react"
+import { CanopyProvider, createReactDb, useCanopyStatus, useDocument } from "canopy.js/react"
 
 const db = createReactDb(canopy)
 
@@ -51,11 +51,11 @@ built in auth, `useMutationError()` and `useStaleMutations()` surface failed and
 ## Vue
 
 ```bash
-bun add @canopy/client @canopy/vue
+bun add canopy.js canopy.js/vue
 ```
 
 ```ts
-import { canopyPlugin } from "@canopy/vue"
+import { canopyPlugin } from "canopy.js/vue"
 import { createApp } from "vue"
 import App from "./App.vue"
 
@@ -65,7 +65,7 @@ createApp(App).use(canopyPlugin(canopy)).mount("#app")
 ```vue
 <script setup lang="ts">
 import { ref } from "vue"
-import { useCanopy, useMutation, useQuery } from "@canopy/vue"
+import { useCanopy, useMutation, useQuery } from "canopy.js/vue"
 
 const canopy = useCanopy()
 const showDone = ref(false)
@@ -86,12 +86,12 @@ status.
 ## Svelte 5
 
 ```bash
-bun add @canopy/client @canopy/svelte
+bun add canopy.js canopy.js/svelte
 ```
 
 ```svelte
 <script lang="ts">
-  import { createQuery, getCanopy } from "@canopy/svelte"
+  import { createQuery, getCanopy } from "canopy.js/svelte"
 
   const canopy = getCanopy()
   const todos = createQuery(canopy.from("todos").find({ done: false }))
@@ -109,7 +109,7 @@ connection status.
 ## Solid
 
 ```bash
-bun add @canopy/client @canopy/solid
+bun add canopy.js canopy.js/solid
 ```
 
 <!-- snippet: registered -->
@@ -117,7 +117,7 @@ bun add @canopy/client @canopy/solid
 <!-- snippet: declare const root: HTMLElement -->
 
 ```tsx
-import { CanopyProvider, createQuery, useCanopy } from "@canopy/solid"
+import { CanopyProvider, createQuery, useCanopy } from "canopy.js/solid"
 import { createSignal, For } from "solid-js"
 import { render } from "solid-js/web"
 

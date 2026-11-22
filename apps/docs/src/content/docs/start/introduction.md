@@ -17,8 +17,8 @@ and the edge.
 | GraphQL            | `@canopy/graphql`                         | A schema generated per role set, with relations, subscriptions and limits  |
 | Auth               | `@canopy/auth-builtin`                    | Built in users, sessions, TOTP and passkeys, or your own identity provider |
 | Server             | `@canopy/server`                          | All of the above in one process, plus the admin API and Studio             |
-| Client SDK         | `@canopy/client`                          | A document cache with live queries, optimistic writes and offline support  |
-| Framework bindings | `@canopy/react`, `vue`, `svelte`, `solid` | Hooks, composables, runes and signals over the client                      |
+| Client SDK         | `canopy.js`                          | A document cache with live queries, optimistic writes and offline support  |
+| Framework bindings | `canopy.js/react`, `vue`, `svelte`, `solid` | Hooks, composables, runes and signals over the client                      |
 | CLI                | `@canopy/cli`                             | Policies, types, migrations, keys, user import and remote projects         |
 
 ## Three ways to run it

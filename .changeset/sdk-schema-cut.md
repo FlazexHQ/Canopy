@@ -1,6 +1,5 @@
 ---
 "@canopy/cli": major
-"@canopy/client": major
 ---
 
 Remove `canopy gen types` and `canopy dev --types`. Use `canopy pull` to create a schema and `canopy schema diff` to check drift in CI.

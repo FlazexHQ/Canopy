@@ -36,7 +36,7 @@ const IMPORTS = [
 
 /** Options for {@link generateTypes}. */
 export interface GenerateOptions {
-  /** The module the BSON classes are imported from. Defaults to `@canopy/client`. */
+  /** The module the BSON classes are imported from. Defaults to `canopy.js`. */
   readonly importFrom?: string
   /** A note for the header, for example the role the types were generated for. */
   readonly note?: string
@@ -140,7 +140,7 @@ export function generateTypes(
     used.length === 0
       ? []
       : [
-          `import type { ${used.join(", ")} } from ${JSON.stringify(options.importFrom ?? "@canopy/client")}`,
+          `import type { ${used.join(", ")} } from ${JSON.stringify(options.importFrom ?? "canopy.js")}`,
           "",
         ]
   const aliases = rowAliases(schemas.map((schema) => schema.name))

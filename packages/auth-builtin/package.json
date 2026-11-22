@@ -11,6 +11,11 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
+    "./password-hashing": {
+      "types": "./dist/password-hashing.d.ts",
+      "@canopy/source": "./src/password-hashing.ts",
+      "default": "./dist/password-hashing.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -29,6 +34,7 @@
     "@better-auth/passkey": "1.7.17",
     "@canopy/auth": "workspace:*",
     "@canopy/protocol": "workspace:*",
+    "@noble/hashes": "2.4.0",
     "better-auth": "1.7.18",
     "better-call": "1.4.5",
     "hash-wasm": "catalog:",

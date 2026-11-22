@@ -165,10 +165,7 @@ export type DocumentOf<T extends PolicyTypes, C> = C extends keyof T["database"]
 
 /** The roles a policy may name: the built in ones and the declared custom roles, never `service`. */
 export type PolicyRole<T extends PolicyTypes> =
-  | "anon"
-  | "authenticated"
-  | "public"
-  | Exclude<T["roles"], "service">
+  "anon" | "authenticated" | "public" | Exclude<T["roles"], "service">
 
 /** Claim paths a policy may read. `user_metadata` is editable by users, so it is excluded. */
 export type ClaimPath<T extends PolicyTypes> = Exclude<
@@ -306,8 +303,7 @@ export type CheckPolicies<P extends readonly unknown[], Doc> = {
 
 /** A field rule over the paths of a document type. `'*'` means every field. */
 export type TypedFieldRule<Doc> =
-  | { readonly only: readonly (Path<Doc> | "*")[] }
-  | { readonly omit: readonly (Path<Doc> | "*")[] }
+  { readonly only: readonly (Path<Doc> | "*")[] } | { readonly omit: readonly (Path<Doc> | "*")[] }
 
 /** Field rules keyed by role, with `default` for roles without an entry. */
 export type TypedFieldRules<T extends PolicyTypes, Doc> = {
@@ -329,9 +325,8 @@ type LookupProblems<T extends PolicyTypes, L> = L extends {
   ? IsWide<T["database"]> extends true
     ? never
     : F extends CollectionName<T>
-      ?
-          | (S extends Path<DocumentOf<T, F>> ? never : `select: unknown field '${S}' of '${F}'`)
-          | FilterProblems<W, DocumentOf<T, F>>
+      ? | (S extends Path<DocumentOf<T, F>> ? never : `select: unknown field '${S}' of '${F}'`)
+        | FilterProblems<W, DocumentOf<T, F>>
       : `from: unknown collection '${F}'`
   : never
 

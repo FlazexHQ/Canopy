@@ -1,6 +1,5 @@
 ---
 "@canopy/matcher": minor
-"@canopy/client": minor
 ---
 
 Load the update engine lazily. `@canopy/matcher/update` is a new entry with the update operators, and the

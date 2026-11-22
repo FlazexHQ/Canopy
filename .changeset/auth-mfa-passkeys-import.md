@@ -4,7 +4,6 @@
 "@canopy/config": minor
 "@canopy/server": minor
 "@canopy/cli": minor
-"@canopy/client": minor
 ---
 
 Add TOTP second factors, passkeys and user import to built in auth.

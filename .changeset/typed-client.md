@@ -1,6 +1,4 @@
 ---
-"@canopy/client": minor
-"@canopy/react": minor
 "@canopy/schema": minor
 ---
 

@@ -1,0 +1,29 @@
+name: Check out and build Canopy.js
+description: >
+  Checks out Canopy.js, the TypeScript library, next to this repository (at ../Canopy.js, where the
+  workspace's file dependencies and the container builds expect it) and builds it. Needs Bun on the PATH.
+inputs:
+  repository:
+    description: The Canopy.js repository.
+    default: FlazexHQ/Canopy.js
+  ref:
+    description: The branch, tag or commit of Canopy.js.
+    default: master
+runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.ref }}
+        path: .canopy-js
+        persist-credentials: false
+    - name: Move Canopy.js next to Canopy and build it
+      shell: bash
+      run: |
+        target="$(dirname "$GITHUB_WORKSPACE")/Canopy.js"
+        rm -rf "$target"
+        mv "$GITHUB_WORKSPACE/.canopy-js" "$target"
+        cd "$target"
+        bun install --frozen-lockfile
+        bun run build

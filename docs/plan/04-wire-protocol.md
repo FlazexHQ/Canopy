@@ -30,6 +30,12 @@ The SDK's selection and fallback logic is described in [05 §8](05-client-sdk.md
   - `batch`: the server may send `batch` containers;
   - `diff`: `changed` carries `set`/`unset` diffs instead of full documents;
   - `msgpack`: reserved for a later binary encoding.
+- The optional `welcome.capabilities` object advertises endpoint features independently of `hello.caps`.
+  Its `mutations` boolean indicates whether the endpoint has a realtime write path. `true` still requires
+  each write to pass authorization. `false` tells SDKs to reject realtime writes, including queued writes,
+  with `CANOPY_UNAVAILABLE` and roll back their optimistic changes. Applications can write through their own
+  API or [Canopy REST](06-data-api.md). When the object is absent, mutation support is unknown and SDKs
+  may send writes as usual.
 - Within v1, changes are **additive only**. Clients must ignore unknown fields and unknown message types.
   Servers keep supporting v(N−1) for at least 12 months after vN ships.
 
@@ -88,7 +94,7 @@ connection, and `welcome` is `seq: 0`.
 
 | `t` | Fields | Meaning |
 |---|---|---|
-| `welcome` | `sid`, `v`, `resumed`, `hb` (heartbeat ms), `pv` (policy bundle hash), `ct`, `caps`, `limits` | Handshake result. `resumed: true` means replay follows. |
+| `welcome` | `sid`, `v`, `resumed`, `hb` (heartbeat ms), `pv` (policy bundle hash), `ct`, `caps`, `capabilities` (optional), `limits` | Handshake result. `resumed: true` means replay follows. |
 | `added` | `c`, `id`, `d?`, `ct`, `s` (sub IDs entering) | The document enters subscriptions `s`. `d` is omitted when the client already holds the document with every needed field. |
 | `changed` | `c`, `id`, `ct`, `set?`, `unset?`, `d?` with `replace: true`, `refetch?` | Document-level change, applied once to the cache. `set` values are absolute, so applying them twice is harmless. |
 | `removed` | `c`, `id`, `ct`, `s` (sub IDs leaving) | The document leaves subscriptions `s` |
@@ -105,7 +111,7 @@ connection, and `welcome` is `seq: 0`.
 Example:
 
 ```json
-{"t":"welcome","seq":0,"sid":"n3.Zq8c…","v":1,"resumed":false,"hb":25000,"pv":"sha256:9f2c…","ct":"7704617278242816001","caps":["batch","diff"],"limits":{"subs":100}}
+{"t":"welcome","seq":0,"sid":"n3.Zq8c…","v":1,"resumed":false,"hb":25000,"pv":"sha256:9f2c…","ct":"7704617278242816001","caps":["batch","diff"],"capabilities":{"mutations":true},"limits":{"subs":100}}
 {"t":"added","seq":1,"c":"todos","id":{"$oid":"6728f0c2a1b2c3d4e5f60718"},"d":{"_id":{"$oid":"6728f0c2a1b2c3d4e5f60718"},"title":"Ship v0.1","done":false,"createdAt":{"$date":"2026-11-05T09:30:00Z"}},"ct":"7704617278242816001","s":["s1"]}
 {"t":"ready","seq":2,"s":"s1","ct":"7704617278242816001"}
 {"t":"changed","seq":3,"c":"todos","id":{"$oid":"6728f0c2a1b2c3d4e5f60718"},"ct":"7704617295422685185","set":{"done":true}}

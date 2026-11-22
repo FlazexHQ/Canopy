@@ -29,7 +29,7 @@ transactional, in its own database `canopy_auth`. User collections never touch t
 | Anonymous sign-in, with upgrade or linking to a permanent account | 3 | `is_anonymous: true` claim |
 | TOTP 2FA, passkeys | 4 | `aal` claim (`aal1` or `aal2`) for step-up policies |
 | Organizations / teams | after 1.0 | Can be modeled today with `app_metadata` + `$ctx` |
-| Prebuilt UI components (`@canopy/react-auth`) | after 1.0 | |
+| Prebuilt UI components (`canopy.js/react-auth`) | after 1.0 | |
 
 ## 3. Token model
 

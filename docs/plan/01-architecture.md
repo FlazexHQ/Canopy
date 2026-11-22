@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
   subgraph Clients
-    B["Browser / React Native<br/>@canopy/client"]
+    B["Browser / React Native<br/>canopy.js"]
     S["Your backend<br/>(secret key)"]
   end
   subgraph Edge["Canopy Edge (optional)"]
@@ -58,10 +58,10 @@ flowchart TB
 | GraphQL | `@canopy/graphql` | Bun, Node | Runtime schema generation, resolvers, subscriptions |
 | Auth | `@canopy/auth` | Bun, Node | Better Auth integration, API keys, signing keys, JWT verification for BYO IdPs |
 | Schema | `@canopy/schema` | Bun, Node | Schema inference; JSON Schema to TypeScript, OpenAPI and GraphQL |
-| Server | `@canopy/server` | Bun, Node, Docker | Composition, config loading, admin API, meta-DB migrations, Studio hosting |
-| Studio | `apps/studio` (`@canopy/studio`) | browser | Admin dashboard (SPA) |
+| Server | `@canopy/server` | Bun, Node, Docker | Composition, config loading, admin API, meta-DB migrations, Studio hosting; `CANOPY_ROLE` runs it as the `api` or `realtime` service |
+| Studio | `apps/studio` (`@canopy/studio`, `canopy-studio`) | browser | Admin dashboard (SPA), served by the server or as its own service |
 | CLI | `@canopy/cli` (`canopy` binary) | Bun, Node | `init`, `dev`, `doctor`, `policies`, `gen types`, `keys`, `admin` |
-| Client | `@canopy/client`, `@canopy/react`, `@canopy/vue`, `@canopy/svelte`, `@canopy/solid` | browser, React Native, Bun, Node, Deno, edge | SDK and framework bindings |
+| Library | `canopy.js` (its own repository): the client at the root, `canopy.js/react`, `/vue`, `/svelte`, `/solid`, `/tanstack-db`, `/devtools`, and the `/policy`, `/schema` and `/config` DSLs | browser, React Native, Bun, Node, Deno, edge | The one package applications install ([ADR-0016](../adr/0016-canopy-js-and-container-services.md)) |
 | Edge | `@canopy/edge` | Cloudflare Workers + Durable Objects | WebSocket termination and DLS-aware fan-out at the edge |
 | Testing | `@canopy/testing` | Bun, Node | Fixtures, the policy test harness, an in-process server for SDK tests |
 
@@ -107,8 +107,17 @@ from one source. A differential test suite keeps them equivalent (see
 |---|---|---|---|---|
 | **A. Sidecar** | `canopy-realtime` container next to your app | Your IdP (JWKS) | Your existing API | P1 |
 | **B. Embedded** | `@canopy/realtime` (and optionally `@canopy/rest`) mounted in your Node server | Your IdP (JWKS) | Your API, or Canopy REST | P1 |
-| **C. Platform** | The `canopy` server: auth, REST, GraphQL, realtime, Studio | Built-in or BYO | Canopy REST, GraphQL or WebSocket | P2, P3 |
+| **C. Platform** | The container stack: `database`, `api`, `realtime`, `studio` and `edge` as separate services (or the `canopy` server as one process) | Built-in or BYO | Canopy REST, GraphQL or WebSocket | P2, P3 |
 | **D. Edge fan-out** | A, B or C, plus `@canopy/edge` on Cloudflare | Same as the core | Delegated to the core | Global apps with high connection counts |
+
+Mode C runs as separate containers by default (`deploy/compose/canopy.yaml`): the `api` and `realtime`
+services run one `canopy` image with `CANOPY_ROLE=api` or `CANOPY_ROLE=realtime`, `studio` serves the dashboard
+as static files, and `edge` is the one public entry. Each service has its own health check and restart
+policy and depends on nothing but the database, so a failing service costs only its own routes: the edge
+answers them with a `503` carrying `CANOPY_UNAVAILABLE` while the others keep working. The `realtime` role
+keeps the transactional write path for mutations and runs no admin API, Studio, storage or webhooks; the
+`api` role runs no realtime engine and follows GraphQL subscriptions through the realtime service. This
+`edge` is the front door of a self hosted stack; the Cloudflare fan out tier of mode D is separate.
 
 Mode A, minimum configuration:
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useCanopy, useCanopyStatus, useQuery } from "@canopy/react"
+import { useCanopy, useCanopyStatus, useQuery } from "canopy.js/react"
 import { type ReactNode, useMemo } from "react"
 import { type Database, LATEST } from "./canopy.ts"
 

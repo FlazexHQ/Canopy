@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto"
+import { hmacSha256, sha256 } from "@canopy/auth/crypto"
 import { CanopyError, ErrorCode, NotFoundError } from "@canopy/protocol"
 import type { ByteRange, StorageBackend, UploadedPart } from "./backend.ts"
 
@@ -60,11 +60,7 @@ export interface SignInput {
 const EMPTY_HASH = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 function hex(data: Uint8Array | string): string {
-  return createHash("sha256").update(data).digest("hex")
-}
-
-function hmac(key: Uint8Array | string, data: string): Buffer {
-  return createHmac("sha256", key).update(data).digest()
+  return sha256(data).toString("hex")
 }
 
 /** Percent encodes as AWS expects (RFC 3986 unreserved characters stay; `/` stays when asked). */
@@ -113,11 +109,14 @@ export function signV4(input: SignInput): Record<string, string> {
   ].join("\n")
   const scope = `${date}/${input.region}/${input.service}/aws4_request`
   const stringToSign = ["AWS4-HMAC-SHA256", amzDate, scope, hex(canonicalRequest)].join("\n")
-  const key = hmac(
-    hmac(hmac(hmac(`AWS4${input.secretAccessKey}`, date), input.region), input.service),
+  const key = hmacSha256(
+    hmacSha256(
+      hmacSha256(hmacSha256(`AWS4${input.secretAccessKey}`, date), input.region),
+      input.service,
+    ),
     "aws4_request",
   )
-  const signature = createHmac("sha256", key).update(stringToSign).digest("hex")
+  const signature = hmacSha256(key, stringToSign).toString("hex")
   return {
     ...headers,
     authorization: `AWS4-HMAC-SHA256 Credential=${input.accessKeyId}/${scope}, SignedHeaders=${signedHeaders}, Signature=${signature}`,

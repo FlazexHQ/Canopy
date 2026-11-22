@@ -1,7 +1,7 @@
 {
   "name": "@canopy/realtime",
   "version": "0.0.0",
-  "description": "Canopy Realtime: one change stream, DLS enforced on every event, live queries over WebSockets for Bun and Node.",
+  "description": "Canopy Realtime: one change stream, DLS enforced on every event, live queries over WebSockets for Bun and Node. Ships canopy.js policy and config imports for mounted files.",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -38,6 +38,7 @@
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
     "@canopy/query": "workspace:*",
+    "canopy.js": "0.0.0",
     "ws": "catalog:"
   },
   "peerDependencies": {

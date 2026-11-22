@@ -310,8 +310,13 @@ export interface Canopy extends AsyncDisposable {
     bun(options?: {
         readonly fallback?: FetchHandler;
     }): {
-        fetch(request: Request, server: BunServerLike<never>): Response | Promise<Response> | undefined;
-        websocket?: ReturnType<typeof bunHandlers>["websocket"];
+        fetch(request: Request, server: BunServerLike<BunConnectionData>): Response | Promise<Response> | undefined;
+        websocket?: {
+            maxPayloadLength: number;
+            open(ws: BunConnectionSocket): void;
+            message(ws: BunConnectionSocket, message: string | Uint8Array): void | Promise<void>;
+            close(ws: BunConnectionSocket, code: number, reason: string): void | Promise<void>;
+        };
     };
     close(options?: {
         readonly drainMs?: number;
@@ -405,6 +410,8 @@ export interface CreateCanopyOptions {
     readonly studio?: FetchHandler | false;
     readonly onSetupToken?: ((token: string) => void) | false;
     readonly gatewayUrl?: () => string;
+    readonly realtimeUrl?: () => string;
+    readonly serves?: (pathname: string) => boolean;
 }
 
 export interface CreatedAdminToken {
@@ -725,6 +732,11 @@ export interface ResolvedConfig {
     };
 }
 
+export interface RolePlan {
+    readonly config: ResolvedConfig;
+    readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl" | "serves">;
+}
+
 const SESSION_COOKIE: "__Host-canopy_admin"
 
 const STUDIO_CSP: string
@@ -736,6 +748,8 @@ class SecretBox {
   open(sealed: string, context: string): string
   isCurrent(sealed: string, context: string): boolean
 }
+
+export type ServerRole = "all" | "api" | "realtime";
 
 export interface Settings {
     readonly auditRetentionDays: number | null;
@@ -816,9 +830,13 @@ function migrateMeta(meta: Db, options?: MigrateOptions): Promise<MigrateResult>
 
 function migrationStatus(meta: Db, migrations?: readonly MetaMigration[]): Promise<MigrationStatus[]>
 
+function parseServerRole(value: string | undefined): ServerRole
+
+function planServerRole(config: ResolvedConfig, role: ServerRole, realtimeUrl?: string): RolePlan
+
 const policyInput: import("./schema.ts").Schema<{ readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; readonly realtime: boolean; readonly exposed: boolean; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
 
-function startGatewayFrontDoor(config: ResolvedConfig, logger: Logger, options?: Pick<CreateCanopyOptions, "onSetupToken">, signal?: AbortSignal): Promise<GatewayFrontDoor>
+function startGatewayFrontDoor(config: ResolvedConfig, logger: Logger, options?: Pick<CreateCanopyOptions, "admin" | "onSetupToken" | "serves" | "studio">, signal?: AbortSignal): Promise<GatewayFrontDoor>
 
 function totp(secret: Uint8Array, timeMs: number, options?: TotpOptions): string
 

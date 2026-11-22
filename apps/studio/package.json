@@ -16,10 +16,9 @@
   },
   "dependencies": {
     "@canopy/auth": "workspace:*",
-    "@canopy/client": "workspace:*",
+    "canopy.js": "0.0.0",
     "@canopy/policy": "workspace:*",
     "@canopy/protocol": "workspace:*",
-    "@canopy/react": "workspace:*",
     "@codemirror/autocomplete": "catalog:",
     "@codemirror/commands": "catalog:",
     "@codemirror/lang-json": "catalog:",

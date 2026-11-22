@@ -1,9 +1,10 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { createReadStream, createWriteStream } from "node:fs"
 import { mkdir, open, readdir, rename, rm, stat, unlink } from "node:fs/promises"
 import { isAbsolute, join, relative, resolve } from "node:path"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
+import { sha256 } from "@canopy/auth/crypto"
 import { CanopyError, ErrorCode, NotFoundError } from "@canopy/protocol"
 import type { ByteRange, StorageBackend, UploadedPart } from "./backend.ts"
 
@@ -164,7 +165,7 @@ export async function localBackend(options: LocalOptions): Promise<StorageBacken
         throw new NotFoundError("No such upload")
       }
       await writeBytes(join(folder, String(part)), body)
-      return createHash("sha256").update(body).digest("hex")
+      return sha256(body).toString("hex")
     },
     async completeMultipart(key: string, uploadId: string, parts: readonly UploadedPart[]) {
       const folder = uploadFolder(uploadId)

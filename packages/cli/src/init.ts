@@ -54,7 +54,7 @@ export async function detectPackageManager(cwd: string): Promise<PackageManager>
   return npm[1]
 }
 
-const CONFIG = `import { defineConfig, env } from "@canopy/config"
+const CONFIG = `import { defineConfig, env } from "canopy.js/config"
 
 export default defineConfig({
   mongodb: { uri: env.secret("MONGODB_URI") },
@@ -65,7 +65,7 @@ export default defineConfig({
   policies: { dir: "./policies" },
   // Verify user tokens from your identity provider, for example:
   // auth: external.auth0({ domain: env("AUTH0_DOMAIN"), audience: "https://api.example.com" }),
-  // (import external from "@canopy/config" as well)
+  // (import external from "canopy.js/config" as well)
 })
 `
 
@@ -188,7 +188,7 @@ export async function init(options: InitOptions, out: Output): Promise<number> {
 
   out.log("")
   out.log("Next:")
-  out.log(`  1. ${manager.add} @canopy/config @canopy/policy && ${manager.addDev} @canopy/cli`)
+  out.log(`  1. ${manager.add} canopy.js && ${manager.addDev} @canopy/cli`)
   out.log(
     `  2. ${manager.exec} canopy dev --with-mongo  (starts a local MongoDB; or set MONGODB_URI in canopy/.env.local and run canopy dev)`,
   )

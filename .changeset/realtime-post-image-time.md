@@ -1,5 +1,4 @@
 ---
-"@canopy/client": patch
 "@canopy/native": patch
 "@canopy/protocol": patch
 "@canopy/realtime": patch

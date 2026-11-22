@@ -15,10 +15,10 @@ function ident(collection: string): string {
   return /^[A-Za-z_$]/.test(camel) ? camel : `c${camel}`
 }
 
-/** Creating the client with `@canopy/client`. */
+/** Creating the client with `canopy.js`. */
 export function setupSnippet(input: SnippetInput): string {
   return [
-    'import { createClient } from "@canopy/client"',
+    'import { createClient } from "canopy.js"',
     "",
     "export const canopy = createClient({",
     `  url: ${JSON.stringify(input.url)},`,
@@ -47,12 +47,12 @@ export function insertSnippet(input: SnippetInput): string {
   ].join("\n")
 }
 
-/** Following documents live in React with `@canopy/react`. */
+/** Following documents live in React with `canopy.js/react`. */
 export function reactSnippet(input: SnippetInput): string {
   const name = ident(input.collection)
   const component = `${name.charAt(0).toUpperCase()}${name.slice(1)}List`
   return [
-    'import { CanopyProvider, createReactDb, useCanopy } from "@canopy/react"',
+    'import { CanopyProvider, createReactDb, useCanopy } from "canopy.js/react"',
     'import { useMemo } from "react"',
     "",
     `function ${component}() {`,

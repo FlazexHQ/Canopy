@@ -12,9 +12,14 @@
   },
   "include": ["src", "test", "e2e", "playwright.config.ts"],
   "references": [
-    { "path": "../../packages/client" },
-    { "path": "../../packages/policy" },
-    { "path": "../../packages/server" },
-    { "path": "../../packages/testing" }
+    {
+      "path": "../../packages/policy"
+    },
+    {
+      "path": "../../packages/server"
+    },
+    {
+      "path": "../../packages/testing"
+    }
   ]
 }

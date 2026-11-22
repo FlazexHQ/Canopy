@@ -47,9 +47,8 @@ const todos: PolicyDraft = {
 
 describe("toDsl", () => {
   it("renders the TypeScript DSL with only the imports it uses", () => {
-    expect(
-      toDsl(todos),
-    ).toBe(`import { allow, auth, collection, now, restrict } from "@canopy/policy"
+    expect(toDsl(todos))
+      .toBe(`import { allow, auth, collection, now, restrict } from "canopy.js/policy"
 
 export default collection("todos", {
   exposed: true,
@@ -95,7 +94,7 @@ export default collection("todos", {
       'collection("notes", {\n  exposed: false,\n  realtime: false,\n  policies: [],\n})',
     )
     expect(
-      toDsl(emptyDraft("notes")).startsWith('import { collection } from "@canopy/policy"'),
+      toDsl(emptyDraft("notes")).startsWith('import { collection } from "canopy.js/policy"'),
     ).toBe(true)
   })
 })
@@ -232,7 +231,7 @@ describe("testSnippet", () => {
         allowed: true,
         hiddenFields: ["internalNotes"],
       }),
-    ).toBe(`import { as, describePolicies } from "@canopy/policy/testing"
+    ).toBe(`import { as, describePolicies } from "canopy.js/policy/testing"
 
 describePolicies("todos", ({ doc, expect }) => {
   const actor = as.user({"sub":"u_alice"}, { roles: ["editor"] })

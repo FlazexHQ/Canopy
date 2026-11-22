@@ -13,11 +13,17 @@
   },
   "include": [".", "../mock", "../test"],
   "references": [
-    { "path": "../../../packages/auth" },
-    { "path": "../../../packages/client" },
-    { "path": "../../../packages/matcher" },
-    { "path": "../../../packages/policy" },
-    { "path": "../../../packages/protocol" },
-    { "path": "../../../packages/react" }
+    {
+      "path": "../../../packages/auth"
+    },
+    {
+      "path": "../../../packages/matcher"
+    },
+    {
+      "path": "../../../packages/policy"
+    },
+    {
+      "path": "../../../packages/protocol"
+    }
   ]
 }

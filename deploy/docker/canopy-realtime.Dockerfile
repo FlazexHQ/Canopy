@@ -1,8 +1,9 @@
-# The canopy-realtime sidecar image (deployment mode A). Build from the repository root:
-#   docker build -f deploy/docker/canopy-realtime.Dockerfile -t canopy-realtime .
+# The canopy-realtime sidecar image (deployment mode A). Build from the repository root, with Canopy.js
+# checked out next to Canopy:
+#   docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime .
 # Mount policy files at /app/policies, and optionally a config file (--config). The isolated linker keeps
-# workspace packages out of the root node_modules, so @canopy/policy and @canopy/config are linked there for
-# policy and config files to import.
+# workspace packages out of the root node_modules, so canopy.js, @canopy/policy and @canopy/config are
+# linked there for policy and config files to import.
 
 FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS gateway-build
 WORKDIR /src
@@ -22,13 +23,18 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS build
 WORKDIR /src
+COPY --from=canopyjs . /Canopy.js
 COPY package.json bun.lock bunfig.toml tsconfig*.json ./
 COPY packages ./packages
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun install --frozen-lockfile --ignore-scripts \
+    && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json /Canopy.js/src/tsconfig.config.json \
+    && bun install --frozen-lockfile --ignore-scripts
 RUN bunx tsc -b packages/realtime
 RUN bun install --frozen-lockfile --production --ignore-scripts
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy \
-    && ln -s ../../packages/config node_modules/@canopy/config
+    && ln -s ../../packages/config node_modules/@canopy/config \
+    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/realtime/node_modules/canopy.js)")" node_modules/canopy.js \
+    && test -f node_modules/canopy.js/dist/core/policy/index.js
 
 FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7f561029e26cf9fbed23470
 WORKDIR /app

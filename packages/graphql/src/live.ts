@@ -1,12 +1,9 @@
+import { CanopyError, ErrorCode, SUBPROTOCOL, type SubQuery } from "@canopy/protocol"
 import {
-  type CanopyClient,
-  createClient,
-  type LiveQueryOptions,
-  type QueryState,
-  type WebSocketConstructor,
-  type WebSocketLike,
-} from "@canopy/client"
-import { CanopyError, type Document, ErrorCode, SUBPROTOCOL, type SubQuery } from "@canopy/protocol"
+  type LiveWebSocket,
+  type LiveWebSocketConstructor,
+  RealtimeFollower,
+} from "./realtime-follower.ts"
 import type { LiveResult } from "./schema.ts"
 
 /** The realtime socket surface the engine writes to. */
@@ -29,7 +26,7 @@ export interface RemoteRealtime {
   /** The HTTP base URL, or a function returning it when it is known only after startup. */
   readonly url: string | (() => string)
   /** The WebSocket class. Defaults to the global `WebSocket`. */
-  readonly WebSocket?: WebSocketConstructor
+  readonly WebSocket?: LiveWebSocketConstructor
 }
 
 /** The credentials a live query connects with, as the request presented them. */
@@ -48,8 +45,8 @@ const later: (callback: () => void) => void =
       }
 
 /** A WebSocket class whose instances are in-process connections to the realtime engine. */
-function inProcessSocket(realtime: RealtimeConnector): WebSocketConstructor {
-  return class InProcessSocket implements WebSocketLike {
+function inProcessSocket(realtime: RealtimeConnector): LiveWebSocketConstructor {
+  return class InProcessSocket implements LiveWebSocket {
     readyState = 0
     readonly protocol = SUBPROTOCOL
     onopen: ((event: unknown) => void) | null = null
@@ -110,19 +107,20 @@ function inProcessSocket(realtime: RealtimeConnector): WebSocketConstructor {
 }
 
 interface Shared {
-  readonly client: CanopyClient
+  readonly follower: RealtimeFollower
   refs: number
 }
 
 /**
  * Follows live queries for GraphQL subscriptions through the realtime engine's own observers. Requests
- * with the same credentials share one in-process session, which is closed when its last subscription
+ * with the same credentials share one session, which is closed when its last subscription
  * ends. DLS applies exactly as for WebSocket clients, because the engine sees the same `hello`.
  */
 export class LiveQueries {
-  private readonly socket: WebSocketConstructor
+  private readonly socket: LiveWebSocketConstructor
   private readonly url: () => string
   private readonly shared = new Map<string, Shared>()
+  private closed = false
 
   constructor(realtime: RealtimeConnector | RemoteRealtime) {
     if ("connect" in realtime) {
@@ -132,34 +130,27 @@ export class LiveQueries {
     }
     const socket =
       realtime.WebSocket ??
-      (globalThis as { WebSocket?: WebSocketConstructor }).WebSocket ??
+      (globalThis as { WebSocket?: LiveWebSocketConstructor }).WebSocket ??
       undefined
     if (socket === undefined)
-      throw new TypeError("Live queries over a remote realtime server need a WebSocket class")
+      throw new CanopyError(ErrorCode.Unavailable, "Remote realtime needs a WebSocket class")
     this.socket = socket
     const url = realtime.url
     this.url = typeof url === "function" ? url : () => url
   }
 
-  /** The number of open in-process sessions. */
+  /** The number of open realtime sessions. */
   get sessions(): number {
     return this.shared.size
   }
 
-  private acquire(credentials: LiveCredentials): [CanopyClient, () => void] {
-    const id = `${credentials.key}\u0000${credentials.token ?? ""}`
+  private acquire(credentials: LiveCredentials): [RealtimeFollower, () => void] {
+    if (this.closed) throw new CanopyError(ErrorCode.Unavailable, "The realtime session closed")
+    const id = JSON.stringify([credentials.key, credentials.token])
     let entry = this.shared.get(id)
     if (entry === undefined) {
-      const token = credentials.token
       entry = {
-        client: createClient({
-          url: this.url(),
-          publishableKey: credentials.key,
-          WebSocket: this.socket,
-          lifecycle: false,
-          sdk: "canopy-graphql/0.1.0",
-          ...(token === undefined ? {} : { auth: { getToken: () => token } }),
-        }),
+        follower: new RealtimeFollower(this.socket, this.url, credentials),
         refs: 0,
       }
       this.shared.set(id, entry)
@@ -168,14 +159,14 @@ export class LiveQueries {
     current.refs += 1
     let released = false
     return [
-      current.client,
+      current.follower,
       () => {
         if (released) return
         released = true
         current.refs -= 1
         if (current.refs > 0) return
         this.shared.delete(id)
-        current.client.close()
+        current.follower.close()
       },
     ]
   }
@@ -190,65 +181,59 @@ export class LiveQueries {
     query: SubQuery,
     signal: AbortSignal,
   ): AsyncIterable<LiveResult> {
-    const acquire = (): [CanopyClient, () => void] => this.acquire(credentials)
     return {
       [Symbol.asyncIterator]: () => {
-        const [client, release] = acquire()
-        const pending: LiveResult[] = []
-        let failure: Error | undefined
-        let done = false
-        let wake: (() => void) | undefined
-        const notify = (): void => {
-          wake?.()
-          wake = undefined
-        }
-        const options = {
-          ...(query.sort === undefined ? {} : { sort: query.sort }),
-          ...(query.limit === undefined ? {} : { limit: query.limit }),
-          ...(query.fields === undefined ? {} : { fields: query.fields }),
-        } as LiveQueryOptions
-        const live = client.live(collection, query.filter as Document, options)
-        let last: readonly Document[] | undefined
-        const stopQuery = live.subscribe((state: QueryState) => {
-          if (state.status === "error") {
-            failure = state.error ?? new CanopyError(ErrorCode.Internal, "The live query failed")
-            notify()
-            return
+        if (signal.aborted)
+          return {
+            next: async () => ({ done: true, value: undefined }),
           }
-          if (state.status !== "ready" || state.data === last) return
-          last = state.data
-          if (pending.length > 0) pending.length = 0
-          pending.push({ docs: state.data })
-          notify()
-        })
-        const stopStatus = client.onStatus((status) => {
-          if (status !== "closed") return
-          failure ??= new CanopyError(ErrorCode.Unavailable, "The realtime session closed")
-          notify()
-        })
+        const [follower, release] = this.acquire(credentials)
+        let pending: LiveResult | undefined
+        let failure: CanopyError | undefined
+        let done = false
+        const waiting = new Set<() => void>()
+        const notify = (): void => {
+          for (const wake of waiting) wake()
+          waiting.clear()
+        }
+        const stopQuery = follower.subscribe(
+          collection,
+          query,
+          (docs) => {
+            pending = docs === undefined ? undefined : { docs }
+            notify()
+          },
+          (error) => {
+            pending = undefined
+            failure = error
+            notify()
+          },
+        )
         const finish = (): void => {
           if (done) return
           done = true
+          pending = undefined
           stopQuery()
-          stopStatus()
           release()
           signal.removeEventListener("abort", finish)
           notify()
         }
-        signal.addEventListener("abort", finish)
+        signal.addEventListener("abort", finish, { once: true })
+        if (signal.aborted) finish()
         return {
           async next(): Promise<IteratorResult<LiveResult>> {
             for (;;) {
-              const value = pending.shift()
+              if (done) return { done: true, value: undefined }
+              const value = pending
+              pending = undefined
               if (value !== undefined) return { done: false, value }
               if (failure !== undefined) {
                 const error = failure
                 finish()
                 throw error
               }
-              if (done) return { done: true, value: undefined }
               await new Promise<void>((resolve) => {
-                wake = resolve
+                waiting.add(resolve)
               })
             }
           },
@@ -261,9 +246,10 @@ export class LiveQueries {
     }
   }
 
-  /** Closes every in-process session. */
+  /** Closes every realtime session. */
   close(): void {
-    for (const entry of this.shared.values()) entry.client.close()
+    this.closed = true
+    for (const entry of this.shared.values()) entry.follower.close()
     this.shared.clear()
   }
 }

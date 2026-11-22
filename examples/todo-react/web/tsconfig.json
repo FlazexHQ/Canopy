@@ -13,8 +13,8 @@
   },
   "include": ["."],
   "references": [
-    { "path": "../../../packages/client" },
-    { "path": "../../../packages/react" },
-    { "path": "../../../packages/schema" }
+    {
+      "path": "../../../packages/schema"
+    }
   ]
 }

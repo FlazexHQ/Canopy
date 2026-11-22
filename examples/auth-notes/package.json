@@ -13,7 +13,7 @@
     "e2e:install": "playwright install chromium"
   },
   "dependencies": {
-    "@canopy/client": "workspace:*",
+    "canopy.js": "0.0.0",
     "@canopy/policy": "workspace:*",
     "@canopy/schema": "workspace:*",
     "@canopy/server": "workspace:*",

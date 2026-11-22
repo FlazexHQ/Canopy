@@ -26,8 +26,7 @@ export interface IdentifierGuardOptions {
 
 /** The outcome of {@link IdentifierGuard.check}. */
 export type GuardVerdict =
-  | { readonly allowed: true }
-  | { readonly allowed: false; readonly retryAfterSeconds: number }
+  { readonly allowed: true } | { readonly allowed: false; readonly retryAfterSeconds: number }
 
 /**
  * Rate limits auth routes per identifier, on top of the engine's per address limits, and backs off

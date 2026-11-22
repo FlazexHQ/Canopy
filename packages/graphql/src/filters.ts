@@ -72,9 +72,7 @@ export function toMongoFilter(
 /** Translates `[{ field: createdAt, direction: DESC }]` into `{ createdAt: -1 }`. */
 export function toMongoSort(
   input:
-    | readonly { readonly field: string; readonly direction?: string | null }[]
-    | null
-    | undefined,
+    readonly { readonly field: string; readonly direction?: string | null }[] | null | undefined,
 ): Record<string, 1 | -1> | undefined {
   if (input === null || input === undefined || input.length === 0) return undefined
   const out: Record<string, 1 | -1> = {}

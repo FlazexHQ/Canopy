@@ -314,7 +314,7 @@ class Observer {
   abstract readonly type: ObserverType
   constructor(key: string, query: ObservedQuery, reader: SnapshotReader, hooks: MembershipHooks, limits: ObserverLimits): Observer
   settled(): boolean
-  get status(): "live" | "idle" | "loading" | "failed"
+  get status(): "idle" | "loading" | "live" | "failed"
   get size(): number
   get clusterTime(): string
   abstract has(key: string): boolean

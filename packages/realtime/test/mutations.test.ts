@@ -126,6 +126,7 @@ suite("mutations over the socket", () => {
 
   it("acks an insert after its echo on the same connection", async () => {
     const client = await connect()
+    expect(client.welcome?.capabilities).toEqual({ mutations: true })
     await client.subscribe("s1", "todos")
     const ack = await mutate(client, "todos", "insert", {
       doc: { _id: 1, ownerId: "alice", title: "t", internalNotes: "x" },

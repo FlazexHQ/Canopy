@@ -8,8 +8,9 @@
  *   bun deploy/binary/build.ts --all --out dist/binaries
  *   bun deploy/binary/build.ts --only server
  *
- * Policy and config files are loaded from disk at run time and import `@canopy/policy` and
- * `@canopy/config`. A generated entry hands those imports the copies embedded in the executable, so a
+ * Policy and config files are loaded from disk at run time and import `canopy.js/policy` and
+ * `canopy.js/config` (or `@canopy/policy` and `@canopy/config`). A generated entry hands those imports the
+ * copies embedded in the executable, so a
  * policy folder needs no `node_modules` and its definitions are the ones the engine checks against. The
  * entry also loads `reflect-metadata` first: Bun's bundler runs a CommonJS side effect import after the
  * ES modules next to it, so tsyringe (used by the passkey dependencies) would otherwise find no polyfill
@@ -48,6 +49,16 @@ interface Program {
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
+
+/**
+ * The names application code uses for the embedded packages: policy and config files import them from
+ * `canopy.js`, the TypeScript library, which carries the same definitions.
+ */
+const PUBLIC_NAMES: Readonly<Record<string, readonly string[]>> = {
+  "@canopy/config": ["canopy.js/config"],
+  "@canopy/policy": ["canopy.js/policy"],
+  "@canopy/policy/testing": ["canopy.js/policy/testing"],
+}
 const PROGRAMS: Readonly<Record<string, Program>> = {
   cli: {
     name: "canopy",
@@ -159,9 +170,11 @@ function shim(program: Program, entryDir: string, addon: string | undefined): st
           `;(globalThis as Record<symbol, unknown>)[Symbol.for("canopy.native.binding")] = binding`,
         ]),
   ]
-  const modules = program.packages.map(
-    (name, index) =>
-      `    build.module("${name}", () => ({ exports: p${index}, loader: "object" }))`,
+  const modules = program.packages.flatMap((name, index) =>
+    [name, ...(PUBLIC_NAMES[name] ?? [])].map(
+      (specifier) =>
+        `    build.module("${specifier}", () => ({ exports: p${index}, loader: "object" }))`,
+    ),
   )
   const entry = `./${relative(entryDir, join(ROOT, program.entry)).replaceAll("\\", "/")}`
   return [

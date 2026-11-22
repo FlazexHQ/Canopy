@@ -42,7 +42,7 @@ export function sdkSnippet(
   collection: string | undefined,
 ): string {
   const lines = [
-    'import { createClient } from "@canopy/client"',
+    'import { createClient } from "canopy.js"',
     "",
     "const canopy = createClient({",
     `  url: ${JSON.stringify(url)},`,

@@ -1,5 +1,5 @@
-import { type CanopyClient, createClient, type DocumentSchema } from "@canopy/client"
-import { CanopyProvider, createReactDb, useCanopyStatus } from "@canopy/react"
+import { type CanopyClient, createClient, type DocumentSchema } from "canopy.js"
+import { CanopyProvider, createReactDb, useCanopyStatus } from "canopy.js/react"
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { createTicket, updateTicket } from "./api.ts"
 import {

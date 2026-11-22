@@ -146,14 +146,14 @@ The sidecar is ready when `curl localhost:8080/readyz` prints `ok`. It listens f
 ### 5. Read live data in the browser (3 minutes)
 
 ```bash
-bun add @canopy/client @canopy/react
+bun add canopy.js canopy.js/react
 ```
 
 <!-- snippet: declare function getAccessTokenSilently(): Promise<string> -->
 
 ```tsx
-import { createClient, type DocumentSchema } from "@canopy/client"
-import { CanopyProvider, createReactDb, useCanopyStatus } from "@canopy/react"
+import { createClient, type DocumentSchema } from "canopy.js"
+import { CanopyProvider, createReactDb, useCanopyStatus } from "canopy.js/react"
 
 interface Order {
   readonly _id: string

@@ -92,6 +92,7 @@ class CanopyError extends Error {
   readonly details: Readonly<Record<string, unknown>> | undefined
   readonly hint: string | undefined
   readonly docs: string | undefined
+  static [Symbol.hasInstance](error: unknown): boolean
   constructor(code: ErrorCode, message: string, options?: CanopyErrorOptions): CanopyError
   get status(): number
   toWire(): WireError
@@ -387,6 +388,10 @@ export interface WebhookHeaders {
     readonly "webhook-signature": string;
 }
 
+export interface WelcomeCapabilities {
+    readonly mutations: boolean;
+}
+
 export interface WelcomeLimits {
     readonly subs: number;
     readonly [name: string]: number;
@@ -402,6 +407,7 @@ export interface WelcomeMessage {
     readonly pv: string;
     readonly ct: ClusterTime;
     readonly caps: readonly string[];
+    readonly capabilities?: WelcomeCapabilities;
     readonly limits: WelcomeLimits;
 }
 

@@ -7,6 +7,12 @@ Studio is the web dashboard of a Canopy project, served at `/studio` by the plat
 with their own accounts (owner, admin, developer or viewer), separate from your app's users, and every change
 they make is written to the audit log.
 
+Studio stores new and changed passwords as salted Argon2id PHC strings with 19 MiB of memory,
+two passes and one lane. Existing scrypt passwords keep working and upgrade in the metadata
+database the next time the administrator completes sign in. Upgrade every server that uses the
+same metadata database before enabling sign in on the new version, since older Canopy releases
+cannot verify the new hashes.
+
 | Page           | What it does                                                                                                                          |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview       | The state of the deployment at a glance                                                                                               |

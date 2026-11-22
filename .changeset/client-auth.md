@@ -1,5 +1,4 @@
 ---
-"@canopy/client": minor
 "@canopy/auth-builtin": patch
 ---
 

@@ -40,7 +40,8 @@ export function DiffView({
             </span>
             {line.kind === "same" ? null : (
               <span className="sr-only">
-                {line.kind === "added" ? t("policies.diff.added") : t("policies.diff.removed")}:{" "}
+                {line.kind === "added" ? t("policies.diff.added") : t("policies.diff.removed")}
+                :{" "}
               </span>
             )}
             {line.text}

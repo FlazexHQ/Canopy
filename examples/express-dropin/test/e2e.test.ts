@@ -4,14 +4,14 @@ import { createRequire } from "node:module"
 import { createServer } from "node:net"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { MONGODB_URI } from "@canopy/testing"
 import {
   type CanopyClient,
   createClient,
   type Document,
   type DocumentSchema,
   type QueryState,
-} from "@canopy/client"
-import { MONGODB_URI } from "@canopy/testing"
+} from "canopy.js"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createApp, type HelpdeskApp } from "../src/app.ts"

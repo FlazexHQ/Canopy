@@ -1,4 +1,5 @@
-import { createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto"
+import { hkdfSync, randomBytes, timingSafeEqual } from "node:crypto"
+import { hmacSha256 } from "@canopy/auth/crypto"
 
 /** What a signed URL grants: reading one path of one bucket until it expires. */
 export interface SignedGrant {
@@ -52,6 +53,6 @@ export class UrlSigner {
   }
 
   private mac(payload: string): string {
-    return createHmac("sha256", this.key).update(payload).digest("base64url")
+    return hmacSha256(this.key, payload).toString("base64url")
   }
 }

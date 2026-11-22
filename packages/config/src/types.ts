@@ -230,12 +230,7 @@ export interface BuiltinAuthInput<Hook extends ClaimsHookFunction = ClaimsHookFu
 
 /** Where user tokens come from. */
 export type AuthInput =
-  | ExternalAuthInput
-  | Auth0Input
-  | ClerkInput
-  | FirebaseInput
-  | SupabaseInput
-  | BuiltinAuthInput
+  ExternalAuthInput | Auth0Input | ClerkInput | FirebaseInput | SupabaseInput | BuiltinAuthInput
 
 /** Policies from a directory of files, or from the `canopy` meta database. */
 export type PoliciesInput =
@@ -663,8 +658,7 @@ export interface ResolvedBuiltinAuth {
   readonly keyRotation: { readonly intervalSeconds: number; readonly graceSeconds: number }
   readonly redirectUrls: readonly string[]
   readonly emailPassword:
-    | false
-    | { readonly minPasswordLength: number; readonly requireEmailVerification: boolean }
+    false | { readonly minPasswordLength: number; readonly requireEmailVerification: boolean }
   readonly magicLink: boolean
   readonly emailOtp: boolean
   readonly anonymous: boolean

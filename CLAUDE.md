@@ -20,11 +20,24 @@ insert, patch, replace and delete, over the transactional write path), `graphql`
 `realtime` (engine plus the `canopy-realtime` sidecar), `storage` (file storage with policies on the reserved
 `storage.objects` collection, GridFS or S3, signed URLs and resumable uploads), `server` (composes everything
 from one config),
-`studio` (serves the built Studio assets), `client`, `react`, `vue`, `svelte`, `solid`, `tanstack-db`,
-`devtools`, `cli` and the private `testing` harness. Applications (`apps/`): `studio` (the admin dashboard,
-built into `packages/studio`) and `docs` (the Astro Starlight documentation site). Examples live in
-`examples/` (`express-dropin`: Express, Mongoose and Auth0 behind the sidecar; `todo-react`: an optimistic,
-offline capable React app with Playwright tests), and the sidecar quickstart is `packages/realtime/README.md`.
+`studio` (serves the built Studio assets, plus the standalone `canopy-studio` server), `cli`, the private
+`testing` harness and the private `sdk-e2e` suite (the server tested end to end through `canopy.js`).
+Applications (`apps/`): `studio` (the admin dashboard, built into `packages/studio`) and `docs` (the Astro
+Starlight documentation site). Examples that embed the server live in `examples/` (`express-dropin`:
+Express, Mongoose and Auth0 behind the sidecar; `todo-react`: an optimistic, offline capable React app with
+Playwright tests), and the sidecar quickstart is `packages/realtime/README.md`.
+
+**Canopy.js** (`D:\Coding\Canopy.js`, its own repository, cloned next to this one) is the TypeScript
+library: one package, `canopy.js`, with the client at its root and subpaths for the bindings, devtools and the
+DSLs (`canopy.js/react`, `/vue`, `/svelte`, `/solid`, `/tanstack-db`, `/devtools`, `/policy`, `/schema`,
+`/config`, `/protocol`, plus the client entry points). The client SDK and framework bindings live **only**
+there now (ADR 0016). This repository stays the source of truth for the universal core; Canopy.js vendors it
+into `src/core` with `bun scripts/sync-core.ts` (and `--check`), so a change to protocol, matcher, query,
+policy, config or the schema DSL here must be synced there. Canopy depends on `canopy.js` (Studio, mounted policy
+and config files, the CLI tests, `sdk-e2e`, the examples) by version `0.0.0`; the root `overrides` points it at
+`../Canopy.js` until it is on npm. After changing Canopy.js, run `bun run build` there and `bun install` here.
+Use the built package, never its sources: Canopy.js exports them under its own `canopy-js-source` condition,
+not `@canopy/source`.
 The only branch is **`master`**; there is no `main`, so use `master` as the base for branches, PRs, CI triggers
 and Changesets.
 
@@ -54,6 +67,14 @@ Fixed decisions (do not change without the user saying so):
   workspaces with `bun.lock` as the only lockfile; published packages, examples and quickstarts must install
   and run with all four. Shared code stays portable across all three runtimes; Bun specific APIs live only
   behind adapters with a Node counterpart. Details: ADR 0001, ADR 0002, `docs/plan/01-architecture.md` §8.
+  Prefer Bun's own APIs and tools where they exist (`Bun.serve`, `Bun.password`, `Bun.CryptoHasher`, and
+  `bun fmt` as the formatter), each server API behind an adapter with its Node counterpart. Code that runs in
+  browsers (all of `canopy.js` except server only entry points) stays on Web standard APIs such as Web Crypto.
+- **Two repositories, one library, separate services** (decided 2026-11-22, ADR 0016). Applications import
+  only `canopy.js`; never reintroduce `@canopy/client` or per framework packages. The platform runs as the
+  container stack in `deploy/compose/`: `database`, `api` and `realtime` (one `canopy` image with
+  `CANOPY_ROLE`), `studio` (`canopy-studio`) and `edge` (Caddy, `deploy/compose/edge/Caddyfile`). A service may
+  depend only on `database`; the edge depends on none, so one failing service never takes the others down.
 - **Rust for the engine, TypeScript for the product** (decided 2026-11-18, ADR 0014, `docs/plan/14-native-core.md`).
   Phase 5 moves the per event, per connection and per byte code (matcher, query, policy compiler, realtime
   engine, a native gateway) to a Cargo workspace under `crates/`, exposed through ports (`@canopy/native` on
@@ -132,6 +153,8 @@ bun run db:up                              # single node replica set from deploy
 bun run db:smoke                           # change stream and transaction smoke test against it
 bun run db:down
 bun run dev                                # canopy dev from source against deploy/dev (see below)
+bun run stack:up                           # the container stack: database, api, realtime, studio and edge on :8080
+bun run stack:down
 bun --filter @canopy/matcher test          # one package
 bun --filter @canopy/rest bench            # write path cost benchmark against the dev replica set
 bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
@@ -159,7 +182,8 @@ the official binaries and starts a replica set on localhost:27017. MongoDB 8 doe
 Package layout: library code in `src/` (built by the package `tsconfig.json`), tests in `test/` with their own
 `tsconfig.json` on the server variant (so tests may use `node:` modules and the driver). Workspace packages export
 their sources under the `@canopy/source` condition, which `vitest.shared.ts` enables, so tests run without a
-build. Protocol conformance vectors live in `packages/protocol/vectors/` and run through the client.
+build. Protocol conformance vectors live in `packages/protocol/vectors/`; Canopy.js vendors them and runs them
+through the client.
 
 Examples are private workspace members named `@canopy/example-<name>` with end to end tests in CI. They pin
 third party versions directly (no `catalog:`) so they stay copyable, run their server TypeScript directly on

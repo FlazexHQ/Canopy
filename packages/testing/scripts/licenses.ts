@@ -24,10 +24,13 @@ const ALLOWED = new Set([
   "ISC",
 ])
 
+/** canopy.js, the TypeScript library of Canopy: first party like the `@canopy/*` packages, from its own repository. */
+const FIRST_PARTY_LIBRARY = "canopy.js"
+
 /** Packages accepted outside the allowed set, with the maintainer's reason. */
 const EXCEPTIONS: Readonly<Record<string, string>> = {
   "fractional-indexing":
-    "CC0-1.0, a public domain dedication; a dependency of @tanstack/db, the peer of @canopy/tanstack-db",
+    "CC0-1.0, a public domain dedication; a dependency of @tanstack/db, the optional peer of canopy.js/tanstack-db",
 }
 
 interface Manifest {
@@ -114,7 +117,7 @@ function main(): void {
         continue
       }
       const found = readManifest(dir)
-      if (name.startsWith("@canopy/")) {
+      if (name.startsWith("@canopy/") || name === FIRST_PARTY_LIBRARY) {
         if (!seen.has(dir)) {
           seen.set(dir, { license: "workspace", via })
           queue.push({ dir, via: name, own: true })

@@ -108,10 +108,7 @@ export interface WasmBinding {
     fromEjson(text: string): WasmFilter
   }
   /** Builds the policy engine of policies in their stored form, as EJSON text. */
-  readonly PolicyEngine: new (
-    collections: readonly string[],
-    contexts: string,
-  ) => WasmPolicyEngine
+  readonly PolicyEngine: new (collections: readonly string[], contexts: string) => WasmPolicyEngine
 }
 
 /** The compiled WebAssembly module of the port, as a URL for runtimes that read or fetch it. */

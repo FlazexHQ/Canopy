@@ -1,5 +1,4 @@
 ---
-"@canopy/react": patch
 "@canopy/schema": patch
 ---
 

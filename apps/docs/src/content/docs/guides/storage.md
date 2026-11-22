@@ -125,7 +125,7 @@ file. `storage.objects` is never served by the Data API, GraphQL or realtime, an
 ## The client
 
 ```ts
-import { createClient } from "@canopy/client"
+import { createClient } from "canopy.js"
 
 const client = createClient({ url: "https://api.example.com", publishableKey: "pk_app" })
 const documents = client.storage.from("documents")
@@ -137,14 +137,14 @@ const link = await documents.createSignedUrl("reports/q3.pdf", 3600)
 await documents.remove("reports/q3.pdf")
 ```
 
-`createStorage` from `@canopy/client` gives the same API without a realtime client.
+`createStorage` from `canopy.js` gives the same API without a realtime client.
 
 ## Image transformations
 
 JPEG, PNG, WebP, AVIF, GIF and BMP files can be resized and converted when they are read, on every backend:
 
 ```ts
-import { createStorage } from "@canopy/client"
+import { createStorage } from "canopy.js"
 
 const avatars = createStorage({ url: "https://api.example.com", publishableKey: "pk_app" }).from("avatars")
 
@@ -174,7 +174,7 @@ end. A failed part is retried; if the upload stops anyway, start it again with t
 only the missing parts are sent:
 
 ```ts
-import { createStorage } from "@canopy/client"
+import { createStorage } from "canopy.js"
 
 const documents = createStorage({ url: "https://api.example.com", publishableKey: "pk_app" }).from(
   "documents",

@@ -1,7 +1,7 @@
-import { createClient, type DocumentSchema, type ObjectId } from "@canopy/client"
-import { createAuth } from "@canopy/client/auth"
-import { indexedDbPersister } from "@canopy/client/persist"
-import { canopyPlugin, useCanopy, useQuery } from "@canopy/vue"
+import { createClient, type DocumentSchema, type ObjectId } from "canopy.js"
+import { createAuth } from "canopy.js/auth"
+import { indexedDbPersister } from "canopy.js/persist"
+import { canopyPlugin, useCanopy, useQuery } from "canopy.js/vue"
 import { createApp, defineComponent, h, onMounted, ref, shallowRef, watch } from "vue"
 
 interface Post {

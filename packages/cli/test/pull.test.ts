@@ -157,7 +157,7 @@ suite("canopy pull", () => {
     expect(generated).toContain('export const todos = collection("todos", {\n  done: t.bool(),')
     expect(generated).toContain("export const schema = defineSchema(notes, todos)")
     expect(generated).toContain(
-      'declare module "@canopy/client" {\n  interface Register {\n    schema: typeof schema',
+      'declare module "canopy.js" {\n  interface Register {\n    schema: typeof schema',
     )
     await writeFile(path, generated.replaceAll("\n", "\r\n"))
     expect(await pull()).toMatchObject({ code: 0, lines: [`${file} is up to date`] })

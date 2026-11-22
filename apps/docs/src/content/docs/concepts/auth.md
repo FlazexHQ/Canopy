@@ -37,15 +37,24 @@ export default defineConfig({
 
 ## Built in auth
 
+New passwords and password resets store Argon2id hashes with a random salt in PHC format. The
+format stores the algorithm and work factors (19 MiB of memory, two passes and one lane).
+Existing Better Auth scrypt and imported hashes still verify. A successful password sign in
+upgrades the credential in the auth database. Canopy uses the runtime's Argon2id implementation
+when available, with the MIT licensed `@noble/hashes` implementation for runtimes without it.
+Better Auth already installs the same version of this package. Upgrade every server that shares
+the auth database before accepting password writes or sign ins on the new version, since older
+Canopy releases cannot verify the new hashes.
+
 `builtin()` runs user auth inside Canopy, stored in the `canopy_auth` database: email and password, magic
 links, email codes, anonymous users, OAuth providers (Google, GitHub, Apple, Microsoft, Discord and any OIDC
 issuer), [TOTP and passkeys](/guides/two-factor-and-passkeys/). Canopy issues short lived access tokens
 signed with rotating keys and publishes them at `/auth/v1/.well-known/jwks.json`.
 
 ```ts
-import { createClient } from "@canopy/client"
-import { createAuth } from "@canopy/client/auth"
-import { indexedDbPersister } from "@canopy/client/persist"
+import { createClient } from "canopy.js"
+import { createAuth } from "canopy.js/auth"
+import { indexedDbPersister } from "canopy.js/persist"
 
 const auth = createAuth({ url: "https://api.example.com", storage: indexedDbPersister() })
 await auth.signInWithPassword({ email, password })

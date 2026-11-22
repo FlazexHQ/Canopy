@@ -32,8 +32,7 @@ export function buildViewAs(input: {
   readonly roles: string
   readonly claims: string
 }):
-  | { readonly ok: true; readonly value: ViewAs }
-  | { readonly ok: false; readonly message: string } {
+  { readonly ok: true; readonly value: ViewAs } | { readonly ok: false; readonly message: string } {
   switch (input.mode) {
     case "anon":
       return { ok: true, value: { roles: ["anon"], claims: {}, label: t("data.viewAs.anon") } }

@@ -1,6 +1,5 @@
 ---
 "@canopy/realtime": minor
-"@canopy/client": minor
 "@canopy/rest": minor
 ---
 

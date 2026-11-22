@@ -131,15 +131,14 @@ describeWithMongo("differential: compiled policies against MongoDB", (db) => {
       anon: fc.boolean(),
       admin: fc.boolean(),
     })
-    .map(
-      ({ anon, admin, ...claims }): RequestContext =>
-        anon
-          ? { roles: new Set(["anon"]), claims: null, now: new Date() }
-          : {
-              roles: new Set(["authenticated", ...(admin ? ["tenant_admin"] : [])]),
-              claims,
-              now: new Date(),
-            },
+    .map(({ anon, admin, ...claims }): RequestContext =>
+      anon
+        ? { roles: new Set(["anon"]), claims: null, now: new Date() }
+        : {
+            roles: new Set(["authenticated", ...(admin ? ["tenant_admin"] : [])]),
+            claims,
+            now: new Date(),
+          },
     )
   let docs: Document[] = []
   let raw: Uint8Array[] = []

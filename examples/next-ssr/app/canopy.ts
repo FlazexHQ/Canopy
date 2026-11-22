@@ -1,4 +1,4 @@
-import type { DocumentSchema, LiveQueryOptions, ObjectId } from "@canopy/client"
+import type { DocumentSchema, LiveQueryOptions, ObjectId } from "canopy.js"
 
 /** An article as MongoDB stores it. */
 export interface Article {

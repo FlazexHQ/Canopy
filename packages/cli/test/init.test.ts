@@ -62,7 +62,7 @@ describe("canopy init", () => {
     expect(await run(["init"], {}, out, root)).toBe(0)
     expect(errors).toEqual([])
     expect(lines).toContain("  create  canopy/canopy.config.ts")
-    expect(lines.some((line) => line.includes("pnpm add @canopy/config @canopy/policy"))).toBe(true)
+    expect(lines.some((line) => line.includes("pnpm add canopy.js"))).toBe(true)
 
     const loaded = await loadConfig({
       command: "dev",

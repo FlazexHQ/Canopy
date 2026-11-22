@@ -11,6 +11,5 @@
     "tsBuildInfoFile": "../node_modules/.cache/web-types/.tsbuildinfo",
     "types": []
   },
-  "include": ["."],
-  "references": [{ "path": "../../../packages/client" }, { "path": "../../../packages/vue" }]
+  "include": ["."]
 }

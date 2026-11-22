@@ -1,9 +1,14 @@
 import type { InternalAdapter, SecretConfig } from "@better-auth/core"
-import { getCurrentDBAdapterAsyncLocalStorage, runWithTransaction } from "@better-auth/core/context"
+import {
+  defineRequestState,
+  getCurrentDBAdapterAsyncLocalStorage,
+  runWithTransaction,
+  tryGetCurrentAuthEndpointContext,
+} from "@better-auth/core/context"
 import { mongodbAdapter } from "@better-auth/mongo-adapter"
 import { passkey } from "@better-auth/passkey"
 import { CanopyError, ErrorCode, isDocument } from "@canopy/protocol"
-import { hashPassword, symmetricEncrypt, verifyPassword } from "better-auth/crypto"
+import { symmetricEncrypt } from "better-auth/crypto"
 import { betterAuth } from "better-auth/minimal"
 import { admin } from "better-auth/plugins/admin"
 import { anonymous } from "better-auth/plugins/anonymous"
@@ -16,8 +21,9 @@ import { twoFactor } from "better-auth/plugins/two-factor"
 import type { MongoClient } from "mongodb"
 import type { Mailer } from "./email/mailer.ts"
 import type { KeyMaterial, KeyRing, SigningAlgorithm } from "./keyring.ts"
-import { isLegacyHash, verifyLegacyHash } from "./legacy-passwords.ts"
 import type { AuthLogger } from "./logger.ts"
+import { hashArgon2id, needsPasswordRehash } from "./password-hashing.ts"
+import { verifyAppPassword } from "./passwords.ts"
 
 /** An OAuth provider Better Auth knows by name. */
 export type SocialProviderId = "google" | "github" | "apple" | "microsoft" | "discord"
@@ -84,7 +90,7 @@ export interface EngineHooks {
   sessionEnded(session: { readonly id: string; readonly userId: string }): Promise<void>
   userCreated(user: { readonly id: string }, path: string | undefined): void
   /** Replaces an imported password hash with a native one after a successful sign in. */
-  rehash(legacy: string, hash: string): Promise<void>
+  rehash(userId: string, previous: string, hash: string): Promise<void>
 }
 
 /** The collections of `canopy_auth`. */
@@ -214,6 +220,9 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
     delete process.env["BETTER_AUTH_TELEMETRY"]
   }
   const { mailer, logger } = hooks
+  const passwordUpgrade = defineRequestState<{ previous: string; hash: string } | undefined>(
+    () => undefined,
+  )
   return betterAuth({
     appName: settings.appName,
     baseURL: settings.publicUrl,
@@ -236,11 +245,14 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
       maxPasswordLength: 128,
       revokeSessionsOnPasswordReset: true,
       password: {
-        hash: (password) => hashPassword(password),
+        hash: hashArgon2id,
         verify: async ({ hash, password }) => {
-          if (!isLegacyHash(hash)) return verifyPassword({ hash, password })
-          if (!(await verifyLegacyHash(hash, password))) return false
-          await hooks.rehash(hash, await hashPassword(password))
+          if (!(await verifyAppPassword(password, hash))) return false
+          if (
+            needsPasswordRehash(hash) &&
+            tryGetCurrentAuthEndpointContext()?.path === "/sign-in/email"
+          )
+            await passwordUpgrade.set({ previous: hash, hash: await hashArgon2id(password) })
           return true
         },
       },
@@ -310,8 +322,22 @@ function configure(settings: EngineSettings, hooks: EngineHooks) {
           before: async (session, context) => ({
             data: { ...session, aal: assuranceOf(context?.path) },
           }),
-          after: async (session, context) =>
-            hooks.sessionCreated({ id: session.id, userId: session.userId }, context?.path),
+          after: async (session, context) => {
+            if (context?.path === "/sign-in/email") {
+              const upgrade = await passwordUpgrade.get()
+              if (upgrade !== undefined) {
+                try {
+                  await hooks.rehash(session.userId, upgrade.previous, upgrade.hash)
+                } catch (error: unknown) {
+                  logger.error(
+                    { err: error, userId: session.userId },
+                    "upgrading a password hash failed",
+                  )
+                }
+              }
+            }
+            await hooks.sessionCreated({ id: session.id, userId: session.userId }, context?.path)
+          },
         },
         delete: {
           after: async (session) => hooks.sessionEnded({ id: session.id, userId: session.userId }),

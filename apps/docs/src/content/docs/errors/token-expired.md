@@ -10,7 +10,7 @@ are refused with this code, and realtime connections ask for a fresh one.
 
 ## Fix
 
-- Give the SDK a token source (`auth` in `createClient`: `createAuth()` from `@canopy/client/auth`, or your
+- Give the SDK a token source (`auth` in `createClient`: `createAuth()` from `canopy.js/auth`, or your
   own `getToken` and `refresh`) instead of a fixed token: it asks for a new token before the old one expires
   and after the server refuses one.
 - On a server, refresh the token before it expires, or use a secret key for server to server calls.

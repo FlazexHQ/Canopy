@@ -1,4 +1,4 @@
-import { allow, auth, collection } from "@canopy/policy"
+import { allow, auth, collection } from "canopy.js/policy"
 
 /** An example collection: every signed in user reads and writes only their own notes. */
 export default collection("notes", {

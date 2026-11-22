@@ -100,9 +100,10 @@ export async function indexes(options: IndexesOptions, out: Output): Promise<num
     await client.connect()
     let set: PolicySet
     try {
-      set = await (options.dir === undefined
-        ? databasePolicies(client, options.metaDatabase)
-        : directoryPolicies(options.dir)
+      set = await (
+        options.dir === undefined
+          ? databasePolicies(client, options.metaDatabase)
+          : directoryPolicies(options.dir)
       ).load()
     } catch (error: unknown) {
       out.error(`Policies do not load: ${messageOf(error)}`)

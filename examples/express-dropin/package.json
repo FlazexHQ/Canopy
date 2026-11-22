@@ -16,9 +16,8 @@
   },
   "dependencies": {
     "@auth0/auth0-react": "2.29.0",
-    "@canopy/client": "workspace:*",
+    "canopy.js": "0.0.0",
     "@canopy/policy": "workspace:*",
-    "@canopy/react": "workspace:*",
     "@canopy/realtime": "workspace:*",
     "esbuild": "0.28.2",
     "express": "5.3.0",

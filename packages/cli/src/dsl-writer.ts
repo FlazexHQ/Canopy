@@ -84,7 +84,7 @@ class Writer {
 
 function module(helpers: ReadonlySet<string>, body: string): string {
   const names = [...helpers].sort()
-  return `import { ${names.join(", ")} } from "@canopy/policy"\n\n${body}`
+  return `import { ${names.join(", ")} } from "canopy.js/policy"\n\n${body}`
 }
 
 /**

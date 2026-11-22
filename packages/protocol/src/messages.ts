@@ -85,13 +85,7 @@ export interface UnsubMessage {
 
 /** Mutation operations carried by `mut`. */
 export type MutationOp =
-  | "insert"
-  | "insertMany"
-  | "update"
-  | "updateMany"
-  | "replace"
-  | "delete"
-  | "deleteMany"
+  "insert" | "insertMany" | "update" | "updateMany" | "replace" | "delete" | "deleteMany"
 
 /** `mut`: a mutation, identified by a UUIDv7 that doubles as the idempotency key. */
 export interface MutMessage {
@@ -115,18 +109,18 @@ export interface ByeMessage {
 
 /** Every message a client may send. */
 export type ClientMessage =
-  | HelloMessage
-  | AuthMessage
-  | SubMessage
-  | UnsubMessage
-  | MutMessage
-  | PingMessage
-  | ByeMessage
+  HelloMessage | AuthMessage | SubMessage | UnsubMessage | MutMessage | PingMessage | ByeMessage
 
 /** Limits advertised in `welcome.limits`. */
 export interface WelcomeLimits {
   readonly subs: number
   readonly [name: string]: number
+}
+
+/** Endpoint features advertised in `welcome.capabilities`. */
+export interface WelcomeCapabilities {
+  /** Whether this endpoint accepts mutations over the realtime protocol. */
+  readonly mutations: boolean
 }
 
 /** `welcome`: the handshake result. */
@@ -140,6 +134,8 @@ export interface WelcomeMessage {
   readonly pv: string
   readonly ct: ClusterTime
   readonly caps: readonly string[]
+  /** Omitted when the endpoint's capabilities are unknown. */
+  readonly capabilities?: WelcomeCapabilities
   readonly limits: WelcomeLimits
 }
 
@@ -475,6 +471,7 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
   const ct = (): ClusterTime => field(raw, "ct", isClusterTime, "a cluster time")
   switch (t) {
     case "welcome": {
+      const capabilities = optionalField(raw, "capabilities", isDoc, "an object")
       const limits = field(raw, "limits", isDoc, "an object")
       const parsedLimits = {
         subs: 0,
@@ -494,6 +491,11 @@ function decodeSequenced(raw: Document, t: string): SequencedMessage | undefined
         pv: field(raw, "pv", isString, "a policy version"),
         ct: ct(),
         caps: field(raw, "caps", isStringArray, "an array of strings"),
+        ...(capabilities === undefined
+          ? {}
+          : {
+              capabilities: { mutations: field(capabilities, "mutations", isBoolean, "a boolean") },
+            }),
         limits: parsedLimits as WelcomeLimits,
       }
     }

@@ -2,7 +2,6 @@
 "@canopy/schema": minor
 "@canopy/rest": minor
 "@canopy/cli": minor
-"@canopy/client": minor
 ---
 
 Add `@canopy/schema`: collection shapes inferred from sampled documents (fields present in every sample

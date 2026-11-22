@@ -41,6 +41,41 @@ describeMongo("email and password", () => {
     expect(ok.status).toBe(200)
   })
 
+  it("upgrades only the signed in credential when two accounts share an old scrypt hash", async () => {
+    const email = "old-scrypt@example.com"
+    const otherEmail = "other-scrypt@example.com"
+    const password = "correct horse Ａattery"
+    const previous =
+      "000102030405060708090a0b0c0d0e0f:dcc1061d3ddfbc4eb469e4e827729e691ad9af8ab43c62beb4d7ec9c7a7fd29798e1a594f9e8af0b10c8731755a0ef91c99c0f78630e03c118a12a79bab446cf"
+    const credentials = h.side.db(h.names.auth).collection("accounts")
+    const seed = async (address: string) => {
+      const user = await h.auth.users.create({ email: address, password, emailVerified: true })
+      expect(
+        await credentials.updateOne(
+          { providerId: "credential", accountId: user.id },
+          { $set: { password: previous } },
+        ),
+      ).toMatchObject({ modifiedCount: 1 })
+      return user.id
+    }
+    const second = await seed(otherEmail)
+    const first = await seed(email)
+    const getHash = async (accountId: string) =>
+      (await credentials.findOne({ providerId: "credential", accountId }))?.["password"]
+
+    const wrong = await h.client().post("/auth/v1/sign-in/email", {
+      email,
+      password: "correct horse Battery",
+    })
+    expect(wrong.status).toBe(401)
+    expect(await getHash(first)).toBe(previous)
+    const right = await h.client().post("/auth/v1/sign-in/email", { email, password })
+    expect(right.status).toBe(200)
+    expect(await getHash(first)).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/)
+    expect(await getHash(second)).toBe(previous)
+    expect((await h.client().post("/auth/v1/sign-in/email", { email, password })).status).toBe(200)
+  })
+
   it("verifies the email before sign in, then issues a session cookie and a bearer token", async () => {
     const client = h.client()
     const email = "alice@example.com"

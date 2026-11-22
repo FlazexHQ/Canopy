@@ -10,9 +10,9 @@ to mobile: a persister for offline writes and sessions, and a lifecycle source, 
 <!-- snippet: registered -->
 
 ```ts
-import { createClient } from "@canopy/client"
-import { mmkvPersister } from "@canopy/client/persist"
-import { reactNativeLifecycle } from "@canopy/client/react-native"
+import { createClient } from "canopy.js"
+import { mmkvPersister } from "canopy.js/persist"
+import { reactNativeLifecycle } from "canopy.js/react-native"
 import NetInfo from "@react-native-community/netinfo"
 import { AppState } from "react-native"
 import { MMKV } from "react-native-mmkv"
@@ -48,4 +48,4 @@ never sends or sees the first one's queue.
 `createAuth({ url, storage: mmkvPersister(...) })` works on mobile in the default `bearer` mode. OAuth sign in
 needs a redirect URL registered in `auth.redirectUrls`, opened with the platform's browser session API.
 
-The React hooks from `@canopy/react` work unchanged.
+The React hooks from `canopy.js/react` work unchanged.

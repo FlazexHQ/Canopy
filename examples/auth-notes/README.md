@@ -11,7 +11,7 @@ One Node server (`src/app.ts`) runs everything:
 
 ## What it shows
 
-- **Sign up and sign in.** `createAuth()` from `@canopy/client/auth` creates the account, signs in and
+- **Sign up and sign in.** `createAuth()` from `canopy.js/auth` creates the account, signs in and
   keeps the session in IndexedDB, so a reload stays signed in. A wrong password is reported on the page.
 - **Document level security.** `src/policies.ts` lets a signed in user read, create, edit and delete only
   the notes whose `ownerId` is their own user id (`auth("sub")`). Two people side by side never see each

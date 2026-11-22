@@ -38,7 +38,7 @@ Codes without a class of their own arrive as `CanopyError`; check `error.code`.
 <!-- snippet: declare function retryLater(): void -->
 
 ```ts
-import { isCanopyError, PolicyViolationError } from "@canopy/client"
+import { isCanopyError, PolicyViolationError } from "canopy.js"
 
 try {
   await canopy.update("todos", id, { $set: { ownerId: "someone else" } })

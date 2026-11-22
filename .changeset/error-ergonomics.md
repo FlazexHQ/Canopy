@@ -1,7 +1,5 @@
 ---
 "@canopy/protocol": minor
-"@canopy/client": minor
-"@canopy/react": minor
 ---
 
 Make errors and mutation outcomes easy to handle. `isCanopyError(error, code?)` narrows `error.code` and

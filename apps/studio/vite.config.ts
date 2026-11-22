@@ -5,7 +5,13 @@ import react from "@vitejs/plugin-react"
 import { defineConfig, type Plugin } from "vite"
 import { cspStyles } from "./csp-styles.ts"
 
-const SOURCE_CONDITIONS = ["@canopy/source", "module", "browser", "development|production"]
+const SOURCE_CONDITIONS = [
+  "@canopy/source",
+  "canopy-js-source",
+  "module",
+  "browser",
+  "development|production",
+]
 
 /** Serves the in memory admin API of `mock/` under `/admin/v1` while developing without a server. */
 function mockAdmin(): Plugin {

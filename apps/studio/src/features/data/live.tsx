@@ -1,6 +1,6 @@
-import { type CanopyClient, createClient, type Document } from "@canopy/client"
 import { toCanonical } from "@canopy/protocol"
-import { CanopyProvider, useCanopy, useQuery } from "@canopy/react"
+import { type CanopyClient, createClient, type Document } from "canopy.js"
+import { CanopyProvider, useCanopy, useQuery } from "canopy.js/react"
 import { useEffect, useMemo, useState } from "react"
 
 /** Props of {@link LiveDocuments}. */
@@ -42,7 +42,7 @@ function Subscription({
 }
 
 /**
- * Follows a document listing live through `@canopy/react`, with a short lived admin scoped token. Loaded
+ * Follows a document listing live through `canopy.js/react`, with a short lived admin scoped token. Loaded
  * lazily so the realtime client stays out of the main chunk.
  */
 export default function LiveDocuments({ token, publishableKey, ...rest }: LiveDocumentsProps) {

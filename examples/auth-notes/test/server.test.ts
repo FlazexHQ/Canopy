@@ -1,6 +1,6 @@
 import type { AddressInfo } from "node:net"
-import { createAuth } from "@canopy/client/auth"
 import { MONGODB_URI } from "@canopy/testing"
+import { createAuth } from "canopy.js/auth"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { createNotesServer, type NotesServer } from "../src/app.ts"
