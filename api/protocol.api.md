@@ -387,6 +387,10 @@ export interface WebhookHeaders {
     readonly "webhook-signature": string;
 }
 
+export interface WelcomeCapabilities {
+    readonly mutations: boolean;
+}
+
 export interface WelcomeLimits {
     readonly subs: number;
     readonly [name: string]: number;
@@ -402,6 +406,7 @@ export interface WelcomeMessage {
     readonly pv: string;
     readonly ct: ClusterTime;
     readonly caps: readonly string[];
+    readonly capabilities?: WelcomeCapabilities;
     readonly limits: WelcomeLimits;
 }
 

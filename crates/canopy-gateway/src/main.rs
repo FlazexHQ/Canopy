@@ -136,6 +136,19 @@ fn stored_policies(line: &Json) -> Result<PolicySet, String> {
         .map_err(|error| error.message().to_owned())
 }
 
+fn engine_config(config: &GatewayConfig) -> Config {
+    Config {
+        node_id: config.node_id.clone(),
+        heartbeat_ms: config.heartbeat_ms,
+        resume_window_ms: config.resume_window_ms,
+        mutations: config.mutations_url.is_some(),
+        messages: config.messages,
+        seed: seed(),
+        limits: Limits::default(),
+        ..Config::default()
+    }
+}
+
 async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), String> {
     let proxy = config.proxy_url.as_deref().map(proxy::Upstream::parse).transpose()?;
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
@@ -151,20 +164,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             load_policies(&meta).await.map_err(|error| error.message().to_owned())?
         }
     };
-    let limits = Limits::default();
-    let engine = Engine::new(
-        Config {
-            node_id: config.node_id.clone(),
-            heartbeat_ms: config.heartbeat_ms,
-            resume_window_ms: config.resume_window_ms,
-            mutations: config.mutations_url.is_some(),
-            messages: config.messages,
-            seed: seed(),
-            limits,
-            ..Config::default()
-        },
-        set,
-    );
+    let engine_config = engine_config(&config);
+    let max_frame_bytes = engine_config.limits.max_frame_bytes;
+    let engine = Engine::new(engine_config, set);
     let watched = Arc::new(Mutex::new(engine.watched().to_vec()));
     let reopen = Arc::new(Notify::new());
     let stream_open = Arc::new(AtomicBool::new(false));
@@ -174,7 +176,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         engine: engine_tx.clone(),
         next_conn: AtomicU64::new(1),
         ready: Arc::clone(&stream_open),
-        max_frame_bytes: limits.max_frame_bytes,
+        max_frame_bytes,
         trusted_proxies: config.trusted_proxies.clone(),
         websocket: config.websocket,
         http: config.http_fallback.then(|| {
@@ -429,5 +431,39 @@ async fn serve_metrics(
                 .serve_connection(TokioIo::new(socket), service)
                 .await;
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canopy_engine::{Output, Principal};
+    use canopy_policy::create_policy_set;
+
+    #[test]
+    fn welcome_advertises_writes_when_the_gateway_has_a_mutations_url() -> Result<(), String> {
+        let mut gateway = config::resolve(Some(r#"{"mongodb":{"uri":"mongodb://localhost/app"}}"#))?;
+        for mutations in [false, true] {
+            gateway.mutations_url = mutations.then(|| "http://localhost:8080/rest/v1".to_owned());
+            let policies = create_policy_set(Vec::new(), Vec::new()).map_err(|e| e.message().to_owned())?;
+            let mut engine = Engine::new(engine_config(&gateway), policies);
+            engine.open(1, None, 1);
+            engine.message(1, r#"{"t":"hello","v":1,"key":"pk"}"#, 1);
+            engine.authenticated(1, Ok(Principal::anon()), 1);
+            let welcome = engine
+                .take_outputs()
+                .into_iter()
+                .find_map(|output| match output {
+                    Output::Text { conn: 1, text } => parse_json(&text).ok(),
+                    _ => None,
+                })
+                .ok_or_else(|| "Missing welcome".to_owned())?;
+            assert_eq!(welcome.get("t"), Some(&Json::String("welcome".to_owned())));
+            assert_eq!(
+                welcome.get("capabilities").and_then(|value| value.get("mutations")),
+                Some(&Json::Bool(mutations))
+            );
+        }
+        Ok(())
     }
 }

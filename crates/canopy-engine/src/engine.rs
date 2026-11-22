@@ -6,7 +6,7 @@ use canopy_policy::{
     Operation, PolicyEngine, PolicySet, Role, context_query, lookup_values, ttl_ms, uses_now,
 };
 use canopy_protocol::sha256::sha256;
-use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
+use canopy_protocol::{CanopyError, Document, ErrorCode, Value, WelcomeCapabilities};
 
 use crate::auth::Principal;
 use crate::ct::Ct;
@@ -507,7 +507,9 @@ impl Engine {
             }
             json_string(&mut text, cap);
         }
-        text.push_str("],\"limits\":{\"subs\":");
+        text.push_str("],\"capabilities\":");
+        WelcomeCapabilities { mutations: self.config.mutations }.write_json(&mut text);
+        text.push_str(",\"limits\":{\"subs\":");
         text.push_str(&self.config.limits.max_subscriptions_per_connection.to_string());
         text.push_str("}}");
         text

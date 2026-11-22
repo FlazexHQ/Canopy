@@ -184,6 +184,28 @@ describe("server messages", () => {
     expect(unbatch(batch).map((message) => message.t)).toEqual(["ready", "changed"])
   })
 
+  it.each([true, false, undefined])("round trips mutation support %s in welcome", (mutations) => {
+    const legacy = decodeServerMessage(examples[0] ?? "")
+    if (legacy?.t !== "welcome") throw new Error("expected welcome")
+    expect(legacy).not.toHaveProperty("capabilities")
+    const welcome = mutations === undefined ? legacy : { ...legacy, capabilities: { mutations } }
+    const decoded = decodeServerMessage(encodeMessage(welcome))
+    expect(decoded).toEqual(welcome)
+  })
+
+  it("ignores additional capabilities and validates mutation support", () => {
+    const legacy = decodeServerMessage(examples[0] ?? "")
+    if (legacy?.t !== "welcome") throw new Error("expected welcome")
+    const welcome = { ...legacy, capabilities: { mutations: false, future: true } }
+    expect(decodeServerMessage(JSON.stringify(welcome))).toMatchObject({
+      capabilities: { mutations: false },
+    })
+    expect(decodeServerMessage(JSON.stringify(welcome))).not.toHaveProperty("capabilities.future")
+    protocolError(() =>
+      decodeServerMessage(JSON.stringify({ ...legacy, capabilities: { mutations: "false" } })),
+    )
+  })
+
   it.each([
     ["a message without seq", '{"t":"ready","s":"s1","ct":"1"}'],
     ["a cluster time that is a number", '{"t":"ready","seq":1,"s":"s1","ct":1}'],

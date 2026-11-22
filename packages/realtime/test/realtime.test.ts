@@ -88,6 +88,20 @@ suite("realtime engine against MongoDB", () => {
     for (const client of clients.splice(0)) client.bye()
   })
 
+  it("advertises no write path and refuses mutations from clients that still send them", async () => {
+    const client = await connect(alice)
+    expect(client.welcome?.capabilities).toEqual({ mutations: false })
+    const id = "0192f6a1-7c2e-7b1a-9d3e-5f0a1b2c3d4e"
+    client.send({ t: "mut", id, c: "todos", op: "insert", args: { doc: { _id: 1 } } })
+    await client.until(() => client.messages.some((message) => message.t === "ack"))
+    expect(client.messages.find((message) => message.t === "ack")).toMatchObject({
+      m: id,
+      ok: false,
+      err: { code: ErrorCode.Unavailable },
+    })
+    expect(await documents().countDocuments()).toBe(0)
+  })
+
   it("sends a DLS filtered snapshot, then live changes, without hidden fields", async () => {
     await documents().insertMany([
       { _id: 1, ownerId: "alice", title: "a1", internalNotes: "secret" },

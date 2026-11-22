@@ -220,6 +220,7 @@ export class SessionLifecycle {
       pv: this.deps.engine().version,
       ct: this.deps.position(),
       caps: [...caps],
+      capabilities: { mutations: options.mutations !== undefined },
       limits: { subs: limits.maxSubscriptionsPerConnection },
     })
     const resume = hello.resume
