@@ -3,10 +3,13 @@ import {
   AuthHookFailedError,
   CanopyError,
   ConflictError,
+  DiagnosticError,
   ErrorCode,
   errorFromWire,
   isCanopyError,
   NotFoundError,
+  toCanopyError,
+  UnauthorizedError,
 } from "../src/index.ts"
 
 describe("hints", () => {
@@ -58,21 +61,47 @@ describe("isCanopyError", () => {
   })
 
   it("rejects look alikes that are not Canopy errors", () => {
-    expect(isCanopyError({ code: "CANOPY_CONFLICT", message: "x" })).toBe(false)
-    expect(isCanopyError(Object.assign(new Error("x"), { code: "CANOPY_CONFLICT" }))).toBe(false)
+    const fields = { code: "CANOPY_CONFLICT", name: "ConflictError", message: "x" }
+    for (const error of [fields, Object.assign(new Error("x"), fields)]) {
+      expect(error instanceof CanopyError).toBe(false)
+      expect(error instanceof ConflictError).toBe(false)
+      expect(isCanopyError(error)).toBe(false)
+    }
     expect(isCanopyError(null)).toBe(false)
     expect(isCanopyError("CANOPY_CONFLICT")).toBe(false)
   })
 
   it("recognizes errors from another copy of the package through the shared brand", () => {
     class Foreign extends Error {
-      readonly code = "CANOPY_NOT_FOUND"
+      readonly code = ErrorCode.Conflict
+      override name = "ConflictError"
     }
-    const foreign = new Foreign("gone")
-    expect(isCanopyError(foreign)).toBe(false)
-    Object.defineProperty(foreign, Symbol.for("canopy.error"), { value: true })
+    const foreign = new Foreign("changed first")
     expect(foreign instanceof CanopyError).toBe(false)
-    expect(isCanopyError(foreign, ErrorCode.NotFound)).toBe(true)
+    Object.defineProperty(foreign, Symbol.for("canopy.error"), { value: true })
+    expect(foreign instanceof CanopyError).toBe(true)
+    expect(foreign instanceof ConflictError).toBe(true)
+    expect(foreign instanceof NotFoundError).toBe(false)
+    expect(isCanopyError(foreign, ErrorCode.Conflict)).toBe(true)
+    expect(toCanopyError(foreign)).toBe(foreign)
+  })
+
+  it("distinguishes errors with a shared code and supports errors with multiple codes", () => {
+    const diagnostic = new DiagnosticError({ code: ErrorCode.Conflict, summary: "changed first" })
+    expect(diagnostic instanceof ConflictError).toBe(false)
+    expect(new CanopyError(ErrorCode.Conflict, "changed first")).not.toBeInstanceOf(ConflictError)
+    expect(new UnauthorizedError("missing token")).toBeInstanceOf(UnauthorizedError)
+    expect(new UnauthorizedError("expired token", undefined, true)).toBeInstanceOf(
+      UnauthorizedError,
+    )
+  })
+
+  it("preserves native inheritance for subclasses without a registered type", () => {
+    class CustomConflict extends ConflictError {}
+    const error = new CustomConflict("changed first")
+    expect(error).toBeInstanceOf(CustomConflict)
+    expect(error).toBeInstanceOf(ConflictError)
+    expect(new ConflictError("changed first")).not.toBeInstanceOf(CustomConflict)
   })
 
   it("decodes CANOPY_NOT_FOUND as a NotFoundError", () => {

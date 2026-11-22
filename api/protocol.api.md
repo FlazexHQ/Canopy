@@ -92,6 +92,7 @@ class CanopyError extends Error {
   readonly details: Readonly<Record<string, unknown>> | undefined
   readonly hint: string | undefined
   readonly docs: string | undefined
+  static [Symbol.hasInstance](error: unknown): boolean
   constructor(code: ErrorCode, message: string, options?: CanopyErrorOptions): CanopyError
   get status(): number
   toWire(): WireError

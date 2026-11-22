@@ -1,12 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
+import { AuthHookFailedError, CanopyError, isCanopyError } from "@canopy/protocol"
 import { builtin, type Canopy, createCanopy, defineConfig } from "@canopy/server"
 import { MONGODB_URI } from "@canopy/testing"
 import { createClient, type QueryState } from "canopy.js"
 import { AuthError, type CanopyAuth, createAuth } from "canopy.js/auth"
 import { memoryPersister } from "canopy.js/persist"
-import { AuthHookFailedError, isCanopyError } from "canopy.js/protocol"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
@@ -165,6 +165,7 @@ suite("@canopy/client/auth against built in auth", () => {
         .signInWithPassword({ email: "cy@example.com", password: "cy password 12" })
         .catch((reason: unknown) => reason)
       expect(error).toBeInstanceOf(AuthHookFailedError)
+      expect(error).toBeInstanceOf(CanopyError)
       expect(isCanopyError(error, "CANOPY_AUTH_HOOK_FAILED")).toBe(true)
     } finally {
       failHook = false
