@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-18
 - **Deciders:** maintainers
-- **Related:** [00 §7](../plan/00-vision.md#7-non-goals-for-10), [12 §7 Q6 and Q9](../plan/12-roadmap.md#7-open-questions), item F6 of the [improvement plan](../../plans/README.md)
+- **Related:** [00 §7](../design/00-vision.md#7-non-goals-for-10), [12 §7 Q6 and Q9](../design/12-roadmap.md#7-open-questions), item F6 of the [improvement plan](../plans/README.md)
 
 ## Context
 

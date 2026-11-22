@@ -4,9 +4,9 @@
 - **Status:** done on Windows x64. **Go** for `@canopy/native` as planned, with the batch shaped API and the
   release pipeline below. Linux (glibc and musl), macOS and the arm64 targets were not run here: Windows arm64
   was cross built and checked, the others are covered by the pipeline sketch and its install test.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes) (spike S10),
-  [14 §4.2](../plan/14-native-core.md#42-ports), [14 §6](../plan/14-native-core.md#6-platforms-toolchain-and-distribution),
-  [14 §7](../plan/14-native-core.md#7-engineering-changes), [01 §8](../plan/01-architecture.md#8-runtime-strategy)
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) (spike S10),
+  [14 §4.2](../design/14-native-core.md#42-ports), [14 §6](../design/14-native-core.md#6-platforms-toolchain-and-distribution),
+  [14 §7](../design/14-native-core.md#7-engineering-changes), [01 §8](../design/01-architecture.md#8-runtime-strategy)
 
 ## Question
 
@@ -36,7 +36,7 @@ The measurements set three rules for the real `@canopy/native`:
 3. **Feed it raw BSON.** Against the TypeScript matcher on documents the driver already decoded, the native
    matcher is slower (a call costs more than most TypeScript predicates). It wins by 4 to 12 times only when
    the bytes are never turned into JavaScript objects, which is the shape of the change stream path in
-   [14 §2](../plan/14-native-core.md#2-what-the-measurements-say-today) (raw BSON, lazy field access).
+   [14 §2](../design/14-native-core.md#2-what-the-measurements-say-today) (raw BSON, lazy field access).
 
 ## Method
 
@@ -204,12 +204,12 @@ What the numbers say:
 ### Licenses
 
 Everything the prototype links or installs, checked against the allowed set of
-[11 §5](../plan/11-engineering.md) and `packages/testing/scripts/licenses.ts`:
+[11 §5](../design/11-engineering.md) and `packages/testing/scripts/licenses.ts`:
 
 | Scope | Packages | Licenses | Outside the allowed set |
 |---|---|---|---|
 | Crates linked into the addon | napi 3.16.2, napi-sys 3.4.1, ctor 1.0.14, libloading 0.9.1, futures 0.3.34 (and its parts), memchr 2.8.3, slab, pin-project-lite, link-section, nohash-hasher, rustc-hash, bitflags, cfg-if, libc, windows-link, semver | MIT, Apache 2.0, ISC (libloading); memchr is "Unlicense OR MIT" | none (memchr is taken under MIT) |
-| Build time crates (proc macros, build script) | napi-derive 3.7.1, napi-derive-backend 7.0.1, napi-build 2.6.0, syn 3, quote, proc-macro2, convert_case, unicode-segmentation, unicode-ident | MIT, Apache 2.0; unicode-ident is "(MIT OR Apache-2.0) AND Unicode-3.0" | **unicode-ident: Unicode 3.0**, not linked into the artifact; this is the case of open question Q12 ([12 §7](../plan/12-roadmap.md#7-open-questions)) |
+| Build time crates (proc macros, build script) | napi-derive 3.7.1, napi-derive-backend 7.0.1, napi-build 2.6.0, syn 3, quote, proc-macro2, convert_case, unicode-segmentation, unicode-ident | MIT, Apache 2.0; unicode-ident is "(MIT OR Apache-2.0) AND Unicode-3.0" | **unicode-ident: Unicode 3.0**, not linked into the artifact; this is the case of open question Q12 ([12 §7](../design/12-roadmap.md#7-open-questions)) |
 | npm packages a user installs | `@napi-rs/wasm-runtime` 1.2.7, `@emnapi/core` and `@emnapi/runtime` 2.0.0-beta.3, `@emnapi/wasi-threads` 2.2.0, `@tybys/wasm-util` 0.10.5, `tslib` 2.9.1 | MIT; tslib is 0BSD (already allowed by `licenses.ts`) | none |
 | npm build tooling (never installed by users) | `@napi-rs/cli` 3.10.12 and its 60 dependencies, `emnapi` 2.0.0-beta.3, `bson` 7.3.3 | MIT, ISC, Apache 2.0, 0BSD | **argparse 2.0.1: PSF 2.0** (through `js-yaml` in `@napi-rs/cli`); needs the maintainer's decision like BlueOak 1.0.0 for Stryker, or a CLI free build |
 
@@ -227,7 +227,7 @@ open decision.
 | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` | `ubuntu-latest` (x64) | `napi build --target ... -x` (cargo-zigbuild), with the glibc targets pinned to 2.17 (`x86_64-unknown-linux-gnu.2.17`) | One runner and one tool for all four Linux targets, glibc baseline chosen explicitly, musl without an Alpine container. `cross` needs Docker and QEMU images per target and runs on Linux hosts only; napi-rs's own `--use-napi-cross` toolchain (glibc 2.17) covers only the glibc targets and stays the fallback for them if Zig misbehaves. Zig and cargo-zigbuild are MIT. Not run here. |
 | `wasm32-wasip1-threads` | `ubuntu-latest` | `napi build --target wasm32-wasip1-threads` | Built here on Windows. napi-build links `emnapi-napi-rs-mt`, which ships for `wasm32-wasip1-threads` only in the emnapi 2.0 betas (1.11.3 has it under `wasm32-wasi-threads` only), hence the pinned beta. |
 
-`rust-toolchain.toml` pins the compiler for all of them ([14 §6](../plan/14-native-core.md#6-platforms-toolchain-and-distribution)).
+`rust-toolchain.toml` pins the compiler for all of them ([14 §6](../design/14-native-core.md#6-platforms-toolchain-and-distribution)).
 musl `cdylib` builds need `-C target-feature=-crt-static`, which napi-rs sets for musl targets; the Alpine
 test below is what proves it.
 
@@ -334,7 +334,7 @@ tarballs with the four managers and imports each entry point on Linux, Windows a
   per Bun target, and its smoke step must check `engine()`.
 - **Rust matcher speed.** Checking a 223 byte document with `RawDocument::new` takes about 500 ns, more than
   matching it for the simple filters, and the matcher on its own is slower than the TypeScript matcher on
-  decoded documents. The stage 1 gate of [14 §8](../plan/14-native-core.md#8-stages-and-gates) (3 times the
+  decoded documents. The stage 1 gate of [14 §8](../design/14-native-core.md#8-stages-and-gates) (3 times the
   TypeScript matcher) holds against decode plus match, not against match alone, so the gate should say which
   one it means. A validation that only walks the fields a filter reads would help most.
 - **Licenses.** Unicode 3.0 (unicode-ident, build time only) and PSF 2.0 (argparse, in the napi CLI) need the

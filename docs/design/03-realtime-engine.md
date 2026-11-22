@@ -234,8 +234,10 @@ For each candidate observer with effective filter `F` and an event `e`:
 ## 9. Mutations over the socket and echo-before-ack
 
 Mutations sent as `mut` frames go through the same transactional write path as REST
-([02 §9.3](02-document-level-security.md#93-write-path-transactional)). The ack is held back until its echo
-has been delivered:
+([02 §9.3](02-document-level-security.md#93-write-path-transactional)). The Rust gateway forwards them to the
+TypeScript write path today; from stage D2 of Phase 5b the write path runs inside the data plane, so a
+mutation, its echo and its ack never leave one process ([14 §8.1](14-native-core.md#81-data-plane-stages)).
+The ack is held back until its echo has been delivered:
 
 ```ts
 async function onMut(conn: Connection, m: MutMessage) {
@@ -373,6 +375,10 @@ flowchart LR
   gateway build fed by the hub bus.
 
 ## 15. Embedding API
+
+The embedding API is the TypeScript engine mounted in a Node, Bun or Deno server (deployment mode B). The
+deployed services use the Rust data plane; embedded mode is kept through 1.0 as the equivalence reference,
+and its future after 1.0 is open question Q17 ([12 §7](12-roadmap.md#7-open-questions)).
 
 ```ts
 import { createRealtime } from '@canopy/realtime';

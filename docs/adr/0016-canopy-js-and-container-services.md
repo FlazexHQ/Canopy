@@ -1,10 +1,12 @@
 # ADR-0016: canopy.js as one library, and Canopy as separate container services
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0017](0017-rust-data-plane.md) on 2026-11-22: after Phase 5b the `api`
+  and `realtime` roles are roles of the Rust data plane, and a TypeScript `control` service takes built in
+  auth, the admin API and webhooks from the `api` role
 - **Date:** 2026-11-22
 - **Deciders:** project maintainers
-- **Related:** [01 §2](../plan/01-architecture.md#2-components), [01 §4](../plan/01-architecture.md#4-deployment-modes),
-  [05](../plan/05-client-sdk.md), [ADR-0010](0010-edge-is-fanout-only.md)
+- **Related:** [01 §2](../design/01-architecture.md#2-components), [01 §4](../design/01-architecture.md#4-deployment-modes),
+  [05](../design/05-client-sdk.md), [ADR-0010](0010-edge-is-fanout-only.md)
 
 ## Context
 

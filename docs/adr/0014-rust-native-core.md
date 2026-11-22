@@ -1,10 +1,13 @@
 # ADR-0014: A native core in Rust
 
 - **Status:** Accepted for the direction (the maintainer decided on 2026-11-18 to build the internal engine in
-  Rust). The scope of each port is set by the gates of [14 §8](../plan/14-native-core.md#8-stages-and-gates).
+  Rust). The scope of each port is set by the gates of [14 §8](../design/14-native-core.md#8-stages-and-gates).
+  **Amended by [ADR-0017](0017-rust-data-plane.md) on 2026-11-22:** REST, GraphQL, the write path and storage
+  move to Rust as well. The decision bullet that kept them in TypeScript, and the alternative "Rust for
+  everything, including REST and the write path", no longer hold; the rest of this record does.
 - **Date:** 2026-11-18
 - **Deciders:** maintainers
-- **Related:** [14](../plan/14-native-core.md), [12 §3.5](../plan/12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks),
+- **Related:** [14](../design/14-native-core.md), [12 §3.5](../design/12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks),
   [ADR-0001](0001-typescript-6-and-bun.md), [ADR-0004](0004-single-change-stream-in-process-matching.md),
   [ADR-0005](0005-custom-matcher-with-differential-testing.md), spikes S5, S8, S10 to S12
 
@@ -15,7 +18,7 @@ that way, and the shared TypeScript matcher and policy compiler are what made DL
 GraphQL, realtime and the client.
 
 The scale phase needs 100k connections with fan out p99 ≤ 50 ms, and nothing has measured the engine beyond
-1k connections. The measurements that do exist ([14 §2](../plan/14-native-core.md#2-what-the-measurements-say-today))
+1k connections. The measurements that do exist ([14 §2](../design/14-native-core.md#2-what-the-measurements-say-today))
 point at the realtime inner loop (decoding, matching and fan out of every change event on one garbage collected
 thread) and not at the request handlers, whose cost is MongoDB round trips. Supabase, the reference product,
 runs each service in the language that fits it, with Rust for its runtime layer.
@@ -46,7 +49,7 @@ Canopy's engine moves to **Rust**; the product stays in **TypeScript**.
   - the gateway gives hub mode and the 100k connection target a component built for them.
 - **Negative / costs:**
   - two implementations of DLS semantics exist (Rust on the server, TypeScript on the client and in the
-    `ts` engine), held together only by the equivalence suites of [14 §5](../plan/14-native-core.md#5-one-semantics-in-two-languages);
+    `ts` engine), held together only by the equivalence suites of [14 §5](../design/14-native-core.md#5-one-semantics-in-two-languages);
   - native builds for eight targets plus WebAssembly, a second lockfile and toolchain, and a longer CI;
   - contributors need Rust for the engine; the team needs Rust reviewers;
   - 1.0 moves by the ten weeks of Phase 5.

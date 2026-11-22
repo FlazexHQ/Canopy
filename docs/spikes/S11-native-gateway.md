@@ -7,8 +7,8 @@
   per delivered frame as `Bun.serve`. Stage 3 starts with that write path, measured on Linux.
   [Addendum](#addendum-stage-3-on-linux): the stage 3 gateway on Linux meets the performance gate of stage 3;
   per delivered broadcast frame it matches `Bun.serve` but does not halve it.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes) (S11), [14 §4.3](../plan/14-native-core.md#43-the-native-gateway),
-  [14 §8](../plan/14-native-core.md#8-stages-and-gates), and the open measurement of [S5](S5-websocket-server-choice.md)
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) (S11), [14 §4.3](../design/14-native-core.md#43-the-native-gateway),
+  [14 §8](../design/14-native-core.md#8-stages-and-gates), and the open measurement of [S5](S5-websocket-server-choice.md)
 - **Prototype:** [`S11-prototype/`](S11-prototype/README.md)
 
 ## Question
@@ -171,7 +171,7 @@ compose with a proxy), the ingress routes `/realtime/v1` to the gateway's own po
 S5 left open a per server comparison at 10k to 50k sockets. The tables above answer it for this machine:
 `Bun.serve` is light per idle connection (7.8 KiB) and cheap per frame, `ws` on Node costs more per frame
 (25.9 µs) and more memory, and the TypeScript engine on either runtime is bound by its one thread before the
-WebSocket server matters. The CPU model of [03 §13](../plan/03-realtime-engine.md#13-scaling-out) should take
+WebSocket server matters. The CPU model of [03 §13](../design/03-realtime-engine.md#13-scaling-out) should take
 about 1.1 to 1.2 ms of engine CPU per event at 50k subscriptions for the TypeScript engine and 15 to 26 µs per
 delivered frame.
 
@@ -244,7 +244,7 @@ short window, at the cost of latency) or for hub mode in Phase 6.
 **Since then (2026-11-21).** The gateway writes everything a connection has queued in one `write` (it wrote
 each frame on its own before), and `realtime.coalesceMs` adds the window: frames that follow a write within it
 wait and share the next `write`. The release decision is recorded in
-[14 §8](../plan/14-native-core.md#remaining-acceptance-work-2026-11-21): condition 1 no longer holds back the
+[14 §8](../design/14-native-core.md#remaining-acceptance-work-2026-11-21): condition 1 no longer holds back the
 opt in release and becomes a condition of the default. The broadcast measurement with windows of 0 and 100 ms
 is the `gateway` job of the `Benchmarks` workflow, not yet run.
 

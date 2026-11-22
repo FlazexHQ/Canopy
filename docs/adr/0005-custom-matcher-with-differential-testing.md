@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (to be confirmed by spike S4)
 - **Date:** 2026-11-05
-- **Related:** [02 §6](../plan/02-document-level-security.md#6-allowed-operators), [03 §6](../plan/03-realtime-engine.md#6-candidate-selection-the-predicate-index), [05 §5](../plan/05-client-sdk.md#5-live-queries)
+- **Related:** [02 §6](../design/02-document-level-security.md#6-allowed-operators), [03 §6](../design/03-realtime-engine.md#6-candidate-selection-the-predicate-index), [05 §5](../design/05-client-sdk.md#5-live-queries)
 
 ## Context
 

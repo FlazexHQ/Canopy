@@ -2,13 +2,13 @@
 
 - **Status:** Proposed (needs maintainer decision and counsel review in Phase 0)
 - **Date:** 2026-11-05
-- **Related:** [13 §1](../plan/13-open-source.md#1-license)
+- **Related:** [13 §1](../design/13-open-source.md#1-license)
 
 ## Context
 
 The project will be open-sourced. Its growth depends on adoption inside companies, especially through the
 drop-in sidecar. A future hosted offering is possible but not decided (Q6 in
-[12 §7](../plan/12-roadmap.md#7-open-questions)).
+[12 §7](../design/12-roadmap.md#7-open-questions)).
 
 ## Decision
 

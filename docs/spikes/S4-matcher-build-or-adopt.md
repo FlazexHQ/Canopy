@@ -3,7 +3,7 @@
 - **Date:** recorded 2026-11-13, after the implementation settled the question
 - **Status:** answered by the implementation. Custom matcher, verified by differential tests. The comparison
   with Mingo or sift was not run and is not needed.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes),
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes),
   [ADR 0005](../adr/0005-custom-matcher-with-differential-testing.md)
 
 ## Question

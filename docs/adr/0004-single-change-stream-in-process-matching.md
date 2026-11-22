@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-05
-- **Related:** [03 §3 to §7](../plan/03-realtime-engine.md), spike S1
+- **Related:** [03 §3 to §7](../design/03-realtime-engine.md), spike S1
 
 ## Context
 

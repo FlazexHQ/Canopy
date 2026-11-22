@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-05
-- **Related:** [02](../plan/02-document-level-security.md)
+- **Related:** [02](../design/02-document-level-security.md)
 
 ## Context
 

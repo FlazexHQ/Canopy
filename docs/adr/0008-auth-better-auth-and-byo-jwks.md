@@ -2,7 +2,8 @@
 
 - **Status:** Proposed (fit validated by spike S6)
 - **Date:** 2026-11-05
-- **Related:** [07](../plan/07-auth.md)
+- **Related:** [07](../design/07-auth.md); [ADR-0017](0017-rust-data-plane.md) places Better Auth in the TypeScript
+  control plane and token verification in the Rust data plane
 
 ## Context
 

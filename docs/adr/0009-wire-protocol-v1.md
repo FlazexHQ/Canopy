@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-05
-- **Related:** [04](../plan/04-wire-protocol.md)
+- **Related:** [04](../design/04-wire-protocol.md)
 
 ## Context
 

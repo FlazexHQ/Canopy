@@ -7,10 +7,12 @@ Security (rules in the style of Postgres Row Level Security), auth, generated RE
 dashboard. It works with an existing MongoDB deployment without changing its schema.
 
 **Status: Phases 1 to 4 are implemented** (DLS core and realtime, Data API and optimistic SDK, auth, server and
-Studio, GraphQL and the framework bindings), and the repository is working through the audit plan in
-[`plans/README.md`](plans/README.md) before Phase 5 (the native core in Rust, then scale and edge in
-Phase 6 and MongoDB depth in Phase 7). Nothing is published to npm yet and no license has been chosen, so every quickstart starts from a
-clone of this repository.
+Studio, GraphQL and the framework bindings), and the repository is working through the plans in
+[`docs/plans/`](docs/plans/README.md). Phase 5 built the native core in Rust; Phase 5b moves every data path
+(REST, GraphQL, writes, storage, realtime and a MongoDB wire endpoint) into one Rust data plane, while
+developers keep working in TypeScript ([plan 004](docs/plans/004-rust-data-plane.md)). Scale and edge follow
+in Phase 6 and MongoDB depth in Phase 7. Nothing is published to npm yet and no license has been chosen, so
+every quickstart starts from a clone of this repository.
 
 | Package                | Contents                                                                                                   |
 | ---------------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -224,8 +226,8 @@ checks both against `mongodb://localhost:27017/?replicaSet=rs0`.
 | `apps/`           | `studio` (the admin dashboard) and `docs` (the documentation site)                              |
 | `examples/`       | Runnable example apps that embed the server, with end to end tests                              |
 | `deploy/`         | The container stack (`compose/`), Dockerfiles, the edge (`compose/edge/Caddyfile`) and binaries |
-| `docs/`           | Design documents, decision records and spike write ups, from [`docs/README.md`](docs/README.md) |
-| `plans/`          | The improvement plan and its status                                                             |
+| `crates/`         | The Rust core crates and the data plane (`canopy-gateway`), one Cargo workspace                 |
+| `docs/`           | Design, ADRs, spikes, reviews and work plans, from [`docs/README.md`](docs/README.md)           |
 | `tools/`          | Standalone repository tools (`repo-check`), not workspace members                               |
 | `tsconfig.*.json` | Shared TypeScript 6 settings: `server`, `universal`, `web` and `edge`                           |
 

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (cost validated by spike S3)
 - **Date:** 2026-11-05
-- **Related:** [02 §9.3](../plan/02-document-level-security.md#93-write-path-transactional)
+- **Related:** [02 §9.3](../design/02-document-level-security.md#93-write-path-transactional)
 
 ## Context
 

@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-06
 - **Status:** done. Go, with a recorded throughput limit (see Decision).
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes), success criterion "p99 overhead ≤ 15 ms at
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes), success criterion "p99 overhead ≤ 15 ms at
   1k writes/s; fast-path rules defined".
 
 ## Method
@@ -99,10 +99,10 @@ back (verified by S7).
 - **Throughput limit recorded:** one Node process sustains roughly 600 to 650 transactional single document
   writes/s on this machine (about 450 with mutation IDs), bounded by driver CPU, while 1,000/s on the fast path
   and on plain driver writes is fine. Writes are stateless, so the answer to "1k transactional writes/s" is
-  more gateway processes, not a different design. This is a planning input for [10 Operations](../plan/10-operations.md)
-  and for the CPU model in [03 §13](../plan/03-realtime-engine.md#13-scaling-out).
+  more gateway processes, not a different design. This is a planning input for [10 Operations](../design/10-operations.md)
+  and for the CPU model in [03 §13](../design/03-realtime-engine.md#13-scaling-out).
 - **Rerun on the reference hardware** (3 node replica set, Linux) before v0.2 ships, with Bun and Node, and
   publish the numbers on the quality dashboard. Bun showed the same saturation pattern in the first run.
 - **Next optimizations, not needed for v0.2:** in process pre checks for matcher certified `check` clauses on
-  inserts ([02 §9.3](../plan/02-document-level-security.md#93-write-path-transactional)), and batching
+  inserts ([02 §9.3](../design/02-document-level-security.md#93-write-path-transactional)), and batching
   mutations of one connection into one transaction.

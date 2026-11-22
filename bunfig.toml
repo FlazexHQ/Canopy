@@ -8,4 +8,4 @@ minimumReleaseAgeExcludes = ["@ui-sdk/core", "@ui-sdk/react"]
 [fmt]
 printWidth = 100
 semi = false
-ignorePatterns = ["docs/**", "plans/**", "api/**", "crates/*/tests/vectors/**", ".changeset/*.md", "apps/docs/src/content/**", "**/routeTree.gen.ts", "deploy/helm/*/templates/**", "**/.next/**", "**/next-env.d.ts", ".canopy/**", "target/**", "**/dist/**", "packages/studio/app/**", "**/canopy-gateway.json", "**/*.toml"]
+ignorePatterns = ["docs/**", "api/**", "crates/*/tests/vectors/**", ".changeset/*.md", "apps/docs/src/content/**", "**/routeTree.gen.ts", "deploy/helm/*/templates/**", "**/.next/**", "**/next-env.d.ts", ".canopy/**", "target/**", "**/dist/**", "packages/studio/app/**", "**/canopy-gateway.json", "**/*.toml"]

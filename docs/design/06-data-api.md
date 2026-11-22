@@ -12,6 +12,11 @@
   ([02 §3](02-document-level-security.md#3-core-concepts)).
 - **Every handler runs the same pipeline:**
   `authenticate → parse/validate (@canopy/query) → compile DLS (@canopy/policy) → execute (driver) → project → respond`.
+  From Phase 5b the deployed services run this pipeline in the Rust data plane, with the `canopy-query` and
+  `canopy-policy` crates, the official Rust driver and raw BSON encoding, and the TypeScript handlers remain
+  as embedded mode and as the reference the Rust routes must match byte for byte
+  ([14 §8.1](14-native-core.md#81-data-plane-stages)). Endpoints, headers, errors and response shapes in this
+  document do not change.
 - **Version in the path** (`/rest/v1`, `/graphql/v1`). Changes within v1 are additive.
 - **Responses carry `ct`**, the operation or snapshot cluster time, so REST results line up with realtime
   events.
@@ -216,7 +221,8 @@ types are stale.
 ## 13. GraphQL
 
 Phase 4. Served at `/graphql/v1` by GraphQL Yoga, with a schema built at runtime and hot-swapped atomically when
-policies or schemas change.
+policies or schemas change. In Phase 5b the data plane serves it on the same read and write services as REST,
+with a Rust library chosen in spike S15; the schema, its types and its errors stay as described here.
 
 **Type mapping:** collection `todos` becomes type `Todo` (singularized; overridable). Nested objects get
 generated object types (`TodoMeta`). Custom scalars are `ObjectId`, `DateTime`, `Long`, `Decimal`, `Binary`

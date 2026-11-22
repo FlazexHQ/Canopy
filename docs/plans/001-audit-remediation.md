@@ -3,7 +3,7 @@
 > **Executor instructions**: Follow this plan item by item, in the order of "Execution order". Every
 > item ends with a verification command and an expected result; confirm it before starting the next item.
 > If a "STOP condition" (global or on the item) occurs, stop and report, do not improvise. Commit once per
-> item. When done, update the status row in `plans/README.md`, unless a reviewer told you they maintain it.
+> item. When done, update the status row in `docs/plans/README.md`, unless a reviewer told you they maintain it.
 >
 > **Drift check (run first)**:
 > `git diff --stat a3d6f10..HEAD -- packages/ apps/ .github/ CLAUDE.md README.md docs/README.md package.json lefthook.yml vitest.shared.ts`
@@ -93,7 +93,7 @@ non MongoDB parts, but you must say in your report which verifications you could
 **Out of scope** (do not touch even though related):
 - `lefthook-local.yml`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md`, `SECURITY.md`: git ignored,
   local to the maintainer.
-- `docs/plan/*`, `docs/adr/*` (F18 edits only `docs/README.md`).
+- `docs/design/*`, `docs/adr/*` (F18 edits only `docs/README.md`).
 - `apps/studio`, `packages/cli`, `deploy/`.
 - Adding a process level `uncaughtException` handler (F1 decided against it: the process should exit on
   unknown exceptions; the fix is to stop the known crash).
@@ -1141,7 +1141,7 @@ If these do not hold, the maintainer changed course again: STOP and report.
 1. `CLAUDE.md`, section "Project status":
    - Replace the sentence "Phase 1 ... is done and the repository is in **Phase 2 ...**" with the current
      state: Phases 1 to 3 are implemented and the repository is at the review gate before Phase 4 (GraphQL,
-     ecosystem and developer experience); confirm by reading `docs/plan/12-roadmap.md` §3.3a "Progress" and
+     ecosystem and developer experience); confirm by reading `docs/design/12-roadmap.md` §3.3a "Progress" and
      write what it says, no more.
    - Package list: add the missing members by reading `ls packages apps examples` and each `package.json`
      `description`/`name`: `schema` (schema inference, type and JSON Schema generation), `studio` (the Studio
@@ -1170,7 +1170,7 @@ If these do not hold, the maintainer changed course again: STOP and report.
    `docs/README.md`.
 3. `docs/README.md`: change the status row from "Planning. No code yet ..." to the current phase (same wording
    as `CLAUDE.md`) and update "Last updated" to today's date.
-4. Do NOT edit `docs/plan/*` or `docs/adr/*`.
+4. Do NOT edit `docs/design/*` or `docs/adr/*`.
 
 **Verify.**
 - `bun tools/repo-check/src/cli.ts workspace dashes` -> exit 0 (no dashes as punctuation in what you wrote).
@@ -1199,7 +1199,7 @@ All must hold (items you could not do are listed in your report and marked in th
       number of commits), each with a Conventional Commit subject.
 - [ ] `git status` shows no changes outside the in scope files; nothing under `lefthook-local.yml` or the
       ignored governance files changed.
-- [ ] `plans/README.md` status row updated.
+- [ ] `docs/plans/README.md` status row updated.
 
 ## STOP conditions (global)
 

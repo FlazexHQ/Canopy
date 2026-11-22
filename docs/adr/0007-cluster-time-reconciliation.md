@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (validated by spikes S2 and S7)
 - **Date:** 2026-11-05
-- **Related:** [03 §5.3](../plan/03-realtime-engine.md#53-snapshot-consistency-register-then-snapshot), [03 §9](../plan/03-realtime-engine.md#9-mutations-over-the-socket-and-echo-before-ack), [05 §4 to §6](../plan/05-client-sdk.md#4-local-store)
+- **Related:** [03 §5.3](../design/03-realtime-engine.md#53-snapshot-consistency-register-then-snapshot), [03 §9](../design/03-realtime-engine.md#9-mutations-over-the-socket-and-echo-before-ack), [05 §4 to §6](../design/05-client-sdk.md#4-local-store)
 
 ## Context
 

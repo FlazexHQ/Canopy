@@ -1,8 +1,10 @@
 # ADR-0001: TypeScript 6 with Bun as the primary runtime
 
-- **Status:** Proposed; amended by [ADR-0014](0014-rust-native-core.md) (the engine moves to Rust, everything else stays as decided here)
+- **Status:** Proposed; amended by [ADR-0014](0014-rust-native-core.md) (the engine moves to Rust) and
+  [ADR-0017](0017-rust-data-plane.md) (every data path moves to Rust). Everything written in TypeScript stays as
+  decided here: the developer surface, the control plane, the CLI, embedded mode and tooling
 - **Date:** 2026-11-05 (revised 2026-11-06: Bun made primary; revised 2026-11-07: Windows, Linux and macOS support)
-- **Related:** [01 §8](../plan/01-architecture.md#8-runtime-strategy), [11 §3](../plan/11-engineering.md#3-typescript-6-configuration), [11 §11](../plan/11-engineering.md#11-typescript-7-readiness), spikes S5 and S9
+- **Related:** [01 §8](../design/01-architecture.md#8-runtime-strategy), [11 §3](../design/11-engineering.md#3-typescript-6-configuration), [11 §11](../design/11-engineering.md#11-typescript-7-readiness), spikes S5 and S9
 
 ## Context
 
@@ -37,7 +39,7 @@ runs it through its Node compatibility layer. Node 26 became Active LTS in late 
   musl on Alpine) and **macOS** (Apple silicon and Intel), on x64 and arm64 wherever the runtime ships a native
   build. This covers the repository's development loop, the published packages, the CLI, the sidecar, examples
   and quickstarts. The container image stays Linux only. The cross platform coding rules are in
-  [01 §8](../plan/01-architecture.md#8-runtime-strategy).
+  [01 §8](../design/01-architecture.md#8-runtime-strategy).
 - **Portability rule.** Shared code uses Web standard APIs and the `node:` modules that Bun, Node and Deno all
   implement. Bun specific APIs (`Bun.serve`, `Bun.file` and so on) live only behind adapter interfaces, such as
   the realtime transport adapter, with a Node implementation next to each one.
@@ -62,7 +64,7 @@ runs it through its Node compatibility layer. Node 26 became Active LTS in late 
   - two runtime adapters to maintain for transport and process concerns.
   - three operating systems widen the CI matrix and rule out POSIX shortcuts (shell scripts, raw path strings,
     permission bits as a security control). Mitigation: Windows and macOS jobs in CI
-    ([11 §7](../plan/11-engineering.md#7-cicd)) and the cross platform rules in 01 §8.
+    ([11 §7](../design/11-engineering.md#7-cicd)) and the cross platform rules in 01 §8.
 - **Follow-ups:** spike S5 (fan out cost across `Bun.serve`, `ws` and uWebSockets.js), spike S9 (single
   binary), a nightly TS 7 compatibility job, and the Bun driver compatibility suite.
 

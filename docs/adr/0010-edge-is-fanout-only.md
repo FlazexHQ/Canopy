@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (topology validated by spike S8)
 - **Date:** 2026-11-05
-- **Related:** [03 §14](../plan/03-realtime-engine.md#14-canopy-edge), [04 §11](../plan/04-wire-protocol.md#11-edge-relay-protocol)
+- **Related:** [03 §14](../design/03-realtime-engine.md#14-canopy-edge), [04 §11](../design/04-wire-protocol.md#11-edge-relay-protocol)
 
 ## Context
 

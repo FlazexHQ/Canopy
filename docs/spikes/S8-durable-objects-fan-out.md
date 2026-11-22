@@ -3,12 +3,12 @@
 - **Date:** 2026-11-12
 - **Status:** done with a local prototype. Go for the topology below; the cost model is accepted as the
   planning model. A calibration run on Cloudflare itself is open (see Decision).
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes), success criterion "cost model and topology
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes), success criterion "cost model and topology
   accepted", method "prototype at 10k, then 100k simulated sockets".
 
 ## Question
 
-Canopy Edge ([03 §14](../plan/03-realtime-engine.md#14-canopy-edge)) terminates WebSockets in Durable Objects
+Canopy Edge ([03 §14](../design/03-realtime-engine.md#14-canopy-edge)) terminates WebSockets in Durable Objects
 (DOs) and fans relayed change events out to them with DLS applied. Who holds the sockets, who receives the
 relay, how are events routed between the two, and what does it cost at 10k and 100k connections?
 

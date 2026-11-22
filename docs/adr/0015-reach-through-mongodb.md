@@ -1,13 +1,14 @@
 # ADR-0015: Reach further through MongoDB, not through more languages
 
 - **Status:** Accepted for the direction (the maintainer decided on 2026-11-18 to plan every item of
-  [15](../plan/15-mongodb-depth.md)). The wire protocol endpoint stays **Proposed** until spike S13 passes, and
+  [15](../design/15-mongodb-depth.md)). The wire protocol endpoint stays **Proposed** until spike S13 passes, and
   Queryable Encryption until S14 passes.
 - **Date:** 2026-11-18
 - **Deciders:** maintainers
-- **Related:** [15](../plan/15-mongodb-depth.md), [12 §3.7](../plan/12-roadmap.md#37-phase-7-mongodb-depth--v010-7-weeks),
+- **Related:** [15](../design/15-mongodb-depth.md), [12 §3.7](../design/12-roadmap.md#37-phase-7-mongodb-depth--v011-7-weeks),
   [ADR-0004](0004-single-change-stream-in-process-matching.md), [ADR-0011](0011-no-user-schema-intrusion.md),
-  [ADR-0014](0014-rust-native-core.md), spikes S11, S13, S14
+  [ADR-0014](0014-rust-native-core.md), [ADR-0017](0017-rust-data-plane.md) (the wire endpoint runs on the data
+  plane's execution core), spikes S11, S13, S14
 
 ## Context
 
@@ -15,7 +16,7 @@
 question was whether Canopy should add more languages to get closer to MongoDB, or whether the gap lies
 elsewhere.
 
-An inventory ([15 §2](../plan/15-mongodb-depth.md#2-what-canopy-uses-today)) shows that Canopy uses change
+An inventory ([15 §2](../design/15-mongodb-depth.md#2-what-canopy-uses-today)) shows that Canopy uses change
 streams, transactions, snapshots and validators well, but leaves search untested, refuses geo, reads only from
 primaries, has no answer for encrypted fields, and is reachable only over HTTP and WebSocket. Meanwhile search
 and vector search became generally available for self managed MongoDB 8.2 (2026-06-30), and the drivers in

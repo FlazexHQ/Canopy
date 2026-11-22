@@ -11,13 +11,16 @@ flowchart TB
   subgraph Edge["Canopy Edge (optional)"]
     E["Worker + Durable Objects"]
   end
-  subgraph Core["Canopy Server (or Canopy Realtime alone)"]
-    GW["HTTP + WebSocket gateway<br/>Hono + ws"]
-    AU["Auth<br/>Better Auth + API keys"]
-    RE["REST / GraphQL"]
+  subgraph Core["Data plane (Rust, one binary; or Canopy Realtime alone)"]
+    GW["HTTP, WebSocket and<br/>MongoDB wire listeners"]
+    AU["Token, API key and<br/>revocation checks"]
+    RE["REST / GraphQL / storage<br/>reads and transactional writes"]
     RT["Realtime engine<br/>ingestor, observers, fan-out"]
     PO["DLS policy engine<br/>policy + query + matcher"]
+  end
+  subgraph Control["Control plane (TypeScript)"]
     AD["Admin API + Studio"]
+    AB["Built in auth<br/>Better Auth"]
   end
   subgraph Mongo["MongoDB replica set or sharded cluster"]
     APP[("app DB: your collections")]
@@ -31,31 +34,41 @@ flowchart TB
   E -.->|snapshots and writes over HTTPS| GW
   RT -.->|event relay| E
   S -->|HTTPS| GW
+  B -->|HTTPS /auth/v1| AB
   GW --> AU
   GW --> RE
   GW --> RT
-  GW --> AD
   RE --> PO
   RT --> PO
   RE --> APP
   RT -->|one change stream| APP
   RT -->|checkpoints, policy reload| META
+  AU --> META
   AD --> META
-  AU --> AUTHDB
+  AB --> AUTHDB
   GW -.->|JWKS| IDP
 ```
+
+The data plane serves every request that reads or writes application data; the control plane runs built in
+auth, the admin API, policy publishing, migrations and webhooks. They share nothing but MongoDB and the
+resolved config ([ADR-0017](../adr/0017-rust-data-plane.md)). Until Phase 5b completes, the TypeScript
+`canopy-server` still serves the routes the data plane has not taken over, behind the gateway on loopback
+([14 §8.1](14-native-core.md#81-data-plane-stages)).
 
 ## 2. Components
 
 | Component | Package | Runs on | Responsibility |
 |---|---|---|---|
+| Data plane | `crates/`: the core crates plus `canopy-gateway` (`canopyd` after Phase 5b) | native binary, every supported platform | Realtime today; REST, GraphQL, the write path, storage and the MongoDB wire endpoint from Phase 5b. One MongoDB client per deployment |
+| Control plane | `@canopy/server` today, `packages/control` after Phase 5b | Bun, Node, Docker | Built in auth, admin API, policy publishing, meta database migrations, webhooks |
 | Protocol | `@canopy/protocol` | anywhere | Wire-message types, the EJSON-lite codec, error codes, version negotiation |
 | Matcher | `@canopy/matcher` | anywhere | BSON comparison order, compiled filter matching, sort, projection, update operators |
 | Query | `@canopy/query` | anywhere | Parsing and validating EJSON filters, updates and pipelines; operator allowlists; limits; canonical hashing |
 | Policy | `@canopy/policy` | anywhere | DLS model, TypeScript DSL, compiler, evaluator, explain, lint, policy test runner |
-| Realtime | `@canopy/realtime` | Bun, Node (Deno nightly) | Change-stream ingestor, observers, fan-out, WebSocket/SSE transports, embeddable middleware |
-| REST | `@canopy/rest` | Bun, Node, Deno | REST handlers, transactional write enforcement, OpenAPI generation |
-| GraphQL | `@canopy/graphql` | Bun, Node | Runtime schema generation, resolvers, subscriptions |
+| Realtime | `@canopy/realtime` | Bun, Node (Deno nightly) | Change-stream ingestor, observers, fan-out, WebSocket/SSE transports, embeddable middleware. Embedded mode and equivalence reference from Phase 5b |
+| REST | `@canopy/rest` | Bun, Node, Deno | REST handlers, transactional write enforcement, OpenAPI generation. Embedded mode and equivalence reference from Phase 5b |
+| GraphQL | `@canopy/graphql` | Bun, Node | Runtime schema generation, resolvers, subscriptions. Embedded mode and equivalence reference from Phase 5b |
+| Storage | `@canopy/storage` | Bun, Node | Storage policies on `storage.objects`, GridFS or S3, signed URLs, resumable uploads. Moves to the data plane in Phase 5b |
 | Auth | `@canopy/auth` | Bun, Node | Better Auth integration, API keys, signing keys, JWT verification for BYO IdPs |
 | Schema | `@canopy/schema` | Bun, Node | Schema inference; JSON Schema to TypeScript, OpenAPI and GraphQL |
 | Server | `@canopy/server` | Bun, Node, Docker | Composition, config loading, admin API, meta-DB migrations, Studio hosting; `CANOPY_ROLE` runs it as the `api` or `realtime` service |
@@ -65,7 +78,9 @@ flowchart TB
 | Edge | `@canopy/edge` | Cloudflare Workers + Durable Objects | WebSocket termination and DLS-aware fan-out at the edge |
 | Testing | `@canopy/testing` | Bun, Node | Fixtures, the policy test harness, an in-process server for SDK tests |
 
-The four **universal** packages (protocol, matcher, query, policy) only use Web-standard APIs and never import
+The Rust core crates mirror these four packages one to one and are the server's source of truth once their
+equivalence gates pass ([14 §5](14-native-core.md#5-one-semantics-in-two-languages)). The four **universal**
+packages (protocol, matcher, query, policy) only use Web-standard APIs and never import
 `node:` modules. The same code therefore runs in Bun, Node, Deno, Workers and browsers. A lint rule enforces
 this, and their unit tests run on every runtime in CI.
 
@@ -106,8 +121,8 @@ from one source. A differential test suite keeps them equivalent (see
 | Mode | What runs | Auth | Writes go through | Typical user |
 |---|---|---|---|---|
 | **A. Sidecar** | `canopy-realtime` container next to your app | Your IdP (JWKS) | Your existing API | P1 |
-| **B. Embedded** | `@canopy/realtime` (and optionally `@canopy/rest`) mounted in your Node server | Your IdP (JWKS) | Your API, or Canopy REST | P1 |
-| **C. Platform** | The container stack: `database`, `api`, `realtime`, `studio` and `edge` as separate services (or the `canopy` server as one process) | Built-in or BYO | Canopy REST, GraphQL or WebSocket | P2, P3 |
+| **B. Embedded** | `@canopy/realtime` (and optionally `@canopy/rest`) mounted in your Node server; the TypeScript data path, kept through 1.0 (Q17) | Your IdP (JWKS) | Your API, or Canopy REST | P1 |
+| **C. Platform** | The container stack: `database`, `api`, `realtime`, `studio` and `edge` as separate services (or the `canopy` server as one process); from Phase 5b, `api` and `realtime` are roles of the Rust data plane and a `control` service joins them | Built-in or BYO | Canopy REST, GraphQL, WebSocket, or a MongoDB driver (Phase 7) | P2, P3 |
 | **D. Edge fan-out** | A, B or C, plus `@canopy/edge` on Cloudflare | Same as the core | Delegated to the core | Global apps with high connection counts |
 
 Mode C runs as separate containers by default (`deploy/compose/canopy.yaml`): the `api` and `realtime`
@@ -118,6 +133,11 @@ answers them with a `503` carrying `CANOPY_UNAVAILABLE` while the others keep wo
 keeps the transactional write path for mutations and runs no admin API, Studio, storage or webhooks; the
 `api` role runs no realtime engine and follows GraphQL subscriptions through the realtime service. This
 `edge` is the front door of a self hosted stack; the Cloudflare fan out tier of mode D is separate.
+
+After Phase 5b the same stack runs the Rust data plane in the `canopy` image (`CANOPY_ROLE=api`, `realtime`
+or `all`, as today) and the TypeScript control plane in a `canopy-control` image that serves `/auth/v1` and
+`/admin`. The edge routes by path as before, and a failing control plane leaves every data route serving.
+The same binary connects to a local replica set or to Atlas by URI alone.
 
 Mode A, minimum configuration:
 
@@ -240,17 +260,17 @@ Policy filter expressions are stored as **canonical EJSON strings**. This avoids
 
 | Concern | Choice | Why | Alternatives considered |
 |---|---|---|---|
-| Language | **TypeScript 6.x** | Project decision. Its stable compiler API still serves tooling while TS 7's API stabilizes. Config is kept TS 7-ready ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Go (proposed for Concept 1); TS 7 now |
-| Engine language | **Rust** (stable, edition 2024) for the matcher, query, policy compiler, realtime engine and the `canopy-gateway` server, from Phase 5 | Per event and per connection work without a garbage collector; one core compiled to native code, Node-API and WebAssembly ([ADR-0014](../adr/0014-rust-native-core.md), [14](14-native-core.md)) | TypeScript only; Go; uWebSockets.js |
-| Server runtime | **Bun** (latest stable 1.x), then **Node.js 26 LTS** (min 24 LTS), then **Deno** | Bun: native TypeScript, fast `Bun.serve` WebSockets, its own package manager and single binary compile. Node stays fully supported because the driver targets it first ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Node.js as primary (the earlier plan) |
-| MongoDB driver | **`mongodb` 7.x** | Official. Change streams, sessions, explicit resource management. Officially targets Node ≥ 20.19; runs on Bun through its Node compatibility layer, verified on every PR. | none |
-| HTTP framework | **Hono** | Fetch-standard and runs on Bun, Node, Deno and Workers, so one router serves every mode | Fastify, Express |
+| Language | **TypeScript 6.x** for the developer surface and the control plane | Project decision. Its stable compiler API still serves tooling while TS 7's API stabilizes. Config is kept TS 7-ready ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Go (proposed for Concept 1); TS 7 now |
+| Data plane language | **Rust** (stable, edition 2024): the matcher, query, policy compiler and realtime engine from Phase 5, then REST, GraphQL, the write path, storage and the wire endpoint from Phase 5b | No garbage collector on any data path; one owner per request with no language boundary inside it; one core compiled to native code, Node-API and WebAssembly ([ADR-0014](../adr/0014-rust-native-core.md), [ADR-0017](../adr/0017-rust-data-plane.md), [14](14-native-core.md)) | TypeScript only; Go; Rust for the engine alone |
+| TypeScript runtime | **Bun** (latest stable 1.x), then **Node.js 26 LTS** (min 24 LTS), then **Deno**, for the control plane, the CLI, embedded mode and tooling | Bun: native TypeScript, fast `Bun.serve` WebSockets, its own package manager and single binary compile. Node stays fully supported because the driver targets it first ([ADR-0001](../adr/0001-typescript-6-and-bun.md)). | Node.js as primary (the earlier plan) |
+| MongoDB driver | **`mongodb` crate 3.x** in the data plane (with `dns-resolver` for `mongodb+srv`); **`mongodb` 7.x** for Node in the control plane and embedded mode | Official drivers only. Raw BSON cursors, snapshot sessions, transactions and change streams in Rust; the Node driver officially targets Node ≥ 20.19 and runs on Bun through its Node compatibility layer, verified on every PR. | A driver written by Canopy (plan 004 option D) |
+| HTTP framework | **Tokio and Hyper** in the data plane; **Hono** in the control plane and embedded mode | Hyper serves the data plane's listeners without a runtime in between; Hono is fetch-standard and runs on Bun, Node, Deno and Workers | Fastify, Express |
 | WebSockets (Bun) | **`Bun.serve`** built in WebSockets | Highest throughput and lowest memory per connection on the primary runtime; native topic publish | `ws` under Bun |
 | WebSockets (Node) | **`ws`** by default; optional uWebSockets.js adapter | Mature, gives control over backpressure and compression | Socket.IO (locks in its protocol) |
 | Validation | **Zod 4** at HTTP and admin boundaries | Standard Schema, OpenAPI interop | Valibot, ArkType |
 | JWT / JOSE | **`jose`** | Universal (Web Crypto), JWKS caching, used by Better Auth docs | `jsonwebtoken` (Node-only) |
 | Auth engine | **Better Auth** + `@better-auth/mongo-adapter` + JWT plugin | TS-native. MongoDB adapter with transactions. EdDSA JWTs with JWKS and key rotation. Plugins. ([ADR-0008](../adr/0008-auth-better-auth-and-byo-jwks.md)) | Custom GoTrue-style server |
-| GraphQL | **graphql-js + GraphQL Yoga** | Schemas built at runtime, SSE/WS subscriptions, Envelop plugins for limits | Apollo Server, Mercurius |
+| GraphQL | **graphql-js + GraphQL Yoga** until Phase 5b; a Rust library chosen in spike S15 after it | Schemas built at runtime, SSE/WS subscriptions, limits on depth and cost | Apollo Server, Mercurius |
 | Logging | **pino** | Fast structured JSON | none |
 | Telemetry | **OpenTelemetry** + Prometheus exporter | Vendor-neutral traces and metrics | none |
 | Studio | **React 19, Vite, TanStack Router + Query, Tailwind CSS v4, shadcn/ui, CodeMirror 6, Scalar** | SPA shipped as static assets inside the container; no SSR needed | Next.js |
@@ -319,6 +339,10 @@ Policy filter expressions are stored as **canonical EJSON strings**. This avoids
     engine through 1.0.
 - **Workers** host only `@canopy/edge` and the universal packages. Change-stream ingestion never runs at the
   edge ([ADR-0010](../adr/0010-edge-is-fanout-only.md)).
+- **The data plane** is a native binary with no JavaScript runtime, prebuilt for every platform and
+  architecture above ([14 §6](14-native-core.md#6-platforms-toolchain-and-distribution)). The CLI carries it as
+  optional platform dependencies, so `canopy dev` runs it with any of the four package managers and no Rust
+  toolchain.
 
 ## 9. Configuration model
 
@@ -352,6 +376,11 @@ export default defineConfig({
 ```
 
 The full environment-variable reference is in [10 §4](10-operations.md#4-configuration-reference).
+
+The data plane cannot evaluate TypeScript. The CLI, the control plane and `canopy-server` resolve
+`canopy.config.ts` and hand the result to the data plane as JSON validated against one schema that both
+languages share; standalone, the data plane reads the same JSON or environment variables. Policies never
+travel through config: the data plane reads them from the meta database and follows its change stream.
 
 ## 10. Cross-cutting conventions
 

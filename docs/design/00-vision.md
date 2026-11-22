@@ -51,8 +51,11 @@ Concept 2 wraps that core with auth, APIs and a UI. Concept 3 is the client half
   **2027-08-31** and 8.0 to **2029-10-31**. 8.3 shipped in May 2026.
 - **Realtime at the edge is affordable.** Cloudflare Durable Objects with WebSocket hibernation, and WebSocket
   support in other serverless platforms, make global fan-out cheap, provided ingestion stays near the database.
-- **TypeScript runs everywhere.** One language can cover the server, the edge worker, the SDK and the
-  dashboard, and the universal packages can run in all of them.
+- **TypeScript for developers, Rust for the data path.** Developers write their app, their policies, their
+  schema and their config in TypeScript, and the universal packages run in browsers, workers and servers
+  alike. The data plane underneath is one native Rust binary that serves every request without a garbage
+  collector, compiled from the same semantics and checked against MongoDB itself
+  ([ADR-0017](../adr/0017-rust-data-plane.md)).
 
 ## 4. Personas and jobs-to-be-done
 

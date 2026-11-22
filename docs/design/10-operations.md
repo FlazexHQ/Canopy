@@ -5,7 +5,7 @@
 | Component | Requirement |
 |---|---|
 | **MongoDB** | Replica set or sharded cluster, version **8.0+**. Majority read concern enabled. Oplog window ≥ 24 h recommended. The app DB, the meta DB and the auth DB on the **same deployment**. |
-| **Canopy node** | Development: 1 vCPU / 1 GB. Production baseline: 2 vCPU / 4 GB. Runs on Bun (primary; the container ships a pinned, tested Bun 1.x), Node.js 24 or 26 LTS, or Deno, from the container or directly on a Windows, Linux or macOS host. |
+| **Canopy node** | Development: 1 vCPU / 1 GB. Production baseline: 2 vCPU / 4 GB. The data plane is a native binary (Rust) for Windows, Linux and macOS on x64 and arm64; the control plane runs on Bun (primary; its container ships a pinned, tested Bun 1.x), Node.js 24 or 26 LTS, or Deno. Both run from the containers or directly on a host. |
 | **Network** | A load balancer that supports WebSockets, with an idle timeout of at least 60 s (more than 2× the heartbeat). Sticky sessions are recommended for multi-node deployments ([03 §11](03-realtime-engine.md#11-delivery-guarantees-resume-and-resync)). |
 | **Edge (optional)** | Cloudflare Workers with Durable Objects; pre-/post-images enabled on collections served from the edge |
 
@@ -29,10 +29,16 @@ Status as planned. Every "verify" row is checked during Phase 6 certification.
 
 - **Images:**
   - `ghcr.io/OWNER/canopy` (platform: auth, APIs, realtime, Studio);
-  - `ghcr.io/OWNER/canopy-realtime` (slim, realtime only).
+  - `ghcr.io/OWNER/canopy-realtime` (slim, realtime only);
+  - `ghcr.io/OWNER/canopy-gateway` (the Rust realtime server, opt in);
+  - `ghcr.io/OWNER/canopy-studio` (Studio as static files).
 
-  Both are multi-arch (amd64 and arm64), distroless, non-root, with a read-only root filesystem. They run on
-  Bun by default; a `node` tag variant of each runs on the current Node Active LTS.
+  All are multi-arch (amd64 and arm64), distroless, non-root, with a read-only root filesystem. The
+  TypeScript images run on Bun by default; a `node` tag variant of each runs on the current Node Active LTS.
+- **Images after Phase 5b** ([ADR-0017](../adr/0017-rust-data-plane.md)): `canopy` becomes the Rust data plane
+  (static musl binary, `CANOPY_ROLE=api`, `realtime` or `all`), `canopy-control` carries the TypeScript control
+  plane (built in auth, admin API, migrations, webhooks), and `canopy-studio` is unchanged. `canopy-realtime`
+  and `canopy-gateway` become aliases of `canopy` with `CANOPY_ROLE=realtime`.
 - **Health endpoints:**
   - `/healthz` (liveness): the process is up;
   - `/readyz` (readiness): MongoDB is reachable, migrations are applied, the change stream is open, and lag is
@@ -158,7 +164,8 @@ db.getSiblingDB('admin').createRole({
 ## 7. Performance targets and benchmarking
 
 **Initial targets.** These assume a 2 vCPU / 4 GB node and a 3-node MongoDB 8.x replica set in the same region.
-They are re-baselined after spikes S1, S3 and S5.
+They are re-baselined after spikes S1, S3 and S5, and every Phase 5b gate reports them against a local replica
+set and a same region Atlas cluster.
 
 | Scenario | Target |
 |---|---|

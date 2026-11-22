@@ -4,19 +4,19 @@
 
 | Criterion | Status | Evidence |
 | --- | --- | --- |
-| Schema definitions, generated IDs, defaults and CLI schema operations | Implemented and covered | [Schema tests](../../packages/schema/test/), [CLI tests](../../packages/cli/test/), [schema guide](../../apps/docs/src/content/docs/guides/schema.md) |
-| Collection writes, read-only queries, projections and framework inference | Implemented and covered | [Breaking cut](https://github.com/FlazexHQ/Canopy/commit/0c08fd3), [client type tests](../../packages/client/test/types.test.ts), [API declaration](../../api/client.api.md) |
-| REST pages, continuation, by ID, count, BSON, errors and cancellation | Verified | [Client unit tests](../../packages/client/test/rest.test.ts), [composed server tests](../../packages/client/test/rest.e2e.test.ts), [Chromium test](../../examples/todo-react/e2e/rest.spec.ts) |
-| Distinct, aggregation and optional HTTP writes | Implemented and covered | [Read tests](../../packages/client/test/rest.e2e.test.ts), [write tests](../../packages/client/test/rest-writes.e2e.test.ts) |
-| Local packed installs and declarations | Verified, four package managers | [Packed fixture](../../packages/testing/scripts/install-test.ts#L461), [local results](#local-results) |
-| Clone based JavaScript and TypeScript guides | Verified, both sign in, subscribe, insert and fetch a REST page | [Runnable guide](../../apps/docs/src/content/docs/guides/client.md#run-from-a-clone), [local results](#local-results) |
+| Schema definitions, generated IDs, defaults and CLI schema operations | Implemented and covered | [Schema tests](../../../packages/schema/test/), [CLI tests](../../../packages/cli/test/), [schema guide](../../../apps/docs/src/content/docs/guides/schema.md) |
+| Collection writes, read-only queries, projections and framework inference | Implemented and covered | [Breaking cut](https://github.com/FlazexHQ/Canopy/commit/0c08fd3), [client type tests](../../../packages/client/test/types.test.ts), [API declaration](../../../api/client.api.md) |
+| REST pages, continuation, by ID, count, BSON, errors and cancellation | Verified | [Client unit tests](../../../packages/client/test/rest.test.ts), [composed server tests](../../../packages/client/test/rest.e2e.test.ts), [Chromium test](../../../examples/todo-react/e2e/rest.spec.ts) |
+| Distinct, aggregation and optional HTTP writes | Implemented and covered | [Read tests](../../../packages/client/test/rest.e2e.test.ts), [write tests](../../../packages/client/test/rest-writes.e2e.test.ts) |
+| Local packed installs and declarations | Verified, four package managers | [Packed fixture](../../../packages/testing/scripts/install-test.ts#L461), [local results](#local-results) |
+| Clone based JavaScript and TypeScript guides | Verified, both sign in, subscribe, insert and fetch a REST page | [Runnable guide](../../../apps/docs/src/content/docs/guides/client.md#run-from-a-clone), [local results](#local-results) |
 | O4 timed exercise | Complete by maintainer confirmation | [Exercise record, including missing participant notes](o4-exercise.md) |
 | REST participant exercise | Pending participant evidence | [Exercise record](o4-exercise.md#separate-rest-exercise) |
-| Equivalent two user REST pagination check | Verified separately | [Composed server test](../../packages/client/test/rest.e2e.test.ts), [local results](#local-results) |
+| Equivalent two user REST pagination check | Verified separately | [Composed server test](../../../packages/client/test/rest.e2e.test.ts), [local results](#local-results) |
 | Public registry install in a clean app | Pending publication | Re-run the quickstart against the published package names and versions once available. |
 | MongoDB minimum, replica set, sharding and Search | 8.0 minimum enforced. Topology and Search checks verified independently. | [Minimum version change](https://github.com/FlazexHQ/Canopy/commit/36ae827ac6448f38ecd9835b96d2dbc10a9379ff), [CI evidence](#ci-evidence) |
-| Native read codec | Decision recorded. REST and GraphQL use the TypeScript codec. | [Phase 5 measurements and decision](../../docs/plan/14-native-core.md#8-stages-and-gates) |
-| Inbound MongoDB wire endpoint | S13 complete. Go for bounded feasibility, with production approval handled separately. | [28 upstream fixture results, query corpus and read cost](../../docs/spikes/S13-inbound-wire.md) |
+| Native read codec | Decision recorded. REST and GraphQL use the TypeScript codec. | [Phase 5 measurements and decision](../../design/14-native-core.md#8-stages-and-gates) |
+| Inbound MongoDB wire endpoint | S13 complete. Go for bounded feasibility, with production approval handled separately. | [28 upstream fixture results, query corpus and read cost](../../spikes/S13-inbound-wire.md) |
 
 ## Local results
 
@@ -28,7 +28,7 @@ Tests ran on Windows x64 with the branch at
   11.20.0 each installed a clean consumer, imported all 41 public entries, including
   `@canopy/schema/define` and `@canopy/client/rest`, compiled the packed declarations under
   `bundler` and `nodenext`, and verified the WebAssembly fallback.
-- The [client guide](../../apps/docs/src/content/docs/guides/client.md#run-from-a-clone) ran from a
+- The [client guide](../../../apps/docs/src/content/docs/guides/client.md#run-from-a-clone) ran from a
   fresh clone after `bun install --frozen-lockfile` and `bun run build`. The exact guide block
   compiled in `.mjs` with `checkJs` and in `.ts` with TypeScript 6.0.3 and `strict` enabled.
   Node 24.22.1 ran both files against the auth-notes server with an isolated MongoDB 8.0.34 replica

@@ -33,12 +33,17 @@ flowchart LR
   U["Untrusted clients<br/>browsers, apps"] -->|TLS: publishable key + user JWT| P["Public listener<br/>REST, GraphQL, realtime, auth"]
   A["Admins"] -->|TLS + admin session + TOTP| L["Admin listener<br/>Studio, /admin (optionally private)"]
   S["Your servers"] -->|TLS: secret key| P
-  P --> K["Canopy core"]
-  L --> K
+  P --> K["Data plane (Rust)"]
+  P -->|/auth/v1| C["Control plane (TypeScript)"]
+  L --> C
   K -->|TLS, least-privilege user| M[("MongoDB")]
+  C -->|TLS, least-privilege user| M
   K -->|HTTPS, fixed host| I["External IdP JWKS"]
   K -->|Ed25519-signed relay| E["Canopy Edge"]
 ```
+
+Every data request is authorized inside the data plane; the control plane never proxies one, and the data
+plane never runs user code. Each plane connects to MongoDB with its own least privilege user ([10 §5](10-operations.md#5-least-privilege-mongodb-roles)).
 
 ## 3. Threat model (STRIDE)
 
@@ -179,7 +184,8 @@ TOTP, RBAC and audit.
 
 - **Scope:** `@canopy/query` (parser, sanitizer), `@canopy/policy` (compiler, semantics), the realtime
   authorization path (observers, re-evaluation, merge boxes), the auth integration (token minting, claims hook,
-  keys), the admin API and Studio session handling, the edge relay and edge policy evaluation, the Rust crates and the gateway, the MongoDB wire
+  keys), the admin API and Studio session handling, the edge relay and edge policy evaluation, the Rust crates
+  and the data plane (its REST, GraphQL, storage and write paths as well as realtime), the MongoDB wire
   protocol endpoint, and policies on Queryable Encryption fields.
 - **Timing:** start of Phase 8, after a feature freeze. Budgeted in the roadmap.
 - **Gate:** no open high or critical findings at the 1.0 release. Mediums need a documented plan.

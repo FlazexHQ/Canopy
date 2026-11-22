@@ -3,7 +3,7 @@
 - **Date:** recorded 2026-11-13
 - **Status:** done. Decision: ship `bun build --compile` executables next to the container image. Measured on
   Windows only; Linux and macOS are covered by the CI smoke steps but no numbers were collected there.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes) and open item O3,
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) and open item O3,
   [ADR 0001](../adr/0001-typescript-6-and-bun.md)
 
 ## Question

@@ -3,7 +3,7 @@
 - **Date:** recorded 2026-11-13, after the implementation settled the question
 - **Status:** answered by the implementation. The strategy is chosen and shipped; the numeric calibration
   (lag at 5k writes/s on a three node set) was not measured.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes)
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes)
 
 ## Question
 

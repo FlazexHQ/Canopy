@@ -1,7 +1,22 @@
 # Canopy improvement plan
 
+## Plans in this folder
+
+Work plans moved here from the repository root `plans/` on 2026-11-22, so that every document lives under
+`docs/`. The design they implement is in [`../design/`](../design/), the decisions in [`../adr/`](../adr/README.md).
+
+| Plan | Subject | Status |
+|---|---|---|
+| This file | The improvement plan: scorecard, workstreams A to G, order, status | Active; written 2026-11-12, status in §8 |
+| [001](001-audit-remediation.md) | Fixes for the 20 findings of the 2026-11-11 audit, workstream A | Status per item in §8 |
+| [002](002-product-gaps.md) | Designs for the product gaps F1, F2, F3, F5 and F6 of workstream F | Status per item in §8 |
+| [003](003-sdk-dx-and-canopy-rest/README.md) | SDK contracts and the Canopy REST client | Closeout recorded; the REST exercise and a registry install are pending |
+| [004](004-rust-data-plane.md) | The Rust data plane (option C, [ADR-0017](../adr/0017-rust-data-plane.md)): stages D0 to D7 and the proposed repository layout | Decided 2026-11-22; D0 next |
+
+The rest of this file is the improvement plan as written on 2026-11-12, with its status kept current in §8.
+
 Written on 2026-11-12 against `master` at `777479b`. It replaces the earlier plan index. The earlier detailed
-plan, `plans/001-audit-remediation.md`, is kept because none of its 20 findings has landed on `master`; it is
+plan, `docs/plans/001-audit-remediation.md`, is kept because none of its 20 findings has landed on `master`; it is
 now workstream A of this plan. The performance plan 002 was executed on `perf/scale-fixes` and merged; its
 item status is in the git history of this file.
 
@@ -25,18 +40,18 @@ source. Claims marked "survey" were reported by a survey and not opened again.
 
 ## 2. How complete it is
 
-Against the roadmap in `docs/plan/12-roadmap.md` (nine phases, 0 to 8, since Phase 5 became the native core in Rust and Phase 7 MongoDB depth on 2026-11-18):
+Against the roadmap in `docs/design/12-roadmap.md` (nine phases, 0 to 8, since Phase 5 became the native core in Rust and Phase 7 MongoDB depth on 2026-11-18):
 
 | Phase | State |
 |-------|-------|
 | 0 Foundations | Done in practice. Spike write ups exist for S3, S7 and S8 only |
 | 1 DLS core and realtime | Done |
 | 2 Data API and optimistic SDK | Done. The 15 kB SDK size goal was dropped by the maintainer on 2026-11-13 |
-| 3 Auth, server, Studio | The [security review](../docs/reviews/2026-11-13-phase-4-security-review.md) is recorded and the maintainer confirmed the [usability exercise](003-sdk-dx-and-canopy-rest/o4-exercise.md). |
-| 4 GraphQL and frameworks | Code is on `master`. The [entry gate](../docs/plan/12-roadmap.md#gate-before-phase-4) is met. |
-| 5 Native core in Rust | Not started. Planned in `docs/plan/14-native-core.md` |
+| 3 Auth, server, Studio | The [security review](../reviews/2026-11-13-phase-4-security-review.md) is recorded and the maintainer confirmed the [usability exercise](003-sdk-dx-and-canopy-rest/o4-exercise.md). |
+| 4 GraphQL and frameworks | Code is on `master`. The [entry gate](../design/12-roadmap.md#gate-before-phase-4) is met. |
+| 5 Native core in Rust | Not started. Planned in `docs/design/14-native-core.md` |
 | 6 Scale and edge | Not started. The only Durable Objects code is an untracked spike prototype |
-| 7 MongoDB depth | Not started. Planned in `docs/plan/15-mongodb-depth.md` |
+| 7 MongoDB depth | Not started. Planned in `docs/design/15-mongodb-depth.md` |
 | 8 Hardening and 1.0 | Not started |
 
 Estimate: about **60% of the way to 1.0** by roadmap scope, and about **50% of Supabase's surface**.
@@ -90,7 +105,7 @@ Effort: S under a day, M one to three days, L about a week, XL several weeks.
 
 | ID | Item | Effort | Done when |
 |----|------|--------|-----------|
-| A1 | Execute `plans/001-audit-remediation.md` items F10, F1 to F5 on a branch from `master` | L | Each item's failing test passes; changesets added |
+| A1 | Execute `docs/plans/001-audit-remediation.md` items F10, F1 to F5 on a branch from `master` | L | Each item's failing test passes; changesets added |
 | A2 | Execute F15, F16, F12, F7, F6, F11, F8, F9, F13, F14, F17 in the order that plan gives | L | Same |
 | A3 | F20 is partly done by plan 002 (one encode per page, native hash). Re check and close or drop it | S | Row updated |
 | A4 | Run the drift check in plan 001 first: it was written at `a3d6f10` and line numbers moved (for example `SESSION_ONLY` is now at line 370) | S | Excerpts match or the item is marked for a re read |
@@ -180,7 +195,7 @@ The designs are in [plan 002](002-product-gaps.md).
 | F1 | Storage: uploads with DLS style policies on file metadata documents, S3 compatible backends first, GridFS for small deployments, signed URLs, resumable uploads | The largest gap against the comparison, and the feature most apps need next after auth |
 | F1b | Storage backends `local` (disk, the default), `r2` and `s3`, replacing GridFS, and image transformations (resize, format, quality) on every backend | Decided by the maintainer on 2026-11-18; design in plan 002 |
 | F2 | Database triggers and webhooks on the existing change stream ingestor, with retries and a dead letter collection | Cheap, because the stream and checkpoints exist |
-| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Accepted as a first stage now, never run against a real index; the real index work (M2) is in `docs/plan/15-mongodb-depth.md` |
+| F3 | Atlas Search and vector search as a guarded read path: allow `$search` and `$vectorSearch` for exposed collections with policies applied as a filter stage | Accepted as a first stage now, never run against a real index; the real index work (M2) is in `docs/design/15-mongodb-depth.md` |
 | F4 | Phase 6 as planned: edge fan out on Durable Objects, starting from spike S8 | Not started |
 | F5 | Scheduled jobs and functions | After F2; consider running user code out of process only |
 | F6 | Several projects per deployment | Decide if it is a goal at all before 1.0 |
@@ -208,12 +223,12 @@ and F12 (same files). C2 before C4 and C5. D1 before any public demo instance.
 ## 6. Decisions needed from the maintainer
 
 - License and final name (blocks all of B).
-- Whether `docs/`, `tools/` and `plans/` are meant to be tracked (G1).
+- Whether `docs/`, `tools/` and `plans/` (now `docs/plans/`) are meant to be tracked (G1).
 - Decided: the SDK size budget is dropped (E17, 2026-11-13).
 - From the earlier plan, still open: read back of every inserted document on bulk insert, and whether SDK
   mutations may use the transaction free fast path.
 - Whether storage (F1) moves ahead of the edge (F4, now Phase 6). Recommendation: yes, storage first.
-- Decided: one project per deployment until 1.0 (F6, [ADR 0013](../docs/adr/0013-one-project-per-deployment.md)).
+- Decided: one project per deployment until 1.0 (F6, [ADR 0013](../adr/0013-one-project-per-deployment.md)).
 
 ## 7. Considered and not planned
 
@@ -243,8 +258,8 @@ noted.
 | A3 F20 | Closed | Already done on `master`: one encode per page and a native hash; the existing tests cover it |
 | A4 | Done | Drift checked item by item; excerpts were re read before each change |
 | A1 F19 | Done | `bun run check`, the repo-check hooks in `lefthook.yml`, a dash and workspace step in the CI `check` job and a `commit-rules` job for pull requests. The ignored `lefthook-local.yml` now duplicates the hooks and can be deleted |
-| A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` and `tools/repo-check` |
-| A5 | Done | [Phase 4 security review](../docs/reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The maintainer also confirmed [C14](003-sdk-dx-and-canopy-rest/o4-exercise.md), closing O4. |
+| A1 F18, G1 | Done | `CLAUDE.md`, `README.md` and `docs/README.md` describe Phases 1 to 4, every package, and the tracked `docs/`, `plans/` (now `docs/plans/`) and `tools/repo-check` |
+| A5 | Done | [Phase 4 security review](../reviews/2026-11-13-phase-4-security-review.md): no DLS bypass; six defects fixed (GraphQL body limit and complexity pricing, persisted hash lookup, passkey user verification, imported hash work factors, devtools credentials). T1 closed with a `bunHandlers` test under Bun and a WebSocket smoke step. The maintainer also confirmed [C14](003-sdk-dx-and-canopy-rest/o4-exercise.md), closing O4. |
 | D1 | Done | One token bucket limiter in `@canopy/auth` (`RateLimits`), configured by the `rateLimits` config section and `CANOPY_RATE_LIMIT*` variables, on by default (REST and GraphQL 50 requests per second, burst 200; realtime `sub`, `mut` and `auth` frames 20 per second, burst 100; 50 anonymous connections per address; `service` exempt). Callers are keyed by API key plus subject, anonymous callers by address through `trustedProxies`. REST and GraphQL answer 429 with `Retry-After`; realtime answers in the frame's own reply (`nosub`, failed `ack`, `err`) and keeps the connection, the address cap closes with the existing `4029`. Counters `canopy_http_rate_limited_total` and `canopy_realtime_rate_limited_total`. In memory per instance (D9 covers sharing). Failed authentications (unknown key, bad token; not expired tokens) are counted per address, 1 per second, burst 30, across REST, GraphQL and the realtime handshake. Not covered: a GraphQL batch costs one token, in process GraphQL subscriptions rely on the HTTP or graphql-ws limits |
 | D2 | Done | `/readyz` pings MongoDB (2 s timeout, 1 s cache) and checks the change stream, on `canopy-server` and `canopy-realtime` |
 | D3 | Done | Sessions waiting for a resume end at once; `close()` with connected clients can now take up to `drainWindow` |
@@ -253,7 +268,7 @@ noted.
 | D6 | Done | Standalone servers and MongoDB older than 7.0 stop `canopy-server` at startup |
 | D7 | Done | `telemetry.tracing` (`CANOPY_TRACING`, off by default) loads `@opentelemetry/api` (Apache 2.0, an optional peer dependency of `@canopy/server`) and records server spans per HTTP request named by route, continuing `traceparent`, on the fetch, Node and Bun paths; client spans for every MongoDB command (command monitoring, without filters or documents) nested under the request; `canopy.realtime.fanout` per batch of change events; `canopy.policy.load`. Exporting is left to the SDK the app registers. The Prometheus endpoint is unchanged. `server/test/tracing.test.ts` checks the trace and parent ids with an in memory exporter. The server Vitest project drops the `module` resolve condition, which pointed Node at the OpenTelemetry ESM builds it cannot load |
 | D8 | Done | The metrics port binds `127.0.0.1` by default (`server.metricsHost`, `METRICS_HOST`); the images set `0.0.0.0` and the compose file publishes it on the host loopback only. `server.metricsToken` (`CANOPY_METRICS_TOKEN`, 16 characters or more, masked in `canopy config`) makes `/metrics` require a bearer token. One `serveMetrics` in `@canopy/node-http` serves both binaries |
-| D9 | Done | [Several instances](../apps/docs/src/content/docs/operations/several-instances.md) lists what is shared through MongoDB (changes, keys, revocations, published policies, idempotency, built in auth limits) and what is per process (sessions, resume buffers, rate limits, admin login limits, caches). Tickets stay with their session (moving them alone would not help: the session is in memory), so the fix is routing: every session request now carries the node prefixed sid in its path (`POST …/sessions/{sid}/tickets` added), the guide shows prefix routing for NGINX or sticky sessions. `two-nodes.test.ts` runs two engines on one database: a mutation through n1 reaches a subscriber on n2 with DLS applied, and n2 answers n1's HTTP session with `409 CANOPY_SESSION_MOVED`. It runs in the existing MongoDB CI jobs |
+| D9 | Done | [Several instances](../../apps/docs/src/content/docs/operations/several-instances.md) lists what is shared through MongoDB (changes, keys, revocations, published policies, idempotency, built in auth limits) and what is per process (sessions, resume buffers, rate limits, admin login limits, caches). Tickets stay with their session (moving them alone would not help: the session is in memory), so the fix is routing: every session request now carries the node prefixed sid in its path (`POST …/sessions/{sid}/tickets` added), the guide shows prefix routing for NGINX or sticky sessions. `two-nodes.test.ts` runs two engines on one database: a mutation through n1 reaches a subscriber on n2 with DLS applied, and n2 answers n1's HTTP session with `409 CANOPY_SESSION_MOVED`. It runs in the existing MongoDB CI jobs |
 | D10 | Done | `deploy/helm/canopy`, `deploy/kubernetes/canopy.yaml` and `deploy/compose/production.yaml` (keys and the master key required, no defaults; metrics on the host loopback). Probes on `/healthz` and `/readyz`, grace 45 s over a 30 s drain, a `preStop` pause, a disruption budget, non root and read only. `server/test/deploy-manifests.test.ts` parses all three, resolves the manifest environment as a production config, and fails on a template value missing from `values.yaml`. Not verified: `helm lint` and a real cluster (neither Helm nor a cluster is available here) |
 | D11 | Done | An Operations section in the docs site: Kubernetes and Compose, several instances, backup and restore (`canopy` and `canopy_auth` with the master key), key rotation (API keys, master key with `CANOPY_MASTER_KEY_PREVIOUS` and the reseal, signing keys), change stream history loss, upgrades and meta migrations. Every metric, route, command and Studio path they name was checked against the code |
 | D12 | Done | `security.yml`: dependency review on pull requests (moderate severity, the allowed licenses), CodeQL (`security-extended`, JavaScript, TypeScript and the workflows) and TruffleHog secret scanning, each pinned to a commit SHA. `packages/testing/scripts/licenses.ts` in the CI `check` job follows what the 22 published packages install (132 packages) and fails outside MIT, Apache 2.0, BSD and ISC; `fractional-indexing` (CC0, under `@tanstack/db`) is the one listed exception, for the maintainer to confirm. Base images (`oven/bun`, `mongo`) are pinned by digest. The workflows were written, not run (nothing external) |
@@ -293,7 +308,7 @@ noted.
 | B4 | Done | `packages/testing/scripts/install-test.ts` packs the 22 published packages with `bun pm pack`, installs the tarballs with Bun, npm, pnpm and Yarn (a manager that is not installed runs through `bun x`) and imports all 35 entry points under Node, and checks declaration files and `bin` targets. Run locally with all four managers; it fails when a `files` list drops `dist`. CI job `install` on Linux, Windows and macOS |
 | G2 | Done | `.github/pull_request_template.md` has the phase gate, the repository rules and the DLS invariants |
 | G5 | Done | Spike records S1, S2, S4, S5, S6 and S9 in `docs/spikes/` and the roadmap table updated. S1 and S5 are answered by the implementation but not measured. ADR 0008 and ADR 0012 stay Proposed: roadmap Q4 is still "pending S6" and there is no license decision |
-| F6 | Done | Decided: one project per deployment until 1.0, recorded as [ADR 0013](../docs/adr/0013-one-project-per-deployment.md) with what keeps the door open. Designs for F1, F2, F3 and F5 in [plan 002](002-product-gaps.md) |
+| F6 | Done | Decided: one project per deployment until 1.0, recorded as [ADR 0013](../adr/0013-one-project-per-deployment.md) with what keeps the door open. Designs for F1, F2, F3 and F5 in [plan 002](002-product-gaps.md) |
 | F2 | Done | `webhooks.triggers` in the config: a change stream of its own per server (the realtime `Ingestor`, checkpoint `webhooks`) stores a delivery per matching change in `canopy.webhook_deliveries` before its position moves, with `_id` `trigger:<name>:<resume token>`, so delivery is at least once and two servers store a change once. Filters run in the matcher against the document after the change (before it for deletes) and are checked at startup. A dispatcher per server claims due deliveries with a lease, POSTs them with Standard Webhooks headers (`verifyWebhook` in `@canopy/protocol`, checked against the reference vector), retries with exponential backoff and `Retry-After`, and dead letters after `maxAttempts`. Admin routes list hooks and manage dead letters (`webhooks.read`, `webhooks.manage`), `/readyz` includes the trigger stream, `canopy_webhook_deliveries_total` counts outcomes. Meta migration 4 creates the collections |
 | F5 | Done | `webhooks.schedules` with a five field UTC cron parser in `@canopy/config` (checked when the config loads, including expressions that never fire). Each fire is stored as `schedule:<name>:<time>`, so several servers fire once without a leader; after downtime the last missed fire is stored once. User code runs out of process: a function is any HTTP endpoint, signed and retried like a trigger. `POST /admin/v1/webhooks/:name/run` fires a schedule now |
 | F3 | Done | `collections.<name>.search: true` allows `$search` and `$vectorSearch` as the first stage of Data API aggregations; `securePipeline` puts `USING(read)` and the field rules right after it. For callers other than `service` every path, sort, highlight, score function and vector filter field must be readable, `queryString`, `moreLikeThis` and wildcard paths need every field readable, operators and options outside the documented list (`returnStoredSource`, `count`, `tracking`, `knnBeta`, `span`) are refused, and `$searchMeta` stays refused. Search reads run outside a snapshot session (the index follows the collection asynchronously). A deployment without search answers 503 (`SearchNotEnabled`, 31082). Tested against the sanitizer and, with command monitoring, the pipeline REST sends to MongoDB; not run against a real search index (no Atlas or mongot here) |

@@ -2,7 +2,7 @@
 
 - **Date:** recorded 2026-11-13, after the implementation settled the question
 - **Status:** answered by the implementation. Go.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes), risk R7
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes), risk R7
 
 ## Question
 

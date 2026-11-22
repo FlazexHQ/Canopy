@@ -2,9 +2,9 @@
 
 - **Date:** recorded 2026-11-13, after the implementation settled the question
 - **Status:** the choice is made and shipped; the fan out cost at 10k to 50k connections over a real network
-  was not measured, and the CPU model of [03 §13](../plan/03-realtime-engine.md#13-scaling-out) is not
+  was not measured, and the CPU model of [03 §13](../design/03-realtime-engine.md#13-scaling-out) is not
   calibrated.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes),
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes),
   [ADR 0001](../adr/0001-typescript-6-and-bun.md)
 
 ## Question
@@ -22,7 +22,7 @@ Which WebSocket server should the engine use on each runtime, and what does fan 
 
 uWebSockets.js is not used: it is a native module without prebuilt binaries for every supported platform
 (Windows, Linux glibc and musl, macOS, x64 and arm64), which the repository rules forbid for the default
-install. An optional adapter was planned for the scale phase; the native gateway of Phase 5 ([12 §3.5](../plan/12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks)) replaces it unless spike S11 rejects the gateway.
+install. An optional adapter was planned for the scale phase; the native gateway of Phase 5 ([12 §3.5](../design/12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks)) replaces it unless spike S11 rejects the gateway.
 
 Both transports share one `RealtimeSocket` abstraction with `bufferedAmount` backpressure, a 256 KiB frame
 limit and encode once fan out, so the engine's cost does not depend on the server.

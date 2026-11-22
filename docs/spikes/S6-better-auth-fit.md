@@ -3,7 +3,7 @@
 - **Date:** recorded 2026-11-13, after the implementation settled the question
 - **Status:** answered by the implementation: Better Auth fits, with a gap list that Canopy covers in its own
   layer. The roadmap question Q4 (auth engine) has not been marked decided by the maintainers.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes), Q4,
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes), Q4,
   [ADR 0008](../adr/0008-auth-better-auth-and-byo-jwks.md)
 
 ## Question
@@ -48,4 +48,4 @@ None blocked the choice; each was handled in Canopy's layer or by a setting.
 
 ADR 0008 stays Proposed, because the roadmap still lists Q4 as "pending S6" and the choice of auth engine is
 the maintainers' call. This record is the evidence for it: the engine is in use behind `AuthProvider`, with
-the exit plan of [07 §12](../plan/07-auth.md#12-why-better-auth-and-the-exit-plan) unchanged.
+the exit plan of [07 §12](../design/07-auth.md#12-why-better-auth-and-the-exit-plan) unchanged.

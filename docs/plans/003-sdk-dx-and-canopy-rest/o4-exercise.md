@@ -12,7 +12,7 @@ write and realtime observations are also unavailable.
 
 **Pending participant evidence.** Each participant needs to fetch a page with their own user token,
 follow its cursor and compare the result with another user's page. The
-[composed server test](../../packages/client/test/rest.e2e.test.ts) independently does this with two
+[composed server test](../../../packages/client/test/rest.e2e.test.ts) independently does this with two
 user tokens. See the [SDK verification results](verification.md) for the automated runs.
 
 ## Original worksheet

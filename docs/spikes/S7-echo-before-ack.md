@@ -2,12 +2,12 @@
 
 - **Date:** 2026-11-06
 - **Status:** done for replica sets. Go. Sharded clusters are still open (see Decision).
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes), success criterion "0 ordering violations in
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes), success criterion "0 ordering violations in
   100k mutations", including correlation on 8.0+ (shared `clusterTime`) and on sharded clusters.
 
 ## Question
 
-The echo waiter ([03 §9](../plan/03-realtime-engine.md#9-mutations-over-the-socket-and-echo-before-ack))
+The echo waiter ([03 §9](../design/03-realtime-engine.md#9-mutations-over-the-socket-and-echo-before-ack))
 resolves a mutation once the ingestor has processed, for every changed `_id`, an event on that namespace with
 `ct >= T`, or any event with `ct > T`. `T` is the cluster time the write path reports. That is only correct if
 the write's own events carry a cluster time that the rule cannot run ahead of, on both the transactional path
@@ -64,7 +64,7 @@ Findings:
   only by an event with `ct > T`, as specified.
 - The write path's `WriteResult.ct` and `changedIds` are the waiter's inputs. `changedIds` is exact for single
   document writes; for bulk writes it lists every matched document, so the realtime gateway must not wait for
-  bulk echoes (the `ack` carries `echo: false`, as [05 §6](../plan/05-client-sdk.md#6-optimistic-mutations)
+  bulk echoes (the `ack` carries `echo: false`, as [05 §6](../design/05-client-sdk.md#6-optimistic-mutations)
   already plans).
 - **Open:** sharded clusters. Events from different shards are merged by the change stream, and a transaction
   across shards commits at one cluster time, so the rule should hold, but this needs the same suite against a

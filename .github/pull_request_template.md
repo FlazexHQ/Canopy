@@ -25,8 +25,8 @@
 
 <!-- Skip this section for fixes, docs and tests that add no feature. -->
 
-- [ ] If this adds a feature package or entry point, the gate of the previous phase in the roadmap (`docs/plan/12-roadmap.md`, "Gate before Phase 4" and its equivalents) is met: its P1 review items are done, the security review is recorded under `docs/reviews/`, and no high or critical audit finding is open
-- [ ] No P0 item of the improvement plan (`plans/README.md`, workstream A) is open
+- [ ] If this adds a feature package or entry point, the gate of the previous phase in the roadmap (`docs/design/12-roadmap.md`, "Gate before Phase 4" and its equivalents) is met: its P1 review items are done, the security review is recorded under `docs/reviews/`, and no high or critical audit finding is open
+- [ ] No P0 item of the improvement plan (`docs/plans/README.md`, workstream A) is open
 - [ ] The phase exit criteria this change belongs to are still achievable, or the roadmap is updated in this pull request
 
 ## Security impact
@@ -34,5 +34,5 @@
 <!-- Does this touch policy evaluation, query sanitizing, the matcher, auth, the wire protocol or any trust
 boundary? If yes, explain how the fail closed behavior and the DLS invariants are preserved. If no, say "None". -->
 
-- [ ] DLS invariants I1 to I6 (`docs/plan/09-security.md` §4.2) still hold: unknown operators, missing variables, policy errors and timeouts deny; one policy engine decides for REST, GraphQL, realtime and Studio's "view as user"; field rules apply to filters, sorts and results; a new entry point goes through the same read and write paths
+- [ ] DLS invariants I1 to I6 (`docs/design/09-security.md` §4.2) still hold: unknown operators, missing variables, policy errors and timeouts deny; one policy engine decides for REST, GraphQL, realtime and Studio's "view as user"; field rules apply to filters, sorts and results; a new entry point goes through the same read and write paths
 - [ ] The property and differential tests for policy, query and matcher still pass and cover any new operator or path

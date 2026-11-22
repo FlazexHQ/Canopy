@@ -78,8 +78,9 @@ responsible.
   the schema cache), uPlot for live charts, Scalar for OpenAPI, GraphiQL.
 - **Dogfooding:** Studio uses `canopy.js/react` for live data, with an admin-scoped session, so it exercises the
   SDK every day.
-- **Shipping:** built to static assets inside `@canopy/server` and served at `/studio` with immutable caching.
-  There is no separate deployment.
+- **Shipping:** built to static assets inside `@canopy/studio`, served at `/studio` with immutable caching by
+  the `studio` service (`canopy-studio`) of the container stack or by `canopy-server` in one process. Studio
+  talks to the admin API of the control plane and reads data through the data plane like any other client.
 - **Quality bar:** WCAG 2.2 AA, full keyboard navigation, dark mode, English first with i18n-ready strings.
 
 ## 5. Admin API and RBAC
@@ -121,6 +122,11 @@ require typed confirmation.
   provided, a commit SHA.
 
 ## 7. CLI
+
+The CLI stays TypeScript: it evaluates `canopy.config.ts` and the policy files, generates types and talks to
+the admin API. It carries the Rust data plane as optional platform dependencies, so `canopy dev` resolves the
+config, starts the data plane binary and the control plane, and needs neither a container nor a Rust
+toolchain ([ADR-0017](../adr/0017-rust-data-plane.md)).
 
 ### 7.1 Commands
 

@@ -1,8 +1,10 @@
 # 15: Using all of MongoDB
 
 > **Status:** planned. The probe and search in development land in Phase 5, read scaling and live geo in
-> Phase 6, the rest in Phase 7 ([12 §3.7](12-roadmap.md#37-phase-7-mongodb-depth--v010-7-weeks)). Decision:
-> [ADR-0015](../adr/0015-reach-through-mongodb.md). Nothing in this document is implemented yet.
+> Phase 6, the rest in Phase 7 ([12 §3.7](12-roadmap.md#37-phase-7-mongodb-depth--v011-7-weeks)). The execution
+> core of the wire endpoint lands with the Rust data plane in Phase 5b (stage D5 of
+> [14 §8.1](14-native-core.md#81-data-plane-stages)). Decision: [ADR-0015](../adr/0015-reach-through-mongodb.md).
+> Nothing in this document is implemented yet beyond the S13 prototype.
 
 ## 1. Why, and the rules that bound it
 
@@ -12,7 +14,9 @@ set of server features that Canopy uses only in part today: search and vector se
 Queryable Encryption, geospatial queries, secondaries, views, time series collections, query settings, zone
 sharding, and the wire protocol that every MongoDB driver speaks.
 
-[ADR-0014](../adr/0014-rust-native-core.md) settled which languages Canopy is written in. This plan settles
+[ADR-0014](../adr/0014-rust-native-core.md) and [ADR-0017](../adr/0017-rust-data-plane.md) settled which
+languages Canopy is written in: Rust for the data plane, TypeScript for the developer surface and the control
+plane. This plan settles
 how Canopy reaches further: **through MongoDB, not through more languages.**
 
 Three rules bound every item:
@@ -46,9 +50,11 @@ Three rules bound every item:
 
 ## 3. Languages: TypeScript and Rust, and no third one for the server
 
-- **Both server languages have an official MongoDB driver** (the Node driver and the `mongodb` crate). Canopy's
-  correctness rests on driver behavior: sessions, cluster time, change stream resumption, retryable errors. A
-  language without a first party driver would put that at risk.
+- **Both server languages have an official MongoDB driver.** The data plane uses the `mongodb` crate for every
+  data path; the control plane and embedded mode use the Node driver for the meta and auth databases and for
+  embedding. Canopy's correctness rests on driver behavior: sessions, cluster time, change stream resumption,
+  retryable errors. A language without a first party driver would put that at risk, and so would a driver
+  Canopy wrote itself.
 - **Every implementation of DLS has to be proven equivalent.** Phase 5 already makes the differential three
   way (MongoDB, TypeScript, Rust). A third server language would add a fourth implementation and no measured
   gain.
@@ -88,7 +94,7 @@ options changed) refreshes it.
 
 Search and vector search for self managed MongoDB became generally available on 2026-06-30, for MongoDB 8.2 and
 later, through the separate `mongot` process under the SSPL. Atlas has them on every tier. Canopy accepts
-`$search` and `$vectorSearch` today (plans/README F3) but has never run them against an index.
+`$search` and `$vectorSearch` today (docs/plans/README F3) but has never run them against an index.
 
 1. **Development and CI.** `bun run db:up --search` and `canopy dev --with-mongo --search` start the
    `mongodb/mongodb-atlas-local` image (a single node replica set running `mongod` and `mongot`), pinned to a
@@ -120,7 +126,8 @@ for apps that search, and it moves load off `mongod`. Live search costs a query 
 
 ### 4.3 M3: A MongoDB wire protocol endpoint
 
-The `canopy-gateway` ([14 §4.3](14-native-core.md#43-the-native-gateway)) listens on a second port and speaks the
+The Rust data plane (`canopy-gateway` today, [14 §4.3](14-native-core.md#43-the-native-gateway)) listens on a
+second port and speaks the
 MongoDB wire protocol (`OP_MSG`, `OP_COMPRESSED` with zstd and snappy, and the legacy `OP_QUERY` handshake
 only). An application in any language connects with its official MongoDB driver, and Compass and `mongosh`
 connect for exploration, with DLS applied exactly as on REST and realtime.
@@ -137,8 +144,8 @@ connect for exploration, with DLS applied exactly as on REST and realtime.
   `delete`, `findAndModify`, `listCollections` (exposed collections only), `listIndexes` and `explain`. Every
   other command fails with `CommandNotFound` (59) or `Unauthorized` (13), including all admin, user
   management, `eval` style and DDL commands. Reads and aggregations pass through the same policy sanitizer as
-  the Data API; writes go to the TypeScript write path, each its own transaction with `check` enforced, as
-  realtime `mut` frames do.
+  the Data API; writes go to the data plane's transactional write path (stage D2), each its own transaction
+  with `check` enforced, as REST writes and realtime `mut` frames do.
 - **Change streams.** `aggregate` with a first `$changeStream` stage becomes a subscription in the engine. Events
   are shaped as MongoDB change events, filtered by `USING(read)` and the field rules, with Canopy's own opaque
   resume token. `fullDocumentBeforeChange` is served only where pre-images are on and the caller may read the

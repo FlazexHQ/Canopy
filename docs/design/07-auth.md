@@ -16,6 +16,13 @@
 Both modes accept project **API keys** (§5) and produce the `{ roles, claims }` request context described in
 [02 §3](02-document-level-security.md#3-core-concepts).
 
+**Where auth runs.** Issuing credentials and verifying them are split. Built in auth (sign up, sign in,
+sessions, OAuth, MFA, key rotation) runs in the TypeScript control plane on Better Auth. Verifying a token,
+an API key, a revocation or a Studio view token happens on every request, so the Rust data plane does it
+itself, from the JWKS and the meta database, without calling the control plane
+([ADR-0017](../adr/0017-rust-data-plane.md)). A control plane outage therefore stops new sign ins but not
+requests that carry a valid token.
+
 ## 2. Built-in auth (Canopy Auth)
 
 Built-in auth embeds **Better Auth** with `@better-auth/mongo-adapter`, using a `MongoClient` so writes are

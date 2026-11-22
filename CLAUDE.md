@@ -8,9 +8,10 @@ Canopy (working name) is an open source, self hostable backend platform for Mong
 Phases 1 to 4 are implemented on `master`: the DLS core and Canopy Realtime, the Data API and optimistic SDK,
 auth, the server and Studio, and GraphQL with the framework bindings. Phase 4's exit criteria pass, but its
 entry gate (the security review O4 and test gap T1 of the Phase 3 review) is not recorded as closed, and the
-repository is working through `plans/README.md` before Phase 5 (the native core in
-Rust, `docs/plan/14-native-core.md`, starting from spikes S10 to S12; scale and edge follow as Phase 6, then MongoDB depth as Phase 7,
-`docs/plan/15-mongodb-depth.md`).
+repository is working through `docs/plans/README.md`. Phase 5 (the native core in Rust,
+`docs/design/14-native-core.md`) has its spikes recorded, three port stages implemented and stage 4 cut.
+Phase 5b, the Rust data plane (`docs/plans/004-rust-data-plane.md`, ADR 0017), was decided on 2026-11-22;
+scale and edge follow as Phase 6, then MongoDB depth as Phase 7 (`docs/design/15-mongodb-depth.md`).
 Nothing is published to npm yet and no license has been chosen. Packages (`packages/`):
 `protocol`, `matcher`, `query`, `policy` (universal), `schema` (schema inference, validators and type
 generation), `auth` (API keys, JWKS tokens and the `AuthProvider` contract), `auth-builtin` (built in app user
@@ -42,11 +43,13 @@ The only branch is **`master`**; there is no `main`, so use `master` as the base
 and Changesets.
 
 `docs/` is the source of truth for the design:
-start at `docs/README.md` (reading order, one page summary, glossary), then `docs/plan/00` to `13`, then the ADRs in
-`docs/adr/`. When code and docs disagree, raise it; design changes are merged back into the docs.
+start at `docs/README.md` (reading order, one page summary, glossary), then `docs/design/00` to `15`, then the ADRs in
+`docs/adr/`. When code and docs disagree, raise it; design changes are merged back into the docs. Every
+document lives under `docs/`: `design/` (the design chapters), `adr/`, `spikes/`, `reviews/` and `plans/` (work
+plans and their status, indexed in `docs/plans/README.md`).
 
-`docs/` (plan, ADRs, spikes), `plans/` and `tools/repo-check` are tracked and may be committed. Code comments
-still must not cite plan sections (see the comment rule below), because published packages do not ship `docs/`.
+`docs/` and `tools/repo-check` are tracked and may be committed. Code comments still must not cite design
+sections or plans (see the comment rule below), because published packages do not ship `docs/`.
 
 The governance drafts `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `GOVERNANCE.md` and `SECURITY.md` are ignored
 **for now** (until the user says to publish them), as is `lefthook-local.yml`. Keep the drafts up to date
@@ -66,7 +69,7 @@ Fixed decisions (do not change without the user saying so):
   Workers only for the edge). Package managers, in priority order: **Bun, pnpm, Yarn, npm**. The repository itself uses Bun
   workspaces with `bun.lock` as the only lockfile; published packages, examples and quickstarts must install
   and run with all four. Shared code stays portable across all three runtimes; Bun specific APIs live only
-  behind adapters with a Node counterpart. Details: ADR 0001, ADR 0002, `docs/plan/01-architecture.md` §8.
+  behind adapters with a Node counterpart. Details: ADR 0001, ADR 0002, `docs/design/01-architecture.md` §8.
   Prefer Bun's own APIs and tools where they exist (`Bun.serve`, `Bun.password`, `Bun.CryptoHasher`, and
   `bun fmt` as the formatter), each server API behind an adapter with its Node counterpart. Code that runs in
   browsers (all of `canopy.js` except server only entry points) stays on Web standard APIs such as Web Crypto.
@@ -75,11 +78,19 @@ Fixed decisions (do not change without the user saying so):
   container stack in `deploy/compose/`: `database`, `api` and `realtime` (one `canopy` image with
   `CANOPY_ROLE`), `studio` (`canopy-studio`) and `edge` (Caddy, `deploy/compose/edge/Caddyfile`). A service may
   depend only on `database`; the edge depends on none, so one failing service never takes the others down.
-- **Rust for the engine, TypeScript for the product** (decided 2026-11-18, ADR 0014, `docs/plan/14-native-core.md`).
-  Phase 5 moves the per event, per connection and per byte code (matcher, query, policy compiler, realtime
-  engine, a native gateway) to a Cargo workspace under `crates/`, exposed through ports (`@canopy/native` on
-  Node-API with a WebAssembly fallback, `canopy-wasm`). REST, GraphQL, the write path, auth, storage, the
-  server, the CLI, Studio and the SDKs stay TypeScript. A component moves only through a measured gate, and
+  After Phase 5b the `canopy` image is the Rust data plane and a `control` service (`canopy-control`) joins
+  the stack for built in auth, the admin API and webhooks (ADR 0017).
+- **Rust for the data plane, TypeScript for the developer surface** (engine decided 2026-11-18, ADR 0014; every
+  data path decided 2026-11-22, ADR 0017; `docs/design/14-native-core.md`, `docs/plans/004-rust-data-plane.md`).
+  Phase 5 moved the per event, per connection and per byte code (matcher, query, policy compiler, realtime
+  engine, the native gateway) to a Cargo workspace under `crates/`, exposed through ports (`@canopy/native` on
+  Node-API with a WebAssembly fallback, `canopy-wasm`). Phase 5b moves every request that reads or writes
+  application data into that Rust binary, the data plane: REST, GraphQL, the transactional write path,
+  storage and the MongoDB wire endpoint, against MongoDB through the official Rust driver (never a driver of
+  our own), with the same binary for a local replica set and Atlas. TypeScript keeps `canopy.js`, the policy,
+  schema and config DSLs, type generation, the CLI, Studio and the control plane (built in auth on Better
+  Auth, the admin API, policy publishing, migrations, webhooks); the TypeScript data packages stay as embedded
+  mode and as the equivalence reference. A route moves only through its measured gate (stages D0 to D7), and
   anything touching DLS must pass the TypeScript, Rust and MongoDB equivalence suites first. Users never need
   a Rust toolchain: prebuilt binaries for every platform above, or the WebAssembly fallback.
 - **All platforms.** Every runtime must work natively on **Windows** (10, 11, Server 2022+, not only WSL),
@@ -90,8 +101,8 @@ Fixed decisions (do not change without the user saying so):
   inline env assignment, POSIX utilities and shell globs (use a TypeScript script instead); spawn processes
   with argument arrays, handling `.cmd` shims on Windows; accept CRLF in parsed text; match file name case
   exactly; never rely on POSIX permission bits for security; handle `SIGINT`, `SIGTERM` and `SIGBREAK`; avoid
-  native dependencies without prebuilt binaries for every platform. Full rules: `docs/plan/01-architecture.md` §8.
-- Open decisions (name, license, auth engine, minimum MongoDB) live in `docs/plan/12-roadmap.md` §7.
+  native dependencies without prebuilt binaries for every platform. Full rules: `docs/design/01-architecture.md` §8.
+- Open decisions (name, license, auth engine, minimum MongoDB) live in `docs/design/12-roadmap.md` §7.
   Check whether they are settled before assuming an answer.
 
 ## Code rules (from the user, mandatory)
@@ -118,12 +129,12 @@ Fixed decisions (do not change without the user saying so):
 - **Conventional standards everywhere:** Conventional Commits with DCO sign-off (`git commit -s`), Changesets for
   release notes, idiomatic TypeScript naming, standard file and package layout, semver.
 
-Engineering standards from `docs/plan/11-engineering.md` §5:
+Engineering standards from `docs/design/11-engineering.md` §5:
 
 - ESM only. Sources import `./x.ts` (rewritten to `.js` on emit). Only erasable syntax: no `enum`, `namespace`
   or parameter properties.
 - No `any`, no non null assertions in library code. `unknown` at trust boundaries, validated before use.
-- Errors use the single `CanopyError` hierarchy with stable `code` values matching `docs/plan/04-wire-protocol.md`
+- Errors use the single `CanopyError` hierarchy with stable `code` values matching `docs/design/04-wire-protocol.md`
   §7. Never throw strings; narrow `catch (e: unknown)` explicitly.
 - No floating promises; `AbortSignal` on blocking public async APIs; `await using` for driver resources.
 - Universal packages (`protocol`, `matcher`, `query`, `policy`) use Web standard APIs only, never `node:` imports,
@@ -212,9 +223,9 @@ client ----------+ (client depends on matcher + protocol, never on policy)
   and `check` clauses, role scoping, a bypass `service` role. Policies are stored in the `canopy` meta DB and
   compiled from `(collection, operation, roles, version)` into **two forms from one source**: a MongoDB filter
   (reads and writes) and an in memory matcher (change events). Differential tests against real MongoDB keep the
-  two equivalent. Spec: `docs/plan/02-document-level-security.md`.
+  two equivalent. Spec: `docs/design/02-document-level-security.md`.
 - **Fail closed.** Unknown operators, missing variables, policy errors and timeouts all deny. Invariants I1 to I6
-  in `docs/plan/09-security.md` §4.2 are property tested; any change to policy, query or matcher must preserve them.
+  in `docs/design/09-security.md` §4.2 are property tested; any change to policy, query or matcher must preserve them.
   A DLS bypass is the worst possible bug in this project.
 - **Writes:** `check` rules are evaluated by MongoDB inside a multi document transaction together with an
   idempotency record. Canopy does not reimplement update semantics on the server.

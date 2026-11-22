@@ -1,9 +1,13 @@
 # 11: Engineering
 
 > How the code is organized, built, tested and released. The repository is set up **by hand in Phase 0**: no
-> `bun init` and no framework generators. It uses Bun workspaces and TypeScript 6 project references.
+> `bun init` and no framework generators. It uses Bun workspaces and TypeScript 6 project references for the
+> TypeScript packages, and a Cargo workspace for the Rust data plane.
 
 ## 1. Repository layout
+
+The layout as of 2026-11-22. The target layout for the Rust data plane, and which directory moves in which
+stage, is proposed in [plan 004 §7](../plans/004-rust-data-plane.md#7-proposed-repository-layout).
 
 ```
 canopy/
@@ -11,27 +15,33 @@ canopy/
 │  ├─ studio/                 # Canopy Studio (React SPA)
 │  └─ docs/                   # Documentation site (Astro Starlight)
 ├─ packages/
-│  ├─ protocol/  matcher/  query/  policy/       # universal core (Web APIs only)
-│  ├─ realtime/  rest/  graphql/  auth/  schema/ # server packages
-│  ├─ server/    cli/                            # composition + `canopy` binary
-│  ├─ client/    react/  vue/  svelte/  solid/   # SDK + bindings
-│  ├─ edge/                                      # Cloudflare Worker + Durable Objects
-│  └─ testing/                                   # fixtures, policy test harness, in-process server
-├─ crates/                    # Rust engine from Phase 5: protocol, matcher, query, policy, engine, gateway (plan 14)
-├─ examples/                  # todo-react, chat-nextjs, saas-multitenant, express-dropin, edge-cloudflare, expo-app
-├─ bench/                     # k6 scripts, ws-loadgen, scenarios, result history
-├─ deploy/                    # Dockerfiles, compose files, Helm chart, Grafana dashboard, alert rules
-├─ docs/                      # this plan, ADRs, RFCs
+│  ├─ protocol/  matcher/  query/  policy/            # universal core (Web APIs only), synced to Canopy.js
+│  ├─ schema/  config/                                # DSLs, schema inference, type generation
+│  ├─ realtime/  rest/  graphql/  storage/  node-http/ # TypeScript data path (embedded mode from Phase 5b)
+│  ├─ auth/  auth-builtin/                            # AuthProvider contract, Better Auth provider
+│  ├─ server/  cli/  studio/                          # composition, `canopy` CLI, Studio assets
+│  ├─ native/  wasm/                                  # Node-API and WebAssembly ports of the crates
+│  └─ testing/  sdk-e2e/                              # private harnesses
+├─ crates/                    # Rust: protocol, matcher, query, policy, engine, port, gateway (14, plan 004)
+├─ fuzz/                      # cargo fuzz targets
+├─ examples/                  # auth-notes, express-dropin, graphql-vue, next-ssr, todo-react
+├─ deploy/                    # compose files, Dockerfiles, Helm chart, Kubernetes manifests, binaries, dev project
+├─ docs/                      # design, ADRs, spikes, reviews and work plans
+├─ api/                       # public TypeScript API reports
+├─ tools/repo-check/          # repository rules, not a workspace member
 ├─ .changeset/
 ├─ .github/                   # workflows, CODEOWNERS, issue and PR templates
 ├─ biome.json
 ├─ bun.lock                   # the only JavaScript lockfile
-├─ Cargo.toml  Cargo.lock     # Rust workspace and its lockfile (Phase 5)
+├─ Cargo.toml  Cargo.lock     # Rust workspace and its lockfile
 ├─ package.json               # workspaces, catalogs and scripts
 ├─ tsconfig.base.json         # shared compiler options (TS 6)
 ├─ tsconfig.json              # solution file: references every package
 └─ turbo.json                 # task graph and caching
 ```
+
+The client SDK and framework bindings live in the separate Canopy.js repository
+([ADR-0016](../adr/0016-canopy-js-and-container-services.md)).
 
 ## 2. Package dependency graph
 
@@ -41,9 +51,6 @@ flowchart LR
   matcher["matcher"] --> protocol
   query["query"] --> matcher
   policy["policy"] --> query
-  client["client"] --> matcher
-  client --> protocol
-  react["react / vue / svelte / solid"] --> client
   auth["auth"] --> protocol
   realtime["realtime"] --> policy
   realtime --> auth
@@ -62,8 +69,11 @@ flowchart LR
   edgepkg --> protocol
 ```
 
-Arrows mean "depends on". The client never depends on `policy`: DLS is enforced on the server only. Universal
-packages have **no runtime dependencies** outside the workspace.
+Arrows mean "depends on". The client (`canopy.js`, its own repository) vendors `protocol` and `matcher` and
+never depends on `policy`: DLS is enforced on the server only. Universal packages have **no runtime
+dependencies** outside the workspace. The crates keep the same layering
+(`protocol ← matcher ← query ← policy ← engine`), and the data plane crates sit on top of it
+([14 §4.1](14-native-core.md#41-crates)).
 
 ## 3. TypeScript 6 configuration
 
@@ -123,11 +133,12 @@ packages have **no runtime dependencies** outside the workspace.
 |---|---|---|---|
 | Universal (protocol, matcher, query, policy) | `tsc -b` | ESM + `.d.ts` | Bun, Node 24/26 (PR); Deno, workerd (nightly) |
 | Server (realtime, rest, graphql, auth, schema, server, cli) | `tsc -b` | ESM + `.d.ts` | Bun, Node 24/26 (PR); Deno (nightly) |
-| Client + bindings | `tsc -b` for types; **tsdown** (Rolldown) for size-optimized ESM bundles | ESM + `.d.ts` | Bun, Node 24/26, Deno, Chromium/Firefox/WebKit (Playwright), React Native (smoke) |
+| Client + bindings | In the Canopy.js repository: `tsc -b` for types; **tsdown** (Rolldown) for size-optimized ESM bundles | ESM + `.d.ts` | Bun, Node 24/26, Deno, Chromium/Firefox/WebKit (Playwright), React Native (smoke) |
 | Studio | Vite | Static assets copied into `@canopy/server` | Playwright |
 | Edge | Wrangler | Worker bundle | `@cloudflare/vitest-pool-workers` (workerd) |
 | Rust crates and ports (Phase 5) | `cargo build`; napi-rs for `@canopy/native`; wasm-bindgen for `canopy-wasm` | Node-API binaries for 8 targets, WebAssembly, the static `canopy-gateway` binary | Bun, Node 24/26 (PR); Deno, workerd, every cross target (nightly). Details in [14 §6](14-native-core.md#6-platforms-toolchain-and-distribution) and [14 §7](14-native-core.md#7-engineering-changes) |
-| Container | Multi stage Dockerfile: `bun install --production`, then a distroless Bun base (plus a Node variant) | Image | Smoke tests in CI |
+| Data plane (Phase 5b) | `cargo build --release` per target; carried by the CLI as optional platform packages | The `canopyd` binary for 8 targets, the `canopy` image | Every target (release); the TypeScript suites against it on Linux, Windows and macOS (PR) |
+| Container | TypeScript images: multi stage Dockerfile, `bun install --production`, then a distroless Bun base (plus a Node variant). Data plane image: the static musl binary on a distroless base | Images | Smoke tests in CI |
 
 Every row that names Bun, Node or Deno is tested on **Linux, Windows and macOS**
 ([01 §8](01-architecture.md#8-runtime-strategy)): Bun and Node 24/26 on all three on every PR, Deno on all three
@@ -157,6 +168,9 @@ since Node 22.18 and 23.6) on Node. This works because sources only use erasable
 - **Dependencies:** licenses must be MIT, Apache-2.0, BSD or ISC. Server packages need a written justification
   for each new dependency. The default install has no native dependencies; the uWebSockets.js adapter is
   optional.
+- **Rust** follows the same rules, as set out in [14 §7](14-native-core.md#7-engineering-changes): rustdoc on
+  every public item, no `unwrap`, `expect` or `panic!` in library code, `#![forbid(unsafe_code)]` outside the
+  ports, one error enum per crate mapped to the stable `CanopyError` codes, `cargo deny` on licenses.
 
 ## 6. Testing strategy
 
@@ -168,6 +182,7 @@ since Node 22.18 and 23.6) on Node. This works because sources only use erasable
 | Integration | Testcontainers / `mongodb-memory-server` (replica set) | REST, realtime, auth flows, transactions | Every PR |
 | **Deterministic simulation** | Custom seeded harness ([03 §17](03-realtime-engine.md#17-testing-the-engine)) | Realtime guarantees G2 to G5 | PR (100 seeds), nightly (10k seeds) |
 | Conformance | Protocol vectors | SDKs and gateways | Every PR |
+| **Data plane equivalence** | The TypeScript route as the reference, request and response pairs, the cross entry point DLS test | Each Rust route against its TypeScript counterpart: byte identical deterministic responses, equal errors by contract ([14 §8.1](14-native-core.md#81-data-plane-stages)) | PR (subset), nightly (full) |
 | End-to-end | Playwright | SDK in browsers, Studio, examples, multi-tab, multi-user | PR (smoke), nightly (full) |
 | Chaos | Toxiproxy, `rs.stepDown()`, process kills, a tiny oplog | Resume and resync, no lost updates | Nightly |
 | Performance | k6, `ws-loadgen` | Targets in [10 §7](10-operations.md#7-performance-targets-and-benchmarking) | Nightly and per release |
@@ -246,6 +261,8 @@ score ≥ 80 % on policy, query and matcher.
 
 - `bun install && bun run dev` starts a MongoDB replica set (Docker Compose), the Canopy server in watch mode, and
   Studio with hot module reload. Seed data comes from `examples/todo-react`.
+- A Rust toolchain is optional. Without one, `bun install` and `bun run test:all` run the TypeScript suites
+  against the TypeScript engine; data plane work needs the toolchain pinned in `rust-toolchain.toml`.
 - A devcontainer is provided. `CONTRIBUTING.md`, the architecture docs (this folder), ADRs and the RFC process
   ([13 §3](13-open-source.md#3-contribution-model)) are linked from the README.
 - Issue labels: `good first issue`, `help wanted`, `area/*`, `security` (private), and `rfc`.

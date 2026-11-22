@@ -18,7 +18,7 @@ The rules of every Canopy feature apply to all of them:
 ## F6: several projects per deployment
 
 **Decision: not a goal before 1.0.** One deployment serves one app database. Recorded as
-[ADR 0013](../docs/adr/0013-one-project-per-deployment.md). Nothing is built; what keeps the door open is
+[ADR 0013](../adr/0013-one-project-per-deployment.md). Nothing is built; what keeps the door open is
 listed there.
 
 ## F2: database triggers and webhooks

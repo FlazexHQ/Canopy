@@ -1,9 +1,14 @@
-# 14: Native core in Rust
+# 14: Native core and data plane in Rust
 
 > **Status (2026-11-20):** Phase 5 ([12 §3.5](12-roadmap.md#35-phase-5-native-core-in-rust--v06-10-weeks))
 > has three implemented port stages awaiting acceptance evidence. The initial spikes are recorded and the
 > native read path is cut at its performance gate. See [§8](#8-stages-and-gates) for the remaining work.
 > Decision: [ADR-0014](../adr/0014-rust-native-core.md).
+>
+> **Amended 2026-11-22 ([ADR-0017](../adr/0017-rust-data-plane.md)):** the maintainer chose a Rust data plane
+> for every data path. REST, GraphQL, the write path and storage move to Rust in Phase 5b
+> ([12 §3.5b](12-roadmap.md#35b-phase-5b-native-data-plane--v07-12-weeks)) through the stages of
+> [§8.1](#81-data-plane-stages). The execution plan is [plan 004](../plans/004-rust-data-plane.md).
 
 ## 1. Why, and the rule that bounds it
 
@@ -17,14 +22,23 @@ suites keep that code honest. It also puts the hottest loops of the system (deco
 matching it against every candidate subscription, writing it to every socket) on a single garbage collected
 thread.
 
-This plan moves the **engine** to Rust and keeps the **product** in TypeScript:
+This plan moves the **data plane** to Rust and keeps the **developer surface and control plane** in
+TypeScript:
 
-- **Rust** where the work runs per change event, per connection or per byte, and is bound by CPU, memory or
-  tail latency: change stream decoding, matching, the predicate index, merge boxes, encoding and WebSocket
-  fan out.
-- **TypeScript** where the work is bound by MongoDB round trips, changes often with the product, or must run in
-  a browser: the REST and GraphQL handlers, the write path, auth, storage, the server composition, the CLI,
-  Studio, the client SDK and its bindings.
+- **Rust** for every request that reads or writes application data, from the socket to MongoDB and back:
+  change stream decoding, matching, the predicate index, merge boxes and fan out (Phase 5), then the REST
+  and GraphQL handlers, the transactional write path, storage and the MongoDB wire endpoint (Phase 5b,
+  [ADR-0017](../adr/0017-rust-data-plane.md)). One owner per request removes the loopback hop and the per
+  document language crossing that capped stage 4.
+- **TypeScript** for what developers write and touch, and for work that changes often with the product or
+  must run in a browser: `canopy.js` and its bindings, the policy, schema and config DSLs, type generation,
+  the CLI, Studio, and the control plane service (built in auth, the admin API, policy publishing,
+  migrations, webhooks). The TypeScript data packages stay as embedded mode and as the equivalence reference.
+
+Phase 5 first kept the request handlers in TypeScript because S3 found them bound by MongoDB round trips.
+Stage 4 and S3 together showed that this was not the whole story: the CPU of a request sits in the
+JavaScript driver, in BSON handling and at the boundary between languages, and only a single Rust owner
+removes all three.
 
 Two rules bound every port:
 
@@ -54,13 +68,14 @@ Two rules bound every port:
 | WebSocket fan out, encode once, backpressure | Per connection and frame | **High.** Memory per connection, no collection pauses in p99 | Port (gateway) |
 | Policy compiler (MongoDB filter and matcher forms), query parser, canonical hashing | Per policy version or new query, then cached | **Low** for speed, **required** for correctness: the gateway needs it, and two compilers that drift are a DLS risk | Port, and make Rust the server's source of truth |
 | EJSON and wire protocol codec | Per frame and per REST response | **Medium.** Raw BSON to EJSON text in one pass, without building JavaScript objects | Port; REST read path use is gated (stage 4) |
-| REST and GraphQL handlers, the transactional write path, idempotency | Bound by MongoDB round trips (S3) | **Low** | Keep in TypeScript; call the native codec and policy core through the Node-API port |
-| Auth: JWT verification, password hashing, sessions | Already native crypto (`node:crypto`, Web Crypto); Better Auth is TypeScript | **None** | Keep. The gateway verifies tokens itself (§4.3) |
-| Storage image transformations | Already Rust | Done | Keep |
+| REST and GraphQL handlers, the transactional write path, idempotency | Round trips plus the JavaScript driver, BSON and a loopback hop (S3, stage 4) | **Medium to high** once one Rust owner holds the whole request; **none** through a per document port | Port as whole routes in Phase 5b (§8.1, stages D1 to D3) |
+| Auth: JWT verification, API keys, revocations | Per request; already in the gateway | **Medium** | Done in the gateway; the data plane reuses it |
+| Auth: Better Auth flows, sessions, key issuance | Product logic, not per request | **None** | Keep in TypeScript, in the control plane |
+| Storage: policies, metadata, object streaming, image transformations | Per byte for transfers; image work already Rust | **Medium** | Port in Phase 5b (D4) |
 | Edge Durable Objects (DLS on relayed events) | Billed by CPU time, 128 MB memory per isolate | **Medium** | WebAssembly build of the core, decided with the S8 calibration in Phase 6 |
-| Client SDK, framework bindings, Studio, docs site, CLI, config, server composition | Browser code or product logic | **None, or negative.** WebAssembly in the SDK adds download size and an asynchronous start | Keep. The client keeps the TypeScript matcher: on the client it only predicts optimistic results and is not a security boundary |
+| Client SDK, framework bindings, Studio, docs site, CLI, config, the control plane | Browser code or product logic | **None, or negative.** WebAssembly in the SDK adds download size and an asynchronous start | Keep. The client keeps the TypeScript matcher: on the client it only predicts optimistic results and is not a security boundary |
 | Functions runtime (the counterpart of Supabase's Edge Runtime) | User code in isolates | Not a speed question | Out of scope for Phase 5. Functions are HTTP endpoints today (plan 002 F5). A `deno_core` based runtime is listed after 1.0 ([12 §8](12-roadmap.md#8-after-10)) |
-| Rust write path or a Rust Data API server | Duplicates the largest TypeScript surface | Unknown; S3 says round trips dominate | Not planned. Revisit only if a profile after Phase 5 shows the JavaScript driver as the limit on a real deployment |
+| Canopy's own outbound MongoDB wire client | Replaces the official driver | **None** for network hops; unmeasured for CPU | Not planned. The official Rust driver with raw BSON cursors and pushed down filters stays ([plan 004 §4](../plans/004-rust-data-plane.md#4-working-close-to-mongodb-on-docker-and-on-atlas)) |
 
 ## 4. Target architecture
 
@@ -86,7 +101,8 @@ flowchart LR
   PO --> NAPI
   PR --> NAPI
   PO --> WASM
-  NAPI --> TS["realtime, rest, graphql,<br/>storage (TypeScript)"]
+  GW --> DP["Phase 5b: canopyd data plane<br/>REST, GraphQL, writes,<br/>storage, MongoDB wire"]
+  NAPI --> TS["embedded mode: realtime, rest,<br/>graphql, storage (TypeScript)"]
   WASM --> EDGE["@canopy/edge (Phase 6)"]
   CL["canopy.js"] --> TSM["@canopy/matcher<br/>(TypeScript, kept)"]
 ```
@@ -106,6 +122,12 @@ gateway, so each can be built for native targets and for WebAssembly.
 | `canopy-engine` | the core of `@canopy/realtime` | Predicate, membership and path indexes, observers, merge boxes, per connection sequencing, resume buffers, echo correlation. No I/O: it consumes normalized events and emits frames, so the simulation suite can drive it directly. |
 | `canopy-gateway` | the `canopy-realtime` binary | The native realtime server (§4.3). |
 
+Phase 5b splits `canopy-gateway` into the crates of the data plane (`canopy-mongo`, `canopy-auth`,
+`canopy-data`, `canopy-http`, `canopy-graphql`, `canopy-storage`, `canopy-realtime`, `canopy-wire`,
+`canopy-config`) and renames the binary `canopyd`, as proposed in
+[plan 004 §7](../plans/004-rust-data-plane.md#7-proposed-repository-layout). The core crates above keep
+their names and their rule of no I/O.
+
 ### 4.2 Ports
 
 A "port" is a library that exposes the crates to another language. Phase 5 builds two:
@@ -124,6 +146,8 @@ choose an engine: `native` (the Node-API port), `wasm` (its fallback) or `ts` (t
 default stays `ts` until the gates of §8 pass, then becomes `native`. The `ts` engine is kept through 1.0 as
 the escape hatch, as the reference of the equivalence suites, and so that a contributor without a Rust
 toolchain can still run `bun install` and `bun run test:all` (Q11 in [12 §7](12-roadmap.md#7-open-questions)).
+From Phase 5b these packages are embedded mode for Node applications and the reference of the data plane's
+equivalence suites; the deployed services use the Rust data plane ([ADR-0017](../adr/0017-rust-data-plane.md)).
 
 The same crates make later ports cheap: UniFFI for the Swift and Kotlin SDKs and PyO3 for a Python server
 library, both after 1.0.
@@ -143,17 +167,21 @@ unchanged, so every SDK and binding works against it without a release of their 
 - **Auth:** JWT verification through JWKS, API key lookup, revocations through the existing revocation
   collection, and the rate limits of the sidecar. These are small but security relevant, so the gateway is in
   the scope of the outside audit.
-- **Writes are not ported.** A `mut` frame is forwarded to the TypeScript write path (REST, with the caller's
-  credentials), which keeps one implementation of transactional `check` enforcement and idempotency. The
-  gateway holds the `ack` until the change events of that mutation are delivered, which keeps
-  echo before ack ([ADR-0007](../adr/0007-cluster-time-reconciliation.md)). This is the split the edge
-  already uses ([ADR-0010](../adr/0010-edge-is-fanout-only.md)).
-- **Config:** the config file is TypeScript, which Rust cannot evaluate. `canopy-server` resolves it and
-  starts the gateway as a child process with the resolved config as JSON on standard input. Standalone, the
-  gateway reads the same JSON or the environment variables the sidecar reads today.
+- **Writes are forwarded until stage D2.** A `mut` frame goes to the TypeScript write path (REST, with the
+  caller's credentials), which keeps one implementation of transactional `check` enforcement and idempotency.
+  The gateway holds the `ack` until the change events of that mutation are delivered, which keeps
+  echo before ack ([ADR-0007](../adr/0007-cluster-time-reconciliation.md)). Stage D2 of §8.1 moves the write
+  path itself into Rust and ends the forwarding; the edge keeps delegating writes to the core
+  ([ADR-0010](../adr/0010-edge-is-fanout-only.md)).
+- **Config:** the config file is TypeScript, which Rust cannot evaluate. `canopy-server` (the control plane
+  after stage D6, and `canopy dev`) resolves it and starts the gateway as a child process with the resolved
+  config as JSON on standard input. Standalone, the gateway reads the same JSON or the environment variables
+  the sidecar reads today. In Phase 5b the JSON gets a schema of its own (`canopy-config`), so both languages
+  validate the same document.
 - **Deployment:** in the all in one image, either the gateway owns the public port, serves `/realtime/v1`
   and proxies every other path to the TypeScript server on loopback, or the ingress routes `/realtime/v1` to
-  the gateway's own port. S11 decides; both keep a single public origin.
+  the gateway's own port. S11 decides; both keep a single public origin. In Phase 5b each promoted route stops
+  being proxied, and after stage D6 only control plane paths (`/auth/v1`, `/admin`) leave the data plane.
 - **Hub mode (Phase 6):** gateways are the gateway nodes of [03 §13](03-realtime-engine.md#13-scaling-out),
   consuming the bus instead of a change stream.
 
@@ -327,7 +355,7 @@ replica set when the `CANOPY_BENCH_MONGODB_URI` secret is set.
    viewer every 50 ms) only a window longer than 50 ms merges frames, so the workflow measures windows of 0
    and 100 ms by default; whether a default window is worth its latency is decided on those figures.
 
-The Stage 4 cut leaves REST and GraphQL on the existing TypeScript codec. The wasm-bindgen package
+The Stage 4 cut leaves REST and GraphQL on the existing TypeScript codec until Phase 5b moves whole routes (§8.1). The wasm-bindgen package
 exists, and its workerd validation belongs to Phase 6. The roadmap's additional
 [S13 spike](../spikes/S13-inbound-wire.md) has fixture results from all four drivers and a read cost
 comparison. Its open measurements are sustained concurrency, writes and change streams. Track
@@ -338,8 +366,26 @@ production inbound wire work under [MongoDB depth](15-mongodb-depth.md).
 packages. When stage 3 passes, the gateway ships opt in for v0.6 and becomes the default realtime server one
 release later if no P0 or P1 issue is open against it (Q13).
 
-**Not in Phase 5:** a Rust write path or Data API server, the functions runtime, native SDKs, and the edge's
-use of `canopy-wasm` (Phase 6).
+**Not in Phase 5:** the Rust write path and Data API (Phase 5b, §8.1), the functions runtime, native SDKs,
+and the edge's use of `canopy-wasm` (Phase 6).
+
+### 8.1 Data plane stages
+
+Phase 5b ([12 §3.5b](12-roadmap.md#35b-phase-5b-native-data-plane--v07-12-weeks)) moves every data path into
+the Rust binary, one route at a time, each behind explicit routing with the TypeScript route as the fallback.
+Every gate runs on the reference hardware against a local replica set and a same region Atlas cluster and
+reports both. Details and the repository layout are in [plan 004](../plans/004-rust-data-plane.md).
+
+| Stage | Delivers | Gate |
+|---|---|---|
+| D0. Baseline | The REST read, write and fan out workloads on local and Atlas, with commands, bytes, pool waits, query plans, CPU, allocations and latency percentiles; the `dns-resolver` build for `mongodb+srv` | Report recorded; query plan and round trip fixes made in both languages first |
+| D1. Reads | `find`, then `count`, `distinct` and `aggregate`, end to end in Rust | Deterministic responses byte identical; DLS equivalence and bypass corpus green; at least 1.5× simple read throughput per vCPU with stable tails |
+| D2. Writes | The transactional write path, idempotency, batches and commit times in Rust; socket mutations no longer forwarded | Replay, stepdown, ambiguous commit and policy change suites green; echo before ack with 0 violations in 100k mutations; at least 1.5× write throughput per vCPU |
+| D3. GraphQL | Schema generation and execution on the D1 and D2 services (library chosen in spike S15) | The GraphQL suite passes unchanged; one execution per operation |
+| D4. Storage | Storage policies, backends, signed URLs, resumable uploads | Existing objects and URLs keep working; policy suite green |
+| D5. MongoDB wire endpoint | M3 of [15](15-mongodb-depth.md#43-m3-a-mongodb-wire-protocol-endpoint) on the shared execution core | The wire endpoint gates of Phase 7 |
+| D6. Control plane split | The `control` service and image; the `canopy` image becomes the data plane | Stack, `sdk-e2e` and Playwright suites green; a failing control plane leaves data routes serving |
+| D7. Defaults | The data plane is the default for promoted routes; the TypeScript data packages are frozen as embedded mode | No P0 or P1 issue open for one release; Q17 decided |
 
 ## 9. Risks
 
@@ -350,3 +396,4 @@ use of `canopy-wasm` (Phase 6).
 | The Rust driver lacks something the engine relies on (snapshot time, expanded change events, pre and post images on 7.0) | S12 before any gateway work; the gateway falls back to the forwarded or TypeScript path for a missing feature, or stage 3 stops |
 | Rust experience and bus factor on a three person team | Two code owners per crate, the crates mirror the TypeScript packages one to one, reviews require one owner from each language |
 | Phase 5 delays 1.0 by ten weeks | The cut lines of [12 §5](12-roadmap.md#5-cut-lines): stage 4 goes first, then the gateway moves after 1.0 while the native core stays |
+| Phase 5b rewrites the largest surface, and two stacks run side by side for months | One route at a time behind routing with a tested rollback; D1 and D2 first; the TypeScript route stays the fallback until its Rust replacement passes every gate ([plan 004 §8](../plans/004-rust-data-plane.md#8-risks)) |

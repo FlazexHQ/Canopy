@@ -3,8 +3,8 @@
 - **Date:** 2026-11-18
 - **Status:** done on single node replica sets. **Go** for every capability; two need a documented
   workaround, one (lost history) was not reproduced locally. Sharded clusters are still open, as in S7.
-- **Roadmap:** [12 §4](../plan/12-roadmap.md#4-technical-spikes) (S12, risk R18),
-  [14 §4.3](../plan/14-native-core.md#43-the-native-gateway) and [14 §9](../plan/14-native-core.md#9-risks)
+- **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) (S12, risk R18),
+  [14 §4.3](../design/14-native-core.md#43-the-native-gateway) and [14 §9](../design/14-native-core.md#9-risks)
 - **Prototype:** [`S12-prototype/`](S12-prototype/README.md)
 
 ## Question
@@ -186,7 +186,7 @@ copy the driver makes per event (below) and the server's image lookups, which do
 
 ## What it means for stage 3
 
-- Nothing in the driver blocks stage 3 of [14 §8](../plan/14-native-core.md#8-stages-and-gates). The gateway
+- Nothing in the driver blocks stage 3 of [14 §8](../design/14-native-core.md#8-stages-and-gates). The gateway
   can take snapshots and stream from their time exactly as S2 describes, with fewer casts than the Node driver
   needs, and an explicit `atClusterTime` is available should the engine ever want to read several queries at
   one time.
@@ -202,11 +202,11 @@ copy the driver makes per event (below) and the server's image lookups, which do
 
 - **Minimum Rust version.** `mongodb` 3.10.1 needs Rust 1.88, but the workspace `rust-version` is 1.85. The
   gateway crate (or the workspace) must state 1.88 or later. The pinned toolchain (1.100.0) builds it.
-- **Images on 7.0 are not a risk.** [14 §9](../plan/14-native-core.md#9-risks) lists "pre and post images on
+- **Images on 7.0 are not a risk.** [14 §9](../design/14-native-core.md#9-risks) lists "pre and post images on
   7.0" as something the driver might lack; they work on 7.0.48 exactly as on 8.0.
 - **Licenses.** With `rustls-tls` the driver links `webpki-roots` (CDLA Permissive 2.0) and, through
   `stringprep` for SCRAM, `unicode-normalization` and `unicode-properties` (MIT or Apache 2.0, and Unicode
-  3.0), as [14 §6](../plan/14-native-core.md#6-platforms-toolchain-and-distribution) expects. Two more are only
+  3.0), as [14 §6](../design/14-native-core.md#6-platforms-toolchain-and-distribution) expects. Two more are only
   used at build time and not linked: `tiny-keccak` (CC0 1.0, through the driver's internal macros) and
   `unicode-ident`. `mongodb+srv` URIs need the `dns-resolver` feature (Hickory), whose tree was not checked
   here.

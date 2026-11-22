@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-05 (revised 2026-11-06: Bun replaces pnpm as the primary package manager)
-- **Related:** [11 §1 to §8](../plan/11-engineering.md), [ADR-0001](0001-typescript-6-and-bun.md)
+- **Related:** [11 §1 to §8](../design/11-engineering.md), [ADR-0001](0001-typescript-6-and-bun.md)
 
 ## Context
 

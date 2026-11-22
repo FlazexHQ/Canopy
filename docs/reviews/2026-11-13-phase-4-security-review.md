@@ -1,8 +1,8 @@
 # Phase 4 security review (2026-11-13)
 
 Internal review of the code that landed after the audit of 2026-11-11, done for the Phase 4 gate (roadmap
-[§3.3a, O4 and T1](../plan/12-roadmap.md#gate-before-phase-4); security plan
-[09](../plan/09-security.md)). Reviewer: the implementation agent, on branch `improve/audit-remediation`.
+[§3.3a, O4 and T1](../design/12-roadmap.md#gate-before-phase-4); security plan
+[09](../design/09-security.md)). Reviewer: the implementation agent, on branch `improve/audit-remediation`.
 This is a code review with targeted probes, not an outside audit; the outside audit stays a Phase 8 exit
 criterion.
 
@@ -18,12 +18,12 @@ criterion.
 | Other | `a08b473` (CSV source id), `c4699c8` (docs site), `777479b` (lazy GraphQL load): read for security relevance only |
 
 Out of scope: the Phase 3 auth and admin surfaces (covered by the 2026-11-11 audit and the plans in
-`plans/`), Studio, and the Cloudflare edge spike.
+`docs/plans/`), Studio, and the Cloudflare edge spike.
 
 ## Method
 
 1. Read every changed file of the scope, following each GraphQL resolver to the read or write path it calls.
-2. Checked the invariants of [09 §4.2](../plan/09-security.md): fail closed, one policy engine, field rules,
+2. Checked the invariants of [09 §4.2](../design/09-security.md): fail closed, one policy engine, field rules,
    no schema intrusion.
 3. Read the installed Better Auth plugin code (`two-factor`, `passkey`) where Canopy relies on its behavior.
 4. For every suspected defect, wrote a test that failed on the old code, then fixed it. Probes that showed no
@@ -122,7 +122,7 @@ from source on Bun with `bun deploy/binary/ws-smoke.ts`; the compiled executable
 Gate state as of 2026-11-20. R1, R2, T3 and T5 were done on 2026-11-07, T1 is done, and this document
 records the security half of O4. The maintainer confirmed completion of the five developer usability
 exercise (C14), closing O4 and the Phase 4 entry gate. The
-[exercise record](../../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md) lists the missing participant
+[exercise record](../plans/003-sdk-dx-and-canopy-rest/o4-exercise.md) lists the missing participant
 details and tracks the separate REST exercise.
 
 ## Verification

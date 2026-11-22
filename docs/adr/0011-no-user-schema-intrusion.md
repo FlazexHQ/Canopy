@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-05, amended 2026-11-18
-- **Related:** [00 §5](../plan/00-vision.md#5-design-principles), [01 §6](../plan/01-architecture.md#6-where-canopy-writes-data),
-  [ADR-0015](0015-reach-through-mongodb.md), [15](../plan/15-mongodb-depth.md)
+- **Related:** [00 §5](../design/00-vision.md#5-design-principles), [01 §6](../design/01-architecture.md#6-where-canopy-writes-data),
+  [ADR-0015](0015-reach-through-mongodb.md), [15](../design/15-mongodb-depth.md)
 
 ## Context
 
