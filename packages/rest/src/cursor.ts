@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { sha256 } from "@canopy/auth/crypto"
 import { Bracket, bracketOf, type SortKey, sortKeyOf, splitPath } from "@canopy/matcher"
 import { DENY_FILTER } from "@canopy/policy"
 import { InvalidQueryError, isDocument, parse, toCanonical } from "@canopy/protocol"
@@ -73,10 +73,7 @@ export function cursorQueryHash(
   keys: readonly CursorKey[],
 ): string {
   const sort = Object.fromEntries(keys.map((key) => [key.path, key.direction]))
-  return createHash("sha256")
-    .update(canonicalQuery({ collection, filter, sort }))
-    .digest("hex")
-    .slice(0, 32)
+  return sha256(canonicalQuery({ collection, filter, sort })).toString("hex").slice(0, 32)
 }
 
 /** Encodes a position as an opaque cursor: base64url of canonical EJSON `{ s, q }`. */

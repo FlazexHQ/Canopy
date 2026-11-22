@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { sha256 } from "@canopy/auth/crypto"
 import { type ClusterTime, canonicalString, InvalidQueryError } from "@canopy/protocol"
 import type { Document } from "mongodb"
 import type { Caller, ReturnedDocument } from "./write-path.ts"
@@ -41,9 +41,9 @@ export interface RecordKey {
 
 /** Binds a mutation ID to one request: the same ID with another body or role set is another write. */
 export function fingerprint(caller: Caller, request: unknown): string {
-  return createHash("sha256")
-    .update(canonicalString({ request, roles: [...caller.context.roles].sort() }))
-    .digest("base64url")
+  return sha256(canonicalString({ request, roles: [...caller.context.roles].sort() })).toString(
+    "base64url",
+  )
 }
 
 /** Thrown inside a transaction to stop it when the mutation ID was already recorded. */

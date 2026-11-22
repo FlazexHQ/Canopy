@@ -16,6 +16,11 @@
       "@canopy/source": "./src/client-address.ts",
       "default": "./dist/client-address.js"
     },
+    "./crypto": {
+      "types": "./dist/crypto.d.ts",
+      "@canopy/source": "./src/crypto.ts",
+      "default": "./dist/crypto.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

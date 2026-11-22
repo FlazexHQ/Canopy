@@ -328,3 +328,11 @@ function isAddressRule(text: string): boolean
 
 function resolveClientAddress(headers: Headers, peer: string | undefined, trustedProxies: readonly string[]): string
 ```
+
+## @canopy/auth/crypto
+
+```ts
+function hmacSha256(key: string | Uint8Array, data: string | Uint8Array): Buffer
+
+function sha256(data: string | Uint8Array): Buffer
+```

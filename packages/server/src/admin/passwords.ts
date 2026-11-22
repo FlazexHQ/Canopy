@@ -1,10 +1,9 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
+import { scrypt as scryptCallback, timingSafeEqual } from "node:crypto"
+import { isArgon2idHash, verifyArgon2id } from "@canopy/auth-builtin/password-hashing"
 import { ValidationError } from "@canopy/protocol"
 
-/** scrypt cost parameters: N = 2^15, r = 8, p = 1 (about 32 MiB and tens of milliseconds per hash). */
-const LOG_N = 15
-const R = 8
-const P = 1
+export { hashArgon2id as hashPassword } from "@canopy/auth-builtin/password-hashing"
+
 const KEY_LENGTH = 32
 const MAX_MEMORY = 64 * 1024 * 1024
 
@@ -42,15 +41,10 @@ export function checkPasswordStrength(password: string): void {
     throw new ValidationError(`The password must have at most ${MAX_PASSWORD_LENGTH} characters`)
 }
 
-/** Hashes a password as `scrypt$<log2 N>$<r>$<p>$<salt>$<hash>` with a random 16 byte salt. */
-export async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16)
-  const hash = await scrypt(password, salt, LOG_N, R, P)
-  return `scrypt$${LOG_N}$${R}$${P}$${salt.toString("base64url")}$${hash.toString("base64url")}`
-}
-
 /** Checks a password against a stored hash in constant time. Malformed hashes never match. */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  if (password.length > MAX_PASSWORD_LENGTH) return false
+  if (isArgon2idHash(stored)) return verifyArgon2id(password, stored)
   const [kind, logN, r, p, salt, hash, extra] = stored.split("$")
   if (kind !== "scrypt" || salt === undefined || hash === undefined || extra !== undefined)
     return false
@@ -64,7 +58,6 @@ export async function verifyPassword(password: string, stored: string): Promise<
     parallel > 4
   )
     return false
-  if (password.length > MAX_PASSWORD_LENGTH) return false
   const expected = Buffer.from(hash, "base64url")
   if (expected.length !== KEY_LENGTH) return false
   try {
@@ -76,4 +69,18 @@ export async function verifyPassword(password: string, stored: string): Promise<
 }
 
 /** A hash to verify against when the account does not exist, so the response time does not reveal it. */
-export const DUMMY_PASSWORD_HASH = `scrypt$${LOG_N}$${R}$${P}$${Buffer.alloc(16).toString("base64url")}$${Buffer.alloc(KEY_LENGTH).toString("base64url")}`
+export const DUMMY_PASSWORD_HASH =
+  "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+const DUMMY_SCRYPT_HASH =
+  "scrypt$15$8$1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+/** Verifies the stored hash and runs the other format so their costs do not identify accounts. */
+export async function verifyLoginPassword(password: string, stored: string): Promise<boolean> {
+  const dummy = isArgon2idHash(stored) ? DUMMY_SCRYPT_HASH : DUMMY_PASSWORD_HASH
+  const [matches] = await Promise.all([
+    verifyPassword(password, stored),
+    verifyPassword(password, dummy),
+  ])
+  return matches
+}

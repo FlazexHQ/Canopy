@@ -179,7 +179,7 @@ class KeyRing {
   signingKeys(): EngineKey[]
   jwks(): JSONWebKeySet
   list(): SigningKeyInfo[]
-  readonly resolve: JWTVerifyGetKey<globalThis.CryptoKey | Uint8Array<ArrayBufferLike>>
+  readonly resolve: JWTVerifyGetKey<Uint8Array<ArrayBufferLike> | globalThis.CryptoKey>
   rotate(): Promise<SigningKeyInfo[]>
   revoke(kid: string): Promise<boolean>
   close(): Promise<void>
@@ -316,4 +316,16 @@ function signV4(input: SignV4Input): Promise<Record<string, string>>
 const silentAuthLogger: AuthLogger
 
 function smtp(options: SmtpOptions): EmailTransport
+```
+
+## @canopy/auth-builtin/password-hashing
+
+```ts
+function hashArgon2id(password: string): Promise<string>
+
+function isArgon2idHash(stored: string): boolean
+
+function needsPasswordRehash(stored: string): boolean
+
+function verifyArgon2id(password: string, stored: string): Promise<boolean>
 ```

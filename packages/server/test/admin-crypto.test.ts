@@ -105,14 +105,20 @@ describe("HOTP and TOTP", () => {
 })
 
 describe("admin passwords", () => {
-  it("hashes with scrypt and a random salt, and verifies only the right password", async () => {
+  it("hashes with Argon2id and a random salt, and verifies only the right password", async () => {
     const first = await hashPassword("correct horse battery")
     const second = await hashPassword("correct horse battery")
-    expect(first).toMatch(/^scrypt\$15\$8\$1\$[\w-]{22}\$[\w-]{43}$/)
+    expect(first).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$[A-Za-z0-9+/]{22,43}\$/)
     expect(first).not.toBe(second)
     expect(await verifyPassword("correct horse battery", first)).toBe(true)
     expect(await verifyPassword("correct horse batterY", first)).toBe(false)
     expect(await verifyPassword("", first)).toBe(false)
+  })
+
+  it("verifies an old Studio scrypt hash using the original byte salt and normalization", async () => {
+    const hash = "scrypt$15$8$1$AAECAwQFBgcICQoLDA0ODw$COB_G7ymvY11iWmUQfBf45sVshg_1cNnzPOIbXfSqUQ"
+    expect(await verifyPassword("correct horse Ａattery", hash)).toBe(true)
+    expect(await verifyPassword("correct horse Battery", hash)).toBe(false)
   })
 
   it("never matches malformed or hostile hashes", async () => {

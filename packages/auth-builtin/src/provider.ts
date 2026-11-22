@@ -335,11 +335,19 @@ class BetterAuthProvider implements BuiltinAuth {
           )
         }
       },
-      rehash: async (legacy, hash) => {
-        await authDb
+      rehash: async (userId, previous, hash) => {
+        const result = await authDb
           .collection(AUTH_COLLECTIONS.accounts)
-          .updateOne({ providerId: "credential", password: legacy }, { $set: { password: hash } })
-        this.audit.record({ action: "auth.password_rehashed", actor: { type: "system" } })
+          .updateOne(
+            { providerId: "credential", accountId: userId, password: previous },
+            { $set: { password: hash } },
+          )
+        if (result.modifiedCount > 0)
+          this.audit.record({
+            action: "auth.password_rehashed",
+            actor: { type: "system" },
+            target: { type: "user", id: userId },
+          })
       },
       userCreated: (user, path) =>
         this.audit.record({

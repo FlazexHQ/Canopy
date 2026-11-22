@@ -1,4 +1,4 @@
-import { sha256Hex } from "@canopy/protocol"
+import { sha256 } from "./crypto.ts"
 
 /** A publishable key maps to `anon`, a secret key to `service`. */
 export type ApiKeyKind = "publishable" | "secret"
@@ -44,7 +44,7 @@ export function apiKeyKind(value: string): ApiKeyKind | undefined {
 
 /** The stored hash of a key. Secret keys are only ever stored in this form. */
 export function hashApiKey(key: string): string {
-  return `sha256:${sha256Hex(key)}`
+  return `sha256:${sha256(key).toString("hex")}`
 }
 
 /** The display prefix of a key: its first random characters, safe to show after creation. */

@@ -1,4 +1,5 @@
-import { createHash, timingSafeEqual } from "node:crypto"
+import { timingSafeEqual } from "node:crypto"
+import { sha256 } from "@canopy/auth/crypto"
 import { CanopyError, ErrorCode, encode, toCanopyError } from "@canopy/protocol"
 import { toProblem } from "@canopy/rest"
 
@@ -77,8 +78,8 @@ export function setCookie(
 
 /** Compares two secrets in constant time. */
 export function sameSecret(a: string, b: string): boolean {
-  const left = createHash("sha256").update(a).digest()
-  const right = createHash("sha256").update(b).digest()
+  const left = sha256(a)
+  const right = sha256(b)
   return timingSafeEqual(left, right)
 }
 

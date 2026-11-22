@@ -68,6 +68,36 @@ suite("admin accounts", () => {
     return { session, secret }
   }
 
+  it("upgrades an old Studio password only after valid credentials and TOTP", async () => {
+    const email = "owner@example.com"
+    const password = "correct horse Ａattery"
+    const previous =
+      "scrypt$15$8$1$AAECAwQFBgcICQoLDA0ODw$COB_G7ymvY11iWmUQfBf45sVshg_1cNnzPOIbXfSqUQ"
+    const claimed = await claimOwner()
+    const users = meta.collection("admin_users")
+    expect(await users.updateOne({ email }, { $set: { passwordHash: previous } })).toMatchObject({
+      modifiedCount: 1,
+    })
+    const code = totp(base32Decode(claimed.totp.secret), now)
+    await expect(
+      accounts.login({ email, password: "correct horse Battery", totp: code }, origin, "bearer"),
+    ).rejects.toMatchObject({ code: "CANOPY_UNAUTHORIZED" })
+    await expect(accounts.login({ email, password }, origin, "bearer")).rejects.toMatchObject({
+      details: { totpRequired: true },
+    })
+    expect((await users.findOne({ email }))?.["passwordHash"]).toBe(previous)
+    const login = await accounts.login({ email, password, totp: code }, origin, "bearer")
+    expect(login.token).toMatch(/^canopy_admin_/)
+    expect((await users.findOne({ email }))?.["passwordHash"]).toMatch(
+      /^\$argon2id\$v=19\$m=19456,t=2,p=1\$/,
+    )
+    now += 30_000
+    const nextCode = totp(base32Decode(claimed.totp.secret), now)
+    await expect(
+      accounts.login({ email, password, totp: nextCode }, origin, "bearer"),
+    ).resolves.toMatchObject({ user: { email } })
+  })
+
   it("claims the server once with the printed token and never without it", async () => {
     await expect(
       accounts.claim(
@@ -237,10 +267,19 @@ suite("admin accounts", () => {
   })
 
   it("limits login attempts per address", async () => {
-    for (let i = 0; i < 30; i++)
-      await accounts
-        .login({ email: `u${i}@example.com`, password: "x" }, origin, "cookie")
-        .catch(() => undefined)
+    for (let offset = 0; offset < 30; offset += 3) {
+      await Promise.all(
+        Array.from({ length: 3 }, (_, index) =>
+          expect(
+            accounts.login(
+              { email: `u${offset + index}@example.com`, password: "x" },
+              origin,
+              "cookie",
+            ),
+          ).rejects.toMatchObject({ code: "CANOPY_UNAUTHORIZED" }),
+        ),
+      )
+    }
     await expect(
       accounts.login({ email: "u99@example.com", password: "x" }, origin, "cookie"),
     ).rejects.toMatchObject({ code: "CANOPY_RATE_LIMITED" })

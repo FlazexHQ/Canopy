@@ -1,4 +1,5 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
+import { sha256 } from "@canopy/auth/crypto"
 import {
   type Operation,
   type PolicyEngine,
@@ -323,7 +324,7 @@ export class Storage {
         key,
         size: body.byteLength,
         contentType: mediaType(options.contentType) || "application/octet-stream",
-        etag: createHash("sha256").update(body).digest("hex"),
+        etag: sha256(body).toString("hex"),
       },
       options.metadata,
     )
@@ -716,9 +717,7 @@ export class Storage {
         key: session.key,
         size: session.size,
         contentType: session.contentType,
-        etag: `${createHash("sha256")
-          .update(parts.map((p) => p.etag).join(""))
-          .digest("hex")}-${count}`,
+        etag: `${sha256(parts.map((p) => p.etag).join("")).toString("hex")}-${count}`,
       },
       session.metadata,
     )

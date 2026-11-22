@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import { sha256 } from "@canopy/auth/crypto"
 import { CanopyError, ErrorCode, InvalidQueryError } from "@canopy/protocol"
 
 /** How an image is fitted into the requested width and height. */
@@ -88,7 +88,7 @@ function transformId(transform: ImageTransform): string {
 
 /** A short hash of the canonical transformation, used in variant keys and etags. */
 export function transformHash(transform: ImageTransform): string {
-  return createHash("sha256").update(transformId(transform)).digest("hex").slice(0, 32)
+  return sha256(transformId(transform)).toString("hex").slice(0, 32)
 }
 
 /** Whether images of this media type can be transformed. */

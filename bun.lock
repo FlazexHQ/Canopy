@@ -224,6 +224,7 @@
         "@better-auth/passkey": "1.7.17",
         "@canopy/auth": "workspace:*",
         "@canopy/protocol": "workspace:*",
+        "@noble/hashes": "2.4.0",
         "better-auth": "1.7.18",
         "better-call": "1.4.5",
         "hash-wasm": "catalog:",

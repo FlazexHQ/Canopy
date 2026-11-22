@@ -242,7 +242,7 @@ describeMongo("second factors, passkeys and user import", () => {
       expect(signIn.status).toBe(200)
       if (credential === undefined) throw new Error("no credential account")
       const after = await authDb.collection("accounts").findOne({ _id: credential["_id"] })
-      expect(String(after?.["password"])).not.toMatch(/^canopy-legacy/)
+      expect(after?.["password"]).toMatch(/^\$argon2id\$v=19\$m=19456,t=2,p=1\$/)
       const again = await h.client().post("/auth/v1/sign-in/email", {
         email: "ada@example.com",
         password: "user1password",
