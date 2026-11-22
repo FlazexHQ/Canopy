@@ -83,6 +83,7 @@
     { "path": "examples/auth-notes/web" },
     { "path": "examples/graphql-vue" },
     { "path": "examples/graphql-vue/web" },
+    { "path": "examples/chatapp" },
     { "path": "examples/next-ssr" },
     { "path": "examples/next-ssr/canopy" },
     { "path": "examples/todo-react" },

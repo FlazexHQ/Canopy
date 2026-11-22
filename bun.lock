@@ -108,6 +108,31 @@
         "vitest": "5.0.5",
       },
     },
+    "examples/chatapp": {
+      "name": "@canopy/example-chatapp",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/client": "workspace:*",
+        "@canopy/config": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/schema": "workspace:*",
+        "@ui-sdk/core": "0.1.0-beta.6",
+        "@ui-sdk/react": "0.1.0-beta.6",
+        "next": "16.4.5",
+        "react": "19.3.1",
+        "react-dom": "19.3.1",
+      },
+      "devDependencies": {
+        "@playwright/test": "1.64.1",
+        "@testing-library/react": "16.3.3",
+        "@types/node": "24.19.2",
+        "@types/react": "19.3.0",
+        "@types/react-dom": "19.3.0",
+        "happy-dom": "21.0.4",
+        "typescript": "6.0.3",
+        "vitest": "5.0.5",
+      },
+    },
     "examples/express-dropin": {
       "name": "@canopy/example-express-dropin",
       "version": "0.0.0",
@@ -968,6 +993,8 @@
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
 
     "@canopy/example-auth-notes": ["@canopy/example-auth-notes@workspace:examples/auth-notes"],
+
+    "@canopy/example-chatapp": ["@canopy/example-chatapp@workspace:examples/chatapp"],
 
     "@canopy/example-express-dropin": ["@canopy/example-express-dropin@workspace:examples/express-dropin"],
 
