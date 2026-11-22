@@ -1,6 +1,7 @@
 import { addAbortListener } from "node:events"
 import { type AddressInfo, createServer as createNetServer } from "node:net"
 import { amendConfig, type ResolvedConfig } from "@canopy/config"
+import { toNodeListener } from "@canopy/node-http"
 import {
   type GatewayOverrides,
   type Logger,
@@ -8,7 +9,7 @@ import {
   startGateway,
 } from "@canopy/realtime"
 import { type Canopy, type CreateCanopyOptions, createCanopy } from "./canopy.ts"
-import { type Listening, listenCanopy } from "./listen.ts"
+import { type Listening, listenCanopy, listenNode } from "./listen.ts"
 
 /**
  * The config this process runs with behind the gateway: requests arrive from loopback with the client in
@@ -23,17 +24,21 @@ function behindGateway(config: ResolvedConfig): ResolvedConfig {
   })
 }
 
-/** The gateway's settings when it is the front door of a server listening on loopback at `port`. */
-function frontDoor(canopy: Canopy, port: number, metricsPort: number): GatewayOverrides {
-  const local = `http://127.0.0.1:${port}`
+function frontDoor(
+  canopy: Canopy,
+  proxyPort: number,
+  internalPort: number,
+  metricsPort: number,
+): GatewayOverrides {
+  const internal = `http://127.0.0.1:${internalPort}`
   const verification = canopy.auth?.verification
   const audience = verification?.audience
   return {
     metricsPort,
     metricsHost: "127.0.0.1",
-    proxyUrl: local,
+    proxyUrl: `http://127.0.0.1:${proxyPort}`,
     viewTokenKey: canopy.viewTokenKey,
-    ...(canopy.config.rest === false ? {} : { mutationsUrl: `${local}/rest/v1` }),
+    ...(canopy.config.rest === false ? {} : { mutationsUrl: `${internal}/rest/v1` }),
     ...(verification === undefined
       ? {}
       : {
@@ -42,12 +47,24 @@ function frontDoor(canopy: Canopy, port: number, metricsPort: number): GatewayOv
               ? String(verification.issuer[0])
               : String(verification.issuer),
             audience: Array.isArray(audience) ? String(audience[0]) : String(audience),
-            jwksUrl: `${local}/auth/v1/jwks`,
+            jwksUrl: `${internal}/auth/v1/jwks`,
             algorithms: verification.algorithms ?? ["EdDSA", "ES256"],
             rolesClaim: verification.rolesClaim ?? "roles",
           },
         }),
   }
+}
+
+function listenGatewayInternal(canopy: Canopy): Promise<Listening> {
+  const listener = toNodeListener((request, info) => {
+    const path = new URL(request.url).pathname
+    if (canopy.rest !== undefined && request.method === "POST" && path === "/rest/v1/_batch")
+      return canopy.rest.fetch(request, info)
+    if (canopy.auth !== undefined && request.method === "GET" && path === "/auth/v1/jwks")
+      return canopy.auth.handler(request, info.ip === undefined ? {} : { clientAddress: info.ip })
+    return new Response("Not found", { status: 404 })
+  })
+  return listenNode(listener, 0, "127.0.0.1")
 }
 
 /** A port that was free on loopback a moment ago. */
@@ -103,11 +120,12 @@ export interface GatewayFrontDoor {
 /**
  * Starts Canopy on loopback and puts the native gateway on the configured public port.
  * The gateway proxies HTTP to Canopy and serves realtime for clients and GraphQL subscriptions.
+ * When `serves` filters proxied paths, gateway mutation and signing key requests use a separate loopback listener.
  */
 export async function startGatewayFrontDoor(
   config: ResolvedConfig,
   logger: Logger,
-  options: Pick<CreateCanopyOptions, "onSetupToken"> = {},
+  options: Pick<CreateCanopyOptions, "admin" | "onSetupToken" | "serves" | "studio"> = {},
   signal?: AbortSignal,
 ): Promise<GatewayFrontDoor> {
   signal?.throwIfAborted()
@@ -118,17 +136,19 @@ export async function startGatewayFrontDoor(
     gatewayUrl: () => gatewayUrl,
   })
   let http: Listening | undefined
+  let internal: Listening | undefined
   let gateway: RunningGateway | undefined
   try {
     signal?.throwIfAborted()
     const upstream = await listenCanopy(canopy, 0, "127.0.0.1")
     http = upstream
+    if (options.serves !== undefined) internal = await listenGatewayInternal(canopy)
     const metricsPort = await freeLoopbackPort()
     signal?.throwIfAborted()
     const running = await startGateway(
       config,
       logger,
-      frontDoor(canopy, upstream.port, metricsPort),
+      frontDoor(canopy, upstream.port, internal?.port ?? upstream.port, metricsPort),
     )
     gateway = running
     using _abort = signal === undefined ? undefined : addAbortListener(signal, () => running.stop())
@@ -148,12 +168,12 @@ export async function startGatewayFrontDoor(
       metrics: scrape.metrics,
       stop() {
         scrape.stop()
-        stopping ??= stopFrontDoor(canopy, upstream, running)
+        stopping ??= stopFrontDoor(canopy, upstream, internal, running)
         return stopping
       },
     }
   } catch (error: unknown) {
-    await stopFrontDoor(canopy, http, gateway)
+    await stopFrontDoor(canopy, http, internal, gateway)
     throw error
   }
 }
@@ -161,6 +181,7 @@ export async function startGatewayFrontDoor(
 async function stopFrontDoor(
   canopy: Canopy,
   http: Listening | undefined,
+  internal: Listening | undefined,
   gateway: RunningGateway | undefined,
 ): Promise<void> {
   gateway?.stop()
@@ -168,6 +189,6 @@ async function stopFrontDoor(
   try {
     await canopy.close()
   } finally {
-    await http?.stop()
+    await Promise.all([http?.stop(), internal?.stop()])
   }
 }

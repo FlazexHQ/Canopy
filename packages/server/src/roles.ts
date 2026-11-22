@@ -34,7 +34,11 @@ export function parseServerRole(value: string | undefined): ServerRole {
 /** What a role changes: the config the process runs with, and options of `createCanopy`. */
 export interface RolePlan {
   readonly config: ResolvedConfig
-  readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl">
+  readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl" | "serves">
+}
+
+function isRealtimePath(pathname: string): boolean {
+  return pathname === "/realtime/v1" || pathname.startsWith("/realtime/v1/")
 }
 
 /**
@@ -54,6 +58,8 @@ export function planServerRole(
         config: amendConfig(config, { realtime: false }),
         options: {
           studio: false,
+          serves: (path) =>
+            !isRealtimePath(path) && path !== "/studio" && !path.startsWith("/studio/"),
           ...(realtimeUrl === undefined || realtimeUrl === ""
             ? {}
             : { realtimeUrl: () => realtimeUrl }),
@@ -73,7 +79,11 @@ export function planServerRole(
           webhooks: { ...config.webhooks, triggers: {}, schedules: {} },
           storage: false,
         }),
-        options: { admin: false, studio: false },
+        options: {
+          admin: false,
+          studio: false,
+          serves: (path) => isRealtimePath(path) || path === "/healthz" || path === "/readyz",
+        },
       }
   }
 }

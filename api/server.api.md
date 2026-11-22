@@ -406,6 +406,7 @@ export interface CreateCanopyOptions {
     readonly onSetupToken?: ((token: string) => void) | false;
     readonly gatewayUrl?: () => string;
     readonly realtimeUrl?: () => string;
+    readonly serves?: (pathname: string) => boolean;
 }
 
 export interface CreatedAdminToken {
@@ -728,7 +729,7 @@ export interface ResolvedConfig {
 
 export interface RolePlan {
     readonly config: ResolvedConfig;
-    readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl">;
+    readonly options: Pick<CreateCanopyOptions, "admin" | "studio" | "realtimeUrl" | "serves">;
 }
 
 const SESSION_COOKIE: "__Host-canopy_admin"
@@ -830,7 +831,7 @@ function planServerRole(config: ResolvedConfig, role: ServerRole, realtimeUrl?: 
 
 const policyInput: import("./schema.ts").Schema<{ readonly policies: ({ readonly kind: "permissive" | "restrictive"; readonly name: string; readonly ops: import("@canopy/policy").Operation[]; readonly roles: string[]; } & { readonly using?: unknown; readonly check?: unknown; })[]; readonly realtime: boolean; readonly exposed: boolean; } & { readonly fields?: Record<string, unknown>; readonly immutable?: string[]; }>
 
-function startGatewayFrontDoor(config: ResolvedConfig, logger: Logger, options?: Pick<CreateCanopyOptions, "onSetupToken">, signal?: AbortSignal): Promise<GatewayFrontDoor>
+function startGatewayFrontDoor(config: ResolvedConfig, logger: Logger, options?: Pick<CreateCanopyOptions, "admin" | "onSetupToken" | "serves" | "studio">, signal?: AbortSignal): Promise<GatewayFrontDoor>
 
 function totp(secret: Uint8Array, timeMs: number, options?: TotpOptions): string
 

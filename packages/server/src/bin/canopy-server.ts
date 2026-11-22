@@ -98,7 +98,7 @@ async function main(): Promise<void> {
   const runtime = (globalThis as { Bun?: unknown }).Bun === undefined ? "node" : "bun"
   const gateway =
     config.realtime !== false && config.realtime.server === "gateway"
-      ? await startGatewayFrontDoor(config, logger)
+      ? await startGatewayFrontDoor(config, logger, plan.options)
       : undefined
   const canopy = gateway?.canopy ?? (await createCanopy(config, { logger, ...plan.options }))
   const http = gateway ?? (await listenCanopy(canopy, config.server.port))

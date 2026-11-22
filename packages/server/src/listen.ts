@@ -1,4 +1,4 @@
-import { createServer } from "node:http"
+import { createServer, type RequestListener, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { Canopy } from "./canopy.ts"
 
@@ -30,8 +30,18 @@ export async function listenCanopy(
       stop: async () => server.stop(true),
     }
   }
-  const server = createServer(canopy.node())
-  await canopy.attach(server)
+  return listenNode(canopy.node(), port, hostname, canopy.attach)
+}
+
+/** Binds a Node HTTP listener, with optional WebSocket attachments. */
+export async function listenNode(
+  handler: RequestListener,
+  port: number,
+  hostname?: string,
+  attach?: (server: Server) => Promise<void>,
+): Promise<Listening> {
+  const server = createServer(handler)
+  await attach?.(server)
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)
     server.listen(port, hostname, () => {

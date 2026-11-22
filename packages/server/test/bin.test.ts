@@ -300,6 +300,59 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
   })
 
   it.skipIf(findGatewayBinary() === undefined)(
+    "keeps REST private when the native gateway runs the realtime role",
+    async () => {
+      const { run, base } = await boot(POLICIES, {
+        CANOPY_REALTIME_SERVER: "gateway",
+        CANOPY_ROLE: "realtime",
+      })
+      const ownerId = "private-gateway-user"
+      const id = "private-gateway-write"
+      const socket = new WebSocket(`${base.replace("http", "ws")}/realtime/v1`, "canopy.v1+json")
+      try {
+        await within(
+          new Promise<void>((resolve, reject) => {
+            socket.once("open", resolve)
+            socket.once("error", reject)
+          }),
+          5000,
+          "the gateway WebSocket",
+        )
+        for (const path of ["/rest/v1/notes", "/graphql/v1", "/auth/v1/jwks"]) {
+          const response = await fetch(`${base}${path}`)
+          expect(response.status).toBe(404)
+          expect(await response.text()).toBe("Not found")
+        }
+        const mutation = "0192f6a1-7c2e-7b1a-9d3e-00000000a004"
+        const token = await sign(ownerId)
+        const ack = new Promise<Record<string, unknown>>((resolve, reject) => {
+          socket.on("message", (data) => {
+            const message = JSON.parse(data.toString()) as Record<string, unknown>
+            if (message["t"] === "welcome")
+              socket.send(
+                JSON.stringify({
+                  t: "mut",
+                  id: mutation,
+                  c: "notes",
+                  op: "insert",
+                  args: { doc: { _id: id, ownerId } },
+                }),
+              )
+            if (message["t"] === "ack" && message["m"] === mutation) resolve(message)
+          })
+          socket.once("error", reject)
+          socket.send(JSON.stringify({ t: "hello", v: 1, key: KEY, token }))
+        })
+        expect(await within(ack, 10_000, "the gateway mutation")).toMatchObject({ ok: true })
+      } finally {
+        socket.close()
+        expect(await stop(run)).toBe(0)
+        await mongo.db(database).collection<{ _id: string }>("notes").deleteOne({ _id: id })
+      }
+    },
+  )
+
+  it.skipIf(findGatewayBinary() === undefined)(
     "runs canopy-gateway on the public port in front of REST, with socket writes acknowledged after their echo",
     async () => {
       const masterKey = "m".repeat(44)

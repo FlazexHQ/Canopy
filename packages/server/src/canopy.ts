@@ -1,6 +1,7 @@
 import type { JsonWebKey } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
+import type { Duplex } from "node:stream"
 import {
   Authenticator,
   addressAllowed,
@@ -138,6 +139,8 @@ export interface CreateCanopyOptions {
    * queries through it; without it the schema has no subscriptions.
    */
   readonly realtimeUrl?: () => string
+  /** A fixed pathname filter for the public HTTP and WebSocket routes. Rejected paths return 404. */
+  readonly serves?: (pathname: string) => boolean
 }
 
 /** The admin surface: `/admin/v1` and `/studio`. */
@@ -1093,6 +1096,7 @@ export async function createCanopy(
   const { http } = transports
   const { builtin } = auth
   const { logResponse, logNode } = stores
+  const serves = options.serves ?? (() => true)
   let closing = false
   const readiness = readinessCheck({
     mongo: connection.mongo,
@@ -1130,6 +1134,7 @@ export async function createCanopy(
     info: { readonly ip?: string },
   ): Promise<Response> => {
     const path = new URL(request.url).pathname
+    if (!serves(path)) return plain(404, "Not found")
     if (isAdmin(path)) return admin.private ? plain(404, "Not found") : admin.fetch(request, info)
     if (isAuth(path)) return authFetch(request, info)
     if (rest !== undefined && isRest(path)) return rest.fetch(request, info)
@@ -1193,6 +1198,11 @@ ${webhooks.metrics.render()}`
           response.end("Bad request")
           return
         }
+        if (!serves(path)) {
+          response.statusCode = 404
+          response.end("Not found")
+          return
+        }
         if (isAuth(path)) return authListener(request, response)
         if (isAdmin(path)) {
           if (!admin.private) return adminListener(request, response)
@@ -1234,12 +1244,29 @@ ${webhooks.metrics.render()}`
       return (request, response) => tracing.node(request, response, () => serve(request, response))
     },
     async attach(server) {
-      if (graphql !== undefined && realtime !== undefined) {
+      if (realtime === undefined) return
+      const graphqlWs = graphql !== undefined && serves(graphql.path)
+      const realtimeWs = transports.websocket && serves("/realtime/v1")
+      if (graphqlWs) {
         const { attachGraphqlWs } = await import("@canopy/graphql")
         transports.attachments.push(await attachGraphqlWs(graphql, server))
       }
-      if (realtime === undefined || !transports.websocket) return
-      transports.attachments.push(await attach(realtime, server))
+      if (realtimeWs) transports.attachments.push(await attach(realtime, server))
+      if (options.serves !== undefined && (graphqlWs || realtimeWs)) {
+        const rejectUpgrade = (request: IncomingMessage, socket: Duplex): void => {
+          const path = tryPathname(request)
+          if (path !== undefined && !serves(path))
+            socket.end(
+              "HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: 9\r\n\r\nNot found",
+            )
+        }
+        server.prependListener("upgrade", rejectUpgrade)
+        transports.attachments.push({
+          close: async () => {
+            server.off("upgrade", rejectUpgrade)
+          },
+        })
+      }
     },
     bun(bunOptions = {}) {
       const peer = (request: Request, server: unknown): { readonly ip?: string } => {
@@ -1261,6 +1288,13 @@ ${webhooks.metrics.render()}`
       return {
         fetch: (request: Request, server: BunServerLike<never>) => {
           const path = new URL(request.url).pathname
+          if (!serves(path))
+            return logResponse(
+              request,
+              plain(404, "Not found"),
+              performance.now(),
+              peer(request, server).ip,
+            )
           if (isAdmin(path) || isAuth(path) || isGraphql(path) || isStorage(path))
             return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) {

@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http"
+import { createServer, request, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { type ResolvedConfig, resolveConfig } from "@canopy/config"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
@@ -150,6 +150,70 @@ suite("the api and realtime roles as separate services", () => {
     const ready = await fetch(`${api.url}/readyz`)
     expect(ready.status).toBe(200)
     await ready.text()
+  })
+
+  it.each(["/rest/v1/notes", "/graphql", "/graphql/v1", "/auth/v1/session"])(
+    "returns 404 for %s on the realtime service",
+    async (path) => {
+      const response = await fetch(`${realtime.url}${path}`)
+      expect(response.status).toBe(404)
+      expect(await response.text()).toBe("Not found")
+    },
+  )
+
+  it("returns 404 for the realtime route on the api service", async () => {
+    const response = await fetch(`${api.url}/realtime/v1`)
+    expect(response.status).toBe(404)
+    expect(await response.text()).toBe("Not found")
+  })
+
+  it("rejects a GraphQL WebSocket upgrade on the realtime service", async () => {
+    const status = await new Promise<number | undefined>((resolve, reject) => {
+      const upgrade = request(`${realtime.url}/graphql/v1`, {
+        headers: {
+          connection: "Upgrade",
+          upgrade: "websocket",
+          "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==",
+          "sec-websocket-version": "13",
+          "sec-websocket-protocol": "graphql-transport-ws",
+        },
+        signal: AbortSignal.timeout(3000),
+      })
+      upgrade.on("response", (response) => {
+        response.resume()
+        resolve(response.statusCode)
+      })
+      upgrade.on("upgrade", (response, socket) => {
+        socket.destroy()
+        resolve(response.statusCode)
+      })
+      upgrade.on("error", reject)
+      upgrade.end()
+    })
+    expect(status).toBe(404)
+  })
+
+  it("enforces role paths for fetch and Bun handlers before calling a fallback", async () => {
+    const fallback = () => new Response("fallback", { status: 200 })
+    const server = {
+      upgrade: () => {
+        throw new Error("Unexpected WebSocket upgrade")
+      },
+    }
+    const restRequest = new Request(`${realtime.url}/rest/v1/notes`)
+    const realtimeRequest = new Request(`${api.url}/realtime/v1`, {
+      headers: { upgrade: "websocket", "sec-websocket-protocol": "canopy.v1+json" },
+    })
+    const responses = await Promise.all([
+      realtime.canopy.fetch(restRequest, fallback),
+      realtime.canopy.bun({ fallback }).fetch(restRequest, server),
+      api.canopy.fetch(realtimeRequest, fallback),
+      api.canopy.bun({ fallback }).fetch(realtimeRequest, server),
+    ])
+    for (const response of responses) {
+      expect(response?.status).toBe(404)
+      expect(await response?.text()).toBe("Not found")
+    }
   })
 
   it("confirms a realtime mutation that the api service then reads over REST", async () => {
