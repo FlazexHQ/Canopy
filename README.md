@@ -68,6 +68,11 @@ every secret required and automatic HTTPS when `CANOPY_SITE` is a domain name. T
 run one image, `deploy/docker/canopy.Dockerfile`, with `CANOPY_ROLE` set to `api` or `realtime`; without
 it the image runs the whole platform in one process.
 
+Projects using canopy.js can start their own development stack with `bun run canopy-stack up --build ../Canopy`
+from the project directory. Adjust the checkout path to match your layout. The command uses the Canopy.js
+checkout next to Canopy by default. The local build is required while the images are unpublished.
+See [Run Canopy in the canopy.js README](https://github.com/FlazexHQ/Canopy.js#run-canopy).
+
 ## Quickstart: sign up and see a live query in five minutes
 
 You need [Bun](https://bun.com) 1.4 or newer, Node.js 24 or newer, and a MongoDB replica set: `bun run db:up`
