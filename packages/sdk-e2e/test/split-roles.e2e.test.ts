@@ -1,4 +1,4 @@
-import { createServer, request, type Server } from "node:http"
+import { createServer, request } from "node:http"
 import type { AddressInfo } from "node:net"
 import { type ResolvedConfig, resolveConfig } from "@canopy/config"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
@@ -12,6 +12,7 @@ import {
 import { MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import { type CanopyClient, createClient } from "canopy.js"
 import { createRestClient } from "canopy.js/rest"
+import { createClient as createGraphqlClient } from "graphql-ws"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -42,9 +43,19 @@ const notes = collection("notes", {
   ],
 })
 
+const bun = (
+  globalThis as {
+    Bun?: {
+      serve(options: ReturnType<Canopy["bun"]> & { port: number; hostname: string }): {
+        readonly port: number
+        stop(force?: boolean): void
+      }
+    }
+  }
+).Bun
+
 interface Running {
   readonly canopy: Canopy
-  readonly server: Server
   readonly url: string
   stop(): Promise<void>
 }
@@ -91,12 +102,22 @@ suite("the api and realtime roles as separate services", () => {
       policies: createPolicySet([notes]),
       onSetupToken: false,
     })
+    if (role === "api" && bun !== undefined) {
+      const server = bun.serve({ port: 0, hostname: "127.0.0.1", ...canopy.bun() })
+      return {
+        canopy,
+        url: `http://127.0.0.1:${server.port}`,
+        stop: async () => {
+          await canopy.close()
+          server.stop(true)
+        },
+      }
+    }
     const server = createServer(canopy.node())
     await canopy.attach(server)
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     return {
       canopy,
-      server,
       url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
       stop: async () => {
         await canopy.close()
@@ -242,6 +263,63 @@ suite("the api and realtime roles as separate services", () => {
     await until(() => live.getState().data.some((doc) => doc["_id"] === "n2"))
     unsubscribe()
   })
+
+  it.each([
+    {
+      field: "liveNotes",
+      selection: "_id title",
+      first: [],
+      changed: (id: string, title: string) => [{ _id: id, title }],
+    },
+    {
+      field: "noteChanges",
+      selection: "kind doc { _id title }",
+      first: { kind: "READY", doc: null },
+      changed: (id: string, title: string) => ({ kind: "ADDED", doc: { _id: id, title } }),
+    },
+  ])(
+    "delivers a REST insert to $field over an API role GraphQL WebSocket and unsubscribes",
+    async ({ field, selection, first, changed }) => {
+      await until(() => realtime.canopy.realtime?.stats().subscriptions === 0)
+      const title = `GraphQL split roles ${field}`
+      const id = `graphql-public-${field}`
+      await mongo
+        .db(name)
+        .collection<{ _id: string; ownerId: string; title: string }>("notes")
+        .insertOne({ _id: `graphql-private-${field}`, ownerId: "bob", title })
+      const client = createGraphqlClient({
+        url: `${api.url.replace("http:", "ws:")}/graphql/v1`,
+        connectionParams: { apikey: KEY, authorization: `Bearer ${token}` },
+        lazy: false,
+        retryAttempts: 0,
+      })
+      const stream = client.iterate({
+        query: `subscription { ${field}(filter: { title: { eq: "${title}" } }) { ${selection} } }`,
+      })
+      try {
+        expect(await stream.next()).toEqual({ done: false, value: { data: { [field]: first } } })
+        expect(realtime.canopy.realtime?.stats().subscriptions).toBe(1)
+        const inserted = await fetch(`${api.url}/rest/v1/notes`, {
+          method: "POST",
+          headers: {
+            apikey: KEY,
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ _id: id, ownerId: "alice", title }),
+        })
+        expect(inserted.status, await inserted.text()).toBe(201)
+        expect(await stream.next()).toEqual({
+          done: false,
+          value: { data: { [field]: changed(id, title) } },
+        })
+        expect((await stream.return?.())?.done).toBe(true)
+        await until(() => realtime.canopy.realtime?.stats().subscriptions === 0)
+      } finally {
+        await client.dispose()
+      }
+    },
+  )
 
   it("keeps realtime serving live queries after the api service stops", async () => {
     const client = open()

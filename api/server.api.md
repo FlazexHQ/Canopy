@@ -310,8 +310,13 @@ export interface Canopy extends AsyncDisposable {
     bun(options?: {
         readonly fallback?: FetchHandler;
     }): {
-        fetch(request: Request, server: BunServerLike<never>): Response | Promise<Response> | undefined;
-        websocket?: ReturnType<typeof bunHandlers>["websocket"];
+        fetch(request: Request, server: BunServerLike<BunConnectionData>): Response | Promise<Response> | undefined;
+        websocket?: {
+            maxPayloadLength: number;
+            open(ws: BunConnectionSocket): void;
+            message(ws: BunConnectionSocket, message: string | Uint8Array): void | Promise<void>;
+            close(ws: BunConnectionSocket, code: number, reason: string): void | Promise<void>;
+        };
     };
     close(options?: {
         readonly drainMs?: number;

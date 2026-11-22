@@ -2,8 +2,8 @@
 # checked out next to Canopy:
 #   docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime .
 # Mount policy files at /app/policies, and optionally a config file (--config). The isolated linker keeps
-# workspace packages out of the root node_modules, so @canopy/policy and @canopy/config are linked there for
-# policy and config files to import.
+# workspace packages out of the root node_modules, so canopy.js, @canopy/policy and @canopy/config are
+# linked there for policy and config files to import.
 
 FROM rust:1.100.0-alpine@sha256:8d0e82abfdf9a38071e07cabc5afba4ddbe077631a80e4e742a760c38beadc33 AS gateway-build
 WORKDIR /src
@@ -33,7 +33,7 @@ RUN bunx tsc -b packages/realtime
 RUN bun install --frozen-lockfile --production --ignore-scripts
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy \
     && ln -s ../../packages/config node_modules/@canopy/config \
-    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/graphql/node_modules/canopy.js)")" node_modules/canopy.js \
+    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/realtime/node_modules/canopy.js)")" node_modules/canopy.js \
     && test -f node_modules/canopy.js/dist/core/policy/index.js
 
 FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7f561029e26cf9fbed23470

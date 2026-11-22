@@ -33,8 +33,8 @@ DSLs (`canopy.js/react`, `/vue`, `/svelte`, `/solid`, `/tanstack-db`, `/devtools
 `/config`, `/protocol`, plus the client entry points). The client SDK and framework bindings live **only**
 there now (ADR 0016). This repository stays the source of truth for the universal core; Canopy.js vendors it
 into `src/core` with `bun scripts/sync-core.ts` (and `--check`), so a change to protocol, matcher, query,
-policy, config or the schema DSL here must be synced there. Canopy depends on `canopy.js` (Studio, GraphQL
-subscriptions, the CLI tests, `sdk-e2e`, the examples) by version `0.0.0`; the root `overrides` points it at
+policy, config or the schema DSL here must be synced there. Canopy depends on `canopy.js` (Studio, mounted policy
+and config files, the CLI tests, `sdk-e2e`, the examples) by version `0.0.0`; the root `overrides` points it at
 `../Canopy.js` until it is on npm. After changing Canopy.js, run `bun run build` there and `bun install` here.
 Use the built package, never its sources: Canopy.js exports them under its own `canopy-js-source` condition,
 not `@canopy/source`.

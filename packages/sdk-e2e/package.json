@@ -23,6 +23,7 @@
     "@types/node": "catalog:",
     "canopy.js": "0.0.0",
     "fast-check": "catalog:",
+    "graphql-ws": "catalog:",
     "jose": "catalog:",
     "mongodb": "catalog:",
     "typescript": "catalog:",

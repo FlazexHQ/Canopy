@@ -34,7 +34,7 @@ RUN bunx tsc -b packages/server
 RUN bun install --frozen-lockfile --production --ignore-scripts && mkdir -p /src/storage
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy \
     && ln -s ../../packages/config node_modules/@canopy/config \
-    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/graphql/node_modules/canopy.js)")" node_modules/canopy.js \
+    && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/server/node_modules/canopy.js)")" node_modules/canopy.js \
     && test -f node_modules/canopy.js/dist/core/policy/index.js
 
 FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7f561029e26cf9fbed23470

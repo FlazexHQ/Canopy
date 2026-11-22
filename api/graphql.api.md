@@ -37,6 +37,18 @@ export interface FieldMap {
 
 const GRAPHQL_WS_SUBPROTOCOL: "graphql-transport-ws"
 
+export interface GraphqlBunData {
+    readonly graphql: true;
+    readonly headers: Headers;
+    readonly ip?: string;
+}
+
+export interface GraphqlBunSocket {
+    readonly data: GraphqlBunData;
+    send(text: string): number;
+    close(code?: number, reason?: string): void;
+}
+
 export interface GraphqlHandler {
     fetch(request: Request, info?: {
         readonly ip?: string;
@@ -172,7 +184,7 @@ export interface RelationSpec {
 
 export interface RemoteRealtime {
     readonly url: string | (() => string);
-    readonly WebSocket?: WebSocketConstructor;
+    readonly WebSocket?: LiveWebSocketConstructor;
 }
 
 export interface RequestServices {
@@ -221,6 +233,8 @@ function collectionNames(collection: string, typeName?: string): CollectionNames
 function createGraphqlHandler(options: GraphqlHandlerOptions): GraphqlHandler
 
 function fieldName(name: string): string
+
+function graphqlBunHandlers(handler: GraphqlHandler): { upgrade(request: Request, server: { upgrade(request: Request, options: { headers: Record<string, string>; data: GraphqlBunData; }): boolean; requestIP?(request: Request): { readonly address: string; } | null; }): Response | undefined; websocket: { open(ws: GraphqlBunSocket): void; message(ws: GraphqlBunSocket, message: string | Uint8Array): Promise<void>; close(ws: GraphqlBunSocket, code: number, reason: string): Promise<void>; }; close(): Promise<void>; }
 
 function isGraphqlName(name: string): boolean
 

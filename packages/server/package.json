@@ -1,7 +1,7 @@
 {
   "name": "@canopy/server",
   "version": "0.0.0",
-  "description": "The Canopy server: REST, realtime, auth and policies composed from one config with createCanopy.",
+  "description": "The Canopy server: REST, realtime, auth and policies composed from one config with createCanopy. Ships canopy.js policy and config imports for mounted files.",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -40,6 +40,7 @@
     "@canopy/rest": "workspace:*",
     "@canopy/storage": "workspace:*",
     "@canopy/studio": "workspace:*",
+    "canopy.js": "0.0.0",
     "mongodb": "catalog:"
   },
   "peerDependencies": {

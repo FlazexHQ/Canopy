@@ -9,6 +9,7 @@
   "include": ["src"],
   "references": [
     { "path": "../protocol" },
+    { "path": "../matcher" },
     { "path": "../policy" },
     { "path": "../auth" },
     { "path": "../schema" },

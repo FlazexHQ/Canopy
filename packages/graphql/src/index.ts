@@ -62,4 +62,11 @@ export {
   type RequestServices,
   type SchemaInput,
 } from "./schema.ts"
-export { attachGraphqlWs, GRAPHQL_WS_SUBPROTOCOL, type GraphqlWsAttachment } from "./ws.ts"
+export {
+  attachGraphqlWs,
+  GRAPHQL_WS_SUBPROTOCOL,
+  type GraphqlBunData,
+  type GraphqlBunSocket,
+  type GraphqlWsAttachment,
+  graphqlBunHandlers,
+} from "./ws.ts"

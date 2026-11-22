@@ -19,7 +19,12 @@ import {
   type ResolvedStorageBackend,
   resolveConfig,
 } from "@canopy/config"
-import type { GraphqlHandler, PersistedOperations } from "@canopy/graphql"
+import type {
+  GraphqlBunData,
+  GraphqlBunSocket,
+  GraphqlHandler,
+  PersistedOperations,
+} from "@canopy/graphql"
 import { selectEngine } from "@canopy/native"
 import { toNodeListener as serveOnNode, tryPathname } from "@canopy/node-http"
 import {
@@ -221,9 +226,17 @@ export interface Canopy extends AsyncDisposable {
   attach(server: Server): Promise<void>
   /** `fetch` and `websocket` for `Bun.serve`, WebSockets included. */
   bun(options?: { readonly fallback?: FetchHandler }): {
-    fetch(request: Request, server: BunServerLike<never>): Response | Promise<Response> | undefined
-    /** Absent when realtime is off. */
-    websocket?: ReturnType<typeof bunHandlers>["websocket"]
+    fetch(
+      request: Request,
+      server: BunServerLike<BunConnectionData>,
+    ): Response | Promise<Response> | undefined
+    /** Absent when neither GraphQL nor realtime accepts WebSocket upgrades. */
+    websocket?: {
+      maxPayloadLength: number
+      open(ws: BunConnectionSocket): void
+      message(ws: BunConnectionSocket, message: string | Uint8Array): void | Promise<void>
+      close(ws: BunConnectionSocket, code: number, reason: string): void | Promise<void>
+    }
   }
   /** Drains realtime, closes the transports and the client it created, in that order. */
   close(options?: { readonly drainMs?: number }): Promise<void>
@@ -626,6 +639,14 @@ async function buildData(
   }
   const engineRealtime = realtime
   const storage = await buildStorage(config, connection, auth, engine, contexts, rateLimits, logger)
+  const remoteRealtimeUrl =
+    realtimeConfig === false
+      ? options.realtimeUrl
+      : realtimeConfig.server === "gateway"
+        ? options.gatewayUrl
+        : undefined
+  const graphqlRealtime =
+    engineRealtime ?? (remoteRealtimeUrl === undefined ? undefined : { url: remoteRealtimeUrl })
   const graphql =
     rest === undefined || config.graphql === false
       ? undefined
@@ -636,15 +657,7 @@ async function buildData(
           authenticator: auth.authenticator,
           contexts,
           schemas,
-          ...(engineRealtime !== undefined
-            ? { realtime: engineRealtime }
-            : realtimeConfig === false && options.realtimeUrl !== undefined
-              ? { realtime: { url: options.realtimeUrl } }
-              : realtimeConfig !== false &&
-                  realtimeConfig.server === "gateway" &&
-                  options.gatewayUrl !== undefined
-                ? { realtime: { url: options.gatewayUrl } }
-                : {}),
+          ...(graphqlRealtime === undefined ? {} : { realtime: graphqlRealtime }),
           collections: config.collections,
           limits: {
             maxDepth: config.graphql.maxDepth,
@@ -668,6 +681,7 @@ async function buildData(
     contexts,
     rest,
     graphql,
+    graphqlHasRealtime: graphqlRealtime !== undefined,
     storage,
     realtime: engineRealtime,
     engine,
@@ -803,6 +817,14 @@ async function persistedOperations(input: {
 }
 
 type Data = Awaited<ReturnType<typeof buildData>>
+
+type RealtimeBunSocket = Parameters<ReturnType<typeof bunHandlers>["websocket"]["open"]>[0]
+type BunConnectionData = RealtimeBunSocket["data"] | GraphqlBunData
+type BunConnectionSocket = RealtimeBunSocket | GraphqlBunSocket
+
+function isGraphqlBunSocket(socket: BunConnectionSocket): socket is GraphqlBunSocket {
+  return "graphql" in socket.data
+}
 
 /** Closes the realtime connections of revoked API keys and of revoked built in auth sessions. */
 function closeRevokedConnections(auth: Auth, realtime: Realtime | undefined, logger: Logger): void {
@@ -1097,6 +1119,11 @@ export async function createCanopy(
   const { builtin } = auth
   const { logResponse, logNode } = stores
   const serves = options.serves ?? (() => true)
+  const graphqlWs = data.graphqlHasRealtime && graphql !== undefined && serves(graphql.path)
+  const graphqlBun = graphqlWs
+    ? (await import("@canopy/graphql")).graphqlBunHandlers(graphql)
+    : undefined
+  if (graphqlBun !== undefined) transports.attachments.push(graphqlBun)
   let closing = false
   const readiness = readinessCheck({
     mongo: connection.mongo,
@@ -1244,9 +1271,7 @@ ${webhooks.metrics.render()}`
       return (request, response) => tracing.node(request, response, () => serve(request, response))
     },
     async attach(server) {
-      if (realtime === undefined) return
-      const graphqlWs = graphql !== undefined && serves(graphql.path)
-      const realtimeWs = transports.websocket && serves("/realtime/v1")
+      const realtimeWs = realtime !== undefined && transports.websocket && serves("/realtime/v1")
       if (graphqlWs) {
         const { attachGraphqlWs } = await import("@canopy/graphql")
         transports.attachments.push(await attachGraphqlWs(graphql, server))
@@ -1275,18 +1300,15 @@ ${webhooks.metrics.render()}`
         )?.requestIP?.(request)?.address
         return address === undefined ? {} : { ip: address }
       }
-      if (realtime === undefined) {
-        return {
-          fetch: (request: Request, server: BunServerLike<never>) =>
-            fetch(request, bunOptions.fallback, peer(request, server)),
-        }
-      }
-      const handlers = bunHandlers(realtime, {
-        ...(http === undefined ? {} : { http }),
-        fallback: (request) => fetch(request, bunOptions.fallback),
-      })
+      const handlers =
+        realtime === undefined
+          ? undefined
+          : bunHandlers(realtime, {
+              ...(http === undefined ? {} : { http }),
+              fallback: (request) => fetch(request, bunOptions.fallback),
+            })
       return {
-        fetch: (request: Request, server: BunServerLike<never>) => {
+        fetch: (request: Request, server: BunServerLike<BunConnectionData>) => {
           const path = new URL(request.url).pathname
           if (!serves(path))
             return logResponse(
@@ -1295,7 +1317,19 @@ ${webhooks.metrics.render()}`
               performance.now(),
               peer(request, server).ip,
             )
-          if (isAdmin(path) || isAuth(path) || isGraphql(path) || isStorage(path))
+          if (
+            graphqlBun !== undefined &&
+            path === graphql?.path &&
+            request.headers.get("upgrade")?.toLowerCase() === "websocket"
+          )
+            return graphqlBun.upgrade(request, server)
+          if (
+            handlers === undefined ||
+            isAdmin(path) ||
+            isAuth(path) ||
+            isGraphql(path) ||
+            isStorage(path)
+          )
             return fetch(request, bunOptions.fallback, peer(request, server))
           if (rest !== undefined && isRest(path)) {
             const started = performance.now()
@@ -1309,14 +1343,32 @@ ${webhooks.metrics.render()}`
           if (!transports.websocket && request.headers.get("upgrade") !== null)
             return fetch(request, bunOptions.fallback)
           const started = performance.now()
-          const result = handlers.fetch(request, server as never)
+          const result = handlers.fetch(request, server)
           if (result === undefined || surfaceOf(path) !== "realtime") return result
           const ip = peer(request, server).ip
           return Promise.resolve(result).then((response) =>
             logResponse(request, response, started, ip),
           )
         },
-        websocket: handlers.websocket,
+        ...(graphqlBun === undefined && handlers === undefined
+          ? {}
+          : {
+              websocket: {
+                maxPayloadLength: 256 * 1024,
+                open(ws: BunConnectionSocket) {
+                  if (isGraphqlBunSocket(ws)) graphqlBun?.websocket.open(ws)
+                  else handlers?.websocket.open(ws)
+                },
+                message(ws: BunConnectionSocket, message: string | Uint8Array) {
+                  if (isGraphqlBunSocket(ws)) return graphqlBun?.websocket.message(ws, message)
+                  return handlers?.websocket.message(ws, message)
+                },
+                close(ws: BunConnectionSocket, code: number, reason: string) {
+                  if (isGraphqlBunSocket(ws)) return graphqlBun?.websocket.close(ws, code, reason)
+                  return handlers?.websocket.close(ws)
+                },
+              },
+            }),
       }
     },
     async close(closeOptions = {}) {
