@@ -48,13 +48,13 @@ jobs:
       - name: Matcher throughput across 1M documents
         run: |
           mkdir -p bench-results
-          CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-throughput-bun.json" bun packages/matcher/bench/throughput.ts
+          CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-throughput-bun.json" bun --conditions=@canopy/source packages/matcher/bench/throughput.ts
           CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-throughput-node26.json" node --conditions=@canopy/source packages/matcher/bench/throughput.ts
       - name: Matcher event cost over BSON change events
         run: |
           mkdir -p bench-results
           for run in 1 2 3; do
-            CANOPY_BENCH_DOCS="50000" CANOPY_BENCH_ROUNDS="3" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-events-bun-$run.json" bun packages/matcher/bench/event-cost.ts
+            CANOPY_BENCH_DOCS="50000" CANOPY_BENCH_ROUNDS="3" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-events-bun-$run.json" bun --conditions=@canopy/source packages/matcher/bench/event-cost.ts
             CANOPY_BENCH_DOCS="50000" CANOPY_BENCH_ROUNDS="3" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/matcher-events-node26-$run.json" node --conditions=@canopy/source packages/matcher/bench/event-cost.ts
           done
       - name: Record machine metadata
@@ -91,7 +91,7 @@ jobs:
           mkdir -p bench-results
           for rate in 500 1000 2000; do
             CANOPY_BENCH_RATE="$rate" CANOPY_BENCH_SECONDS="5" node --conditions=@canopy/source packages/rest/bench/write-cost.ts --json > "$GITHUB_WORKSPACE/bench-results/write-cost-node26-$rate.json"
-            CANOPY_BENCH_RATE="$rate" CANOPY_BENCH_SECONDS="5" bun packages/rest/bench/write-cost.ts --json > "$GITHUB_WORKSPACE/bench-results/write-cost-bun-$rate.json"
+            CANOPY_BENCH_RATE="$rate" CANOPY_BENCH_SECONDS="5" bun --conditions=@canopy/source packages/rest/bench/write-cost.ts --json > "$GITHUB_WORKSPACE/bench-results/write-cost-bun-$rate.json"
           done
       - name: Record machine and MongoDB metadata
         if: always()
@@ -126,7 +126,7 @@ jobs:
         run: |
           mkdir -p bench-results
           CANOPY_BENCH_TIERS="10000,100000" CANOPY_BENCH_SECONDS="5" CANOPY_BENCH_ROUNDS="2" CANOPY_BENCH_INGEST="50000" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/scale-node26.json" node --conditions=@canopy/source packages/rest/bench/scale.ts
-          CANOPY_BENCH_TIERS="10000,100000" CANOPY_BENCH_SECONDS="5" CANOPY_BENCH_ROUNDS="2" CANOPY_BENCH_INGEST="50000" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/scale-bun.json" bun packages/rest/bench/scale.ts
+          CANOPY_BENCH_TIERS="10000,100000" CANOPY_BENCH_SECONDS="5" CANOPY_BENCH_ROUNDS="2" CANOPY_BENCH_INGEST="50000" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/scale-bun.json" bun --conditions=@canopy/source packages/rest/bench/scale.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |
@@ -172,7 +172,7 @@ jobs:
       - name: Realtime in-process fan out benchmark on Bun and Node v26
         run: |
           mkdir -p bench-results
-          CANOPY_TEST_ENGINE="ts" CANOPY_BENCH_DOCS="200000" CANOPY_BENCH_SECONDS="6" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/fanout-bun.json" bun packages/realtime/bench/fanout.ts
+          CANOPY_TEST_ENGINE="ts" CANOPY_BENCH_DOCS="200000" CANOPY_BENCH_SECONDS="6" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/fanout-bun.json" bun --conditions=@canopy/source packages/realtime/bench/fanout.ts
           CANOPY_TEST_ENGINE="ts" CANOPY_BENCH_DOCS="200000" CANOPY_BENCH_SECONDS="6" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/fanout-node26.json" node --conditions=@canopy/source packages/realtime/bench/fanout.ts
       - name: Record machine and MongoDB metadata
         if: always()
