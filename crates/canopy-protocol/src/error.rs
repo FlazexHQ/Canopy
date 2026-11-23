@@ -91,24 +91,31 @@ impl fmt::Display for ErrorCode {
     }
 }
 
-/// The error type of every Canopy crate: a stable code, the name of the matching TypeScript error class, and a
-/// message that is safe to return to the caller.
+/// The error type of every Canopy crate: a stable code, the name of the matching TypeScript error class, a
+/// message that is safe to return to the caller and optional details for it. Everything but the code is boxed, so
+/// the error stays two words wide in the `Result` of every recursive decoder and encoder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanopyError {
     code: ErrorCode,
+    inner: Box<Inner>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Inner {
     name: &'static str,
     message: String,
+    details: Option<String>,
 }
 
 impl CanopyError {
     /// Creates an error with a code and a message, named `CanopyError`.
     pub fn new(code: ErrorCode, message: impl Into<String>) -> CanopyError {
-        CanopyError { code, name: "CanopyError", message: message.into() }
+        CanopyError::named(code, "CanopyError", message)
     }
 
     /// Creates an error with an explicit class name, for the subclasses the TypeScript packages define.
     pub fn named(code: ErrorCode, name: &'static str, message: impl Into<String>) -> CanopyError {
-        CanopyError { code, name, message: message.into() }
+        CanopyError { code, inner: Box::new(Inner { name, message: message.into(), details: None }) }
     }
 
     /// An `InvalidQueryError`: a query, filter or value MongoDB would reject.
@@ -123,18 +130,31 @@ impl CanopyError {
 
     /// The name of the TypeScript error class this error corresponds to.
     pub fn name(&self) -> &'static str {
-        self.name
+        self.inner.name
     }
 
     /// The message.
     pub fn message(&self) -> &str {
-        &self.message
+        &self.inner.message
+    }
+
+    /// Adds details for the caller, as the JSON text of an object. They are shown with the error unless it is
+    /// internal, so they must hold only what the caller may see.
+    #[must_use]
+    pub fn with_details(mut self, json: impl Into<String>) -> CanopyError {
+        self.inner.details = Some(json.into());
+        self
+    }
+
+    /// The details for the caller, as the JSON text of an object.
+    pub fn details(&self) -> Option<&str> {
+        self.inner.details.as_deref()
     }
 }
 
 impl fmt::Display for CanopyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}: {}", self.code, self.message)
+        write!(f, "{}: {}", self.code, self.inner.message)
     }
 }
 
@@ -143,6 +163,18 @@ impl std::error::Error for CanopyError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_error_stays_two_words_wide() {
+        assert_eq!(std::mem::size_of::<CanopyError>(), 2 * std::mem::size_of::<usize>());
+        let error = CanopyError::invalid_query("bad").with_details(r#"{"reason":"x"}"#);
+        assert_eq!(
+            (error.code(), error.name(), error.message()),
+            (ErrorCode::InvalidQuery, "InvalidQueryError", "bad")
+        );
+        assert_eq!(error.details(), Some(r#"{"reason":"x"}"#));
+        assert_eq!(CanopyError::new(ErrorCode::Internal, "x").details(), None);
+    }
 
     #[test]
     fn codes_round_trip_through_their_wire_form() {

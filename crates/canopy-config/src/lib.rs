@@ -65,30 +65,44 @@ pub enum Cors {
 pub enum DataPlaneRoute {
     /// `GET /rest/v1/{collection}`, with `OPTIONS` and `405` on that path.
     Find,
+    /// `POST /rest/v1/{collection}/_count`, with `OPTIONS` and `405` on that path.
+    Count,
+    /// `POST /rest/v1/{collection}/_distinct`, with `OPTIONS` and `405` on that path.
+    Distinct,
+    /// `POST /rest/v1/{collection}/_aggregate`, with `OPTIONS` and `405` on that path.
+    Aggregate,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 1] = ["find"];
+    pub const NAMES: [&'static str; 4] = ["find", "count", "distinct", "aggregate"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
         match self {
             DataPlaneRoute::Find => "find",
+            DataPlaneRoute::Count => "count",
+            DataPlaneRoute::Distinct => "distinct",
+            DataPlaneRoute::Aggregate => "aggregate",
         }
     }
 
     fn parse(name: &str) -> ConfigResult<DataPlaneRoute> {
         match name {
             "find" => Ok(DataPlaneRoute::Find),
+            "count" => Ok(DataPlaneRoute::Count),
+            "distinct" => Ok(DataPlaneRoute::Distinct),
+            "aggregate" => Ok(DataPlaneRoute::Aggregate),
             other => {
-                Err(format!("dataPlane.routes may list {}, not {other}", DataPlaneRoute::NAMES.join(", ")))
+                let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
+                Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
             }
         }
     }
 }
 
-/// Limits of the Data API reads, as `rest.defaultLimit`, `rest.maxLimit` and `rest.maxSkip` set them.
+/// Limits of the Data API, as `rest.defaultLimit`, `rest.maxLimit`, `rest.maxSkip` and `rest.maxBodyBytes` set
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RestLimits {
     /// Page size when the caller sets none.
@@ -97,11 +111,13 @@ pub struct RestLimits {
     pub max_limit: u32,
     /// The largest `skip`. Cursors have no such limit.
     pub max_skip: u64,
+    /// The largest request body, in bytes.
+    pub max_body_bytes: u64,
 }
 
 impl Default for RestLimits {
     fn default() -> RestLimits {
-        RestLimits { default_limit: 100, max_limit: 1000, max_skip: 10_000 }
+        RestLimits { default_limit: 100, max_limit: 1000, max_skip: 10_000, max_body_bytes: 1024 * 1024 }
     }
 }
 
@@ -204,8 +220,11 @@ pub struct GatewayConfig {
     pub proxy_url: Option<String>,
     /// The Data API routes the gateway serves itself. Every other request goes to the upstream server.
     pub data_plane_routes: Vec<DataPlaneRoute>,
-    /// Page sizes of the Data API reads.
+    /// Page sizes and the body limit of the Data API.
     pub rest_limits: RestLimits,
+    /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
+    /// `rest.search` lists them.
+    pub search_collections: Vec<String>,
 }
 
 type ConfigResult<T> = Result<T, String>;
@@ -305,6 +324,7 @@ fn rest_limits(doc: &Json) -> ConfigResult<RestLimits> {
         default_limit: limit("defaultLimit", defaults.default_limit),
         max_limit: limit("maxLimit", defaults.max_limit),
         max_skip: number(doc, &["rest", "maxSkip"]).map_or(defaults.max_skip, whole),
+        max_body_bytes: number(doc, &["rest", "maxBodyBytes"]).map_or(defaults.max_body_bytes, whole),
     };
     if limits.default_limit == 0 || limits.max_limit == 0 {
         return Err("rest.defaultLimit and rest.maxLimit must be at least 1".to_owned());
@@ -559,6 +579,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         proxy_url: text(&doc, &["proxy", "url"]).or(fallback.proxy_url),
         data_plane_routes,
         rest_limits,
+        search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
     })
 }
 

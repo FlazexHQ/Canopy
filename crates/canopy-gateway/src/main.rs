@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use canopy_auth::{ApiKeys, Authenticator, Revocations};
-use canopy_config::{DataPlaneRoute, GatewayConfig, Policies};
+use canopy_config::{GatewayConfig, Policies};
 use canopy_engine::{Config, Engine, Limits, MutationRequest};
 use canopy_mongo::{Checkpoints, Reader, load_policies, mongodb, policies_from_stored};
 use canopy_policy::{PolicyEngine, PolicySet};
@@ -158,9 +158,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             load_policies(&meta).await.map_err(|error| error.message().to_owned())?
         }
     };
-    let data_policies = config
-        .data_plane_routes
-        .contains(&DataPlaneRoute::Find)
+    let data_policies = (!config.data_plane_routes.is_empty())
         .then(|| canopy_data::Policies::new(PolicyEngine::new(set.clone())));
     let engine_config = engine_config(&config);
     let max_frame_bytes = engine_config.limits.max_frame_bytes;

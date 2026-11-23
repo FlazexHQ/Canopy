@@ -12,9 +12,9 @@ import { percentile } from "../rest/harness.ts"
 import { type Order, OWNERS, STATUSES, seedTo } from "../rest/scenarios.ts"
 
 /**
- * The D1 gate of plan 004 for `find`: the same `GET /rest/v1/orders` requests, with real JWTs, sent over HTTP
- * to the TypeScript REST handler (its own process) and to the gateway with `CANOPY_DATA_PLANE_ROUTES=find`,
- * which answers them in Rust. For each target and scenario it reports throughput, p50 and p99, and the
+ * The D1 gate of plan 004 for the reads: the same `find`, `_count`, `_distinct` and `_aggregate` requests on
+ * `/rest/v1/orders`, with real JWTs, sent over HTTP to the TypeScript REST handler (its own process) and to the
+ * gateway with `CANOPY_DATA_PLANE_ROUTES=find,count,distinct,aggregate`, which answers them in Rust. For each target and scenario it reports throughput, p50 and p99, and the
  * requests per CPU second of the server process alone (read from the operating system the same way for both,
  * so the load generator and MongoDB are left out). The gate asks for at least 1.5 times the TypeScript
  * requests per CPU second on simple reads. The answers of both targets are compared before measuring.
@@ -97,6 +97,8 @@ function waitFor(child: ChildProcess, pattern: RegExp): Promise<RegExpExecArray>
 interface Scenario {
   readonly name: string
   readonly target: (owner: number) => string
+  /** The JSON body of a `POST`; a scenario without one is a `GET`. */
+  readonly body?: (owner: number) => unknown
 }
 
 const SCENARIOS: readonly Scenario[] = [
@@ -107,7 +109,44 @@ const SCENARIOS: readonly Scenario[] = [
     target: (owner) =>
       `/rest/v1/orders?status=eq.${STATUSES[owner % STATUSES.length]}&sort=-createdAt&limit=20`,
   },
+  { name: "count, owner policy", target: () => "/rest/v1/orders/_count", body: () => ({}) },
+  {
+    name: "filtered count",
+    target: () => "/rest/v1/orders/_count",
+    body: (owner) => ({ filter: { status: STATUSES[owner % STATUSES.length] } }),
+  },
+  {
+    name: "distinct statuses",
+    target: () => "/rest/v1/orders/_distinct",
+    body: () => ({ field: "status" }),
+  },
+  {
+    name: "aggregate by status",
+    target: () => "/rest/v1/orders/_aggregate",
+    body: () => ({
+      pipeline: [
+        { $group: { _id: "$status", n: { $sum: 1 }, amount: { $sum: "$amount" } } },
+        { $sort: { _id: 1 } },
+      ],
+    }),
+  },
 ]
+
+/** Sends one request of a scenario for an owner. */
+function send(
+  base: string,
+  scenario: Scenario,
+  tokens: readonly string[],
+  owner: number,
+): Promise<Response> {
+  const headers = credentials(tokens, owner)
+  if (scenario.body === undefined) return fetch(`${base}${scenario.target(owner)}`, { headers })
+  return fetch(`${base}${scenario.target(owner)}`, {
+    method: "POST",
+    headers: { ...headers, "content-type": "application/json" },
+    body: JSON.stringify(scenario.body(owner)),
+  })
+}
 
 interface Window {
   readonly requests: number
@@ -134,9 +173,7 @@ async function closedLoop(
     while (performance.now() < deadline) {
       const owner = Math.floor(Math.random() * OWNERS)
       const sent = performance.now()
-      const response = await fetch(`${base}${scenario.target(owner)}`, {
-        headers: credentials(tokens, owner),
-      })
+      const response = await send(base, scenario, tokens, owner)
       await response.arrayBuffer()
       latencies.push(performance.now() - sent)
       if (response.status === 200) requests += 1
@@ -154,7 +191,7 @@ async function closedLoop(
   }
 }
 
-/** The data part of a page body, without its cluster time. */
+/** The data part of a body, without its cluster time. */
 function dataOf(text: string): string {
   return text.replace(/,"ct":"\d+"\}$/, "}")
 }
@@ -211,7 +248,7 @@ async function main(): Promise<void> {
 
     const gateway = spawn(gatewayBinary, ["--config", "-"], {
       stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find" },
+      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate" },
     })
     children.push(gateway)
     gateway.stdin?.write(
@@ -238,9 +275,7 @@ async function main(): Promise<void> {
       for (const owner of [0, 1, 517]) {
         const bodies = await Promise.all(
           targets.map(async ({ base }) => {
-            const response = await fetch(`${base}${scenario.target(owner)}`, {
-              headers: credentials(tokens, owner),
-            })
+            const response = await send(base, scenario, tokens, owner)
             return { status: response.status, data: dataOf(await response.text()) }
           }),
         )
@@ -249,7 +284,7 @@ async function main(): Promise<void> {
           throw new Error(`The targets answer ${scenario.name} differently for owner ${owner}`)
       }
     }
-    log("both targets answer the same pages")
+    log("both targets answer the same")
 
     const report = []
     for (const scenario of SCENARIOS) {

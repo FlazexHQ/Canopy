@@ -1,5 +1,5 @@
-//! Building the Rust data plane from the committed `conformance/http/find` fixture: seeding a database,
-//! the policies, the authenticator and the routes.
+//! Building the Rust data plane from the committed `conformance/http/find` fixture (`conformance/http/reads`
+//! shares it): seeding a database, the policies, the authenticator and the routes.
 
 #![allow(dead_code, unreachable_pub, clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_data::{Policies, ReadLimits, ReadPath};
-use canopy_http::{Request, Rest, RestOptions};
+use canopy_http::{Body, Request, Rest, RestOptions, Served};
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_mongo::{policies_from_stored, to_bson};
 use canopy_policy::PolicyEngine;
@@ -17,7 +17,12 @@ use canopy_protocol::json::{Json, parse_json};
 use canopy_protocol::{Document, Value};
 
 pub fn directory() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../conformance/http/find")
+    directory_of("find")
+}
+
+/// The folder of one oracle of `conformance/http`, such as `find` or `reads`.
+pub fn directory_of(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../conformance/http").join(name)
 }
 
 pub fn read_json(path: &std::path::Path) -> Json {
@@ -29,15 +34,21 @@ pub fn fixture() -> Json {
     read_json(&directory().join("fixture.json"))
 }
 
-/// The case files in file name order, with their file names.
+/// The case files of the `find` oracle in file name order, with their file names.
 pub fn case_files() -> Vec<(String, Json)> {
-    let mut names: Vec<String> = std::fs::read_dir(directory().join("cases"))
+    case_files_of("find")
+}
+
+/// The case files of one oracle in file name order, with their file names.
+pub fn case_files_of(name: &str) -> Vec<(String, Json)> {
+    let cases = directory_of(name).join("cases");
+    let mut names: Vec<String> = std::fs::read_dir(&cases)
         .expect("the cases folder")
         .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
         .filter(|name| name.ends_with(".json"))
         .collect();
     names.sort();
-    names.into_iter().map(|name| (name.clone(), read_json(&directory().join("cases").join(&name)))).collect()
+    names.into_iter().map(|name| (name.clone(), read_json(&cases.join(&name)))).collect()
 }
 
 pub fn mongodb_uri() -> Option<String> {
@@ -170,16 +181,27 @@ pub fn read_limits(fixture: &Json) -> ReadLimits {
         default_limit: number("defaultLimit") as u32,
         max_limit: number("maxLimit") as u32,
         max_skip: number("maxSkip"),
-        max_time_ms: 5000,
+        ..ReadLimits::default()
     }
 }
 
 pub fn rest_with(client: Client, database: &str, fixture: &Json, limits: ReadLimits) -> Rest {
+    rest_serving(client, database, fixture, limits, Served::default())
+}
+
+/// The routes over the fixture, serving the routes of `served`.
+pub fn rest_serving(
+    client: Client,
+    database: &str,
+    fixture: &Json,
+    limits: ReadLimits,
+    served: Served,
+) -> Rest {
     let reads = ReadPath::new(client, database, Policies::new(engine(fixture)), limits);
     Rest::new(
         authenticator(fixture),
         reads,
-        RestOptions { base_path: text(fixture, "basePath").to_owned(), ..RestOptions::default() },
+        RestOptions { base_path: text(fixture, "basePath").to_owned(), served, ..RestOptions::default() },
     )
 }
 
@@ -198,6 +220,9 @@ pub fn request_of(fixture: &Json, case: &Json) -> Request {
             out.headers.retain(|(existing, _)| !existing.eq_ignore_ascii_case(name));
             out.headers.push((name.clone(), value.clone()));
         }
+    }
+    if let Some(Json::String(body)) = request.get("body") {
+        out.body = Body::Bytes(body.as_bytes().to_vec());
     }
     out
 }

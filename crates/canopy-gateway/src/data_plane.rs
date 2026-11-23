@@ -2,15 +2,16 @@
 //! its answer goes back as a Hyper response. Every request the routes do not own never reaches this module.
 
 use canopy_auth::Authenticator;
-use canopy_config::{Cors, GatewayConfig};
+use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
 use canopy_data::{Policies, ReadLimits, ReadPath};
-use canopy_http::{Rest, RestOptions};
+use canopy_http::{Rest, RestOptions, Served};
 use canopy_mongo::mongodb::Client;
 use canopy_policy::{PolicyEngine, PolicySet};
 use canopy_realtime::{Body, EngineSender, full};
+use http_body_util::{BodyExt, LengthLimitError, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{HeaderName, HeaderValue};
-use hyper::{Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode};
 
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
@@ -32,12 +33,26 @@ impl DataPlane {
             max_skip: config.rest_limits.max_skip,
             ..ReadLimits::default()
         };
-        let reads = ReadPath::new(client, &config.database, policies, limits);
+        let reads = ReadPath::new(client, &config.database, policies, limits)
+            .with_search(config.search_collections.iter().cloned());
         let cors = config.cors.as_ref().map(|cors| match cors {
             Cors::Any => canopy_http::Cors::Any,
             Cors::Origins(origins) => canopy_http::Cors::Origins(origins.clone()),
         });
-        DataPlane { rest: Rest::new(auth, reads, RestOptions { cors, ..RestOptions::default() }) }
+        let routes = &config.data_plane_routes;
+        let served = Served {
+            find: routes.contains(&DataPlaneRoute::Find),
+            count: routes.contains(&DataPlaneRoute::Count),
+            distinct: routes.contains(&DataPlaneRoute::Distinct),
+            aggregate: routes.contains(&DataPlaneRoute::Aggregate),
+        };
+        let options = RestOptions {
+            cors,
+            served,
+            max_body_bytes: config.rest_limits.max_body_bytes,
+            ..RestOptions::default()
+        };
+        DataPlane { rest: Rest::new(auth, reads, options) }
     }
 
     /// Whether the routes answer this request. A request that is not owned goes to the upstream server untouched.
@@ -46,16 +61,31 @@ impl DataPlane {
         self.rest.owns(request.method().as_str(), target)
     }
 
-    /// Answers an owned request. `None` when the routes decline it after all, so the caller passes it on.
-    pub(crate) async fn serve(&self, request: &Request<Incoming>) -> Option<Response<Body>> {
-        let target = request.uri().path_and_query().map_or("", |target| target.as_str());
-        let mut plain = canopy_http::Request::new(request.method().as_str(), target);
-        for (name, value) in request.headers() {
+    /// Answers a request [`DataPlane::owns`]. The body of a `POST` is read up to the routes' limit; a longer
+    /// one is not read further and answers `413`.
+    pub(crate) async fn serve(&self, request: Request<Incoming>) -> Response<Body> {
+        let (parts, body) = request.into_parts();
+        let target = parts.uri.path_and_query().map_or("", |target| target.as_str());
+        let mut plain = canopy_http::Request::new(parts.method.as_str(), target);
+        for (name, value) in &parts.headers {
             plain
                 .headers
                 .push((name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
         }
-        self.rest.serve(&plain).await.map(response_of)
+        if parts.method == Method::POST {
+            let limit = usize::try_from(self.rest.max_body_bytes()).unwrap_or(usize::MAX);
+            plain.body = match Limited::new(body, limit).collect().await {
+                Ok(collected) => canopy_http::Body::Bytes(collected.to_bytes().to_vec()),
+                Err(error) if error.downcast_ref::<LengthLimitError>().is_some() => {
+                    canopy_http::Body::TooLarge
+                }
+                Err(_) => canopy_http::Body::Unreadable,
+            };
+        }
+        match self.rest.serve(&plain).await {
+            Some(response) => response_of(response),
+            None => full(StatusCode::INTERNAL_SERVER_ERROR, Bytes::from_static(b"Internal error")),
+        }
     }
 }
 

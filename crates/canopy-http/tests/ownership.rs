@@ -7,7 +7,7 @@
 mod common;
 
 use canopy_data::{Policies, ReadPath};
-use canopy_http::{Cors, Request, Rest, RestOptions};
+use canopy_http::{Cors, Request, Rest, RestOptions, Served};
 use canopy_mongo::mongodb::Client;
 use common::{authenticator, engine, fixture, read_limits};
 
@@ -155,4 +155,46 @@ async fn answers_to_an_allowed_origin_expose_the_headers_a_browser_needs() {
     assert_eq!(answer.header("access-control-allow-origin"), Some("*"));
     let without_origin = any.serve(&Request::new("GET", "/rest/v1/todos")).await.expect("served");
     assert!(without_origin.header("access-control-allow-origin").is_none(), "a request without Origin");
+}
+
+#[tokio::test]
+async fn each_read_action_is_served_here_only_when_enabled() {
+    let all = Served { find: true, count: true, distinct: true, aggregate: true };
+    let rest = rest_with(RestOptions { served: all, ..RestOptions::default() }).await;
+    for action in ["_count", "_distinct", "_aggregate"] {
+        let target = format!("/rest/v1/todos/{action}");
+        for method in ["POST", "OPTIONS", "GET", "DELETE"] {
+            assert!(rest.owns(method, &target), "{method} {target} is answered here");
+            assert!(rest.serve(&Request::new(method, &target)).await.is_some(), "{method} {target}");
+        }
+        let response = rest.serve(&Request::new("GET", &target)).await.unwrap();
+        assert_eq!((response.status, response.header("allow")), (405, Some("POST")));
+        assert!(!rest.owns("POST", &format!("/rest/v1/todos/7/{action}")));
+    }
+    for (method, target) in [
+        ("POST", "/rest/v1/todos/_query"),
+        ("POST", "/rest/v1/todos/_explain"),
+        ("OPTIONS", "/rest/v1/todos/_query"),
+        ("POST", "/rest/v1/todos"),
+        ("GET", "/rest/v1/todos/7"),
+        ("POST", "/rest/v1/_batch"),
+    ] {
+        assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's");
+    }
+
+    let count_only = Served { find: false, count: true, distinct: false, aggregate: false };
+    let rest = rest_with(RestOptions { served: count_only, ..RestOptions::default() }).await;
+    assert!(rest.owns("POST", "/rest/v1/todos/_count"));
+    assert!(rest.owns("OPTIONS", "/rest/v1/todos/_count"));
+    for (method, target) in [
+        ("GET", "/rest/v1/todos"),
+        ("OPTIONS", "/rest/v1/todos"),
+        ("PUT", "/rest/v1/todos"),
+        ("POST", "/rest/v1/todos/_distinct"),
+        ("OPTIONS", "/rest/v1/todos/_distinct"),
+        ("GET", "/rest/v1/todos/_aggregate"),
+    ] {
+        assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's when not enabled");
+        assert!(rest.serve(&Request::new(method, target)).await.is_none(), "{method} {target}");
+    }
 }

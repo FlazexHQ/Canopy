@@ -26,6 +26,8 @@ pub struct Problem {
     pub instance: String,
     /// The id of the request.
     pub request_id: String,
+    /// The error's details for the caller, as the JSON text of an object; never for internal errors.
+    pub details: Option<String>,
     /// What the caller can try next, for the common codes.
     pub hint: Option<&'static str>,
     /// The docs page about the error, as a path on the documentation site.
@@ -122,6 +124,7 @@ impl Problem {
             detail: if internal { "Internal error".to_owned() } else { error.message().to_owned() },
             instance: instance.to_owned(),
             request_id: request_id.to_owned(),
+            details: if internal { None } else { error.details().map(str::to_owned) },
             hint: help.map(|(hint, _)| hint),
             docs: help.map(|(_, docs)| format!("errors/{docs}")),
         }
@@ -143,6 +146,10 @@ impl Problem {
         write_json_string(&mut out, &self.instance);
         out.push_str(",\"requestId\":");
         write_json_string(&mut out, &self.request_id);
+        if let Some(details) = &self.details {
+            out.push_str(",\"details\":");
+            out.push_str(details);
+        }
         if let Some(hint) = self.hint {
             out.push_str(",\"hint\":");
             write_json_string(&mut out, hint);

@@ -411,8 +411,10 @@ reports both. Details and the repository layout are in [plan 004](../plans/004-r
 | D7. Defaults | The data plane is the default for promoted routes; the TypeScript data packages are frozen as embedded mode | No P0 or P1 issue open for one release; Q17 decided |
 
 Stage D1 routing. A gateway answers a Data API route itself only when it is selected by
-`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes` in the launcher document), and today the only route is `find`:
-`GET /rest/v1/{collection}`, with the `OPTIONS` and `405` answers of that path. The setting is empty by default
+`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes` in the launcher document). The routes are `find`
+(`GET /rest/v1/{collection}`) and `count`, `distinct` and `aggregate` (`POST /rest/v1/{collection}/_count`,
+`_distinct` and `_aggregate`, with the request body limited by `rest.maxBodyBytes` and `$search` allowed on the
+collections of `rest.search`), each with the `OPTIONS` and `405` answers of its path. The setting is empty by default
 and a name the gateway does not know stops it at startup. Everything else, and every request while no route is
 selected, goes through the existing reverse proxy to the TypeScript server unchanged, so turning the route off
 is the rollback. The gateway starts listening only after its policies are loaded, applies a policy change to the
@@ -420,9 +422,10 @@ route and to the realtime engine together, and reads the policies again whenever
 request the route cannot answer, such as one whose database is unreachable, fails with the Problem Details the
 TypeScript handler gives (`503 CANOPY_UNAVAILABLE`) and never with data, and is never retried on the upstream.
 The route does not apply the HTTP request rate limits (`rateLimits.requests`, `failedAuthentications`), the
-request log, tracing or `explainDenials` yet. The cross entry point DLS test and the bypass corpus run the route
+request log, tracing or `explainDenials` yet. The cross entry point DLS test and the bypass corpus run the routes
 (`packages/server/test/dls-equivalence.test.ts`), and `packages/server/test/data-plane-switch.test.ts` shows the
-switch against the recorded `conformance/http/find` requests.
+switch against the recorded `conformance/http/find` and `conformance/http/reads` requests. The aggregation
+sanitizer is held to the TypeScript one by `conformance/policy/pipeline.json`.
 
 ## 9. Risks
 

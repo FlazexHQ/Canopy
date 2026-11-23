@@ -72,15 +72,19 @@ closing standard input drains the server and stops it.
 
 `CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes`, a name or a list of names) lists the Data API routes the
 gateway answers itself instead of passing them to the upstream server. It is empty by default, so every REST
-request goes to the upstream. `find` selects `GET /rest/v1/{collection}` with the `OPTIONS` and `405` answers
-of that path; every other path and method (writes, documents, `_count`, `_distinct`, `_aggregate`, `_batch`,
+request goes to the upstream. `find` selects `GET /rest/v1/{collection}`, and `count`, `distinct` and
+`aggregate` select `POST /rest/v1/{collection}/_count`, `_distinct` and `_aggregate`, each with the `OPTIONS`
+and `405` answers of its path; every other path and method (writes, documents, `_query`, `_explain`, `_batch`,
 `openapi.json`, GraphQL, storage) is passed on untouched. A name the gateway does not know stops it at startup,
 as does `rest: false` in the configuration with a route selected. The route reads with the gateway's own MongoDB
 client, with the keys, JWKS, revocations and policies the realtime sessions use (the policies are read again
 every time the policy watch opens, so a change made while it was down still applies), and it answers as the
 TypeScript handler does, byte for byte where the response is deterministic. `rest.defaultLimit` and
-`rest.maxLimit` set the page sizes (the TypeScript launcher passes its own), and `cors.origins` the browser
-origins. A failing read never falls back to the upstream and never returns data: a database that cannot be
+`rest.maxLimit` set the page sizes, `rest.maxBodyBytes` the largest request body (a longer one answers `413`
+and is not read further) and `rest.search` the collections whose aggregations may start with `$search` or
+`$vectorSearch` (the TypeScript launcher passes its own), and `cors.origins` the browser origins. A verified
+JWT is remembered for at most 60 seconds, keyed by its exact text; expiry and revocations are still checked on
+every request, and a refetched JWKS forgets every remembered token. A failing read never falls back to the upstream and never returns data: a database that cannot be
 reached answers `503` Problem Details. The route does not apply the HTTP request rate limits
 (`rateLimits.requests` and `failedAuthentications`), the request log, tracing or `explainDenials` of the
 TypeScript handler yet, so leave it off where those matter.

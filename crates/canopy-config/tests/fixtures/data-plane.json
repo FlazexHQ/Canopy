@@ -37,12 +37,14 @@
   },
   "rest": {
     "defaultLimit": 25,
-    "maxLimit": 250
+    "maxLimit": 250,
+    "maxBodyBytes": 4096,
+    "search": ["articles"]
   },
   "log": {
     "level": "info"
   },
   "dataPlane": {
-    "routes": ["find"]
+    "routes": ["find", "count", "distinct", "aggregate"]
   }
 }

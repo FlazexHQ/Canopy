@@ -89,7 +89,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
         (&["log", "properties"], &["level"]),
         (&["viewTokens", "properties"], &["jwk"]),
         (&["viewTokens", "properties", "jwk", "properties"], &["kty", "crv", "x"]),
-        (&["rest", "properties"], &["defaultLimit", "maxLimit", "maxSkip"]),
+        (&["rest", "properties"], &["defaultLimit", "maxLimit", "maxSkip", "maxBodyBytes", "search"]),
         (&["dataPlane", "properties"], &["routes"]),
     ] {
         assert_eq!(fields(at(root, path).ok_or_else(|| format!("Missing schema for {path:?}"))?), expected);
@@ -174,6 +174,8 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
         (&["rest", "properties", "defaultLimit"], Json::Number(f64::from(base.rest_limits.default_limit))),
         (&["rest", "properties", "maxLimit"], Json::Number(f64::from(base.rest_limits.max_limit))),
         (&["rest", "properties", "maxSkip"], Json::Number(base.rest_limits.max_skip as f64)),
+        (&["rest", "properties", "maxBodyBytes"], Json::Number(base.rest_limits.max_body_bytes as f64)),
+        (&["rest", "properties", "search"], list(base.search_collections.clone())),
         (&["dataPlane", "properties", "routes"], Json::Array(vec![])),
     ] {
         assert_eq!(at(root, path).and_then(|setting| setting.get("default")), Some(&expected), "{path:?}");
@@ -236,8 +238,14 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
             "realtime.transports may list websocket, sse and long-poll, not bad",
         ),
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
-        (r#""dataPlane":{"routes":"count"}"#, "dataPlane.routes may list find, not count"),
-        (r#""dataPlane":{"routes":["find","Find"]}"#, "dataPlane.routes may list find, not Find"),
+        (
+            r#""dataPlane":{"routes":"explain"}"#,
+            "dataPlane.routes may list find, count, distinct and aggregate, not explain",
+        ),
+        (
+            r#""dataPlane":{"routes":["find","Find"]}"#,
+            "dataPlane.routes may list find, count, distinct and aggregate, not Find",
+        ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
             "dataPlane.routes serves the Data API, which rest: false disables",
@@ -281,23 +289,45 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         "an explicit empty list beats the variable"
     );
     assert_eq!(routes(&document(r#"["find"]"#), from_host(&["nope"]))?, [DataPlaneRoute::Find]);
-    let unknown = routes(&format!("{{{uri}}}"), from_host(&["find", "count"]));
-    assert_eq!(unknown.err().as_deref(), Some("dataPlane.routes may list find, not count"));
-    assert_eq!(DataPlaneRoute::Find.name(), "find");
-    assert_eq!(DataPlaneRoute::NAMES, ["find"]);
+    assert_eq!(
+        routes(&document(r#"["aggregate","count","find","distinct","count"]"#), Fallbacks::default())?,
+        [DataPlaneRoute::Aggregate, DataPlaneRoute::Count, DataPlaneRoute::Find, DataPlaneRoute::Distinct]
+    );
+    let unknown = routes(&format!("{{{uri}}}"), from_host(&["find", "query"]));
+    assert_eq!(
+        unknown.err().as_deref(),
+        Some("dataPlane.routes may list find, count, distinct and aggregate, not query")
+    );
+    for route in
+        [DataPlaneRoute::Find, DataPlaneRoute::Count, DataPlaneRoute::Distinct, DataPlaneRoute::Aggregate]
+    {
+        assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
+    }
+    assert_eq!(DataPlaneRoute::NAMES, ["find", "count", "distinct", "aggregate"]);
     Ok(())
 }
 
 #[test]
 fn rest_limits_default_to_the_typescript_defaults_and_follow_the_document() -> Result<(), String> {
     let base = parse(r#"{"mongodb":{"uri":"mongodb://h/app"}}"#)?;
-    assert_eq!(base.rest_limits, RestLimits { default_limit: 100, max_limit: 1000, max_skip: 10_000 });
+    assert_eq!(
+        base.rest_limits,
+        RestLimits { default_limit: 100, max_limit: 1000, max_skip: 10_000, max_body_bytes: 1_048_576 }
+    );
+    assert!(base.search_collections.is_empty());
     let set = parse(
         r#"{"mongodb":{"uri":"mongodb://h/app"},"rest":{"defaultLimit":5.9,"maxLimit":10,"maxSkip":20}}"#,
     )?;
-    assert_eq!(set.rest_limits, RestLimits { default_limit: 5, max_limit: 10, max_skip: 20 });
+    assert_eq!(
+        set.rest_limits,
+        RestLimits { default_limit: 5, max_limit: 10, max_skip: 20, ..RestLimits::default() }
+    );
     let only_max = parse(r#"{"mongodb":{"uri":"mongodb://h/app"},"rest":{"maxLimit":100}}"#)?;
-    assert_eq!(only_max.rest_limits, RestLimits { default_limit: 100, max_limit: 100, max_skip: 10_000 });
+    assert_eq!(only_max.rest_limits, RestLimits { max_limit: 100, ..RestLimits::default() });
+    let body =
+        parse(r#"{"mongodb":{"uri":"mongodb://h/app"},"rest":{"maxBodyBytes":2048.7,"search":["a","b"]}}"#)?;
+    assert_eq!(body.rest_limits.max_body_bytes, 2048);
+    assert_eq!(body.search_collections, ["a", "b"]);
     let no_skip = parse(r#"{"mongodb":{"uri":"mongodb://h/app"},"rest":{"maxSkip":0}}"#)?;
     assert_eq!(no_skip.rest_limits.max_skip, 0);
     let disabled = parse(r#"{"mongodb":{"uri":"mongodb://h/app"},"rest":false}"#)?;
@@ -327,7 +357,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         ),
         (&["properties", "realtime", "properties", "coalesceMs", "then"], r#"{"minimum":0,"maximum":1000}"#),
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
-        (&["$defs", "dataPlaneRoute", "enum"], r#"["find"]"#),
+        (&["$defs", "dataPlaneRoute", "enum"], r#"["find","count","distinct","aggregate"]"#),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),
         (

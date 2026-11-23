@@ -2,10 +2,14 @@
 
 Stage D1 of [plan 004](../../../docs/plans/004-rust-data-plane.md#5-stages) promotes `find` to the Rust data
 plane only when it reaches **at least 1.5 times the simple read throughput per vCPU** of the TypeScript route.
-These are local runs on the development laptop, not the gate numbers, which come from the Linux reference
-runner; they show where the gate stands and what moved it.
+The Linux runs on GitHub Actions below pass the gate in every scenario; the local runs on the development
+laptop show what moved it. The gate numbers of record still come from the reference runner and a same region
+Atlas cluster.
 
-Raw reports: [`local-node26-mongo8.json`](local-node26-mongo8.json), [`local-bun-mongo8.json`](local-bun-mongo8.json),
+Raw reports of the Linux runs: [`ci-linux-node26-mongo8.json`](ci-linux-node26-mongo8.json),
+[`ci-linux-bun-mongo8.json`](ci-linux-bun-mongo8.json), [`ci-linux-node26-mongo9.json`](ci-linux-node26-mongo9.json)
+and [`ci-linux-bun-mongo9.json`](ci-linux-bun-mongo9.json), from the `d1` job of the full benchmark workflow
+(`.github/workflows/bench-full.yml`, `suite: d1`). Raw reports of the local runs: [`local-node26-mongo8.json`](local-node26-mongo8.json), [`local-bun-mongo8.json`](local-bun-mongo8.json),
 [`local-node26-mongo9.json`](local-node26-mongo9.json) and [`local-bun-mongo9.json`](local-bun-mongo9.json), written
 by [`workloads/d1/find.ts`](../../workloads/d1/find.ts) (`bun --filter @canopy/bench d1`).
 
@@ -23,7 +27,24 @@ by [`workloads/d1/find.ts`](../../workloads/d1/find.ts) (`bun --filter @canopy/b
 - **Measure:** requests per CPU second of the server process alone, read from the operating system the same
   way for both; the load generator and MongoDB are left out.
 
-## Results
+## Linux runs on GitHub Actions
+
+Ubuntu 22.04 runners with 4 vCPUs, MongoDB in Docker on the same runner, the same harness and settings as below,
+with verified JWTs remembered by the gateway (at most 60 seconds, expiry and revocations checked on every
+request). The MongoDB 8 job ran on an AMD EPYC 9V45 and the MongoDB 9 job on an AMD EPYC 7763, so compare the
+ratios, not the two columns' times. Rust over TypeScript in requests per server CPU second (CPU per request in
+brackets, TypeScript then Rust):
+
+| Scenario                  |       Node 26, MongoDB 8 |           Bun, MongoDB 8 |       Node 26, MongoDB 9 |           Bun, MongoDB 9 |
+| ------------------------- | -----------------------: | -----------------------: | -----------------------: | -----------------------: |
+| page of 20, owner policy  | **3.91** (0.69, 0.18 ms) | **3.78** (0.63, 0.17 ms) | **3.67** (1.34, 0.37 ms) | **3.53** (1.29, 0.37 ms) |
+| page of 100, owner policy | **3.69** (1.39, 0.38 ms) | **3.92** (1.42, 0.36 ms) | **3.31** (2.46, 0.74 ms) | **3.38** (2.48, 0.73 ms) |
+| filtered page of 20       | **3.25** (0.51, 0.16 ms) | **2.61** (0.39, 0.15 ms) | **3.39** (1.09, 0.32 ms) | **2.42** (0.78, 0.32 ms) |
+
+**Gate status on Linux: 12 of 12 pass.** On a page of 20, Rust serves 2,500 to 7,900 requests per second at a p50
+of 3.9 to 11.7 ms, against 970 to 2,230 at 13 to 31 ms for TypeScript.
+
+## Local runs
 
 Rust over TypeScript in requests per server CPU second (CPU per request in brackets, TypeScript then Rust):
 
@@ -37,7 +58,7 @@ Throughput and latency favor Rust more than the per CPU ratio: on a page of 20 R
 per second at a p50 of 4.4 to 5.9 ms, against 1,500 to 1,600 at 17 to 21 ms for TypeScript, because it uses several
 cores where one TypeScript process uses one.
 
-**Gate status: 10 of 12 pass.** The filtered page of 20 against Bun (1.33 and 1.25) does not: Bun serves it with
+**Gate status locally, before verified JWTs were remembered: 10 of 12 pass.** The filtered page of 20 against Bun (1.33 and 1.25) does not: Bun serves it with
 0.59 to 0.62 ms of CPU, and Rust needs 0.42 to 0.47 ms, where 1.5 times would need about 0.40 ms.
 
 ## What moved it
@@ -59,6 +80,6 @@ Rust 0.63 ms, about 0.45 ms fixed per request plus about 9 µs per document.
 Measured on the conformance fixture in a release build: verifying the API key and the Ed25519 JWT costs 57 µs per
 request; parsing the query and compiling the policy about 4 µs; the remaining fixed cost is the HTTP server, the
 driver's round trip in a snapshot session and the runtime, which needs a sampling profiler on the reference runner
-to split further. The largest cost still known to remove is the JWT signature check, by caching verified tokens
-until they expire; that changes how quickly a key removed from a JWKS takes effect, so it is a decision, not an
-optimization to make silently.
+to split further. The largest cost known was the JWT signature check; the gateway now remembers a verified token for at most 60
+seconds (decided 2026-11-23), keyed by its exact text, with expiry and revocations still checked on every request
+and every remembered token forgotten when the JWKS is refetched.

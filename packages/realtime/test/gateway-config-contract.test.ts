@@ -62,8 +62,11 @@ const cases: readonly Fixture[] = [
   },
   {
     name: "data-plane",
-    input: { rest: { defaultLimit: 25, maxLimit: 250 } },
-    overrides: { dataPlaneRoutes: ["find"] },
+    input: {
+      rest: { defaultLimit: 25, maxLimit: 250, maxBodyBytes: 4096 },
+      collections: { articles: { search: true }, notes: {} },
+    },
+    overrides: { dataPlaneRoutes: ["find", "count", "distinct", "aggregate"] },
   },
   { name: "rest-disabled", input: { rest: false } },
   {

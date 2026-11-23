@@ -1,4 +1,21 @@
-/// A request: the method, the exact request target (path and query as sent) and the headers.
+/// The body of a request, as the transport read it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Body {
+    /// Every byte of the body, empty when there is none.
+    Bytes(Vec<u8>),
+    /// The body was longer than the routes accept, so the transport stopped reading it.
+    TooLarge,
+    /// The body could not be read, for example because the client went away.
+    Unreadable,
+}
+
+impl Default for Body {
+    fn default() -> Body {
+        Body::Bytes(Vec::new())
+    }
+}
+
+/// A request: the method, the exact request target (path and query as sent), the headers and the body.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Request {
     /// The method, such as `GET`.
@@ -7,12 +24,21 @@ pub struct Request {
     pub target: String,
     /// The headers in the order received. Names are matched without regard to case.
     pub headers: Vec<(String, String)>,
+    /// The body. Only the routes that take one read it.
+    pub body: Body,
 }
 
 impl Request {
-    /// Creates a request without headers.
+    /// Creates a request without headers or body.
     pub fn new(method: impl Into<String>, target: impl Into<String>) -> Request {
-        Request { method: method.into(), target: target.into(), headers: Vec::new() }
+        Request { method: method.into(), target: target.into(), headers: Vec::new(), body: Body::default() }
+    }
+
+    /// Sets the body.
+    #[must_use]
+    pub fn with_body(mut self, body: impl Into<Vec<u8>>) -> Request {
+        self.body = Body::Bytes(body.into());
+        self
     }
 
     /// Adds a header.

@@ -1,9 +1,9 @@
 use std::time::Duration;
 
 use canopy_engine::Ct;
-use canopy_mongo::mongodb::bson::{Bson, RawDocumentBuf, Timestamp, doc};
+use canopy_mongo::mongodb::bson::{self, Bson, RawDocumentBuf, Timestamp, doc};
 use canopy_mongo::mongodb::error::ErrorKind;
-use canopy_mongo::mongodb::{Client, Collection, Database};
+use canopy_mongo::mongodb::{Client, ClientSession, Collection, Database};
 use canopy_mongo::to_bson;
 use canopy_protocol::{CanopyError, Document};
 
@@ -12,6 +12,8 @@ use crate::errors::{from_driver_error, internal};
 /// MongoDB's `SnapshotUnavailable`: the requested time is not readable yet, for example during a catalog change.
 const SNAPSHOT_UNAVAILABLE: i32 = 246;
 const SNAPSHOT_ATTEMPTS: u32 = 5;
+
+type DriverError = canopy_mongo::mongodb::error::Error;
 
 /// One page to read: the query, and the filter of the count when one is asked for.
 pub(crate) struct PageRead<'a> {
@@ -33,81 +35,202 @@ pub(crate) struct PageResult {
     pub(crate) ct: Ct,
 }
 
-fn bson(document: &Document) -> Result<canopy_mongo::mongodb::bson::Document, CanopyError> {
+/// A read of one collection.
+pub(crate) enum Read<'a> {
+    /// A page of a find, with its count when one is asked for.
+    Page(PageRead<'a>),
+    /// The number of documents matching a filter.
+    Count { collection: &'a str, filter: &'a Document, max_time: Duration },
+    /// The distinct values of a field among the documents matching a filter.
+    Distinct { collection: &'a str, field: &'a str, filter: &'a Document, max_time: Duration },
+    /// The documents an aggregation pipeline returns.
+    Aggregate { collection: &'a str, pipeline: &'a [Document], max_time: Duration, allow_disk_use: bool },
+}
+
+/// What a read returned.
+pub(crate) enum Output {
+    Page { documents: Vec<RawDocumentBuf>, total: Option<u64> },
+    Count(u64),
+    Values(Vec<Bson>),
+    Documents(Vec<RawDocumentBuf>),
+}
+
+fn bson(document: &Document) -> Result<bson::Document, CanopyError> {
     to_bson(document)
 }
 
+fn custom(error: CanopyError) -> DriverError {
+    DriverError::custom(error.message().to_owned())
+}
+
+fn millis(duration: Duration) -> i64 {
+    i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
+}
+
 /// Reads a page inside a snapshot session and reports the snapshot's cluster time T: every write with
-/// `ct <= T` is in the result. T is the session's `snapshotTime`, never its `operationTime`. The batch is
-/// sized to the page, so the page costs one `find` and no `getMore`. A read of a collection that does not
-/// exist yet has no snapshot time, so a cluster time T is taken and the read repeated at exactly T.
+/// `ct <= T` is in the result. The batch is sized to the page, so the page costs one `find` and no `getMore`.
 pub(crate) async fn read_page(
     client: &Client,
     db: &Database,
-    read: &PageRead<'_>,
+    read: PageRead<'_>,
+    service: bool,
 ) -> Result<PageResult, CanopyError> {
-    let (documents, total, ct) = in_snapshot(client, db, read).await?;
-    if let Some(ct) = ct {
-        return Ok(PageResult { documents, total, ct });
+    match in_snapshot(client, db, &Read::Page(read), service).await? {
+        (Output::Page { documents, total }, ct) => Ok(PageResult { documents, total, ct }),
+        _ => Err(internal()),
+    }
+}
+
+/// Runs a read inside a snapshot session and reports the snapshot's cluster time T: every write with
+/// `ct <= T` is in the result. T is the session's `snapshotTime`, never its `operationTime`. A read of a
+/// collection that does not exist yet has no snapshot time, so a cluster time T is taken and the read repeated
+/// at exactly T.
+pub(crate) async fn in_snapshot(
+    client: &Client,
+    db: &Database,
+    read: &Read<'_>,
+    service: bool,
+) -> Result<(Output, Ct), CanopyError> {
+    let driver = |error: DriverError| from_driver_error(&error, service);
+    let mut session = client.start_session().snapshot(true).await.map_err(driver)?;
+    let output = run(db, read, &mut session).await.map_err(driver)?;
+    if let Some(time) = session.snapshot_time() {
+        return Ok((output, Ct::from_parts(time.time, time.increment)));
     }
     let mut attempt = 1;
     loop {
-        let ct = cluster_time(client, db).await?.ok_or_else(internal)?;
+        let ct = cluster_time(client, db, service).await?.ok_or_else(internal)?;
         match at_cluster_time(db, read, ct).await {
-            Ok((documents, total)) => return Ok(PageResult { documents, total, ct }),
+            Ok(output) => return Ok((output, ct)),
             Err(error) if snapshot_unavailable(&error) && attempt < SNAPSHOT_ATTEMPTS => attempt += 1,
-            Err(error) => return Err(from_driver_error(&error)),
+            Err(error) => return Err(driver(error)),
         }
     }
 }
 
-fn snapshot_unavailable(error: &canopy_mongo::mongodb::error::Error) -> bool {
+/// Runs a read that cannot use a snapshot (search stages are served by the search index, which follows the
+/// collection asynchronously) and reports the cluster time of its reply.
+pub(crate) async fn at_latest(
+    client: &Client,
+    db: &Database,
+    read: &Read<'_>,
+    service: bool,
+) -> Result<(Output, Ct), CanopyError> {
+    let driver = |error: DriverError| from_driver_error(&error, service);
+    let mut session = client.start_session().await.map_err(driver)?;
+    let output = run(db, read, &mut session).await.map_err(driver)?;
+    let ct = match session.operation_time() {
+        Some(time) => Ct::from_parts(time.time, time.increment),
+        None => cluster_time(client, db, service).await?.ok_or_else(internal)?,
+    };
+    Ok((output, ct))
+}
+
+/// The estimated number of documents of a collection from its metadata, with the cluster time of the reply.
+pub(crate) async fn estimated_count(
+    client: &Client,
+    db: &Database,
+    collection: &str,
+    max_time: Duration,
+    service: bool,
+) -> Result<(u64, Ct), CanopyError> {
+    let driver = |error: DriverError| from_driver_error(&error, service);
+    let mut session = client.start_session().await.map_err(driver)?;
+    let reply = db
+        .run_command(doc! { "count": collection, "maxTimeMS": millis(max_time) })
+        .session(&mut session)
+        .await
+        .map_err(driver)?;
+    let count = match reply.get("n") {
+        Some(Bson::Int32(n)) => u64::try_from(*n).unwrap_or(0),
+        Some(Bson::Int64(n)) => u64::try_from(*n).unwrap_or(0),
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        Some(Bson::Double(n)) => n.max(0.0) as u64,
+        _ => return Err(internal()),
+    };
+    let time = session.operation_time().ok_or_else(|| {
+        CanopyError::new(canopy_protocol::ErrorCode::Internal, "The read has no cluster time")
+    })?;
+    Ok((count, Ct::from_parts(time.time, time.increment)))
+}
+
+fn snapshot_unavailable(error: &DriverError) -> bool {
     matches!(error.kind.as_ref(), ErrorKind::Command(command) if command.code == SNAPSHOT_UNAVAILABLE)
 }
 
-async fn in_snapshot(
-    client: &Client,
-    db: &Database,
-    read: &PageRead<'_>,
-) -> Result<(Vec<RawDocumentBuf>, Option<u64>, Option<Ct>), CanopyError> {
-    let driver = |error: canopy_mongo::mongodb::error::Error| from_driver_error(&error);
-    let mut session = client.start_session().snapshot(true).await.map_err(driver)?;
-    let collection: Collection<RawDocumentBuf> = db.collection(read.collection);
-    let mut find = collection
-        .find(bson(read.filter)?)
-        .sort(bson(read.sort)?)
-        .limit(i64::from(read.limit))
-        .batch_size(read.limit)
-        .max_time(read.max_time)
-        .session(&mut session);
-    if read.skip > 0 {
-        find = find.skip(read.skip);
+async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Result<Output, DriverError> {
+    match read {
+        Read::Page(page) => {
+            let collection: Collection<RawDocumentBuf> = db.collection(page.collection);
+            let mut find = collection
+                .find(bson(page.filter).map_err(custom)?)
+                .sort(bson(page.sort).map_err(custom)?)
+                .limit(i64::from(page.limit))
+                .batch_size(page.limit)
+                .max_time(page.max_time)
+                .session(&mut *session);
+            if page.skip > 0 {
+                find = find.skip(page.skip);
+            }
+            if let Some(projection) = page.projection {
+                find = find.projection(bson(projection).map_err(custom)?);
+            }
+            let mut cursor = find.await?;
+            let mut documents = Vec::new();
+            while cursor.advance(session).await? {
+                documents.push(cursor.current().to_owned());
+            }
+            let total = match page.count_filter {
+                Some(filter) => Some(
+                    collection
+                        .count_documents(bson(filter).map_err(custom)?)
+                        .max_time(page.max_time)
+                        .session(&mut *session)
+                        .await?,
+                ),
+                None => None,
+            };
+            Ok(Output::Page { documents, total })
+        }
+        Read::Count { collection, filter, max_time } => {
+            let collection: Collection<RawDocumentBuf> = db.collection(collection);
+            let count = collection
+                .count_documents(bson(filter).map_err(custom)?)
+                .max_time(*max_time)
+                .session(&mut *session)
+                .await?;
+            Ok(Output::Count(count))
+        }
+        Read::Distinct { collection, field, filter, max_time } => {
+            let collection: Collection<RawDocumentBuf> = db.collection(collection);
+            let values = collection
+                .distinct(*field, bson(filter).map_err(custom)?)
+                .max_time(*max_time)
+                .session(&mut *session)
+                .await?;
+            Ok(Output::Values(values))
+        }
+        Read::Aggregate { collection, pipeline, max_time, allow_disk_use } => {
+            let stages = pipeline.iter().map(bson).collect::<Result<Vec<_>, _>>().map_err(custom)?;
+            let collection: Collection<RawDocumentBuf> = db.collection(collection);
+            let mut cursor = collection
+                .aggregate(stages)
+                .max_time(*max_time)
+                .allow_disk_use(*allow_disk_use)
+                .with_type::<RawDocumentBuf>()
+                .session(&mut *session)
+                .await?;
+            let mut documents = Vec::new();
+            while cursor.advance(session).await? {
+                documents.push(cursor.current().to_owned());
+            }
+            Ok(Output::Documents(documents))
+        }
     }
-    if let Some(projection) = read.projection {
-        find = find.projection(bson(projection)?);
-    }
-    let mut cursor = find.await.map_err(driver)?;
-    let mut documents = Vec::new();
-    while cursor.advance(&mut session).await.map_err(driver)? {
-        documents.push(cursor.current().to_owned());
-    }
-    let total = match read.count_filter {
-        Some(filter) => Some(
-            collection
-                .count_documents(bson(filter)?)
-                .max_time(read.max_time)
-                .session(&mut session)
-                .await
-                .map_err(driver)?,
-        ),
-        None => None,
-    };
-    let ct = session.snapshot_time().map(|time| Ct::from_parts(time.time, time.increment));
-    Ok((documents, total, ct))
 }
 
-async fn cluster_time(client: &Client, db: &Database) -> Result<Option<Ct>, CanopyError> {
-    let driver = |error: canopy_mongo::mongodb::error::Error| from_driver_error(&error);
+async fn cluster_time(client: &Client, db: &Database, service: bool) -> Result<Option<Ct>, CanopyError> {
+    let driver = |error: DriverError| from_driver_error(&error, service);
     let mut session = client.start_session().await.map_err(driver)?;
     db.run_command(doc! { "ping": 1 }).session(&mut session).await.map_err(driver)?;
     Ok(session.operation_time().map(|time| Ct::from_parts(time.time, time.increment)))
@@ -120,56 +243,103 @@ fn read_concern(ct: Ct) -> Bson {
     })
 }
 
-async fn at_cluster_time(
+async fn count_at(
     db: &Database,
-    read: &PageRead<'_>,
+    collection: &str,
+    filter: &Document,
+    max_time: Duration,
     ct: Ct,
-) -> Result<(Vec<RawDocumentBuf>, Option<u64>), canopy_mongo::mongodb::error::Error> {
-    let custom = |error: CanopyError| canopy_mongo::mongodb::error::Error::custom(error.message().to_owned());
-    let mut command = doc! {
-        "find": read.collection,
-        "filter": bson(read.filter).map_err(custom)?,
-        "sort": bson(read.sort).map_err(custom)?,
-        "limit": i64::from(read.limit),
-        "batchSize": i64::from(read.limit) + 1,
-        "maxTimeMS": i64::try_from(read.max_time.as_millis()).unwrap_or(i64::MAX),
+) -> Result<u64, DriverError> {
+    let count = doc! {
+        "aggregate": collection,
+        "pipeline": [
+            { "$match": bson(filter).map_err(custom)? },
+            { "$group": { "_id": 1, "n": { "$sum": 1 } } },
+        ],
+        "cursor": {},
+        "maxTimeMS": millis(max_time),
         "readConcern": read_concern(ct),
     };
-    if read.skip > 0 {
-        command.insert("skip", i64::try_from(read.skip).unwrap_or(i64::MAX));
-    }
-    if let Some(projection) = read.projection {
-        command.insert("projection", bson(projection).map_err(custom)?);
-    }
-    let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
-    let mut documents = Vec::new();
+    let mut cursor = db.run_cursor_command(count).await?;
+    let mut total = 0u64;
     while cursor.advance().await? {
-        documents.push(cursor.current().to_owned());
+        total = match cursor.deserialize_current()?.get("n") {
+            Some(Bson::Int32(n)) => u64::try_from(*n).unwrap_or(0),
+            Some(Bson::Int64(n)) => u64::try_from(*n).unwrap_or(0),
+            _ => 0,
+        };
     }
-    let total = match read.count_filter {
-        Some(filter) => {
-            let count = doc! {
-                "aggregate": read.collection,
-                "pipeline": [
-                    { "$match": bson(filter).map_err(custom)? },
-                    { "$group": { "_id": 1, "n": { "$sum": 1 } } },
-                ],
-                "cursor": {},
-                "maxTimeMS": i64::try_from(read.max_time.as_millis()).unwrap_or(i64::MAX),
+    Ok(total)
+}
+
+async fn at_cluster_time(db: &Database, read: &Read<'_>, ct: Ct) -> Result<Output, DriverError> {
+    match read {
+        Read::Page(page) => {
+            let mut command = doc! {
+                "find": page.collection,
+                "filter": bson(page.filter).map_err(custom)?,
+                "sort": bson(page.sort).map_err(custom)?,
+                "limit": i64::from(page.limit),
+                "batchSize": i64::from(page.limit) + 1,
+                "maxTimeMS": millis(page.max_time),
                 "readConcern": read_concern(ct),
             };
-            let mut cursor = db.run_cursor_command(count).await?;
-            let mut total = 0u64;
-            while cursor.advance().await? {
-                total = match cursor.deserialize_current()?.get("n") {
-                    Some(Bson::Int32(n)) => u64::try_from(*n).unwrap_or(0),
-                    Some(Bson::Int64(n)) => u64::try_from(*n).unwrap_or(0),
-                    _ => 0,
-                };
+            if page.skip > 0 {
+                command.insert("skip", i64::try_from(page.skip).unwrap_or(i64::MAX));
             }
-            Some(total)
+            if let Some(projection) = page.projection {
+                command.insert("projection", bson(projection).map_err(custom)?);
+            }
+            let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
+            let mut documents = Vec::new();
+            while cursor.advance().await? {
+                documents.push(cursor.current().to_owned());
+            }
+            let total = match page.count_filter {
+                Some(filter) => Some(count_at(db, page.collection, filter, page.max_time, ct).await?),
+                None => None,
+            };
+            Ok(Output::Page { documents, total })
         }
-        None => None,
-    };
-    Ok((documents, total))
+        Read::Count { collection, filter, max_time } => {
+            Ok(Output::Count(count_at(db, collection, filter, *max_time, ct).await?))
+        }
+        Read::Distinct { collection, field, filter, max_time } => {
+            let reply = db
+                .run_command(doc! {
+                    "distinct": *collection,
+                    "key": *field,
+                    "query": bson(filter).map_err(custom)?,
+                    "maxTimeMS": millis(*max_time),
+                    "readConcern": read_concern(ct),
+                })
+                .await?;
+            let values = match reply.get("values") {
+                Some(Bson::Array(values)) => values.clone(),
+                _ => Vec::new(),
+            };
+            Ok(Output::Values(values))
+        }
+        Read::Aggregate { collection, pipeline, max_time, allow_disk_use } => {
+            let stages: Vec<Bson> = pipeline
+                .iter()
+                .map(|stage| bson(stage).map(Bson::Document))
+                .collect::<Result<_, _>>()
+                .map_err(custom)?;
+            let command = doc! {
+                "aggregate": *collection,
+                "pipeline": stages,
+                "cursor": {},
+                "allowDiskUse": *allow_disk_use,
+                "maxTimeMS": millis(*max_time),
+                "readConcern": read_concern(ct),
+            };
+            let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
+            let mut documents = Vec::new();
+            while cursor.advance().await? {
+                documents.push(cursor.current().to_owned());
+            }
+            Ok(Output::Documents(documents))
+        }
+    }
 }

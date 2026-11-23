@@ -26,7 +26,9 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert!(config.websocket && config.http_fallback);
     assert_eq!(config.log_level, "info");
     assert!(config.data_plane_routes.is_empty());
-    assert_eq!(config.rest_limits, RestLimits { default_limit: 100, max_limit: 1000, max_skip: 10_000 });
+    assert_eq!(config.rest_limits, RestLimits::default());
+    assert_eq!(config.rest_limits.max_body_bytes, 1_048_576);
+    assert!(config.search_collections.is_empty());
     Ok(())
 }
 
@@ -34,10 +36,17 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
 fn reads_data_plane_launcher_config() -> Result<(), String> {
     let fixture = include_str!("fixtures/data-plane.json");
     let config = parse(fixture)?;
-    assert_eq!(config.data_plane_routes, [DataPlaneRoute::Find]);
-    assert_eq!(config.rest_limits, RestLimits { default_limit: 25, max_limit: 250, max_skip: 10_000 });
+    assert_eq!(
+        config.data_plane_routes,
+        [DataPlaneRoute::Find, DataPlaneRoute::Count, DataPlaneRoute::Distinct, DataPlaneRoute::Aggregate]
+    );
+    assert_eq!(
+        config.rest_limits,
+        RestLimits { default_limit: 25, max_limit: 250, max_skip: 10_000, max_body_bytes: 4096 }
+    );
+    assert_eq!(config.search_collections, ["articles"]);
     let host = Fallbacks { data_plane_routes: Some(vec!["unknown".to_owned()]), ..Fallbacks::default() };
-    assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, [DataPlaneRoute::Find]);
+    assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, config.data_plane_routes);
     Ok(())
 }
 

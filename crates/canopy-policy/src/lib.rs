@@ -5,6 +5,7 @@
 //! byte identical. Every failure denies: a variable that cannot be resolved drops its policy, and an error
 //! during evaluation yields DENY.
 
+mod aggregate;
 mod context;
 mod dates;
 mod engine;
@@ -12,11 +13,13 @@ mod explain;
 mod fields;
 mod implication;
 mod model;
+mod search;
 mod stored;
 mod validate;
 mod values;
 mod variables;
 
+pub use aggregate::{DEFAULT_PIPELINE_LIMITS, PipelineLimits, SecurePipelineOptions, secure_pipeline};
 pub use context::{ContextQuery, context_names, context_query, lookup_values, select_values, ttl_ms};
 pub use engine::{
     Clause, Compiled, EngineHooks, ExplainedPolicy, Explanation, NoHooks, PolicyEngine, PolicySet,
@@ -36,6 +39,7 @@ pub use model::{
     FieldRules, Operation, PolicyDefinition, PolicyKind, RequestContext, Role, Roles, STORAGE_COLLECTION,
     context_lookup,
 };
+pub use search::{SEARCH_STAGES, SearchScope, secure_search_stage};
 pub use stored::{
     CONTEXT_DOCUMENT_ID, StoredCollectionPolicies, StoredMeta, StoredPolicy, contexts_from_stored,
     from_stored, hash_collection, hash_policy_set, read_stored, to_stored,

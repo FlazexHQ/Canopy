@@ -124,7 +124,7 @@ describe("canopy doctor diagnostics", () => {
     const result = await runDoctor(MONGODB_URI ?? "")
     expect(result.errors).toEqual([])
     expect(
-      result.lines.some((line) => /^ok {4}featureCompatibilityVersion [78]\.\d$/.test(line)),
+      result.lines.some((line) => /^ok {4}featureCompatibilityVersion [89]\.\d$/.test(line)),
     ).toBe(true)
     expect(result.lines).toContainEqual(
       expect.stringMatching(

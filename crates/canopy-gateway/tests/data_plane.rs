@@ -1,6 +1,6 @@
 //! The gateway as a process in front of an upstream server: which requests the Data API routes answer
-//! themselves and which go to the upstream, byte for byte. The recorded `find` requests of
-//! `conformance/http/find` are sent over a real socket to the gateway with the `find` route selected, and every
+//! themselves and which go to the upstream, byte for byte. The recorded requests of `conformance/http/find` and
+//! `conformance/http/reads` are sent over a real socket to the gateway with their routes selected, and every
 //! other request is shown to reach the upstream untouched. The replay needs a MongoDB replica set in
 //! `CANOPY_TEST_MONGODB_URI` and is skipped without one; the fail closed tests need none.
 
@@ -16,7 +16,9 @@ use std::time::{Duration, Instant};
 
 use canopy_mongo::mongodb::Client;
 use canopy_protocol::json::{Json, write_json};
-use common::{case_files, fixture, get, list, mongodb_uri, problems_of, request_of, seed, text};
+use common::{
+    case_files, case_files_of, fixture, get, list, mongodb_uri, problems_of, request_of, seed, text,
+};
 use http_body_util::{BodyExt as _, Full};
 use hyper::body::{Bytes, Incoming};
 use hyper::service::service_fn;
@@ -116,8 +118,12 @@ impl Gateway {
         for (name, value) in &request.headers {
             builder = builder.header(name.as_str(), value.as_str());
         }
+        let body = match &request.body {
+            canopy_http::Body::Bytes(bytes) => Bytes::from(bytes.clone()),
+            other => panic!("a test sends bytes, not {other:?}"),
+        };
         let response = sender
-            .send_request(builder.body(Full::new(Bytes::new())).expect("a request"))
+            .send_request(builder.body(Full::new(body)).expect("a request"))
             .await
             .unwrap_or_else(|error| panic!("{} {}: {error}", request.method, request.target));
         let (parts, body) = response.into_parts();
@@ -284,6 +290,92 @@ async fn the_selected_find_route_answers_every_recorded_request_through_the_gate
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_selected_read_routes_answer_every_recorded_read_request_through_the_gateway() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set to read from");
+        return;
+    };
+    let fixture = fixture();
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopy_gateway_reads_rs");
+    seed(&client.database(&database), &fixture).await;
+    let (port, seen) = upstream().await;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let gateway =
+        Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("count,distinct,aggregate")).await;
+    let mut failures = Vec::new();
+    let mut total = 0;
+    for (file, json) in case_files_of("reads") {
+        for case in list(&json, "cases") {
+            total += 1;
+            let id = text(case, "id");
+            let response = gateway.send(&request_of(&fixture, case)).await;
+            if response.header("x-upstream").is_some() {
+                failures.push(format!("{file} {id}: the upstream answered"));
+                continue;
+            }
+            let problems = problems_of(case, &response);
+            if !problems.is_empty() {
+                failures.push(format!("{file} {id}: {}", problems.join("; ")));
+            }
+        }
+    }
+    let find = gateway.send(&common::get_as(&fixture, "service", "/rest/v1/todos")).await;
+    client.database(&database).drop().await.expect("the scratch database drops");
+    assert!(total >= 70, "{total} cases");
+    assert!(
+        failures.is_empty(),
+        "{} of {total} cases differ:
+{}",
+        failures.len(),
+        failures.join(
+            "
+"
+        )
+    );
+    assert_eq!(find.header("x-upstream"), Some("yes"), "find is not selected, so the upstream answers it");
+    assert_eq!(*seen.lock().unwrap(), [("GET".to_owned(), "/rest/v1/todos".to_owned())]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_body_beyond_the_limit_answers_413_and_never_reaches_the_upstream() {
+    let fixture = fixture();
+    let (port, seen) = upstream().await;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let dead = "mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=300";
+    let config = launcher(&fixture, dead, "unreachable", port, "")
+        .replace(r#""rest":{"#, r#""rest":{"maxBodyBytes":64,"#);
+    let gateway = Gateway::start(config, Some("count,aggregate")).await;
+    let service = common::get_as(&fixture, "service", "/");
+    for (target, body) in [
+        ("/rest/v1/todos/_count", format!(r#"{{"filter":{{"title":"{}"}}}}"#, "x".repeat(80))),
+        (
+            "/rest/v1/todos/_aggregate",
+            format!(r#"{{"pipeline":[{{"$match":{{"t":"{}"}}}}]}}"#, "y".repeat(4096)),
+        ),
+    ] {
+        let mut request = canopy_http::Request::new("POST", target).with_body(body.into_bytes());
+        request.headers = service.headers.clone();
+        request.headers.push(("content-type".to_owned(), "application/json".to_owned()));
+        let response = gateway.send(&request).await;
+        assert_eq!(response.status, 413, "{target}: {}", String::from_utf8_lossy(&response.body));
+        assert!(String::from_utf8_lossy(&response.body).contains("The request body may not exceed 64 bytes"));
+        assert!(response.header("x-upstream").is_none());
+    }
+    let mut small = canopy_http::Request::new("POST", "/rest/v1/todos/_count").with_body(b"{}".to_vec());
+    small.headers = service.headers.clone();
+    small.headers.push(("content-type".to_owned(), "application/json".to_owned()));
+    let response = gateway.send(&small).await;
+    assert_eq!(
+        response.status,
+        503,
+        "a body within the limit reaches the read: {}",
+        String::from_utf8_lossy(&response.body)
+    );
+    assert!(seen.lock().unwrap().is_empty(), "no request reached the upstream");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn other_requests_reach_the_upstream_unchanged_and_without_the_route_so_do_all() {
     let fixture = fixture();
@@ -416,17 +508,20 @@ fn refused(config: &str, routes: Option<&str>) -> (Option<i32>, String) {
 #[test]
 fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
     let document = r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"server":{"port":0,"metricsPort":0}}"#;
-    for routes in ["count", "find,count", "FIND", "find;count"] {
+    for routes in ["query", "find,explain", "FIND", "find;count"] {
         let (code, message) = refused(document, Some(routes));
         assert_eq!(code, Some(1), "{routes}");
-        assert!(message.contains("dataPlane.routes may list find, not"), "{routes}: {message}");
+        assert!(
+            message.contains("dataPlane.routes may list find, count, distinct and aggregate, not"),
+            "{routes}: {message}"
+        );
     }
     let (code, message) = refused(
-        r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"dataPlane":{"routes":["find","aggregate"]}}"#,
+        r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"dataPlane":{"routes":["find","batch"]}}"#,
         None,
     );
     assert_eq!(code, Some(1));
-    assert!(message.contains("dataPlane.routes may list find, not aggregate"), "{message}");
+    assert!(message.contains("not batch"), "{message}");
     let (code, message) = refused(
         r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"rest":false,"dataPlane":{"routes":["find"]}}"#,
         None,

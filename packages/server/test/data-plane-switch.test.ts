@@ -9,6 +9,7 @@ import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   buildHandler,
+  type CaseFile,
   capture,
   loadCaseFiles,
   loadFixture,
@@ -17,10 +18,13 @@ import {
 } from "../../rest/test/conformance/find/harness.ts"
 
 const DIR = fileURLToPath(new URL("../../../conformance/http/find", import.meta.url))
+const READS_DIR = fileURLToPath(new URL("../../../conformance/http/reads", import.meta.url))
 const GATEWAY = findGatewayBinary()
 const fixture = await loadFixture(DIR)
 const files = await loadCaseFiles(DIR)
 const cases = files.flatMap((file) => file.cases)
+const readCases = (await loadCaseFiles(READS_DIR)).flatMap((file) => file.cases)
+const READ_ROUTES = "count,distinct,aggregate"
 
 /** The recorded cases the gateway leaves to the server: a path outside the REST base path and a bad escape. */
 const LEFT_TO_THE_SERVER = new Set(["outside-base-path", "bad-percent-encoding"])
@@ -73,6 +77,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
   let selected: Gateway
   let selectedByDocument: Gateway
   let unselected: Gateway
+  let readsSelected: Gateway
   let withCors: Gateway
 
   /** Marks what the handler answers, and builds the listener of a handler over the seeded database. */
@@ -144,6 +149,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
       "",
     )
     unselected = await start(launcher(upstreamBase, {}), undefined)
+    readsSelected = await start(launcher(upstreamBase, {}), READ_ROUTES)
     withCors = await start(launcher(corsBase, { cors: { origins: [ORIGIN] } }), "find")
   }, 120_000)
 
@@ -168,11 +174,19 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
   })
 
   const send = (base: string, request: RecordedRequest): Promise<Response> =>
-    fetch(`${base}${request.target}`, { method: request.method, headers: headersOf(request) })
+    fetch(`${base}${request.target}`, {
+      method: request.method,
+      headers: headersOf(request),
+      ...(request.body === undefined ? {} : { body: request.body }),
+    })
 
-  const replay = async (gateway: () => Gateway, expectRust: boolean): Promise<number> => {
+  const replay = async (
+    gateway: () => Gateway,
+    expectRust: boolean,
+    recorded: readonly CaseFile["cases"][number][] = cases,
+  ): Promise<number> => {
     let rust = 0
-    for (const item of cases) {
+    for (const item of recorded) {
       const response = await send(gateway().base, item.request)
       const servedByTypeScript = response.headers.get("x-served-by") === "typescript"
       const actual = await capture(response, item.response.volatile)
@@ -209,6 +223,15 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
   it("answers every recorded request as recorded, all of them from TypeScript, when no route is selected", async () => {
     const rust = await replay(() => unselected, false)
     expect(rust).toBe(0)
+  }, 120_000)
+
+  it("answers every recorded count, distinct and aggregate as recorded from Rust when those routes are selected", async () => {
+    expect(readCases.length).toBeGreaterThan(70)
+    expect(await replay(() => readsSelected, true, readCases)).toBe(readCases.length)
+    expect(await replay(() => unselected, false, readCases)).toBe(0)
+    const find = await send(readsSelected.base, cases[0]?.request as RecordedRequest)
+    expect(find.headers.get("x-served-by"), "find is not selected there").toBe("typescript")
+    await find.arrayBuffer()
   }, 120_000)
 
   /** Requests of routes that are not selected. None of them changes a document, so the answers can be compared. */

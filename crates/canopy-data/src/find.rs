@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use canopy_engine::Principal;
@@ -62,11 +63,12 @@ pub fn validate_collection_name(name: &str) -> Result<(), CanopyError> {
 /// with `ct <= T` is already in it. Filters and sorts may only reference readable fields, and returned
 /// documents keep only readable fields.
 pub struct ReadPath {
-    client: Client,
-    db: Database,
-    policies: Policies,
-    limits: ReadLimits,
-    query_limits: QueryLimits,
+    pub(crate) client: Client,
+    pub(crate) db: Database,
+    pub(crate) policies: Policies,
+    pub(crate) limits: ReadLimits,
+    pub(crate) query_limits: QueryLimits,
+    pub(crate) search: HashSet<String>,
     contexts: ContextResolver,
 }
 
@@ -81,7 +83,16 @@ impl ReadPath {
             policies,
             limits,
             query_limits: DEFAULT_LIMITS,
+            search: HashSet::new(),
         }
+    }
+
+    /// Lets aggregations on these collections start with `$search` or `$vectorSearch` (they need a MongoDB
+    /// Search index). The policy filters the search results before any later stage.
+    #[must_use]
+    pub fn with_search(mut self, collections: impl IntoIterator<Item = String>) -> ReadPath {
+        self.search = collections.into_iter().collect();
+        self
     }
 
     /// The read limits in force.
@@ -177,6 +188,7 @@ impl ReadPath {
         let filter = ranged.to_filter();
         let count_filter = request.count.map(|_| effective.to_filter());
         let sort = sort_document(&keys);
+        let service = ctx.roles.contains(Role::SERVICE);
         let read = PageRead {
             collection: name,
             filter: &filter,
@@ -187,7 +199,7 @@ impl ReadPath {
             max_time: Duration::from_millis(self.limits.max_time_ms),
             count_filter: count_filter.as_ref(),
         };
-        let result = read_page(&self.client, &self.db, &read).await?;
+        let result = read_page(&self.client, &self.db, read, service).await?;
         let page_len = usize::try_from(limit).unwrap_or(usize::MAX);
         let more = result.documents.len() > page_len;
         let mut raws = result.documents;

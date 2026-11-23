@@ -1,6 +1,8 @@
 use canopy_auth::Authenticator;
-use canopy_data::{Encoding, FindRequest, ReadPath};
-use canopy_protocol::{CanopyError, ErrorCode};
+use canopy_data::{Caller, CountMode, Encoding, FindRequest, ReadPath};
+use canopy_protocol::ejson::{DecodeOptions, parse};
+use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
+use canopy_query::js_property_order;
 use ring::digest::{Context, SHA256};
 
 use crate::credentials::credentials_from_headers;
@@ -8,7 +10,7 @@ use crate::negotiate::{negotiate, preferences_of, request_id_of};
 use crate::params::{PageLimits, find_params_from_query};
 use crate::paths::{segments_of, trim_trailing_slashes};
 use crate::problem::{DEFAULT_PROBLEM_TYPE_BASE, Problem, problem_response};
-use crate::request::{Request, Response};
+use crate::request::{Body, Request, Response};
 
 /// The browser origins that may call the API from another origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +41,31 @@ const ALLOWED_HEADERS: &str =
 /// The response headers a browser may read.
 const EXPOSED_HEADERS: &str = "x-request-id, x-canopy-ct, retry-after, location, etag";
 
+/// The Data API routes served here; the others are left to the TypeScript handler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Served {
+    /// `GET /{collection}`.
+    pub find: bool,
+    /// `POST /{collection}/_count`.
+    pub count: bool,
+    /// `POST /{collection}/_distinct`.
+    pub distinct: bool,
+    /// `POST /{collection}/_aggregate`.
+    pub aggregate: bool,
+}
+
+impl Default for Served {
+    fn default() -> Served {
+        Served { find: true, count: false, distinct: false, aggregate: false }
+    }
+}
+
+/// The largest request body when none is configured: 1 MiB.
+pub const DEFAULT_MAX_BODY_BYTES: u64 = 1024 * 1024;
+
+/// JSON request bodies the routes accept.
+const JSON_TYPES: [&str; 2] = ["application/json", "application/ejson"];
+
 /// Settings of the routes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RestOptions {
@@ -48,6 +75,10 @@ pub struct RestOptions {
     pub problem_type_base: String,
     /// The origins allowed to call from a browser on another origin. Without it no CORS headers are sent.
     pub cors: Option<Cors>,
+    /// The routes served here. Defaults to `find` alone.
+    pub served: Served,
+    /// The largest request body, in bytes. Defaults to 1 MiB.
+    pub max_body_bytes: u64,
 }
 
 impl Default for RestOptions {
@@ -56,6 +87,8 @@ impl Default for RestOptions {
             base_path: "/rest/v1".to_owned(),
             problem_type_base: DEFAULT_PROBLEM_TYPE_BASE.to_owned(),
             cors: None,
+            served: Served::default(),
+            max_body_bytes: DEFAULT_MAX_BODY_BYTES,
         }
     }
 }
@@ -65,6 +98,12 @@ impl Default for RestOptions {
 enum Route {
     /// `GET /{collection}`, served here.
     Find,
+    /// `POST /{collection}/_count`, served here.
+    Count,
+    /// `POST /{collection}/_distinct`, served here.
+    Distinct,
+    /// `POST /{collection}/_aggregate`, served here.
+    Aggregate,
     /// A route the TypeScript handler serves.
     Unserved,
 }
@@ -76,6 +115,8 @@ pub struct Rest {
     base_path: String,
     problem_type_base: String,
     cors: Option<Cors>,
+    served: Served,
+    max_body_bytes: u64,
 }
 
 impl Rest {
@@ -87,20 +128,38 @@ impl Rest {
             base_path: trim_trailing_slashes(&options.base_path).to_owned(),
             problem_type_base: options.problem_type_base,
             cors: options.cors,
+            served: options.served,
+            max_body_bytes: options.max_body_bytes,
         }
     }
 
-    /// Whether this crate answers a request: `GET` of a collection (`find`), `OPTIONS` of it, and the `405` of
-    /// the methods the collection path does not take. Everything else below the base path (the other methods
-    /// of a collection, a document, an action, a batch, the OpenAPI document, a path that is not valid) is the
-    /// TypeScript handler's, and a gateway passes it on without looking at it.
+    /// The largest request body the routes read, in bytes. A transport stops reading beyond it and passes
+    /// [`Body::TooLarge`].
+    pub fn max_body_bytes(&self) -> u64 {
+        self.max_body_bytes
+    }
+
+    /// Whether this crate answers a request: on the paths of the routes served here (a collection for `find`,
+    /// `/{collection}/_count`, `_distinct` and `_aggregate`), their own method, `OPTIONS` and the `405` of the
+    /// methods the path does not take. Everything else below the base path (the other methods of a collection,
+    /// a document, the other actions, a batch, the OpenAPI document, a path that is not valid) is the TypeScript
+    /// handler's, and a gateway passes it on without looking at it.
     pub fn owns(&self, method: &str, target: &str) -> bool {
         let Some(url) = parse_target(target) else { return false };
         let Ok(Some(segments)) = segments_of(url.path(), &self.base_path) else { return false };
-        match segments.as_slice() {
-            [name] if name != "_batch" && name != "openapi.json" => {
-                resolve(&segments, method).0 != Some(Route::Unserved)
-            }
+        self.serves_path(&segments) && resolve(&segments, method, self.served).0 != Some(Route::Unserved)
+    }
+
+    /// Whether the path belongs to a route served here.
+    fn serves_path(&self, segments: &[String]) -> bool {
+        match segments {
+            [name] => name != "_batch" && name != "openapi.json" && self.served.find,
+            [_, action] => match action.as_str() {
+                "_count" => self.served.count,
+                "_distinct" => self.served.distinct,
+                "_aggregate" => self.served.aggregate,
+                _ => false,
+            },
             _ => false,
         }
     }
@@ -146,7 +205,10 @@ impl Rest {
     ) -> Result<Option<Response>, CanopyError> {
         let segments = segments_of(url.path(), &self.base_path)?
             .ok_or_else(|| CanopyError::new(ErrorCode::NotFound, "Not found"))?;
-        let (route, allow) = resolve(&segments, &request.method);
+        if !self.serves_path(&segments) {
+            return Ok(None);
+        }
+        let (route, allow) = resolve(&segments, &request.method, self.served);
         if request.method == "OPTIONS" && !allow.is_empty() {
             let methods = allow.iter().copied().chain(["OPTIONS"]).collect::<Vec<_>>().join(", ");
             return Ok(Some(match &self.cors {
@@ -163,13 +225,110 @@ impl Rest {
             problem.status = 405;
             return Ok(Some(problem_response(&problem, None).with_header("allow", allow.join(", "))));
         };
+        let collection = segments.first().map_or("", String::as_str);
         match route {
             Route::Unserved => Ok(None),
-            Route::Find => {
-                let collection = segments.first().map_or("", String::as_str);
-                self.find(request, url, collection).await.map(Some)
-            }
+            Route::Find => self.find(request, url, collection).await.map(Some),
+            Route::Count => self.count(request, collection).await.map(Some),
+            Route::Distinct => self.distinct(request, collection).await.map(Some),
+            Route::Aggregate => self.aggregate(request, collection).await.map(Some),
         }
+    }
+
+    /// The caller of a request: its credentials verified and the context lookups the policies of `collections`
+    /// need resolved (every collection when `None`).
+    async fn caller(&self, request: &Request, collections: Option<&[&str]>) -> Result<Caller, CanopyError> {
+        let credentials = credentials_from_headers(request)?;
+        let principal =
+            self.authenticator.authenticate(&credentials.key, credentials.token.as_deref()).await?;
+        self.reads.caller(&principal, collections).await
+    }
+
+    /// Reads and decodes an EJSON request body. An empty body reads as `None`. Fails with
+    /// `CANOPY_PAYLOAD_TOO_LARGE` beyond the limit, and with an invalid query error for other media types, text
+    /// that is not UTF-8 and malformed JSON.
+    fn body(&self, request: &Request) -> Result<Option<Value>, CanopyError> {
+        let too_large = || {
+            CanopyError::new(
+                ErrorCode::PayloadTooLarge,
+                format!("The request body may not exceed {} bytes", self.max_body_bytes),
+            )
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let max = self.max_body_bytes as f64;
+        if request
+            .header("content-length")
+            .is_some_and(|declared| declared.trim().parse::<f64>().is_ok_and(|length| length > max))
+        {
+            return Err(too_large());
+        }
+        let bytes = match &request.body {
+            Body::TooLarge => return Err(too_large()),
+            Body::Unreadable => return Err(CanopyError::invalid_query("The request body could not be read")),
+            Body::Bytes(bytes) if bytes.is_empty() => return Ok(None),
+            Body::Bytes(bytes) => bytes,
+        };
+        let media_type = request.header("content-type").unwrap_or_default();
+        let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
+        if !JSON_TYPES.contains(&media_type.as_str()) {
+            return Err(CanopyError::invalid_query(format!(
+                "The request body must be one of: {}",
+                JSON_TYPES.join(", ")
+            )));
+        }
+        let text = std::str::from_utf8(bytes)
+            .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+        Ok(Some(js_property_order(&parse(text, DecodeOptions::default())?)))
+    }
+
+    /// Checks a body document against the fields a route takes.
+    fn fields<'a>(input: &'a Value, route: &str, allowed: &[&str]) -> Result<&'a Document, CanopyError> {
+        let Value::Document(input) = input else {
+            return Err(CanopyError::invalid_query(format!("The {route} body must be a document")));
+        };
+        if let Some(unknown) = input.keys().find(|key| !allowed.contains(key)) {
+            return Err(CanopyError::invalid_query(format!("Unknown {route} field {unknown}")));
+        }
+        Ok(input)
+    }
+
+    fn json(
+        request: &Request,
+        encode: impl FnOnce(Encoding) -> Result<String, CanopyError>,
+    ) -> Result<Response, CanopyError> {
+        let encoding = negotiate(request.header("accept").as_deref());
+        let text = encode(encoding)?;
+        Ok(Response::new(200).with_header("content-type", content_type(encoding)).with_body(text))
+    }
+
+    async fn count(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, Some(&[collection])).await?;
+        let input = match self.body(request)? {
+            None | Some(Value::Null) => Value::Document(Document::new()),
+            Some(input) => input,
+        };
+        let input = Rest::fields(&input, "count", &["filter"])?;
+        let mode = preferences_of(request).count.unwrap_or(CountMode::Exact);
+        let result = self.reads.count(&caller, collection, input.get("filter"), mode).await?;
+        Rest::json(request, |encoding| result.encode(encoding))
+    }
+
+    async fn distinct(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, Some(&[collection])).await?;
+        let input = self.body(request)?.unwrap_or(Value::Undefined);
+        let input = Rest::fields(&input, "distinct", &["field", "filter"])?;
+        let result =
+            self.reads.distinct(&caller, collection, input.get("field"), input.get("filter")).await?;
+        Rest::json(request, |encoding| result.encode(encoding))
+    }
+
+    async fn aggregate(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, None).await?;
+        let input = self.body(request)?.unwrap_or(Value::Undefined);
+        let input = Rest::fields(&input, "aggregate", &["pipeline"])?;
+        let result = self.reads.aggregate(&caller, collection, input.get("pipeline")).await?;
+        Rest::json(request, |encoding| result.encode(encoding))
     }
 
     /// Adds the CORS response headers: `Vary: Origin` always, and the allowed origin and the exposed headers
@@ -191,10 +350,7 @@ impl Rest {
         url: &url::Url,
         collection: &str,
     ) -> Result<Response, CanopyError> {
-        let credentials = credentials_from_headers(request)?;
-        let principal =
-            self.authenticator.authenticate(&credentials.key, credentials.token.as_deref()).await?;
-        let caller = self.reads.caller(&principal, Some(&[collection])).await?;
+        let caller = self.caller(request, Some(&[collection])).await?;
         let pairs: Vec<(String, String)> =
             url.query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
         let limits = self.reads.limits();
@@ -282,24 +438,29 @@ fn with_request_id(mut response: Response, request_id: &str) -> Response {
 
 const ACTIONS: [&str; 5] = ["_query", "_count", "_distinct", "_aggregate", "_explain"];
 
-/// Picks the route of a path and method, and the methods the path allows, in the order the API lists them.
-fn resolve(segments: &[String], method: &str) -> (Option<Route>, Vec<&'static str>) {
+/// Picks the route of a path and method, and the methods the path allows, in the order the API lists them. A
+/// route that is not in `served` resolves to [`Route::Unserved`].
+fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>, Vec<&'static str>) {
     let first = segments.first().map(String::as_str);
     let second = segments.get(1).map(String::as_str);
-    let (table, find): (&[&'static str], bool) = match segments.len() {
-        0 => (&["GET"], false),
-        1 if first == Some("_batch") => (&["POST"], false),
-        1 if first == Some("openapi.json") => (&["GET"], false),
-        1 => (&["GET", "POST", "PATCH", "DELETE"], true),
-        2 if second.is_some_and(|name| ACTIONS.contains(&name)) => (&["POST"], false),
-        2 => (&["GET", "PATCH", "PUT", "DELETE"], false),
-        _ => (&[], false),
+    let (table, own): (&[&'static str], Option<Route>) = match segments.len() {
+        0 => (&["GET"], None),
+        1 if first == Some("_batch") => (&["POST"], None),
+        1 if first == Some("openapi.json") => (&["GET"], None),
+        1 => (&["GET", "POST", "PATCH", "DELETE"], (served.find && method == "GET").then_some(Route::Find)),
+        2 if second.is_some_and(|name| ACTIONS.contains(&name)) => {
+            let action = match second {
+                Some("_count") if served.count => Some(Route::Count),
+                Some("_distinct") if served.distinct => Some(Route::Distinct),
+                Some("_aggregate") if served.aggregate => Some(Route::Aggregate),
+                _ => None,
+            };
+            (&["POST"], action.filter(|_| method == "POST"))
+        }
+        2 => (&["GET", "PATCH", "PUT", "DELETE"], None),
+        _ => (&[], None),
     };
-    let route = table.contains(&method).then_some(if find && method == "GET" {
-        Route::Find
-    } else {
-        Route::Unserved
-    });
+    let route = table.contains(&method).then(|| own.unwrap_or(Route::Unserved));
     (route, table.to_vec())
 }
 
@@ -330,26 +491,47 @@ mod tests {
 
     #[test]
     fn the_collection_route_serves_get_and_lists_the_methods_of_the_api() {
+        let find = Served::default();
         assert_eq!(
-            resolve(&segments(&["todos"]), "GET"),
+            resolve(&segments(&["todos"]), "GET", find),
             (Some(Route::Find), vec!["GET", "POST", "PATCH", "DELETE"])
         );
-        assert_eq!(resolve(&segments(&["todos"]), "POST").0, Some(Route::Unserved));
-        assert_eq!(resolve(&segments(&["todos"]), "PUT").0, None);
-        assert_eq!(resolve(&segments(&["todos"]), "get").0, None);
+        assert_eq!(resolve(&segments(&["todos"]), "POST", find).0, Some(Route::Unserved));
+        assert_eq!(resolve(&segments(&["todos"]), "PUT", find).0, None);
+        assert_eq!(resolve(&segments(&["todos"]), "get", find).0, None);
+        let none = Served { find: false, ..find };
+        assert_eq!(resolve(&segments(&["todos"]), "GET", none).0, Some(Route::Unserved));
+    }
+
+    #[test]
+    fn the_read_actions_are_served_only_when_enabled() {
+        let all = Served { find: true, count: true, distinct: true, aggregate: true };
+        for (action, route) in
+            [("_count", Route::Count), ("_distinct", Route::Distinct), ("_aggregate", Route::Aggregate)]
+        {
+            assert_eq!(resolve(&segments(&["todos", action]), "POST", all), (Some(route), vec!["POST"]));
+            assert_eq!(resolve(&segments(&["todos", action]), "GET", all), (None, vec!["POST"]));
+            assert_eq!(
+                resolve(&segments(&["todos", action]), "POST", Served::default()).0,
+                Some(Route::Unserved)
+            );
+        }
+        assert_eq!(resolve(&segments(&["todos", "_query"]), "POST", all).0, Some(Route::Unserved));
+        assert_eq!(resolve(&segments(&["todos", "_explain"]), "POST", all).0, Some(Route::Unserved));
     }
 
     #[test]
     fn other_paths_are_not_served_here_but_keep_their_methods() {
-        assert_eq!(resolve(&[], "GET"), (Some(Route::Unserved), vec!["GET"]));
-        assert_eq!(resolve(&segments(&["openapi.json"]), "GET").0, Some(Route::Unserved));
-        assert_eq!(resolve(&segments(&["_batch"]), "POST").0, Some(Route::Unserved));
-        assert_eq!(resolve(&segments(&["_batch"]), "GET"), (None, vec!["POST"]));
-        assert_eq!(resolve(&segments(&["todos", "_count"]), "POST").0, Some(Route::Unserved));
+        let find = Served::default();
+        assert_eq!(resolve(&[], "GET", find), (Some(Route::Unserved), vec!["GET"]));
+        assert_eq!(resolve(&segments(&["openapi.json"]), "GET", find).0, Some(Route::Unserved));
+        assert_eq!(resolve(&segments(&["_batch"]), "POST", find).0, Some(Route::Unserved));
+        assert_eq!(resolve(&segments(&["_batch"]), "GET", find), (None, vec!["POST"]));
+        assert_eq!(resolve(&segments(&["todos", "_count"]), "POST", find).0, Some(Route::Unserved));
         assert_eq!(
-            resolve(&segments(&["todos", "7"]), "GET"),
+            resolve(&segments(&["todos", "7"]), "GET", find),
             (Some(Route::Unserved), vec!["GET", "PATCH", "PUT", "DELETE"])
         );
-        assert_eq!(resolve(&segments(&["a", "b", "c"]), "GET"), (None, vec![]));
+        assert_eq!(resolve(&segments(&["a", "b", "c"]), "GET", find), (None, vec![]));
     }
 }

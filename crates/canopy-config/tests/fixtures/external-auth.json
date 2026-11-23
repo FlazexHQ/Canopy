@@ -48,7 +48,9 @@
   "rateLimits": false,
   "rest": {
     "defaultLimit": 100,
-    "maxLimit": 1000
+    "maxLimit": 1000,
+    "maxBodyBytes": 1048576,
+    "search": []
   },
   "log": {
     "level": "debug"

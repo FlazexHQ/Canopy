@@ -11,7 +11,7 @@ Work plans moved here from the repository root `plans/` on 2026-11-22, so that e
 | [001](001-audit-remediation.md) | Fixes for the 20 findings of the 2026-11-11 audit, workstream A | Status per item in §8 |
 | [002](002-product-gaps.md) | Designs for the product gaps F1, F2, F3, F5 and F6 of workstream F | Status per item in §8 |
 | [003](003-sdk-dx-and-canopy-rest/README.md) | SDK contracts and the Canopy REST client | Closeout recorded; the REST exercise and a registry install are pending |
-| [004](004-rust-data-plane.md) | The Rust data plane (option C, [ADR-0017](../adr/0017-rust-data-plane.md)): stages D0 to D7 and the proposed repository layout | Decided 2026-11-22; D0 next |
+| [004](004-rust-data-plane.md) | The Rust data plane (option C, [ADR-0017](../adr/0017-rust-data-plane.md)): stages D0 to D7 and the proposed repository layout | Decided 2026-11-22; D0 recorded locally; D1 in progress: `find`, `count`, `distinct` and `aggregate` served in Rust behind `CANOPY_DATA_PLANE_ROUTES`, the `find` gate passed on Linux CI |
 
 The rest of this file is the improvement plan as written on 2026-11-12, with its status kept current in §8.
 

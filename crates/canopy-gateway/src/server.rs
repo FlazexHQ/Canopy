@@ -37,9 +37,8 @@ impl HttpRoutes for ShardRoutes {
     async fn fallback(&self, request: Request<Incoming>, peer: &str) -> Response<Body> {
         if let Some(data_plane) = &self.routes.data_plane
             && data_plane.owns(&request)
-            && let Some(response) = data_plane.serve(&request).await
         {
-            return response;
+            return data_plane.serve(request).await;
         }
         let upstream = self.routes.proxy.as_ref();
         match request.uri().path() {

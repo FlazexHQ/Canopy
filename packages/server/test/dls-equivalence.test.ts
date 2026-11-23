@@ -202,7 +202,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     const port = await freePort()
     const child = spawn(GATEWAY, ["--config", "-"], {
       stdio: ["pipe", "ignore", "pipe"],
-      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find" },
+      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate" },
     })
     gateway = child
     let log = ""
@@ -683,4 +683,145 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       `bypass corpus: ${bypassCorpus.length} filters and ${bypassRequests.length} requests, ${CALLERS.length} callers, ${checked} reads${gatewayBase === undefined ? "" : " through REST and the Rust route"}, ${admitted} documents shown, all readable\n`,
     )
   }, 120_000)
+
+  /** A `POST` of a read action at `at`, without the values that differ between two answers. */
+  const action = async (
+    at: string,
+    caller: Caller,
+    route: string,
+    body: unknown,
+  ): Promise<{
+    status: number
+    text: string
+    body: Record<string, unknown>
+    servedBy: string | null
+  }> => {
+    const response = await fetch(`${at}/rest/v1/items/${route}`, {
+      method: "POST",
+      headers: await headers(caller),
+      body: JSON.stringify(body),
+    })
+    const text = await response.text()
+    const parsed = JSON.parse(text) as Record<string, unknown>
+    delete parsed["ct"]
+    delete parsed["requestId"]
+    return {
+      status: response.status,
+      text,
+      body: parsed,
+      servedBy: response.headers.get("x-served-by"),
+    }
+  }
+
+  /** The TypeScript answer of a read action, which the Rust route must give too. */
+  const bothActions = async (caller: Caller, route: string, body: unknown) => {
+    const expected = await action(base, caller, route, body)
+    expect(expected.servedBy).toBe("typescript")
+    if (gatewayBase === undefined) return expected
+    const rust = await action(gatewayBase, caller, route, body)
+    expect(rust.servedBy, `the gateway answered ${route} itself`).toBeNull()
+    expect(
+      { status: rust.status, body: rust.body },
+      `Rust vs TypeScript for ${caller.name} ${route} ${JSON.stringify(body)}`,
+    ).toEqual({ status: expected.status, body: expected.body })
+    rustChecks += 1
+    return expected
+  }
+
+  /** Pipelines that try to reach hidden fields or documents the caller may not read. */
+  const LEAKS: readonly (readonly [string, unknown[]])[] = [
+    ["a projection of the hidden field", [{ $project: { leak: "$secret" } }]],
+    [
+      "a group pushing every value",
+      [{ $group: { _id: null, ids: { $push: "$_id" }, s: { $push: "$secret" } } }],
+    ],
+    ["a count by the hidden field", [{ $sortByCount: "$secret" }]],
+    ["the whole document", [{ $replaceRoot: { newRoot: "$$ROOT" } }]],
+    ["a union with the collection", [{ $unionWith: "items" }]],
+    ["a union with a pipeline", [{ $unionWith: { coll: "items", pipeline: [{ $match: {} }] } }]],
+    ["a self join", [{ $lookup: { from: "items", pipeline: [], as: "all" } }]],
+    [
+      "a self join on the owner",
+      [{ $lookup: { from: "items", localField: "ownerId", foreignField: "ownerId", as: "same" } }],
+    ],
+    [
+      "a join on the hidden field",
+      [{ $lookup: { from: "items", localField: "secret", foreignField: "secret", as: "x" } }],
+    ],
+    ["a facet of everything", [{ $facet: { all: [{ $match: {} }], n: [{ $count: "n" }] } }]],
+    ["a match on the hidden field", [{ $match: { secret: { $exists: true } } }]],
+    [
+      "an expression on the hidden field",
+      [{ $match: { $expr: { $gt: [{ $strLenCP: { $ifNull: ["$secret", ""] } }, 0] } } }],
+    ],
+    ["a variable reaching the root", [{ $addFields: { r: "$$CURRENT" } }]],
+    ["the cluster time", [{ $addFields: { t: "$$CLUSTER_TIME" } }]],
+    ["an out stage", [{ $out: "copy" }]],
+    [
+      "a server side function",
+      [{ $addFields: { f: { $function: { body: "return 1", args: [], lang: "js" } } } }],
+    ],
+  ]
+
+  it("count, distinct and aggregate admit no document or field a policy denies, and the Rust routes answer as TypeScript does", async () => {
+    const coll = db.collection<Item>("items")
+    await coll.deleteMany({})
+    const docs = corpusDocs.map((doc) => ({ ...doc, secret: `hidden-${doc._id}` }))
+    await coll.insertMany(docs)
+    const ids = docs.map((doc) => doc._id)
+    const filters = [
+      ...FILTERS.map((filter) => [`the filter ${JSON.stringify(filter)}`, filter] as const),
+      ...bypassCorpus.map(([name, payload]) => [name, fitted(payload)] as const),
+    ]
+    let checked = 0
+    let answered = 0
+    for (const caller of CALLERS) {
+      const readable = readableBy(caller, docs)
+      const leaks = (name: string, text: string) => {
+        expect(text, `${name}: a hidden value reached ${caller.name}`).not.toContain("hidden-")
+        for (const id of ids)
+          if (!readable.has(id))
+            expect(text, `${name}: ${id} reached ${caller.name}`).not.toContain(`"${id}"`)
+      }
+      for (const [name, filter] of filters) {
+        const count = await bothActions(caller, "_count", { filter })
+        if (count.status === 200) {
+          const data = count.body["data"] as { count: number; exact: boolean }
+          expect(data.count, `${name}: the count for ${caller.name}`).toBeLessThanOrEqual(
+            readable.size,
+          )
+          answered += 1
+        }
+        const distinct = await bothActions(caller, "_distinct", { field: "_id", filter })
+        if (distinct.status === 200) {
+          for (const id of distinct.body["data"] as string[])
+            expect(readable.has(id), `${name}: distinct showed ${id} to ${caller.name}`).toBe(true)
+          answered += 1
+        }
+        const aggregate = await bothActions(caller, "_aggregate", {
+          pipeline: [{ $match: filter }],
+        })
+        leaks(name, aggregate.text)
+        if (aggregate.status === 200) answered += 1
+        checked += 3
+      }
+      for (const [name, pipeline] of LEAKS) {
+        const aggregate = await bothActions(caller, "_aggregate", { pipeline })
+        leaks(name, aggregate.text)
+        if (aggregate.status === 200) answered += 1
+        checked += 1
+      }
+      const hidden = await bothActions(caller, "_distinct", { field: "secret" })
+      expect(hidden.status, `${caller.name} may not list the hidden field`).toBe(400)
+      leaks("distinct of the hidden field", hidden.text)
+    }
+    expect(
+      answered,
+      "the ordinary filters answer for every caller, so the checks above read something",
+    ).toBeGreaterThanOrEqual(FILTERS.length * CALLERS.length * 3)
+    if (gatewayBase !== undefined) expect(rustChecks).toBeGreaterThanOrEqual(checked)
+    process.stdout.write(
+      `read actions: ${filters.length} filters and ${LEAKS.length} pipelines, ${CALLERS.length} callers, ${checked} reads${gatewayBase === undefined ? "" : " through REST and the Rust routes"}, ${answered} answered, nothing hidden shown\n`,
+    )
+  }, 300_000)
 })

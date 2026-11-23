@@ -172,6 +172,16 @@
           "$ref": "#/$defs/whole",
           "default": 10000,
           "description": "The largest skip. Cursors have no such limit. The TypeScript launcher does not set it."
+        },
+        "maxBodyBytes": {
+          "$ref": "#/$defs/whole",
+          "default": 1048576,
+          "description": "The largest request body of a data plane route, in bytes; a longer body answers 413."
+        },
+        "search": {
+          "$ref": "#/$defs/strings",
+          "default": [],
+          "description": "The collections whose aggregations may start with $search or $vectorSearch (they need a MongoDB Search index)."
         }
       }
     },
@@ -183,7 +193,7 @@
           "then": { "$ref": "#/$defs/dataPlaneRoute" },
           "items": { "if": { "type": "string" }, "then": { "$ref": "#/$defs/dataPlaneRoute" } },
           "default": [],
-          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}, with OPTIONS and 405 on that path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
+          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}; count, distinct and aggregate are POST /rest/v1/{collection}/_count, _distinct and _aggregate; each with OPTIONS and 405 on its path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
         }
       }
     },
@@ -223,6 +233,6 @@
       }
     },
     "transport": { "enum": ["websocket", "sse", "long-poll"] },
-    "dataPlaneRoute": { "enum": ["find"] }
+    "dataPlaneRoute": { "enum": ["find", "count", "distinct", "aggregate"] }
   }
 }

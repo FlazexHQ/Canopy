@@ -1,4 +1,5 @@
-//! Canopy's data plane read execution: from a verified principal and a parsed request to a page of documents.
+//! Canopy's data plane read execution: from a verified principal and a parsed request to a page of documents, a
+//! count, the distinct values of a field or the result of a sanitized aggregation.
 //! A caller is resolved with its context lookups, the read policy is compiled into the filter and the
 //! authorized projection MongoDB runs, pages continue from keyset cursors, and one page costs one `find`
 //! (plus a count when asked) in a snapshot session whose cluster time is reported with the page.
@@ -15,6 +16,7 @@ mod find;
 mod limits;
 mod page;
 mod policies;
+mod reads;
 mod snapshot;
 
 pub use caller::Caller;
@@ -28,6 +30,7 @@ pub use find::{FindRequest, ReadPath, validate_collection_name};
 pub use limits::ReadLimits;
 pub use page::{CountMode, Encoding, FindPage};
 pub use policies::Policies;
+pub use reads::{AggregateResult, CountResult, DistinctResult};
 
 use canopy_protocol::CanopyError;
 
