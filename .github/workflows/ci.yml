@@ -398,7 +398,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mongo: ["8.0.34"]
+        mongo: ["8.0.34", "9.0.8"]
         runtime: [node, bun]
     env:
       CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}

@@ -1,0 +1,2198 @@
+{
+  "group": "pagination",
+  "description": "Keyset cursors: chains of pages over the awkward sort values, positions of documents that are gone, cursors of other queries and callers, malformed cursors, and skip.",
+  "cases": [
+    {
+      "id": "numbers-asc-page-1",
+      "title": "Numbers ascending by 7, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=7",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-asc-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"2bf3036d8203325bb5fb77f15856ede7\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-asc-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000008\"},\"label\":\"null\",\"n\":null},{\"_id\":{\"$oid\":\"6f5000000000000000000009\"},\"label\":\"missing\"},{\"_id\":{\"$oid\":\"6f5000000000000000000005\"},\"label\":\"nan\",\"n\":{\"$numberDouble\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000a\"},\"label\":\"negative infinity\",\"n\":{\"$numberDouble\":\"-Infinity\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000010\"},\"label\":\"int negative 5\",\"n\":-5},{\"_id\":{\"$oid\":\"6f5000000000000000000006\"},\"label\":\"negative zero\",\"n\":{\"$numberDouble\":\"-0.0\"}}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLTAuMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNiJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-asc-page-2",
+      "title": "Numbers ascending by 7, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=7&after=eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLTAuMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNiJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLTAuMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNiJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-asc-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"bfe548d71f99989341f71bc7acffc8c4\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-asc-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000007\"},\"label\":\"int 0\",\"n\":0},{\"_id\":{\"$oid\":\"6f5000000000000000000012\"},\"label\":\"double 0.1\",\"n\":0.1},{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"label\":\"double 2\",\"n\":2}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiMiJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwMyJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-asc-page-3",
+      "title": "Numbers ascending by 7, page 3",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=7&after=eyJzIjpbeyIkbnVtYmVySW50IjoiMiJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwMyJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVySW50IjoiMiJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwMyJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-asc-page-3"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"bb91bb608d39f1a6b3eab44e4add56f4\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-asc-page-3"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000c\"},\"label\":\"long above 2^53\",\"n\":{\"$numberLong\":\"9007199254740993\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000b\"},\"label\":\"positive infinity\",\"n\":{\"$numberDouble\":\"Infinity\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000e\"},\"label\":\"string 2\",\"n\":\"2\"}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-desc-page-1",
+      "title": "Numbers descending by 7, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=-n&limit=7",
+        "query": [
+          [
+            "sort",
+            "-n"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-desc-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"ed37820cd9b3c81a89a7d78797ab10ba\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-desc-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f500000000000000000000e\"},\"label\":\"string 2\",\"n\":\"2\"},{\"_id\":{\"$oid\":\"6f500000000000000000000b\"},\"label\":\"positive infinity\",\"n\":{\"$numberDouble\":\"Infinity\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000c\"},\"label\":\"long above 2^53\",\"n\":{\"$numberLong\":\"9007199254740993\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"label\":\"double 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkbnVtYmVyRGVjaW1hbCI6IjIifSx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMDQifV0sInEiOiIwYjFhNTc2YjNkMGE2YTg0MjUwZjAwZjRhODdlMjU4OCJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-desc-page-2",
+      "title": "Numbers descending by 7, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=-n&limit=7&after=eyJzIjpbeyIkbnVtYmVyRGVjaW1hbCI6IjIifSx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMDQifV0sInEiOiIwYjFhNTc2YjNkMGE2YTg0MjUwZjAwZjRhODdlMjU4OCJ9",
+        "query": [
+          [
+            "sort",
+            "-n"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVyRGVjaW1hbCI6IjIifSx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMDQifV0sInEiOiIwYjFhNTc2YjNkMGE2YTg0MjUwZjAwZjRhODdlMjU4OCJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-desc-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"62c1eb879d457808913335673692cf02\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-desc-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000012\"},\"label\":\"double 0.1\",\"n\":0.1},{\"_id\":{\"$oid\":\"6f5000000000000000000006\"},\"label\":\"negative zero\",\"n\":{\"$numberDouble\":\"-0.0\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000007\"},\"label\":\"int 0\",\"n\":0},{\"_id\":{\"$oid\":\"6f5000000000000000000010\"},\"label\":\"int negative 5\",\"n\":-5},{\"_id\":{\"$oid\":\"6f500000000000000000000a\"},\"label\":\"negative infinity\",\"n\":{\"$numberDouble\":\"-Infinity\"}}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLUluZmluaXR5In0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDBhIn1dLCJxIjoiMGIxYTU3NmIzZDBhNmE4NDI1MGYwMGY0YTg3ZTI1ODgifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-desc-page-3",
+      "title": "Numbers descending by 7, page 3",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=-n&limit=7&after=eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLUluZmluaXR5In0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDBhIn1dLCJxIjoiMGIxYTU3NmIzZDBhNmE4NDI1MGYwMGY0YTg3ZTI1ODgifQ",
+        "query": [
+          [
+            "sort",
+            "-n"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLUluZmluaXR5In0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDBhIn1dLCJxIjoiMGIxYTU3NmIzZDBhNmE4NDI1MGYwMGY0YTg3ZTI1ODgifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.numbers-desc-page-3"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"0777d01a5530ae7aa3fa6123c1cdcf57\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.numbers-desc-page-3"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000005\"},\"label\":\"nan\",\"n\":{\"$numberDouble\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000008\"},\"label\":\"null\",\"n\":null},{\"_id\":{\"$oid\":\"6f5000000000000000000009\"},\"label\":\"missing\"}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-at-desc-page-1",
+      "title": "Dates descending by 7, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=-at&limit=7",
+        "query": [
+          [
+            "sort",
+            "-at"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-at-desc-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"88877e687fe97af901eac6a12872bd95\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-at-desc-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3NzIzNjY0MDAwMDEifX0sImUwNiJdLCJxIjoiMzQ5OTdmMjkxNmIzNTdjMDM5ZGExNjdkODczOGFhYjMifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-at-desc-page-2",
+      "title": "Dates descending by 7, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=-at&limit=7&after=eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3NzIzNjY0MDAwMDEifX0sImUwNiJdLCJxIjoiMzQ5OTdmMjkxNmIzNTdjMDM5ZGExNjdkODczOGFhYjMifQ",
+        "query": [
+          [
+            "sort",
+            "-at"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3NzIzNjY0MDAwMDEifX0sImUwNiJdLCJxIjoiMzQ5OTdmMjkxNmIzNTdjMDM5ZGExNjdkODczOGFhYjMifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-at-desc-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"1f8105f4bcdea5305b42c45be1d4b034\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-at-desc-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-kind-page-1",
+      "title": "Strings ascending by 7, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=kind&limit=7",
+        "query": [
+          [
+            "sort",
+            "kind"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-kind-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"67a114572bab29a831adb098a31b6067\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-kind-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbImFscGhhIiwiZTAxIl0sInEiOiIyMTRiYjJkNzFkZmEzZTdlNzlhYWZkOTBiZTU2NDA3YSJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-kind-page-2",
+      "title": "Strings ascending by 7, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=kind&limit=7&after=eyJzIjpbImFscGhhIiwiZTAxIl0sInEiOiIyMTRiYjJkNzFkZmEzZTdlNzlhYWZkOTBiZTU2NDA3YSJ9",
+        "query": [
+          [
+            "sort",
+            "kind"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbImFscGhhIiwiZTAxIl0sInEiOiIyMTRiYjJkNzFkZmEzZTdlNzlhYWZkOTBiZTU2NDA3YSJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-kind-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"27136ea5f36c8ba71b862f8a7c7126f8\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-kind-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-payload-page-1",
+      "title": "Binary data ascending by 7, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=payload&limit=7",
+        "query": [
+          [
+            "sort",
+            "payload"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-payload-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"7c91b45f6a4a338454acac128cca8b88\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-payload-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkYmluYXJ5Ijp7ImJhc2U2NCI6IkFBPT0iLCJzdWJUeXBlIjoiMDAifX0sImUwMiJdLCJxIjoiMTAwZDRmMjllMDEzMTMzNGQ2NjMyNzQxN2U2YWM4OTgifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-payload-page-2",
+      "title": "Binary data ascending by 7, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=payload&limit=7&after=eyJzIjpbeyIkYmluYXJ5Ijp7ImJhc2U2NCI6IkFBPT0iLCJzdWJUeXBlIjoiMDAifX0sImUwMiJdLCJxIjoiMTAwZDRmMjllMDEzMTMzNGQ2NjMyNzQxN2U2YWM4OTgifQ",
+        "query": [
+          [
+            "sort",
+            "payload"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkYmluYXJ5Ijp7ImJhc2U2NCI6IkFBPT0iLCJzdWJUeXBlIjoiMDAifX0sImUwMiJdLCJxIjoiMTAwZDRmMjllMDEzMTMzNGQ2NjMyNzQxN2U2YWM4OTgifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-payload-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"5a512a0845db1fd7125ad277888a43dc\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-payload-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "todos-projected-page-1",
+      "title": "A projection that leaves out the sort field, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-createdAt&fields=title&limit=3",
+        "query": [
+          [
+            "sort",
+            "-createdAt"
+          ],
+          [
+            "fields",
+            "title"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.todos-projected-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"8b319fa89bd5ecb2d32304231db6217e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.todos-projected-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"title\":\"todo 10\"},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"title\":\"todo 8\"},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"title\":\"todo 6\"}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc2ODU1MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA2In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "todos-projected-page-2",
+      "title": "A projection that leaves out the sort field, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-createdAt&fields=title&limit=3&after=eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc2ODU1MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA2In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ",
+        "query": [
+          [
+            "sort",
+            "-createdAt"
+          ],
+          [
+            "fields",
+            "title"
+          ],
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc2ODU1MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA2In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.todos-projected-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"6cb0c172074ecd60b589084c24d2b463\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.todos-projected-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"title\":\"todo 5\"},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"title\":\"todo 3\"},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"title\":\"todo 4\"}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc0MzQ0MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA0In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "todos-projected-page-3",
+      "title": "A projection that leaves out the sort field, page 3",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-createdAt&fields=title&limit=3&after=eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc0MzQ0MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA0In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ",
+        "query": [
+          [
+            "sort",
+            "-createdAt"
+          ],
+          [
+            "fields",
+            "title"
+          ],
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3Njc0MzQ0MDAwMDAifX0seyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA0In1dLCJxIjoiMGRjN2ZmOGVkOWRkY2FhMDgzMTlhMDIzZTQyYzk5NmQifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.todos-projected-page-3"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"35b723975aed4a7361cb116c2425d4a3\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.todos-projected-page-3"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"title\":\"todo 2\"},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\"}],\"page\":{\"limit\":3,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-id-page-1",
+      "title": "The first page of events by _id, whose cursor the next cases forge positions of",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=_id&limit=5",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "5"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.events-id-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"20290f2dd328b4a1ec4a814817686067\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.events-id-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbImUwNSJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-deleted-position",
+      "title": "A cursor at an _id no document has any more continues after that position",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=_id&limit=5&after=eyJzIjpbImUwMzUiXSwicSI6ImNlOWY0ZDhiZjMxMzI4MjEyYzNkNmVmMmM0OTk4YjY2In0",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbImUwMzUiXSwicSI6ImNlOWY0ZDhiZjMxMzI4MjEyYzNkNmVmMmM0OTk4YjY2In0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-deleted-position"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"12dd03d3e8aabac0fd09850e5f01bedf\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-deleted-position"
+        },
+        "body": "{\"data\":[{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbImUwOCJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-past-end",
+      "title": "A cursor after the last document gives an empty last page",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=_id&limit=5&after=eyJzIjpbImU5OSJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbImU5OSJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-past-end"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-past-end"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-before-start",
+      "title": "A cursor before the first document gives the first page",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=_id&limit=5&after=eyJzIjpbIiJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbIiJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-before-start"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"20290f2dd328b4a1ec4a814817686067\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-before-start"
+        },
+        "body": "{\"data\":[{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbImUwNSJdLCJxIjoiY2U5ZjRkOGJmMzEzMjgyMTJjM2Q2ZWYyYzQ5OThiNjYifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-deleted-two-keys",
+      "title": "A two key position whose _id no document has",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=kind&limit=5&after=eyJzIjpbImJldGEiLCJlMDM1Il0sInEiOiIyMTRiYjJkNzFkZmEzZTdlNzlhYWZkOTBiZTU2NDA3YSJ9",
+        "query": [
+          [
+            "sort",
+            "kind"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbImJldGEiLCJlMDM1Il0sInEiOiIyMTRiYjJkNzFkZmEzZTdlNzlhYWZkOTBiZTU2NDA3YSJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-deleted-two-keys"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"87bcaa87c916c840ffe83faa46438ced\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-deleted-two-keys"
+        },
+        "body": "{\"data\":[{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-null-position",
+      "title": "A position on a null sort value",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=5&after=eyJzIjpbbnVsbCx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMDgifV0sInEiOiI1YjJmOTdhMzc2ZjRiZTFjNzYyY2Q4M2Q5MGQzNmRlYSJ9",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbbnVsbCx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMDgifV0sInEiOiI1YjJmOTdhMzc2ZjRiZTFjNzYyY2Q4M2Q5MGQzNmRlYSJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-null-position"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"c0f718b928bea3c3ea97f1e2bb8053ce\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-null-position"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000009\"},\"label\":\"missing\"},{\"_id\":{\"$oid\":\"6f5000000000000000000005\"},\"label\":\"nan\",\"n\":{\"$numberDouble\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000a\"},\"label\":\"negative infinity\",\"n\":{\"$numberDouble\":\"-Infinity\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000010\"},\"label\":\"int negative 5\",\"n\":-5}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiLTUifSx7IiRvaWQiOiI2ZjUwMDAwMDAwMDAwMDAwMDAwMDAwMTAifV0sInEiOiI1YjJmOTdhMzc2ZjRiZTFjNzYyY2Q4M2Q5MGQzNmRlYSJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-nan-position",
+      "title": "A position on NaN",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=5&after=eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiTmFOIn0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDA1In1dLCJxIjoiNWIyZjk3YTM3NmY0YmUxYzc2MmNkODNkOTBkMzZkZWEifQ",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiTmFOIn0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDA1In1dLCJxIjoiNWIyZjk3YTM3NmY0YmUxYzc2MmNkODNkOTBkMzZkZWEifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-nan-position"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"ee53c04abf9dd7fb4424889833568fce\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-nan-position"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000a\"},\"label\":\"negative infinity\",\"n\":{\"$numberDouble\":\"-Infinity\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000010\"},\"label\":\"int negative 5\",\"n\":-5},{\"_id\":{\"$oid\":\"6f5000000000000000000006\"},\"label\":\"negative zero\",\"n\":{\"$numberDouble\":\"-0.0\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000007\"},\"label\":\"int 0\",\"n\":0}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNyJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-negative-zero-position",
+      "title": "A position on negative zero, which equals zero",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=5&after=eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLTAuMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNiJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "5"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiLTAuMCJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwNiJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-negative-zero-position"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"523522e4ea4ed5e98ec95be6460a4c3a\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-negative-zero-position"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000007\"},\"label\":\"int 0\",\"n\":0},{\"_id\":{\"$oid\":\"6f5000000000000000000012\"},\"label\":\"double 0.1\",\"n\":0.1},{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiMiJ9LHsiJG9pZCI6IjZmNTAwMDAwMDAwMDAwMDAwMDAwMDAwMSJ9XSwicSI6IjViMmY5N2EzNzZmNGJlMWM3NjJjZDgzZDkwZDM2ZGVhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "todos-priority-page-1",
+      "title": "The first page of todos by priority",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=priority&limit=3",
+        "query": [
+          [
+            "sort",
+            "priority"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.todos-priority-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"236a7a1aeb97a995f89d38db8bd8dff2\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.todos-priority-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiMSJ9LHsiJG9pZCI6IjZmMTAwMDAwMDAwMDAwMDAwMDAwMDAwYSJ9XSwicSI6ImUwNGIzZjE3MGFkYjczYmMzMDhhZjc2NTFmYzYyZjRhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "cursor-other-sort",
+      "title": "A cursor of another sort",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-priority&limit=3&after=eyJzIjpbeyIkbnVtYmVySW50IjoiMSJ9LHsiJG9pZCI6IjZmMTAwMDAwMDAwMDAwMDAwMDAwMDAwYSJ9XSwicSI6ImUwNGIzZjE3MGFkYjczYmMzMDhhZjc2NTFmYzYyZjRhIn0",
+        "query": [
+          [
+            "sort",
+            "-priority"
+          ],
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkbnVtYmVySW50IjoiMSJ9LHsiJG9pZCI6IjZmMTAwMDAwMDAwMDAwMDAwMDAwMDAwYSJ9XSwicSI6ImUwNGIzZjE3MGFkYjczYmMzMDhhZjc2NTFmYzYyZjRhIn0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-other-sort"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-other-sort"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The cursor belongs to a different query\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-other-sort\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-other-collection",
+      "title": "A cursor of another collection",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff?limit=3&after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-other-collection"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-other-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The cursor belongs to a different query\",\"instance\":\"/rest/v1/staff\",\"requestId\":\"pagination.cursor-other-collection\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-other-filter",
+      "title": "A cursor of another filter",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=eq.done&limit=3&after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "status",
+            "eq.done"
+          ],
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-other-filter"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-other-filter"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The cursor belongs to a different query\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-other-filter\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "service-id-page-1",
+      "title": "The service role reads seven documents, ending on one of bob's",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=7",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "7"
+          ]
+        ],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "pagination.service-id-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"1b2efbce5993691d6ea08ded80fc97c2\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.service-id-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\",\"score\":1.5},\"internalNotes\":\"secret-1\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5},\"internalNotes\":\"secret-2\"},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\",\"score\":0},\"internalNotes\":\"secret-3\"},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\",\"score\":{\"$numberDouble\":\"-0.0\"}},\"internalNotes\":\"secret-4\"},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\",\"score\":9.75},\"internalNotes\":\"secret-5\"},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\",\"score\":3},\"internalNotes\":\"secret-6\"},{\"_id\":{\"$oid\":\"6f1000000000000000000007\"},\"ownerId\":\"bob\",\"title\":\"todo 7\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-07T07:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-03-01T00:00:00.000Z\"},\"tags\":[\"work\"],\"meta\":{\"source\":\"web\",\"score\":4},\"internalNotes\":\"secret-7\"}],\"page\":{\"limit\":7,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA3In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-of-service-used-by-alice",
+      "title": "A cursor made for the service role does not widen what alice sees",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=7&after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA3In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "7"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA3In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-of-service-used-by-alice"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"3ea5724e0cebb4f4b379e8413a81d1b0\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.cursor-of-service-used-by-alice"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":7,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "cursor-empty",
+      "title": "An empty cursor",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=",
+        "query": [
+          [
+            "after",
+            ""
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-empty"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-empty"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-empty\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-bad-characters",
+      "title": "A cursor with characters outside base64url",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=not*a*cursor",
+        "query": [
+          [
+            "after",
+            "not*a*cursor"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-bad-characters"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-bad-characters"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-bad-characters\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-not-json",
+      "title": "A cursor that decodes to text that is not JSON",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=aGVsbG8",
+        "query": [
+          [
+            "after",
+            "aGVsbG8"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-not-json"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-not-json"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-not-json\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-not-a-document",
+      "title": "A cursor that decodes to a JSON array",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=WzEsMl0",
+        "query": [
+          [
+            "after",
+            "WzEsMl0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-not-a-document"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-not-a-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-not-a-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-missing-hash",
+      "title": "A cursor without a query hash",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbMV19",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbMV19"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-missing-hash"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-missing-hash"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-missing-hash\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-hash-not-text",
+      "title": "A cursor whose query hash is a number",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbXSwicSI6NX0",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbXSwicSI6NX0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-hash-not-text"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-hash-not-text"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-hash-not-text\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-too-long",
+      "title": "A cursor longer than 4096 characters",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "query": [
+          [
+            "after",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-too-long"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-too-long"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-too-long\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-wrong-value-count",
+      "title": "A cursor with more values than the sort has keys",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAxIn0seyIkbnVtYmVySW50IjoiMiJ9XSwicSI6ImE3ZTIxODQ2MGZkOTg3OTMzZjYyNGY0MmMxN2ZjMTg5In0",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAxIn0seyIkbnVtYmVySW50IjoiMiJ9XSwicSI6ImE3ZTIxODQ2MGZkOTg3OTMzZjYyNGY0MmMxN2ZjMTg5In0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-wrong-value-count"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-wrong-value-count"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The cursor belongs to a different query\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-wrong-value-count\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-array-value",
+      "title": "A cursor whose position holds an array",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbW3siJG51bWJlckludCI6IjEifV1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbW3siJG51bWJlckludCI6IjEifV1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-array-value"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-array-value"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed cursor\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-array-value\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-operator-document",
+      "title": "A cursor whose position is a document with an operator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbeyIkZ3QiOjF9XSwicSI6ImE3ZTIxODQ2MGZkOTg3OTMzZjYyNGY0MmMxN2ZjMTg5In0",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbeyIkZ3QiOjF9XSwicSI6ImE3ZTIxODQ2MGZkOTg3OTMzZjYyNGY0MmMxN2ZjMTg5In0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-operator-document"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-operator-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Field names may not start with $: $gt\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-operator-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "cursor-twice",
+      "title": "Two cursors",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ&after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.cursor-twice"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.cursor-twice"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"after may only be given once\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.cursor-twice\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "odd-regex-page-end",
+      "title": "A page that ends on a regular expression sort value still has a cursor",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/odd?sort=v&w=lt.6&limit=2",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "w",
+            "lt.6"
+          ],
+          [
+            "limit",
+            "2"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.odd-regex-page-end"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"d0ad61629b663e798cf7b0b5fd37bcec\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.odd-regex-page-end"
+        },
+        "body": "{\"data\":[{\"_id\":\"o5\",\"v\":\"plain\",\"w\":5},{\"_id\":\"o1\",\"v\":{\"$regularExpression\":{\"pattern\":\"^a\",\"options\":\"i\"}},\"w\":1}],\"page\":{\"limit\":2,\"next\":\"eyJzIjpbeyIkcmVndWxhckV4cHJlc3Npb24iOnsicGF0dGVybiI6Il5hIiwib3B0aW9ucyI6ImkifX0sIm8xIl0sInEiOiI0MTdkYWY4NzQ3MmJjODFlMDg4MWFiN2QyYzg3N2RmNyJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "odd-regex-next-page",
+      "title": "The next page cannot continue past a regular expression sort value and says so",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/odd?sort=v&w=lt.6&limit=2&after=eyJzIjpbeyIkcmVndWxhckV4cHJlc3Npb24iOnsicGF0dGVybiI6Il5hIiwib3B0aW9ucyI6ImkifX0sIm8xIl0sInEiOiI0MTdkYWY4NzQ3MmJjODFlMDg4MWFiN2QyYzg3N2RmNyJ9",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "w",
+            "lt.6"
+          ],
+          [
+            "limit",
+            "2"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkcmVndWxhckV4cHJlc3Npb24iOnsicGF0dGVybiI6Il5hIiwib3B0aW9ucyI6ImkifX0sIm8xIl0sInEiOiI0MTdkYWY4NzQ3MmJjODFlMDg4MWFiN2QyYzg3N2RmNyJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.odd-regex-next-page"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.odd-regex-next-page"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The cursor ends on a regular expression sort value in \\\"v\\\", which cannot be compared, so the next page cannot be read. Sort by a field without regular expression values, or filter those documents out.\",\"instance\":\"/rest/v1/odd\",\"requestId\":\"pagination.odd-regex-next-page\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-document",
+      "title": "A page holding BSON symbols returns them as strings, in order with the strings of equal value",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=10",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-document"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"534afeb850dc7d91bf97635790ad1c91\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-document"
+        },
+        "body": "{\"data\":[{\"_id\":\"y4\",\"v\":\"rym\"},{\"_id\":\"y1\",\"v\":\"sym\"},{\"_id\":\"y3\",\"v\":\"sym\"},{\"_id\":\"y2\",\"v\":\"tym\"}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-default-order",
+      "title": "Without a sort the symbol documents come back in _id order, and a symbol reads as a plain string",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-default-order"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"fc1a0dee7081419ec43da16704126d39\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-default-order"
+        },
+        "body": "{\"data\":[{\"_id\":\"y1\",\"v\":\"sym\"},{\"_id\":\"y2\",\"v\":\"tym\"},{\"_id\":\"y3\",\"v\":\"sym\"},{\"_id\":\"y4\",\"v\":\"rym\"}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-page-1",
+      "title": "A sort over symbols and strings, one document per page, so a cursor position is a symbol, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=1",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"7959d855459322dcf9885f78ce19935e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"y4\",\"v\":\"rym\"}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbInJ5bSIsInk0Il0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-page-2",
+      "title": "A sort over symbols and strings, one document per page, so a cursor position is a symbol, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=1&after=eyJzIjpbInJ5bSIsInk0Il0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "1"
+          ],
+          [
+            "after",
+            "eyJzIjpbInJ5bSIsInk0Il0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"9499f091e5a7792e77656a234fbbc9fd\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":\"y1\",\"v\":\"sym\"}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbInN5bSIsInkxIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-page-3",
+      "title": "A sort over symbols and strings, one document per page, so a cursor position is a symbol, page 3",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=1&after=eyJzIjpbInN5bSIsInkxIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "1"
+          ],
+          [
+            "after",
+            "eyJzIjpbInN5bSIsInkxIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-page-3"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"cb52705cceae998b07fec28e850f5efb\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-page-3"
+        },
+        "body": "{\"data\":[{\"_id\":\"y3\",\"v\":\"sym\"}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbInN5bSIsInkzIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-page-4",
+      "title": "A sort over symbols and strings, one document per page, so a cursor position is a symbol, page 4",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=1&after=eyJzIjpbInN5bSIsInkzIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "1"
+          ],
+          [
+            "after",
+            "eyJzIjpbInN5bSIsInkzIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-page-4"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"fcff5e1ceac337561ca9aeb537fdfd87\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-page-4"
+        },
+        "body": "{\"data\":[{\"_id\":\"y2\",\"v\":\"tym\"}],\"page\":{\"limit\":1,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-desc-page-1",
+      "title": "The same sort descending, page 1",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=-v&limit=3",
+        "query": [
+          [
+            "sort",
+            "-v"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-desc-page-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"98d124a26d4e16e55bc943be7c516dd8\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-desc-page-1"
+        },
+        "body": "{\"data\":[{\"_id\":\"y2\",\"v\":\"tym\"},{\"_id\":\"y1\",\"v\":\"sym\"},{\"_id\":\"y3\",\"v\":\"sym\"}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbInN5bSIsInkzIl0sInEiOiJiOGJmOThlMmM0OTBmZGM0NmI3YTU0NTkxMDU3OGE2ZSJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-sort-desc-page-2",
+      "title": "The same sort descending, page 2",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=-v&limit=3&after=eyJzIjpbInN5bSIsInkzIl0sInEiOiJiOGJmOThlMmM0OTBmZGM0NmI3YTU0NTkxMDU3OGE2ZSJ9",
+        "query": [
+          [
+            "sort",
+            "-v"
+          ],
+          [
+            "limit",
+            "3"
+          ],
+          [
+            "after",
+            "eyJzIjpbInN5bSIsInkzIl0sInEiOiJiOGJmOThlMmM0OTBmZGM0NmI3YTU0NTkxMDU3OGE2ZSJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-sort-desc-page-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"d899593d809f7feaae8d48260c4ea878\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-sort-desc-page-2"
+        },
+        "body": "{\"data\":[{\"_id\":\"y4\",\"v\":\"rym\"}],\"page\":{\"limit\":3,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-eq",
+      "title": "A string filter matches a symbol of the same text",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?v=eq.sym&sort=_id",
+        "query": [
+          [
+            "v",
+            "eq.sym"
+          ],
+          [
+            "sort",
+            "_id"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-eq"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e2484d5c2a1fac5b37bda77f018c7cf1\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-eq"
+        },
+        "body": "{\"data\":[{\"_id\":\"y1\",\"v\":\"sym\"},{\"_id\":\"y3\",\"v\":\"sym\"}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-gt",
+      "title": "A comparison treats symbols as strings",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?v=gt.sym&sort=v",
+        "query": [
+          [
+            "v",
+            "gt.sym"
+          ],
+          [
+            "sort",
+            "v"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-gt"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"535c0515b248211eaa14f5454a980fe0\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-gt"
+        },
+        "body": "{\"data\":[{\"_id\":\"y2\",\"v\":\"tym\"}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "symbol-forged-cursor",
+      "title": "A cursor whose position is the string a symbol was written as continues the same page chain",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/symbols?sort=v&limit=1&after=eyJzIjpbInN5bSIsInkxIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9",
+        "query": [
+          [
+            "sort",
+            "v"
+          ],
+          [
+            "limit",
+            "1"
+          ],
+          [
+            "after",
+            "eyJzIjpbInN5bSIsInkxIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.symbol-forged-cursor"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"cb52705cceae998b07fec28e850f5efb\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.symbol-forged-cursor"
+        },
+        "body": "{\"data\":[{\"_id\":\"y3\",\"v\":\"sym\"}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbInN5bSIsInkzIl0sInEiOiI3ODljOWUxZTdjYTVmOGQ4ZWQ0YWViNGMzZDY1MzNiNiJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "skip",
+      "title": "skip instead of a cursor",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=3&limit=3",
+        "query": [
+          [
+            "skip",
+            "3"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.skip"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"4cf025ba521ec84c310a8ca0426f896e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.skip"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA2In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "skip-past-end",
+      "title": "skip beyond the last visible document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=15",
+        "query": [
+          [
+            "skip",
+            "15"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.skip-past-end"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "pagination.skip-past-end"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "skip-and-after",
+      "title": "skip and a cursor together",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=1&after=eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ",
+        "query": [
+          [
+            "skip",
+            "1"
+          ],
+          [
+            "after",
+            "eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "pagination.skip-and-after"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "pagination.skip-and-after"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"skip and after cannot be combined\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"pagination.skip-and-after\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

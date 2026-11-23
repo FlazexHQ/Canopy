@@ -159,6 +159,10 @@ auth: external({
 - JWKS is fetched over HTTPS only, with a 3 s timeout, cached according to `Cache-Control`, and refetched on an
   unknown `kid` at most once a minute.
 - The algorithm is pinned. `iss` and `aud` are required. Skew is ±60 s.
+- The Rust data plane remembers a token whose signature and claims passed for at most 60 s, keyed by its
+  exact text, so a busy client's token is not verified again on every request. Expiry and session revocations
+  are still checked on each request, and a refetched JWKS forgets every remembered token, so a key removed from
+  the JWKS stops being accepted at the next refetch or within 60 s.
 - Mapping an external claim to `service` is refused unless `allowServiceRoleFromJwt` is set
   ([02 §3](02-document-level-security.md#3-core-concepts)).
 

@@ -1,30 +1,7 @@
 //! Loopback-only S13 feasibility probe for the native gateway.
 
-#[allow(dead_code)]
-#[path = "../src/api_keys.rs"]
-mod api_keys;
-#[allow(dead_code)]
-#[path = "../src/client_address.rs"]
-mod client_address;
-#[allow(dead_code)]
-#[path = "../src/config.rs"]
-mod config;
 #[path = "../src/forward.rs"]
 mod forward;
-#[path = "../src/jwt.rs"]
-mod jwt;
-#[allow(dead_code)]
-#[path = "../src/log.rs"]
-mod log;
-#[allow(dead_code)]
-#[path = "../src/mongo.rs"]
-mod mongo;
-#[allow(dead_code)]
-#[path = "../src/revocations.rs"]
-mod revocations;
-#[allow(dead_code)]
-#[path = "../src/view_tokens.rs"]
-mod view_tokens;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -33,13 +10,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use canopy_auth::{Authenticator, JwtConfig};
 use canopy_engine::{MutOp, Mutation, MutationRequest, Principal};
 use canopy_matcher::CompiledFilter;
+use canopy_mongo::{mongodb, to_bson};
 use canopy_policy::{
     CollectionPolicies, Operation, PolicyDefinition, PolicyEngine, PolicyKind, Role, create_policy_set,
 };
 use canopy_protocol::{Document as PolicyDocument, ErrorCode, Value};
-use jwt::Authenticator;
 use mongodb::bson::{Binary, Bson, Document, doc, spec::BinarySubtype};
 use mongodb::options::FullDocumentType;
 use mongodb::{Client, Collection};
@@ -177,7 +155,7 @@ impl Probe {
         token: &str,
     ) -> Result<Document, Document> {
         let read = self.policy.using(COLLECTION, Operation::Read, &principal.context(None, now_ms()));
-        let policy = mongo::to_bson(&read.to_filter()).map_err(|_| denied())?;
+        let policy = to_bson(&read.to_filter()).map_err(|_| denied())?;
         let (filter, sort, skip, limit, count, single_batch) = if command.contains_key("find") {
             if command.get_str("find").ok() != Some(COLLECTION)
                 || !allowed(command, &["find", "filter", "sort", "skip", "limit", "batchSize", "singleBatch"])
@@ -599,7 +577,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let jwks = std::fs::read_to_string(jwks_file)?;
     let http = reqwest::Client::new();
     let auth = Authenticator::new(
-        Some(config::JwtConfig {
+        Some(JwtConfig {
             issuers: vec!["https://s13.test".to_owned()],
             audiences: vec!["canopy-s13".to_owned()],
             jwks: Some(canopy_protocol::json::parse_json(&jwks)?),

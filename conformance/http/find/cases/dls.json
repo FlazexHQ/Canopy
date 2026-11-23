@@ -1,0 +1,809 @@
+{
+  "group": "dls",
+  "description": "The document and field level security corpus of the read path: what a caller must never see, learn or probe through filters, sorts, projections, counts and cursors, and the service role that bypasses all of it. Cases name text no body may contain.",
+  "cases": [
+    {
+      "id": "filter-other-owner",
+      "title": "Asking for another owner's documents",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?ownerId=eq.bob",
+        "query": [
+          [
+            "ownerId",
+            "eq.bob"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.filter-other-owner"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.filter-other-owner"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "or-with-other-owner",
+      "title": "An $or that includes another owner's documents",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24or%22%3A%5B%7B%22ownerId%22%3A%22bob%22%7D%2C%7B%22ownerId%22%3A%22alice%22%7D%5D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"$or\":[{\"ownerId\":\"bob\"},{\"ownerId\":\"alice\"}]}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.or-with-other-owner"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"b4112723192360daa5b3f7fc0653e898\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.or-with-other-owner"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "not-equal-owner",
+      "title": "A negated condition cannot widen the policy",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22ownerId%22%3A%7B%22%24ne%22%3A%22alice%22%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"ownerId\":{\"$ne\":\"alice\"}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.not-equal-owner"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.not-equal-owner"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "hidden-eq",
+      "title": "Equality on a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?internalNotes=eq.secret-1",
+        "query": [
+          [
+            "internalNotes",
+            "eq.secret-1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-eq"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-eq"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-eq\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-nested-gt",
+      "title": "A range on a hidden nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?meta.score=gt.2",
+        "query": [
+          [
+            "meta.score",
+            "gt.2"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-nested-gt"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-nested-gt"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: meta.score\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-nested-gt\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "hidden-inside-or",
+      "title": "A hidden field inside an $or",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24or%22%3A%5B%7B%22status%22%3A%22done%22%7D%2C%7B%22internalNotes%22%3A%22secret-1%22%7D%5D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$or\":[{\"status\":\"done\"},{\"internalNotes\":\"secret-1\"}]}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-inside-or"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-inside-or"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-inside-or\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-parent-equality",
+      "title": "Equality on a nested document that contains a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22meta%22%3A%7B%22source%22%3A%22web%22%2C%22score%22%3A1.5%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"meta\":{\"source\":\"web\",\"score\":1.5}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-parent-equality"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-parent-equality"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: meta\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-parent-equality\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "hidden-sort",
+      "title": "A sort on a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=internalNotes",
+        "query": [
+          [
+            "sort",
+            "internalNotes"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-sort"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-sort"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-sort\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-nested-sort",
+      "title": "A sort on a hidden nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=meta.score",
+        "query": [
+          [
+            "sort",
+            "meta.score"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-nested-sort"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-nested-sort"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: meta.score\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-nested-sort\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "hidden-expr",
+      "title": "$expr reading a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24expr%22%3A%7B%22%24eq%22%3A%5B%22%24internalNotes%22%2C%22secret-1%22%5D%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$expr\":{\"$eq\":[\"$internalNotes\",\"secret-1\"]}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-expr"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-expr"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$expr is only allowed in check clauses\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-expr\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-text",
+      "title": "A text search over a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24text%22%3A%7B%22%24search%22%3A%22secret%22%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$text\":{\"$search\":\"secret\"}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.hidden-text"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.hidden-text"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$text is not available when some fields are not readable\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.hidden-text\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "where-javascript",
+      "title": "$where",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24where%22%3A%22this.internalNotes+%3D%3D+%27secret-1%27%22%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$where\":\"this.internalNotes == 'secret-1'\"}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.where-javascript"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.where-javascript"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The operator $where is not allowed\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.where-javascript\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "service-hidden-eq",
+      "title": "The service role may filter on a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?internalNotes=eq.secret-1",
+        "query": [
+          [
+            "internalNotes",
+            "eq.secret-1"
+          ]
+        ],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "dls.service-hidden-eq"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"6d65ed325204e517f57cf4ff911b4781\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.service-hidden-eq"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\",\"score\":1.5},\"internalNotes\":\"secret-1\"}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "admin-hidden-score-sort",
+      "title": "A role that may read meta.score may sort by it",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=meta.score&limit=10",
+        "query": [
+          [
+            "sort",
+            "meta.score"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "dls.admin-hidden-score-sort"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"cc1ce6782c4adb04ac6f7b5633163001\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.admin-hidden-score-sort"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000c\"},\"ownerId\":\"bob\",\"title\":\"todo 12\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-12T16:30:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-12T00:00:00.000Z\"},\"tags\":[]},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\",\"score\":0}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\",\"score\":{\"$numberDouble\":\"-0.0\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\",\"score\":1.5}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\",\"score\":3}},{\"_id\":{\"$oid\":\"6f1000000000000000000007\"},\"ownerId\":\"bob\",\"title\":\"todo 7\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-07T07:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-03-01T00:00:00.000Z\"},\"tags\":[\"work\"],\"meta\":{\"source\":\"web\",\"score\":4}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\",\"score\":5}},{\"_id\":{\"$oid\":\"6f1000000000000000000009\"},\"ownerId\":\"bob\",\"title\":\"todo 9\",\"status\":\"done\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-09T09:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\",\"score\":6}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\",\"score\":7}}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiNyJ9LHsiJG9pZCI6IjZmMTAwMDAwMDAwMDAwMDAwMDAwMDAwYSJ9XSwicSI6IjkyZTRlYTY5ODhjOTk0YWUwMjkwM2EzMTk1NmJmMWJhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "admin-hidden-notes",
+      "title": "A role that may not read internalNotes may not filter on it",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?internalNotes=eq.secret-1",
+        "query": [
+          [
+            "internalNotes",
+            "eq.secret-1"
+          ]
+        ],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "dls.admin-hidden-notes"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.admin-hidden-notes"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"dls.admin-hidden-notes\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "context-alice",
+      "title": "A policy built on a context lookup: alice belongs to two projects",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/tasks?limit=10",
+        "query": [
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.context-alice"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"3580a0ce98058f12813e77dc4c217468\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.context-alice"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f3000000000000000000001\"},\"projectId\":{\"$oid\":\"6f4000000000000000000001\"},\"title\":\"task 1\"},{\"_id\":{\"$oid\":\"6f3000000000000000000002\"},\"projectId\":{\"$oid\":\"6f4000000000000000000001\"},\"title\":\"task 2\"},{\"_id\":{\"$oid\":\"6f3000000000000000000003\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 3\"},{\"_id\":{\"$oid\":\"6f3000000000000000000004\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 4\"}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "context-bob",
+      "title": "bob belongs to one project",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/tasks?limit=10",
+        "query": [
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "bob",
+        "headers": {
+          "x-request-id": "dls.context-bob"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"64e97c39b78bac7b423299928d79ca31\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.context-bob"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f3000000000000000000003\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 3\"},{\"_id\":{\"$oid\":\"6f3000000000000000000004\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 4\"}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "context-carol",
+      "title": "carol belongs to none",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/tasks?limit=10",
+        "query": [
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "dls.context-carol"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"cd8be9227207d56f5062f8a2b04400fd\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.context-carol"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "task "
+        ]
+      }
+    },
+    {
+      "id": "context-service",
+      "title": "The service role sees every task",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/tasks?limit=10",
+        "query": [
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "dls.context-service"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"9f7c9510b2b855cec4673af95aad8d8b\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.context-service"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f3000000000000000000001\"},\"projectId\":{\"$oid\":\"6f4000000000000000000001\"},\"title\":\"task 1\"},{\"_id\":{\"$oid\":\"6f3000000000000000000002\"},\"projectId\":{\"$oid\":\"6f4000000000000000000001\"},\"title\":\"task 2\"},{\"_id\":{\"$oid\":\"6f3000000000000000000003\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 3\"},{\"_id\":{\"$oid\":\"6f3000000000000000000004\"},\"projectId\":{\"$oid\":\"6f4000000000000000000002\"},\"title\":\"task 4\"},{\"_id\":{\"$oid\":\"6f3000000000000000000005\"},\"projectId\":{\"$oid\":\"6f4000000000000000000003\"},\"title\":\"task 5\"},{\"_id\":{\"$oid\":\"6f3000000000000000000006\"},\"projectId\":{\"$oid\":\"6f4000000000000000000003\"},\"title\":\"task 6\"}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "context-other-project",
+      "title": "Asking for a project the caller is not in",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/tasks?projectId=eq.%7B%22%24oid%22%3A%226f4000000000000000000003%22%7D",
+        "query": [
+          [
+            "projectId",
+            "eq.{\"$oid\":\"6f4000000000000000000003\"}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.context-other-project"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.context-other-project"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "task 5",
+          "task 6"
+        ]
+      }
+    },
+    {
+      "id": "staff-restrictive",
+      "title": "A restrictive policy narrows every permissive one",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff?limit=10",
+        "query": [
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "dls.staff-restrictive"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"aee7f5f0f510bbcd6e81318bea07393d\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.staff-restrictive"
+        },
+        "body": "{\"data\":[{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},{\"_id\":2,\"name\":\"Brook\",\"team\":\"core\",\"archived\":false,\"joined\":{\"$date\":\"2021-06-15T00:00:00.000Z\"}},{\"_id\":4,\"name\":\"Dara\",\"team\":\"support\",\"joined\":{\"$date\":\"2022-09-01T00:00:00.000Z\"}},{\"_id\":5,\"name\":\"Eli\",\"team\":\"sales\",\"archived\":false,\"joined\":{\"$date\":\"2023-02-20T00:00:00.000Z\"}},{\"_id\":7,\"name\":\"Gus\",\"team\":\"core\",\"joined\":{\"$date\":\"2024-04-04T00:00:00.000Z\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"archived\":true",
+          "\"salary\":"
+        ]
+      }
+    },
+    {
+      "id": "staff-archived-filter",
+      "title": "Asking for the documents the restrictive policy hides",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff?archived=eq.true",
+        "query": [
+          [
+            "archived",
+            "eq.true"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.staff-archived-filter"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "dls.staff-archived-filter"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "Cy",
+          "Fay"
+        ]
+      }
+    },
+    {
+      "id": "staff-salary-filter",
+      "title": "Filtering on a field hidden by a field rule",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff?salary=gt.100",
+        "query": [
+          [
+            "salary",
+            "gt.100"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "dls.staff-salary-filter"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "dls.staff-salary-filter"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: salary\",\"instance\":\"/rest/v1/staff\",\"requestId\":\"dls.staff-salary-filter\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"salary\":"
+        ]
+      }
+    }
+  ]
+}

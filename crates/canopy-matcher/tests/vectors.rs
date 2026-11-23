@@ -38,7 +38,7 @@ fn hex_bytes(hex: &str) -> Vec<u8> {
 
 #[test]
 fn filters_agree_with_mongodb() {
-    let source = include_str!("vectors/filters.json");
+    let source = include_str!("../../../conformance/matcher/filters.json");
     let vectors = parse_json(source).expect("vector file");
     let Some(Json::Array(documents)) = vectors.get("documents") else { panic!("documents") };
     let Some(Json::Array(cases)) = vectors.get("cases") else { panic!("cases") };
@@ -138,7 +138,7 @@ fn shown(value: Document) -> String {
 
 #[test]
 fn sorts_agree_with_mongodb() {
-    let vectors = recorded(include_str!("vectors/sorts.json"));
+    let vectors = recorded(include_str!("../../../conformance/matcher/sorts.json"));
     let mut mismatches = Vec::new();
     let (mut ordered, mut refused) = (0, 0);
     for case in &vectors.cases {
@@ -183,7 +183,7 @@ fn sorts_agree_with_mongodb() {
 
 #[test]
 fn sorts_on_raw_documents_order_like_decoded_ones() {
-    let vectors = recorded(include_str!("vectors/sorts.json"));
+    let vectors = recorded(include_str!("../../../conformance/matcher/sorts.json"));
     let raw: Vec<Vec<u8>> = vectors
         .documents
         .iter()
@@ -214,7 +214,7 @@ fn sorts_on_raw_documents_order_like_decoded_ones() {
 
 #[test]
 fn projections_agree_with_mongodb() {
-    let vectors = recorded(include_str!("vectors/projections.json"));
+    let vectors = recorded(include_str!("../../../conformance/matcher/projections.json"));
     let mut mismatches = Vec::new();
     let (mut projected, mut unsupported) = (0, 0);
     for case in &vectors.cases {
@@ -271,7 +271,7 @@ fn projections_agree_with_mongodb() {
 
 #[test]
 fn updates_agree_with_mongodb() {
-    let vectors = recorded(include_str!("vectors/updates.json"));
+    let vectors = recorded(include_str!("../../../conformance/matcher/updates.json"));
     let mut mismatches = Vec::new();
     let (mut applied, mut refused, mut unsupported) = (0, 0, 0);
     for case in &vectors.cases {

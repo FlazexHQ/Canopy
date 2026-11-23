@@ -20,7 +20,7 @@ pipeline sketched.
 Go. On this machine the addon loads under Bun, Node 24, Node 26 and Deno, every package manager installs
 exactly the right platform package, the WebAssembly fallback takes over whenever the native package is
 missing (or Deno runs without `--allow-ffi`), and `bun build --compile` embeds the addon. Every run replays the
-1,991 filters MongoDB recorded in `crates/canopy-matcher/tests/vectors/filters.json` against 300 documents
+1,991 filters MongoDB recorded in `conformance/matcher/filters.json` against 300 documents
 with 0 failures.
 
 The measurements set three rules for the real `@canopy/native`:
@@ -120,7 +120,7 @@ Release profile: `lto = "thin"`, `codegen-units = 1`, symbols stripped. The WebA
 
 ### Cost of the boundary
 
-`scripts/bench.ts` uses the documents and filters of `packages/matcher/bench/event-cost.ts`: 200,000 change
+`scripts/bench.ts` uses the documents and filters of `bench/workloads/matcher/event-cost.ts`: 200,000 change
 events of 223 bytes of BSON, six filters. Every mode must count the same matches as the TypeScript matcher or
 the run fails. The figures, in ns per event:
 

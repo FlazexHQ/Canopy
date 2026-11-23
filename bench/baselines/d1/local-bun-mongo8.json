@@ -1,0 +1,96 @@
+{
+  "format": "canopy-d1-find/1",
+  "measuredAt": "2026-11-22T22:04:30.312Z",
+  "runtime": "bun 1.4.5",
+  "os": "win32",
+  "cpu": {
+    "model": "AMD Ryzen 5 5600H with Radeon Graphics",
+    "count": 12
+  },
+  "mongodb": "8.0.34",
+  "config": {
+    "docs": 100000,
+    "seconds": 8,
+    "concurrency": 32,
+    "rounds": 3,
+    "credentials": "jwt"
+  },
+  "gate": {
+    "requires": 1.5,
+    "measure": "requests per CPU second of the server process"
+  },
+  "scenarios": [
+    {
+      "scenario": "page of 20, owner policy",
+      "typescript": {
+        "requests": 13060,
+        "errors": 0,
+        "perSecond": 1623,
+        "serverCpuSeconds": 11.41,
+        "requestsPerCpuSecond": 1145,
+        "cpuMillisPerRequest": 0.874,
+        "p50": 16.94,
+        "p99": 45.77
+      },
+      "rust": {
+        "requests": 58150,
+        "errors": 0,
+        "perSecond": 7259,
+        "serverCpuSeconds": 29.31,
+        "requestsPerCpuSecond": 1984,
+        "cpuMillisPerRequest": 0.504,
+        "p50": 4.36,
+        "p99": 5.83
+      },
+      "rustOverTypescriptPerCpu": 1.7328884322943485
+    },
+    {
+      "scenario": "page of 100, owner policy",
+      "typescript": {
+        "requests": 5692,
+        "errors": 0,
+        "perSecond": 700,
+        "serverCpuSeconds": 11.17,
+        "requestsPerCpuSecond": 509,
+        "cpuMillisPerRequest": 1.963,
+        "p50": 38.68,
+        "p99": 102.98
+      },
+      "rust": {
+        "requests": 35195,
+        "errors": 0,
+        "perSecond": 4389,
+        "serverCpuSeconds": 28.55,
+        "requestsPerCpuSecond": 1233,
+        "cpuMillisPerRequest": 0.811,
+        "p50": 7.22,
+        "p99": 9.83
+      },
+      "rustOverTypescriptPerCpu": 2.419924094355431
+    },
+    {
+      "scenario": "filtered page of 20",
+      "typescript": {
+        "requests": 17420,
+        "errors": 0,
+        "perSecond": 2169,
+        "serverCpuSeconds": 10.77,
+        "requestsPerCpuSecond": 1618,
+        "cpuMillisPerRequest": 0.618,
+        "p50": 12.09,
+        "p99": 34.29
+      },
+      "rust": {
+        "requests": 63723,
+        "errors": 0,
+        "perSecond": 7956,
+        "serverCpuSeconds": 29.67,
+        "requestsPerCpuSecond": 2148,
+        "cpuMillisPerRequest": 0.466,
+        "p50": 4,
+        "p99": 5.23
+      },
+      "rustOverTypescriptPerCpu": 1.327258814241215
+    }
+  ]
+}

@@ -63,6 +63,17 @@ describe("search capability", () => {
     ])
   })
 
+  it("reports search as unavailable when MongoDB 7.0 answers that it is only allowed on Atlas", async () => {
+    const { db } = deployment(() => {
+      throw new MongoServerError({
+        code: 6047401,
+        codeName: "Location6047401",
+        message: "$listSearchIndexes stage is only allowed on MongoDB Atlas",
+      })
+    })
+    expect(await probeSearch(db, ["notes"])).toEqual({ available: false, reason })
+  })
+
   it("propagates connectivity failures as Canopy errors", async () => {
     const cause = new MongoNetworkError("connection closed")
     const { db } = deployment(() => {

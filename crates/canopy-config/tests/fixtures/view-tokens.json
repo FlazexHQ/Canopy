@@ -1,0 +1,62 @@
+{
+  "mongodb": {
+    "uri": "mongodb://db.example.test/app",
+    "database": "app",
+    "metaDatabase": "canopy"
+  },
+  "server": {
+    "port": 8080,
+    "metricsPort": 9464,
+    "metricsHost": "127.0.0.1",
+    "nodeId": "n1",
+    "trustedProxies": ["10.0.0.0/8", "fd00::/8"]
+  },
+  "auth": {
+    "issuer": "https://api.example.test/auth/v1",
+    "audience": "https://api.example.test",
+    "jwksUrl": "http://127.0.0.1:4000/auth/v1/jwks",
+    "algorithms": ["EdDSA"],
+    "rolesClaim": "roles",
+    "checkRevocations": true
+  },
+  "keys": {
+    "publishable": [],
+    "secret": []
+  },
+  "policies": {
+    "source": "database",
+    "watch": true
+  },
+  "realtime": {
+    "fullDocument": "auto",
+    "checkpoints": "meta",
+    "resumeWindowMs": 120000,
+    "drainWindowMs": 30000,
+    "transports": ["websocket", "sse", "long-poll"]
+  },
+  "cors": {
+    "origins": ["https://api.example.test"]
+  },
+  "rateLimits": {
+    "messages": {
+      "perSecond": 20,
+      "burst": 100
+    },
+    "anonymousConnectionsPerAddress": 50,
+    "exemptService": true
+  },
+  "viewTokens": {
+    "jwk": {
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  },
+  "rest": {
+    "defaultLimit": 100,
+    "maxLimit": 1000
+  },
+  "log": {
+    "level": "info"
+  }
+}

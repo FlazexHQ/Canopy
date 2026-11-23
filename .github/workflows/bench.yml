@@ -58,15 +58,15 @@ jobs:
       - name: Build the addon and the WebAssembly fallback with the shipping release profile
         run: bun --filter @canopy/native build:native
       - name: Three runs of the event cost benchmark
-        working-directory: packages/matcher
+        working-directory: bench
         run: |
-          mkdir -p ../../bench-results
+          mkdir -p ../bench-results
           for run in 1 2 3; do
-            CANOPY_BENCH_OUT="../../bench-results/matcher-events-$run.json" node --conditions=@canopy/source bench/event-cost.ts
+            CANOPY_BENCH_OUT="../bench-results/matcher-events-$run.json" node --conditions=@canopy/source workloads/matcher/event-cost.ts
           done
-      - name: Gate on the floors of bench/event-baseline.json (median of the runs)
-        working-directory: packages/matcher
-        run: node ../testing/scripts/bench-gate.ts ../../bench-results/matcher-events-*.json --baseline bench/event-baseline.json
+      - name: Gate on the floors of bench/baselines/matcher/event-baseline.json (median of the runs)
+        working-directory: bench
+        run: node ../packages/testing/scripts/bench-gate.ts ../bench-results/matcher-events-*.json --baseline baselines/matcher/event-baseline.json
       - name: Machine
         if: always()
         run: |
@@ -99,7 +99,7 @@ jobs:
       - name: Build the gateway and the S11 load driver with the shipping release profile
         run: |
           cargo build --release --locked -p canopy-gateway
-          cargo build --release --locked --manifest-path docs/spikes/S11-prototype/Cargo.toml --bin bench
+          cargo build --release --locked --manifest-path bench/spikes/S11/Cargo.toml --bin bench
       - name: Start a single node replica set
         if: env.REFERENCE_URI == ''
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
@@ -112,7 +112,7 @@ jobs:
         run: |
           ulimit -n "$(ulimit -Hn)"
           uri="${REFERENCE_URI:-mongodb://localhost:27017/?replicaSet=rs0}"
-          bench=docs/spikes/S11-prototype/target/release/bench
+          bench=bench/spikes/S11/target/release/bench
           mkdir -p bench-results
           for window in ${COALESCE//,/ }; do
             CANOPY_GATEWAY_COALESCE_MS="$window" "$bench" --uri "$uri" --server gateway --shards 4 \

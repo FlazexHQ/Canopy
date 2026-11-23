@@ -32,11 +32,7 @@
     "mutation": "node ../../node_modules/@stryker-mutator/core/bin/stryker.js run",
     "build": "tsc -b",
     "typecheck": "tsc -b test",
-    "test": "vitest run",
-    "bench": "node --conditions=@canopy/source bench/throughput.ts",
-    "bench:events": "node --conditions=@canopy/source bench/event-cost.ts",
-    "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json",
-    "bench:events:check": "node ../testing/scripts/bench-gate.ts --baseline bench/event-baseline.json"
+    "test": "vitest run"
   },
   "dependencies": {
     "@canopy/protocol": "workspace:*"

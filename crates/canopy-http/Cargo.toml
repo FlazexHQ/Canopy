@@ -1,0 +1,27 @@
+[package]
+name = "canopy-http"
+description = "Canopy's Data API routes over plain request and response types: the find route with authentication, content negotiation, validators and Problem Details, without an HTTP server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-auth = { path = "../canopy-auth" }
+canopy-data = { path = "../canopy-data" }
+canopy-engine = { path = "../canopy-engine" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+ring = "0.17"
+url = "2"
+
+[dev-dependencies]
+canopy-mongo = { path = "../canopy-mongo" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+[lints]
+workspace = true

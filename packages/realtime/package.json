@@ -24,10 +24,7 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b test",
-    "test": "vitest run",
-    "bench": "node --conditions=@canopy/source bench/fanout.ts",
-    "bench:check": "node ../testing/scripts/bench-gate.ts --baseline bench/baseline.json",
-    "bench:compare": "node bench/compare.ts"
+    "test": "vitest run"
   },
   "dependencies": {
     "@canopy/auth": "workspace:*",

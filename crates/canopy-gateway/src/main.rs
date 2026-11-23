@@ -3,31 +3,28 @@
 //! with the same policies, and writes forwarded to the TypeScript write path so `check` rules, transactions and
 //! idempotency keep one implementation.
 
-mod api_keys;
 mod client_address;
 mod config;
-mod core;
+mod data_plane;
 mod forward;
-mod http;
-mod ingest;
-mod jwt;
 mod log;
-mod mongo;
 mod proxy;
-mod revocations;
 mod server;
-mod view_tokens;
 
 use std::convert::Infallible;
 use std::io::BufRead as _;
 use std::process::ExitCode;
-use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use canopy_engine::{Config, Engine, Limits};
-use canopy_policy::PolicySet;
+use canopy_auth::{ApiKeys, Authenticator, Revocations};
+use canopy_config::{DataPlaneRoute, GatewayConfig, Policies};
+use canopy_engine::{Config, Engine, Limits, MutationRequest};
+use canopy_mongo::{Checkpoints, Reader, load_policies, mongodb, policies_from_stored};
+use canopy_policy::{PolicyEngine, PolicySet};
 use canopy_protocol::json::{Json, parse_json};
+use canopy_realtime::{EngineOptions, Ingest, LogLevel, Server, TransportOptions};
 use futures_util::StreamExt;
 use http_body_util::Full;
 use hyper::body::{Bytes, Incoming};
@@ -35,14 +32,11 @@ use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use ring::rand::SecureRandom as _;
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::Notify;
 
-use crate::config::{GatewayConfig, Policies};
-use crate::core::{Command, Router};
-use crate::ingest::Ingest;
+use crate::data_plane::{DataPlane, PolicyUpdates};
 use crate::log::Log;
-use crate::mongo::{Checkpoints, Reader, load_policies, policies_from_stored};
-use crate::server::Shared;
+use crate::server::{Routes, ShardRoutes};
 
 const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -]
 
@@ -142,7 +136,7 @@ fn engine_config(config: &GatewayConfig) -> Config {
         heartbeat_ms: config.heartbeat_ms,
         resume_window_ms: config.resume_window_ms,
         mutations: config.mutations_url.is_some(),
-        messages: config.messages,
+        messages: config.messages.map(config::message_rate),
         seed: seed(),
         limits: Limits::default(),
         ..Config::default()
@@ -164,6 +158,10 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             load_policies(&meta).await.map_err(|error| error.message().to_owned())?
         }
     };
+    let data_policies = config
+        .data_plane_routes
+        .contains(&DataPlaneRoute::Find)
+        .then(|| canopy_data::Policies::new(PolicyEngine::new(set.clone())));
     let engine_config = engine_config(&config);
     let max_frame_bytes = engine_config.limits.max_frame_bytes;
     let engine = Engine::new(engine_config, set);
@@ -171,56 +169,44 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     let reopen = Arc::new(Notify::new());
     let stream_open = Arc::new(AtomicBool::new(false));
     let metrics = Arc::new(Mutex::new(String::new()));
-    let (engine_tx, engine_rx) = std::sync::mpsc::channel::<Command>();
-    let shared = Arc::new(Shared {
-        engine: engine_tx.clone(),
-        next_conn: AtomicU64::new(1),
-        ready: Arc::clone(&stream_open),
-        max_frame_bytes,
-        trusted_proxies: config.trusted_proxies.clone(),
+    let mut realtime = Server::new(TransportOptions {
+        node_id: config.node_id.clone(),
         websocket: config.websocket,
-        http: config.http_fallback.then(|| {
-            Arc::new(http::HttpTransport::new(http::HttpOptions::new(&config.node_id, config.cors.clone())))
-        }),
-        proxy,
-        coalesce: std::time::Duration::from_millis(config.coalesce_ms),
+        http_fallback: config.http_fallback,
+        cors: config.cors.as_ref().map(config::cors),
+        max_frame_bytes,
+        coalesce: Duration::from_millis(config.coalesce_ms),
     });
-    let mut socket_senders = Vec::new();
-    let mut frame_senders = Vec::new();
-    for index in 0..config.shards {
-        let (socket_tx, socket_rx) = mpsc::unbounded_channel();
-        let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        server::start_shard(index, Arc::clone(&shared), socket_rx, frame_rx)
-            .map_err(|error| error.to_string())?;
-        socket_senders.push(socket_tx);
-        frame_senders.push(frame_tx);
-    }
+    let engine_tx = realtime.engine_sender();
+    let policy_updates = PolicyUpdates::new(engine_tx.clone(), data_policies.clone());
     let http = reqwest::Client::builder().build().map_err(|error| error.to_string())?;
-    let mut auth = jwt::Authenticator::new(
-        config.auth.clone(),
+    let mut auth = Authenticator::new(
+        config.auth.as_ref().map(config::jwt),
         config.publishable.clone(),
         config.secret.clone(),
         http.clone(),
     )?;
-    let api_keys = Arc::new(api_keys::ApiKeys::new(&meta));
+    let api_keys = Arc::new(ApiKeys::new(&meta));
     let (key_watcher, tx) = (Arc::clone(&api_keys), engine_tx.clone());
     let key_watch = tokio::spawn(async move {
         key_watcher
             .watch(
                 |id| {
-                    let _ = tx.send(Command::KeysRevoked([id].into_iter().collect()));
+                    tx.keys_revoked([id].into_iter().collect());
                 },
                 || {
-                    let _ = tx.send(Command::RecheckKeys);
+                    tx.recheck_keys();
                 },
-                log,
+                |error| {
+                    log.warn("API key change stream failed; reopening", &[("err", &error.to_string())]);
+                },
             )
             .await;
     });
     auth.api_keys = Some(api_keys);
     auth.view_key = config.view_key.clone().map(Arc::new);
     let revocation_watch = if config.check_revocations {
-        let revocations = Arc::new(revocations::Revocations::new(&meta));
+        let revocations = Arc::new(Revocations::new(&meta));
         let stream =
             revocations.start().await.map_err(|error| format!("Could not load revocations: {error}"))?;
         auth.revocations = Some(Arc::clone(&revocations));
@@ -230,55 +216,82 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
                 .watch(
                     stream,
                     || {
-                        let _ = tx.send(Command::SessionsRevoked);
+                        tx.sessions_revoked();
                     },
-                    log,
+                    |error| {
+                        log.warn(
+                            "Session revocation stream failed; reopening",
+                            &[("err", &error.to_string())],
+                        );
+                    },
                 )
                 .await;
         }))
     } else {
         None
     };
-    let router = Router {
-        shards: frame_senders,
-        runtime: tokio::runtime::Handle::current(),
-        engine_tx: engine_tx.clone(),
-        auth,
-        reader: Reader::new(client.clone(), &config.database, 32),
-        http,
-        mutations_url: config.mutations_url.clone(),
-        watched: Arc::clone(&watched),
-        reopen: Arc::clone(&reopen),
-        metrics: Arc::clone(&metrics),
-        stream_open: Arc::clone(&stream_open),
-        anonymous_per_address: config.anonymous_per_address,
-        log,
+    let data_plane =
+        data_policies.map(|policies| DataPlane::new(&config, client.clone(), auth.clone(), policies));
+    let routes = Arc::new(Routes {
+        ready: Arc::clone(&stream_open),
+        trusted_proxies: config.trusted_proxies.clone(),
+        proxy,
+        data_plane,
+    });
+    for _ in 0..config.shards {
+        let routes = Arc::clone(&routes);
+        realtime.start_shard(|| ShardRoutes::new(routes)).map_err(|error| error.to_string())?;
+    }
+    let diagnostics = move |level, message: &str, fields: &[(&str, &str)]| match level {
+        LogLevel::Info => log.info(message, fields),
+        LogLevel::Warn => log.warn(message, fields),
+        LogLevel::Error => log.error(message, fields),
     };
-    let engine_thread = std::thread::Builder::new()
-        .name("canopy-engine".to_owned())
-        .spawn(move || core::run(engine, engine_rx, router))
+    let write = config.mutations_url.clone().map(|url| {
+        move |request: Box<MutationRequest>| {
+            let (http, url) = (http.clone(), url.clone());
+            async move {
+                let result = forward::forward(&http, &url, &request).await;
+                (request, result)
+            }
+        }
+    });
+    let mut realtime = realtime
+        .start_engine(
+            engine,
+            EngineOptions {
+                auth,
+                reader: Reader::new(client.clone(), &config.database, 32),
+                write,
+                watched: Arc::clone(&watched),
+                reopen: Arc::clone(&reopen),
+                metrics: Arc::clone(&metrics),
+                stream_open: Arc::clone(&stream_open),
+                anonymous_per_address: config.anonymous_per_address,
+                log: diagnostics,
+            },
+        )
         .map_err(|error| error.to_string())?;
     let checkpoints =
         Checkpoints::new(config.checkpoints.then_some(&meta), &config.database, &config.node_id);
     tokio::spawn(
         Ingest {
             db: client.database(&config.database),
-            mode: config.full_document,
+            mode: config::full_document(config.full_document),
             watched,
             reopen,
             checkpoints,
             engine: engine_tx.clone(),
             open: Arc::clone(&stream_open),
-            log,
         }
-        .run(),
+        .run(diagnostics),
     );
     if let Policies::Database { watch: true } = config.policies {
-        tokio::spawn(watch_policies(meta.clone(), engine_tx.clone(), log));
+        tokio::spawn(watch_policies(meta.clone(), policy_updates.clone(), log));
     }
     let stdin_closed = Arc::new(Notify::new());
     if control {
-        let tx = engine_tx.clone();
+        let updates = policy_updates.clone();
         let closed = Arc::clone(&stdin_closed);
         std::thread::Builder::new()
             .name("canopy-control".to_owned())
@@ -288,9 +301,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
                     let Ok(json) = parse_json(&line) else { continue };
                     if matches!(json.get("t"), Some(Json::String(t)) if t == "policies") {
                         match stored_policies(&json) {
-                            Ok(set) => {
-                                let _ = tx.send(Command::Policies(Box::new(set)));
-                            }
+                            Ok(set) => updates.publish(set),
                             Err(message) => log.error(
                                 "policy reload rejected, keeping the previous policies",
                                 &[("err", &message)],
@@ -312,7 +323,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .await
         .map_err(|error| format!("Could not listen on {}: {error}", config.port))?;
     let port = listener.local_addr().map(|addr| addr.port().to_string()).unwrap_or_default();
-    tokio::spawn(server::accept(listener, socket_senders));
+    realtime.start_accepting(listener);
     if control {
         let line = format!("{{\"t\":\"listening\",\"port\":{port}}}\n");
         let _ = std::io::Write::write_all(&mut std::io::stdout(), line.as_bytes());
@@ -328,15 +339,13 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         watch.abort();
     }
     log.info("draining", &[("drainMs", &config.drain_window_ms.to_string())]);
-    let _ = engine_tx.send(Command::Drain(config.drain_window_ms));
+    realtime.drain(config.drain_window_ms);
     drop(engine_tx);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(config.drain_window_ms + 2000);
-    while !engine_thread.is_finished() && tokio::time::Instant::now() < deadline {
+    while !realtime.is_finished() && tokio::time::Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    if let Some(http) = &shared.http {
-        http.close();
-    }
+    realtime.close_http();
     tokio::time::sleep(Duration::from_millis(100)).await;
     log.info("stopped", &[]);
     Ok(())
@@ -368,24 +377,28 @@ async fn shutdown_signal(stdin_closed: Arc<Notify>) {
     }
 }
 
-async fn watch_policies(meta: mongodb::Database, tx: core::EngineSender, log: Log) {
+async fn reload_policies(meta: &mongodb::Database, updates: &PolicyUpdates, log: Log) {
+    match load_policies(meta).await {
+        Ok(set) => updates.publish(set),
+        Err(error) => {
+            log.error("policy reload rejected, keeping the previous policies", &[("err", error.message())]);
+        }
+    }
+}
+
+/// Follows the policies of the meta database. Once the stream is open the policies are read again, so a change
+/// published while the stream was down is applied too: a revoked permission never outlives a broken watch.
+async fn watch_policies(meta: mongodb::Database, updates: PolicyUpdates, log: Log) {
     let policies = meta.collection::<mongodb::bson::Document>("policies");
     loop {
         match policies.watch().await {
             Ok(mut stream) => {
+                reload_policies(&meta, &updates, log).await;
                 while let Some(event) = stream.next().await {
                     if event.is_err() {
                         break;
                     }
-                    match load_policies(&meta).await {
-                        Ok(set) => {
-                            let _ = tx.send(Command::Policies(Box::new(set)));
-                        }
-                        Err(error) => log.error(
-                            "policy reload rejected, keeping the previous policies",
-                            &[("err", error.message())],
-                        ),
-                    }
+                    reload_policies(&meta, &updates, log).await;
                 }
             }
             Err(error) => log.warn("could not watch the policies", &[("err", &error.to_string())]),
@@ -439,6 +452,22 @@ mod tests {
     use super::*;
     use canopy_engine::{Output, Principal};
     use canopy_policy::create_policy_set;
+
+    #[tokio::test]
+    async fn srv_connection_strings_reach_dns_discovery() -> Result<(), String> {
+        let uri = "mongodb+srv://user:pass@canopy-srv-test.invalid/app";
+        let gateway = config::resolve(Some(&format!(r#"{{"mongodb":{{"uri":"{uri}"}}}}"#)))?;
+        assert_eq!(gateway.database, "app");
+        let failure = mongodb::options::ClientOptions::parse(&gateway.mongodb_uri)
+            .await
+            .err()
+            .ok_or("an unresolvable SRV host must not parse")?;
+        assert!(
+            !failure.to_string().contains("dns-resolver"),
+            "SRV support is missing from the build: {failure}"
+        );
+        Ok(())
+    }
 
     #[test]
     fn welcome_advertises_writes_when_the_gateway_has_a_mutations_url() -> Result<(), String> {

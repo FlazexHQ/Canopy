@@ -9,7 +9,7 @@
   per delivered broadcast frame it matches `Bun.serve` but does not halve it.
 - **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) (S11), [14 §4.3](../design/14-native-core.md#43-the-native-gateway),
   [14 §8](../design/14-native-core.md#8-stages-and-gates), and the open measurement of [S5](S5-websocket-server-choice.md)
-- **Prototype:** [`S11-prototype/`](S11-prototype/README.md)
+- **Prototype:** [`bench/spikes/S11/`](../../bench/spikes/S11/README.md)
 
 ## Question
 
@@ -21,7 +21,7 @@ connection is at most 8 KiB.
 
 ## Method
 
-**The prototype gateway** (`S11-prototype/src/gateway`) is Tokio 1.54, Hyper 1 and `tokio-tungstenite` 0.30. It
+**The prototype gateway** (`bench/spikes/S11/src/gateway`) is Tokio 1.54, Hyper 1 and `tokio-tungstenite` 0.30. It
 reads one change stream (`fullDocument: "updateLookup"`) as raw BSON, as [S12](S12-rust-driver-fidelity.md)
 recommends, and validates each event with `canopy_protocol::RawDocument`. Subscriptions go through the real
 policy crate: `canopy-policy` compiles the effective read filter of each caller, and the matcher form evaluates
@@ -33,9 +33,9 @@ and every connection appends only its own `seq`. Connections have a bounded queu
 when it fills. What it leaves out is listed in the prototype README: signature checks, snapshot reconciliation
 with in flight events, field rules and resume.
 
-**The load driver** (`S11-prototype/src/bench`) seeds the collection of `packages/realtime/bench/fanout.ts`
+**The load driver** (`bench/spikes/S11/src/bench`) seeds the collection of `bench/workloads/realtime/fanout.ts`
 (200,000 documents, 10,000 owners, 200 hot documents), starts one server, opens real WebSocket connections over
-loopback, subscribes, and drives updates with `packages/realtime/bench/writer.ts`, the writer of the existing
+loopback, subscribes, and drives updates with `bench/workloads/realtime/writer.ts`, the writer of the existing
 benchmark. Every `changed` frame carries the write's wall clock stamp, so the client records write to delivery
 latency. A plain change stream watched by the driver gives the latency Canopy does not add. Server CPU and
 memory come from the operating system for the server process. At the end, the driver checks that every
@@ -252,7 +252,7 @@ is the `gateway` job of the `Benchmarks` workflow, not yet run.
 
 | Gate | Status |
 |---|---|
-| Protocol vectors | The vectors in `packages/protocol/vectors` script server frames for the client and run through the client. On the server side, the conformance suite (`packages/realtime/test/servers.test.ts`) runs the same scenarios on both servers and asserts that every frame they send is one the protocol's decoder accepts |
+| Protocol vectors | The vectors in `conformance/protocol` script server frames for the client and run through the client. On the server side, the conformance suite (`packages/realtime/test/servers.test.ts`) runs the same scenarios on both servers and asserts that every frame they send is one the protocol's decoder accepts |
 | 10k simulation seeds | **Green on both servers**: 10,000 seeds plus the two regression seeds, run locally against MongoDB 8.0.34 (16 minutes), and nightly. The first local run found two bugs, below |
 | Chaos tests | `packages/realtime/test/chaos.test.ts` on both servers: `kill -9` of the server with writes while it is down, and a primary step down during writes (`CANOPY_CHAOS=1`, nightly). Not yet covered: killing the primary itself, Toxiproxy partitions and a tiny oplog |
 | DLS equivalence | The gateway is part of the DLS equivalence property in `packages/server/test/dls-equivalence.test.ts` |

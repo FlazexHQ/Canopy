@@ -1,0 +1,1036 @@
+{
+  "group": "aggregate",
+  "description": "POST /{coll}/_aggregate: a sanitized pipeline over the documents the caller may read, and every refusal of the sanitizer",
+  "cases": [
+    {
+      "id": "aggregate-empty",
+      "title": "An empty pipeline returns the readable documents",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-empty"
+        },
+        "body": "{\"pipeline\":[]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-empty"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-group",
+      "title": "A group over the owner's documents only",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-group"
+        },
+        "body": "{\"pipeline\":[{\"$group\":{\"_id\":\"$status\",\"n\":{\"$sum\":1}}},{\"$sort\":{\"_id\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-group"
+        },
+        "body": "{\"data\":[{\"_id\":\"active\",\"n\":5},{\"_id\":\"blocked\",\"n\":1},{\"_id\":\"done\",\"n\":2}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-group-other",
+      "title": "The same group for another owner",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-group-other"
+        },
+        "body": "{\"pipeline\":[{\"$group\":{\"_id\":\"$status\",\"n\":{\"$sum\":1}}},{\"$sort\":{\"_id\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-group-other"
+        },
+        "body": "{\"data\":[{\"_id\":\"active\",\"n\":2},{\"_id\":\"blocked\",\"n\":1},{\"_id\":\"done\",\"n\":1}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-match-sort-limit",
+      "title": "match, sort, skip and limit",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-match-sort-limit"
+        },
+        "body": "{\"pipeline\":[{\"$match\":{\"status\":\"active\"}},{\"$sort\":{\"priority\":-1,\"_id\":1}},{\"$skip\":1},{\"$limit\":2},{\"$project\":{\"title\":1,\"priority\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-match-sort-limit"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"title\":\"todo 4\",\"priority\":3},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\",\"priority\":2}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-unwind",
+      "title": "unwind of an array field",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-unwind"
+        },
+        "body": "{\"pipeline\":[{\"$unwind\":\"$tags\"},{\"$group\":{\"_id\":\"$tags\",\"n\":{\"$sum\":1}}},{\"$sort\":{\"_id\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-unwind"
+        },
+        "body": "{\"data\":[{\"_id\":\"home\",\"n\":3},{\"_id\":\"urgent\",\"n\":3},{\"_id\":\"work\",\"n\":3}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-count-stage",
+      "title": "the $count stage",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-count-stage"
+        },
+        "body": "{\"pipeline\":[{\"$count\":\"n\"}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-count-stage"
+        },
+        "body": "{\"data\":[{\"n\":8}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-hidden-group",
+      "title": "A group key on a hidden field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-hidden-group"
+        },
+        "body": "{\"pipeline\":[{\"$group\":{\"_id\":\"$internalNotes\"}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-hidden-group"
+        },
+        "body": "{\"data\":[{\"_id\":null}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-hidden-project",
+      "title": "Projecting a hidden field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-hidden-project"
+        },
+        "body": "{\"pipeline\":[{\"$project\":{\"internalNotes\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-hidden-project"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-hidden-expression",
+      "title": "A hidden field inside an expression is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-hidden-expression"
+        },
+        "body": "{\"pipeline\":[{\"$project\":{\"leak\":{\"$concat\":[\"x\",\"$internalNotes\"]}}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-hidden-expression"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"leak\":null},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"leak\":null}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-hidden-match",
+      "title": "A match on a hidden field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-hidden-match"
+        },
+        "body": "{\"pipeline\":[{\"$match\":{\"internalNotes\":\"secret-1\"}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-hidden-match"
+        },
+        "body": "{\"data\":[],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-root",
+      "title": "$$ROOT would carry hidden fields, so it is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-root"
+        },
+        "body": "{\"pipeline\":[{\"$project\":{\"all\":\"$$ROOT\"}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-root"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"all\":{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"all\":{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "aggregate-lookup",
+      "title": "$lookup into another collection applies that collection's policies and field rules",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-lookup"
+        },
+        "body": "{\"pipeline\":[{\"$sort\":{\"_id\":1}},{\"$limit\":1},{\"$lookup\":{\"from\":\"staff\",\"pipeline\":[{\"$sort\":{\"_id\":1}}],\"as\":\"staff\"}},{\"$project\":{\"staff\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-lookup"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"staff\":[{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},{\"_id\":2,\"name\":\"Brook\",\"team\":\"core\",\"archived\":false,\"joined\":{\"$date\":\"2021-06-15T00:00:00.000Z\"}},{\"_id\":4,\"name\":\"Dara\",\"team\":\"support\",\"joined\":{\"$date\":\"2022-09-01T00:00:00.000Z\"}},{\"_id\":5,\"name\":\"Eli\",\"team\":\"sales\",\"archived\":false,\"joined\":{\"$date\":\"2023-02-20T00:00:00.000Z\"}},{\"_id\":7,\"name\":\"Gus\",\"team\":\"core\",\"joined\":{\"$date\":\"2024-04-04T00:00:00.000Z\"}}]}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-lookup-equality",
+      "title": "$lookup by fields returns only the readable documents that match",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-lookup-equality"
+        },
+        "body": "{\"pipeline\":[{\"$sort\":{\"_id\":1}},{\"$limit\":2},{\"$set\":{\"team\":\"core\"}},{\"$lookup\":{\"from\":\"staff\",\"localField\":\"team\",\"foreignField\":\"team\",\"as\":\"staff\"}},{\"$project\":{\"staff\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-lookup-equality"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"staff\":[{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},{\"_id\":2,\"name\":\"Brook\",\"team\":\"core\",\"archived\":false,\"joined\":{\"$date\":\"2021-06-15T00:00:00.000Z\"}},{\"_id\":7,\"name\":\"Gus\",\"team\":\"core\",\"joined\":{\"$date\":\"2024-04-04T00:00:00.000Z\"}}]},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"staff\":[{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},{\"_id\":2,\"name\":\"Brook\",\"team\":\"core\",\"archived\":false,\"joined\":{\"$date\":\"2021-06-15T00:00:00.000Z\"}},{\"_id\":7,\"name\":\"Gus\",\"team\":\"core\",\"joined\":{\"$date\":\"2024-04-04T00:00:00.000Z\"}}]}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-lookup-hidden-collection",
+      "title": "$lookup into a collection that is not exposed returns nothing of it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-lookup-hidden-collection"
+        },
+        "body": "{\"pipeline\":[{\"$limit\":1},{\"$lookup\":{\"from\":\"hidden\",\"pipeline\":[],\"as\":\"x\"}},{\"$project\":{\"x\":1}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-lookup-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$lookup cannot read from 'hidden'\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-lookup-hidden-collection\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"hidden one\"",
+          "\"h1\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-lookup-sealed",
+      "title": "$lookup into a collection without a read policy returns nothing of it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-lookup-sealed"
+        },
+        "body": "{\"pipeline\":[{\"$limit\":1},{\"$lookup\":{\"from\":\"sealed\",\"pipeline\":[],\"as\":\"x\"}},{\"$project\":{\"x\":1}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-lookup-sealed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$lookup cannot read from 'sealed'\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-lookup-sealed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"s1\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-lookup-context-source",
+      "title": "$lookup into the collection behind a $ctx lookup returns nothing of it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-lookup-context-source"
+        },
+        "body": "{\"pipeline\":[{\"$limit\":1},{\"$lookup\":{\"from\":\"memberships\",\"pipeline\":[],\"as\":\"x\"}},{\"$project\":{\"x\":1}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-lookup-context-source"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$lookup cannot read from 'memberships'\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-lookup-context-source\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"userId\"",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-union",
+      "title": "$unionWith another collection applies that collection's policies and field rules",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-union"
+        },
+        "body": "{\"pipeline\":[{\"$unionWith\":{\"coll\":\"staff\"}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-union"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},{\"_id\":2,\"name\":\"Brook\",\"team\":\"core\",\"archived\":false,\"joined\":{\"$date\":\"2021-06-15T00:00:00.000Z\"}},{\"_id\":4,\"name\":\"Dara\",\"team\":\"support\",\"joined\":{\"$date\":\"2022-09-01T00:00:00.000Z\"}},{\"_id\":5,\"name\":\"Eli\",\"team\":\"sales\",\"archived\":false,\"joined\":{\"$date\":\"2023-02-20T00:00:00.000Z\"}},{\"_id\":7,\"name\":\"Gus\",\"team\":\"core\",\"joined\":{\"$date\":\"2024-04-04T00:00:00.000Z\"}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-union-hidden-collection",
+      "title": "$unionWith a collection that is not exposed adds nothing of it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-union-hidden-collection"
+        },
+        "body": "{\"pipeline\":[{\"$limit\":1},{\"$unionWith\":{\"coll\":\"hidden\"}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-union-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$unionWith cannot read from 'hidden'\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-union-hidden-collection\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"hidden one\"",
+          "\"h1\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-union-context-source",
+      "title": "$unionWith the collection behind a $ctx lookup adds nothing of it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-union-context-source"
+        },
+        "body": "{\"pipeline\":[{\"$limit\":1},{\"$unionWith\":{\"coll\":\"memberships\"}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-union-context-source"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$unionWith cannot read from 'memberships'\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-union-context-source\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"userId\"",
+          "\"bob\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-out",
+      "title": "$out writes, so it is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-out"
+        },
+        "body": "{\"pipeline\":[{\"$out\":\"stolen\"}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-out"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The stage $out is not allowed\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-out\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-merge",
+      "title": "$merge writes, so it is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-merge"
+        },
+        "body": "{\"pipeline\":[{\"$merge\":{\"into\":\"stolen\"}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-merge"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The stage $merge is not allowed\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-merge\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-function",
+      "title": "$function runs code, so it is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-function"
+        },
+        "body": "{\"pipeline\":[{\"$addFields\":{\"x\":{\"$function\":{\"body\":\"function(){return 1}\",\"args\":[],\"lang\":\"js\"}}}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-function"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The expression $function is never allowed\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-function\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-unknown-stage",
+      "title": "A stage outside the allowlist is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-unknown-stage"
+        },
+        "body": "{\"pipeline\":[{\"$collStats\":{}}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-unknown-stage"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The stage $collStats is not allowed\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-unknown-stage\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-not-array",
+      "title": "The pipeline must be an array",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-not-array"
+        },
+        "body": "{\"pipeline\":{\"$match\":{}}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-not-array"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The pipeline must be an array of stages\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-not-array\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-missing",
+      "title": "The pipeline is required",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-missing"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-missing"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The pipeline must be an array of stages\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-missing\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-unknown-field",
+      "title": "An unknown body field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-unknown-field"
+        },
+        "body": "{\"pipeline\":[],\"allowDiskUse\":true}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-unknown-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown aggregate field allowDiskUse\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-unknown-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-restrictive",
+      "title": "A restrictive policy removes archived documents before the pipeline",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/staff/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-restrictive"
+        },
+        "body": "{\"pipeline\":[{\"$group\":{\"_id\":\"$team\",\"n\":{\"$sum\":1}}},{\"$sort\":{\"_id\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-restrictive"
+        },
+        "body": "{\"data\":[{\"_id\":\"core\",\"n\":3},{\"_id\":\"sales\",\"n\":1},{\"_id\":\"support\",\"n\":1}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "aggregate-ctx",
+      "title": "A $ctx policy limits the pipeline to the caller's projects",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_aggregate",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-ctx"
+        },
+        "body": "{\"pipeline\":[{\"$sort\":{\"_id\":1}},{\"$project\":{\"title\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-ctx"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f3000000000000000000003\"},\"title\":\"task 3\"},{\"_id\":{\"$oid\":\"6f3000000000000000000004\"},\"title\":\"task 4\"}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-service",
+      "title": "service sees every document and field",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-service"
+        },
+        "body": "{\"pipeline\":[{\"$group\":{\"_id\":null,\"n\":{\"$sum\":1}}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-service"
+        },
+        "body": "{\"data\":[{\"_id\":null,\"n\":12}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-numbers",
+      "title": "Numeric types survive the pipeline",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/numbers/_aggregate",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-numbers"
+        },
+        "body": "{\"pipeline\":[{\"$sort\":{\"_id\":1}},{\"$limit\":4},{\"$project\":{\"n\":1}}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-numbers"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"n\":{\"$numberDecimal\":\"2\"}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-canonical",
+      "title": "The canonical encoding",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/numbers/_aggregate",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "accept": "application/ejson",
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-canonical"
+        },
+        "body": "{\"pipeline\":[{\"$sort\":{\"_id\":1}},{\"$limit\":2}]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/ejson",
+          "x-request-id": "aggregate.aggregate-canonical"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":{\"$numberInt\":\"2\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":{\"$numberLong\":\"2\"}}],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-sealed",
+      "title": "A collection without a read policy",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/sealed/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-sealed"
+        },
+        "body": "{\"pipeline\":[]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "aggregate.aggregate-sealed"
+        },
+        "body": "{\"data\":[],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-hidden-collection",
+      "title": "A collection that is not exposed",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/hidden/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-hidden-collection"
+        },
+        "body": "{\"pipeline\":[]}"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden/_aggregate\",\"requestId\":\"aggregate.aggregate-hidden-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-get",
+      "title": "GET is not allowed on _aggregate",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "aggregate.aggregate-get"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "POST",
+          "content-type": "application/problem+json",
+          "x-request-id": "aggregate.aggregate-get"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":405,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"GET is not allowed here\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-get\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "aggregate-wrong-issuer",
+      "title": "A token of another issuer",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_aggregate",
+        "query": [],
+        "caller": "wrong-issuer",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "aggregate.aggregate-wrong-issuer"
+        },
+        "body": "{\"pipeline\":[]}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "aggregate.aggregate-wrong-issuer"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Invalid token\",\"instance\":\"/rest/v1/todos/_aggregate\",\"requestId\":\"aggregate.aggregate-wrong-issuer\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

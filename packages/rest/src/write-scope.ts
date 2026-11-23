@@ -219,6 +219,8 @@ export class Scope {
    * Lets MongoDB evaluate `check` on the written documents and, when `read` is set, reads them back through
    * `USING(read)` and the read field rules, in one aggregation. Throws {@link PolicyViolationError} when a
    * document fails the check. Returns the documents in the order of `ids`, `null` for unreadable ones.
+   * With `defer`, the read back of a single document that needs no check is queued instead, and the
+   * returned array is filled when {@link ReadBacks.flush} runs.
    */
   async verify(
     session: ClientSession,
@@ -226,11 +228,17 @@ export class Scope {
     check: Compiled | undefined,
     op: "insert" | "update",
     read: boolean,
+    defer?: ReadBacks,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
     if (check?.kind === "deny") throw violation(this, op)
     const [only] = ids
-    if (ids.length === 1 && (check === undefined || check.kind === "all"))
-      return read ? [await this.readOne(session, only)] : undefined
+    if (ids.length === 1 && (check === undefined || check.kind === "all")) {
+      if (!read) return undefined
+      if (defer === undefined) return [await this.readOne(session, only)]
+      const slot: (ReturnedDocument | null)[] = [null]
+      defer.add(this, only, slot)
+      return slot
+    }
     if (!read) {
       if (check?.kind === "filter" && ids.length > 0) {
         const failing = await this.coll.countDocuments(
@@ -265,16 +273,138 @@ export class Scope {
     read: boolean,
   ): Promise<(ReturnedDocument | null)[] | undefined> {
     if (check.kind === "deny") throw violation(this, "insert")
+    const checked = await this.checkBefore(docs, check, read)
+    if (checked.failed.size > 0) throw violation(this, "insert")
+    return this.readableOf(docs, checked.found, read)
+  }
+
+  /**
+   * Evaluates `check` and the read back on a document that a write is about to store as it is, like
+   * {@link precheck}, but reports a failing check as `undefined` instead of throwing: whether the failing
+   * check is an error or only a missing target depends on the write, which the caller then decides.
+   */
+  async tryPrecheck(
+    doc: Document,
+    check: Compiled,
+    read: boolean,
+  ): Promise<{ readonly documents: (ReturnedDocument | null)[] | undefined } | undefined> {
+    if (check.kind === "deny") return undefined
+    const checked = await this.checkBefore([doc], check, read)
+    if (checked.failed.size > 0) return undefined
+    return { documents: this.readableOf([doc], checked.found, read) }
+  }
+
+  /**
+   * {@link tryPrecheck} for several documents of one operation in one aggregation: the canonical `_id`s of
+   * the documents that fail the check, and the readable form of each document (`null` when unreadable;
+   * absent when `read` is not set). The documents must have distinct `_id`s.
+   */
+  async precheckMany(
+    docs: readonly Document[],
+    check: Compiled,
+    read: boolean,
+  ): Promise<{
+    readonly failed: ReadonlySet<string>
+    readonly documents: ReadonlyMap<string, ReturnedDocument | null> | undefined
+  }> {
+    if (check.kind === "deny")
+      return {
+        failed: new Set(docs.map((doc) => canonicalString(doc["_id"]))),
+        documents: undefined,
+      }
+    const checked = await this.checkBefore(docs, check, read)
+    if (!read) return { failed: checked.failed, documents: undefined }
+    const access = this.readable()
+    return {
+      failed: checked.failed,
+      documents: new Map(
+        docs.map((doc) => {
+          const key = canonicalString(doc["_id"])
+          const found = checked.found.get(key)
+          return [key, found === undefined ? null : projectReadable(access, found)]
+        }),
+      ),
+    }
+  }
+
+  /**
+   * Runs the aggregation of {@link precheck}: the failing `_id`s and the readable documents. It runs on the
+   * target collection, whose own documents an empty `_id` match leaves out at no cost, and brings the
+   * candidates in through `$unionWith` and `$documents`, so MongoDB compares their strings with the
+   * collection's default collation, as it does for the stored documents. A `$documents` aggregation on the
+   * database would have no collation and could pass a document that fails its check once stored.
+   */
+  private async checkBefore(
+    docs: readonly Document[],
+    check: Compiled,
+    read: boolean,
+  ): Promise<{ failed: Set<string>; found: Map<string, Document> }> {
     const ids = docs.map((doc) => doc["_id"])
-    const facet = this.facets(ids, check, read)
-    if (Object.keys(facet).length === 0) return read ? ids.map(() => null) : undefined
-    const [out] = await this.db
-      .aggregate([{ $documents: { $literal: [...docs] } }, { $facet: facet }], {
+    const facet = this.facets(ids, check, read, "ids")
+    if (Object.keys(facet).length === 0) return { failed: new Set(), found: new Map() }
+    const [out] = await this.coll
+      .aggregate(
+        [
+          { $match: { _id: { $in: [] } } },
+          { $unionWith: { pipeline: [{ $documents: { $literal: [...docs] } }] } },
+          { $facet: facet },
+        ],
+        { maxTimeMS: this.maxTimeMS, ...EXACT_BSON },
+      )
+      .toArray()
+    const bad = (out?.["bad"] as Document[] | undefined) ?? []
+    const found = (out?.["docs"] as Document[] | undefined) ?? []
+    return {
+      failed: new Set(bad.map((doc) => canonicalString(doc["_id"]))),
+      found: new Map(found.map((doc) => [canonicalString(doc["_id"]), doc])),
+    }
+  }
+
+  /** The readable form of each document of `docs` among `found`, `null` where it is not there. */
+  private readableOf(
+    docs: readonly Document[],
+    found: ReadonlyMap<string, Document>,
+    read: boolean,
+  ): (ReturnedDocument | null)[] | undefined {
+    if (!read) return undefined
+    const access = this.readable()
+    return docs.map((doc) => {
+      const stored = found.get(canonicalString(doc["_id"]))
+      return stored === undefined ? null : projectReadable(access, stored)
+    })
+  }
+
+  /**
+   * Reads several written documents back through `USING(read)` and the read field rules with one `find`,
+   * and fills the slot of each: `null` for a document the `find` did not return. A document is matched to
+   * its slot by the bytes of its `_id`. When the `find` returns a document that matches no slot (the
+   * stored `_id` is a number of another BSON type than the one written), the slots without a match are
+   * read one at a time instead, so a readable document is never reported as unreadable.
+   */
+  async readMany(session: ClientSession, items: readonly ReadBack[]): Promise<void> {
+    const ids = items.map((item) => item.id)
+    const readFilter = this.engine.effectiveRead(this.name, { _id: { $in: ids } }, this.ctx)
+    if (readFilter.kind === "deny") return
+    const access = this.readable()
+    const projection = toProjection(access)
+    const found = await this.coll
+      .find(this.filter(readFilter), {
+        ...this.readSession(session),
+        ...(projection === undefined ? {} : { projection }),
+        batchSize: Math.max(2, ids.length + 1),
         maxTimeMS: this.maxTimeMS,
         ...EXACT_BSON,
       })
       .toArray()
-    return this.outcome(out, ids, "insert", read) ?? (read ? ids.map(() => null) : undefined)
+    const byId = new Map(found.map((doc) => [canonicalString(doc["_id"]), doc]))
+    const missed: ReadBack[] = []
+    for (const item of items) {
+      const doc = byId.get(canonicalString(item.id))
+      if (doc === undefined) missed.push(item)
+      else item.slot[0] = projectReadable(access, doc)
+    }
+    if (found.length > items.length - missed.length)
+      for (const item of missed) item.slot[0] = await this.readOne(session, item.id)
   }
 
   /**
@@ -298,11 +428,22 @@ export class Scope {
     return doc === undefined ? null : projectReadable(this.readable(), doc)
   }
 
-  /** The `$facet` of a check and a read back over the documents with these ids. */
-  private facets(ids: readonly unknown[], check: Compiled | undefined, read: boolean): Document {
+  /**
+   * The `$facet` of a check and a read back over the documents with these ids. The failing documents are
+   * counted, or with `failing: "ids"` listed by `_id`.
+   */
+  private facets(
+    ids: readonly unknown[],
+    check: Compiled | undefined,
+    read: boolean,
+    failing: "count" | "ids" = "count",
+  ): Document {
     const facet: Document = {}
     if (check?.kind === "filter" && ids.length > 0)
-      facet["bad"] = [{ $match: { $nor: [toDriver(check.filter)] } }, { $count: "n" }]
+      facet["bad"] = [
+        { $match: { $nor: [toDriver(check.filter)] } },
+        failing === "count" ? { $count: "n" } : { $project: { _id: 1 } },
+      ]
     const readFilter = read
       ? this.engine.effectiveRead(this.name, { _id: { $in: [...ids] } }, this.ctx)
       : undefined
@@ -334,6 +475,41 @@ export class Scope {
       const doc = byId.get(canonicalString(id))
       return doc === undefined ? null : projectReadable(access, doc)
     })
+  }
+}
+
+/** A read back that waits for the end of a transaction: the id and the array slot to fill. */
+interface ReadBack {
+  readonly id: unknown
+  readonly slot: (ReturnedDocument | null)[]
+}
+
+/**
+ * The read backs of an atomic batch, collected while its operations run and read with one command per
+ * collection before the commit, instead of one command per written document. Each document is read through
+ * the same `USING(read)` and field rules as a read back right after its own write, so a queued read back
+ * is only valid for a document no later operation of the batch touches.
+ */
+export class ReadBacks {
+  private readonly groups = new Map<string, { scope: Scope; items: ReadBack[] }>()
+
+  /** How many read backs are queued. */
+  get size(): number {
+    let total = 0
+    for (const { items } of this.groups.values()) total += items.length
+    return total
+  }
+
+  add(scope: Scope, id: unknown, slot: (ReturnedDocument | null)[]): void {
+    const group = this.groups.get(scope.name)
+    if (group === undefined) this.groups.set(scope.name, { scope, items: [{ id, slot }] })
+    else group.items.push({ id, slot })
+  }
+
+  /** Reads everything queued, in the transaction of `session`, and fills the slots. */
+  async flush(session: ClientSession): Promise<void> {
+    for (const { scope, items } of this.groups.values()) await scope.readMany(session, items)
+    this.groups.clear()
   }
 }
 

@@ -566,6 +566,39 @@ suite("REST write endpoints against MongoDB", () => {
       })
     })
 
+    it("answers each operation of a non atomic batch in its place, grouped or not", async () => {
+      const response = await call("/_batch", {
+        body: {
+          ops: [
+            { op: "update", c: "todos", id: "a1", update: { $set: { title: "first" } } },
+            { op: "insert", c: "notes", doc: { _id: "n1", ownerId: "alice" } },
+            { op: "frobnicate", c: "todos" },
+            { op: "update", c: "todos", id: "b1", update: { $set: { title: "not mine" } } },
+          ],
+        },
+      })
+      expect(response.status).toBe(200)
+      const data = (await json(response))["data"] as Record<string, unknown>[]
+      expect(data).toHaveLength(4)
+      expect(data[0]).toMatchObject({
+        status: 200,
+        data: { _id: "a1", title: "first" },
+        matched: 1,
+        replayed: false,
+      })
+      expect(data[1]).toMatchObject({ status: 200, data: { _id: "n1" }, matched: 0 })
+      expect(data[2]).toMatchObject({ status: 400, error: { code: ErrorCode.InvalidQuery } })
+      expect(data[3]).toMatchObject({ status: 200, data: null, matched: 0 })
+      for (const entry of [data[0], data[1], data[3]]) expect(typeof entry?.["ct"]).toBe("string")
+      expect((await documents("todos")).map((row) => row["title"])).toEqual([
+        "first",
+        "two",
+        "three",
+        "bob",
+      ])
+      expect(await documents("notes")).toEqual([{ _id: "n1", ownerId: "alice" }])
+    })
+
     it("validates the batch shape and limits", async () => {
       const ops = [1, 2, 3, 4, 5].map((n) => ({
         op: "insert",

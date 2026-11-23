@@ -13,6 +13,8 @@ import { MERGE_PATCH_MEDIA_TYPE, mergePatchToUpdate } from "./merge-patch.ts"
 import { combineFilters, parseEjsonParam, RESERVED_PARAMS, shorthandFilter } from "./params.ts"
 import { type Problem, toProblem } from "./problem.ts"
 import type {
+  BatchItem,
+  BatchItemResult,
   BatchOperationResult,
   WriteOptions,
   WritePath,
@@ -311,31 +313,47 @@ export function writeRoutes(options: WriteRouteOptions): WriteRoutes {
         ErrorCode.BulkLimit,
         `A batch may not have more than ${writes.writeLimits.maxBatch} operations`,
       )
-    const results: Record<string, unknown>[] = []
-    for (const [index, op] of ops.entries()) {
+    const parsed = ops.map((op, index) => {
       try {
-        const { request, mid } = batchRequest(op, index, bulk)
-        const result = await writes.execute(exchange.caller, request, {
-          signal: exchange.request.signal,
-          ...(mid === undefined ? {} : { mutationId: mid }),
+        return batchRequest(op, index, bulk)
+      } catch (error: unknown) {
+        return toCanopyError(error)
+      }
+    })
+    const items: BatchItem[] = []
+    for (const entry of parsed) {
+      if (!(entry instanceof Error))
+        items.push({
+          request: entry.request,
+          ...(entry.mid === undefined ? {} : { mutationId: entry.mid }),
         })
-        results.push({
+    }
+    const executed = await writes.executeEach(exchange.caller, items, {
+      signal: exchange.request.signal,
+    })
+    let taken = 0
+    const results: Record<string, unknown>[] = parsed.map((entry) => {
+      const outcome: BatchItemResult | undefined =
+        entry instanceof CanopyError ? { error: entry } : executed[taken++]
+      if (outcome !== undefined && "result" in outcome && !(entry instanceof CanopyError)) {
+        const { result } = outcome
+        return {
           status: 200,
-          ...operationBody(request.op, result),
+          ...operationBody(entry.request.op, result),
           ct: result.ct,
           replayed: result.replayed,
-        })
-      } catch (error: unknown) {
-        const canopy = toCanopyError(error)
-        const problem: Problem = toProblem(
-          canopy,
-          exchange.url.pathname,
-          options.requestId(exchange),
-          options.problemTypeBase,
-        )
-        results.push({ status: problem.status, error: problem })
+        }
       }
-    }
+      const problem: Problem = toProblem(
+        outcome !== undefined && "error" in outcome
+          ? outcome.error
+          : new CanopyError(ErrorCode.Internal, "The batch operation has no outcome"),
+        exchange.url.pathname,
+        options.requestId(exchange),
+        options.problemTypeBase,
+      )
+      return { status: problem.status, error: problem }
+    })
     return jsonResponse({ data: results }, exchange.encoding)
   }
 

@@ -31,7 +31,6 @@
 | `Idempotency-Key` | UUID | Write deduplication (24 h) |
 | `Prefer` | `return=minimal\|representation`, `count=exact\|estimated`, `bulk=true` | Response shape, counts, opt-in to bulk writes |
 | `Accept` | `application/json` (relaxed EJSON, default) or `application/ejson` (canonical EJSON) | Value encoding |
-| `X-Canopy-Explain` | `true` | Return the DLS explain trace (service and admin only) |
 
 ## 3. REST endpoints
 
@@ -62,13 +61,13 @@ value, for example `%7B%22%24oid%22%3A…%7D`.
 | Parameter | Example | Notes |
 |---|---|---|
 | `filter` | `filter={"status":"active","priority":{"$gte":2}}` (URL-encoded) | Full filter language, validated against the operator allowlist |
-| Shorthand filters | `status=eq.active&priority=gte.2&tags=in.(a,b)&deletedAt=exists.false` | Operators: `eq ne gt gte lt lte in nin exists regex size`. Values are typed through the schema cache. Quote to force a string: `eq."42"`. |
+| Shorthand filters | `status=eq.active&priority=gte.2&tags=in.(a,b)&deletedAt=exists.false` | Operators: `eq ne gt gte lt lte in nin exists regex size`. A value is typed by its text, never by the schema: `42` is a number, `true`, `false` and `null` are literals, `{"$oid":"…"}` is one Extended JSON value, and anything else is a string. Quote to force a string: `eq."42"`. |
 | `sort` | `sort=-createdAt,title` | `_id` is appended automatically as a tie-breaker. Paths must be readable. |
 | `fields` | `fields=title,done` or `fields=-notes` | Intersected with the readable fields |
 | `limit` | `limit=50` | Default 100, maximum 1,000 |
 | `after` | `after=eyJzIjpb…` | Opaque cursor (§9) |
 | `skip` | `skip=200` | Allowed up to 10,000; prefer cursors |
-| `count` | `count=exact` | Same as `Prefer: count=exact` |
+| `count` | `count=exact` | Same as `Prefer: count=exact`; adds `page.total` (§5) |
 
 ## 5. Reads
 
@@ -91,6 +90,27 @@ curl "$CANOPY_URL/rest/v1/todos?status=eq.active&sort=-createdAt&limit=2&fields=
 
 `GET /rest/v1/todos/{id}` returns `{ "data": {…}, "ct": "…" }`. A document that doesn't exist and a document
 the caller can't see both return `404 CANOPY_NOT_FOUND`.
+
+**What a `find` page carries beyond the example.** `GET /rest/v1/{coll}` answers with these, which the
+Rust data plane must reproduce byte for byte:
+
+- `page.total` is the number of documents the caller can see that match the filter, ignoring `limit`, `skip`
+  and the cursor, when `count=exact` (or `Prefer: count=exact`) is sent. The page and its total are read in one
+  snapshot. `count=estimated` is accepted on a find and gives the same exact total: an estimate from
+  collection metadata only exists on `POST /rest/v1/{coll}/_count`. Any other value of `count` answers `400 CANOPY_INVALID_QUERY`.
+- A weak `ETag` over the content of the page, `W/"<32 hex digits>"`: the first 32 hex digits of the SHA-256 of
+  the encoding name, a colon and the encoded page without `ct`. It follows the content, not the cluster time,
+  so a poller that sends `If-None-Match` gets `304 Not Modified` with no body, carrying the same `ETag` and
+  `X-Canopy-Ct`, while the page is unchanged. The relaxed and the canonical encoding of one page have different
+  validators.
+- `X-Canopy-Ct`, the `ct` of the body as a header, on the page and on the `304`. `POST /rest/v1/{coll}/_query`
+  has the same body but no `ETag` and no conditional answer.
+
+**Explaining a read.** The DLS trace of a request is `POST /rest/v1/{coll}/_explain`, for `service` callers: its
+body names the caller to explain (`claims`, `roles`, `ctx`) and the operation, because the trace of the
+`service` caller itself is only "bypass". There is no explain header on reads: an `X-Canopy-Explain` header is
+ignored, so a response is byte identical with or without it and never carries a trace. `conformance/http/find/`
+pins the TypeScript `find` response by response (the oracle of the Rust route; see `conformance/README.md`).
 
 ## 6. Writes
 
@@ -136,8 +156,13 @@ POST /rest/v1/_batch
 
 - `atomic: true` runs every operation in **one transaction** (≤ 100 operations, ≤ 16 MiB total). DLS and `check`
   apply to each operation, and the first failure aborts everything.
-- `atomic: false` runs the operations in order and returns a result per operation. The SDK uses it for its
-  REST fallback queue.
+- `atomic: false` runs the operations in order and returns a result per operation; an error never stops the
+  operations after it. The SDK uses it for its REST fallback queue. On MongoDB 8.0 or later, consecutive
+  inserts, updates by `_id` and replaces that have no mutation ID, need no transaction and name different
+  documents are sent as one ordered `bulkWrite`, with their `check` evaluated in one aggregation before it
+  and their read backs in one `find` after it. A write that MongoDB refuses is sent again alone, so its
+  error is the one it has alone, and the operations after it go on. The `ct` of a grouped operation is the
+  cluster time of the command, at or after the time of its own write.
 
 ## 8. Aggregation
 
@@ -155,10 +180,38 @@ realtime as polling observers ([03 §5](03-realtime-engine.md#5-observers)).
 
 ## 9. Pagination
 
-- **Cursors** encode `base64url(canonicalEJSON({ s: [sortValues…], id: _id, q: hash(filter, sort) }))`. The
-  server checks that `q` matches the current request, then turns the cursor into a keyset range filter that
-  respects each sort direction, for example
+- **Cursors** encode `base64url(canonicalEJSON({ s: [sortValues…], q: hash(collection, filter, sort) }))`. `s` holds
+  one value per sort key in key order, and the last one is the `_id` tie breaker (a sort that names `_id` ends
+  there instead), so there is no separate `id` member. A document that lacks a sort field contributes
+  `null`. The server checks that `q` matches the current request, then turns the cursor into a keyset
+  range filter that respects each sort direction and the BSON type order, for example
   `{$or: [{k1: {$lt: v1}}, {k1: v1, _id: {$gt: id}}]}` for `sort=-k1`.
+  A comparison operator only matches inside the type bracket of its operand, so the filter also selects the
+  brackets that sort after the position by `$type` (numeric codes, `"number"` for the four numeric types) and
+  null with missing by equality with null. NaN sorts before every other number but matches no comparison, so
+  it is selected by equality, and the numbers after a NaN position by `$gte: -Infinity`.
+- When the sort has a key besides `_id`, the filter is also ANDed with one bound on the first key that every
+  selected document already satisfies (`k1: {$not: {$gt: v1}}` for a descending key, `$not: {$lt: v1}` for an
+  ascending one; none where the position is null, MinKey, MaxKey or NaN). It selects nothing new. It exists
+  because the planner may answer the `$or` with one index scan that starts at the beginning of the index
+  prefix and applies the filter after the fetch, a plan MongoDB caches for the query shape and can then reuse
+  at every depth: the bound makes that scan start at the position. With the bound a page examines about one
+  key per document returned at every depth on an index of the shape `(owner, k1, _id)`, with a cold or a
+  warm plan cache. It is still loose where many documents share the value of the first sort key: a scan may
+  then start at the beginning of that group of equal values, until the planner switches to its merge of
+  tight scans per branch or replans.
+- **Symbols and strings.** MongoDB sorts and compares the deprecated BSON symbol type with strings, so a symbol
+  is written as a plain JSON string in every response, relaxed and canonical alike, and a cursor whose position
+  is a symbol holds that string. The keyset filter selects strings and symbols together (`$type` codes 2 and
+  14), so a page chain over a field that mixes the two visits every document once, in the order of one
+  `find`.
+- **Regular expressions cannot be continued.** A page can end on a document whose sort value is a regular
+  expression, and it still carries a cursor, because the cursor is built before anyone reads the next page. The
+  next request answers `400 CANOPY_INVALID_QUERY` ("The cursor ends on a regular expression sort value in
+  \"<path>\", which cannot be compared, so the next page cannot be read"). A regular expression given to a
+  comparison is a pattern to match, not a value to order by, so no filter can select "the documents after" it.
+  A client that sees this error sorts by a field without regular expression values, or filters those
+  documents out.
 - Cursors are not signed. They only describe a *position* in a query the caller is already allowed to run,
   and the filter is still enforced by DLS.
 - Keyset pagination needs scalar, indexed sort fields. When a sort path holds arrays, results are documented as
@@ -170,7 +223,7 @@ All errors use RFC 9457 Problem Details (`application/problem+json`):
 
 ```json
 {
-  "type": "https://canopy.example/errors/policy-violation",
+  "type": "urn:canopy:error:policy-violation",
   "title": "Policy violation",
   "status": 403,
   "code": "CANOPY_POLICY_VIOLATION",
@@ -183,6 +236,7 @@ All errors use RFC 9457 Problem Details (`application/problem+json`):
 | HTTP | Codes |
 |---|---|
 | 400 | `CANOPY_INVALID_QUERY`, `CANOPY_BULK_LIMIT` |
+| 405 | `CANOPY_INVALID_QUERY`, with an `Allow` header listing the methods of the path |
 | 401 | `CANOPY_UNAUTHORIZED`, `CANOPY_TOKEN_EXPIRED` |
 | 403 | `CANOPY_FORBIDDEN`, `CANOPY_POLICY_VIOLATION` |
 | 404 | `CANOPY_NOT_FOUND` |
@@ -191,6 +245,14 @@ All errors use RFC 9457 Problem Details (`application/problem+json`):
 | 422 | `CANOPY_VALIDATION_FAILED` |
 | 429 | `CANOPY_RATE_LIMITED` (with `Retry-After`) |
 | 500 / 503 / 504 | `CANOPY_INTERNAL`, `CANOPY_UNAVAILABLE`, `CANOPY_TIMEOUT` |
+
+`type` is `urn:canopy:error:` followed by the slug of the code (`policy-violation` for
+`CANOPY_POLICY_VIOLATION`), unless `problemTypeBase` is set, which replaces the prefix (for example
+`https://canopy.example/errors/`). The same body carries `hint` and `docs` for the common codes.
+
+A method the path does not allow answers `405` with the code `CANOPY_INVALID_QUERY`, because no code of its own
+exists for it, and an `Allow` header. `OPTIONS` answers `204` with the same list plus `OPTIONS`, or the CORS
+preflight when CORS is configured.
 
 > **Known side channel.** A unique-index violation (`CANOPY_DUPLICATE_KEY`) can reveal that an invisible
 > document exists. Postgres has the same issue with unique constraints under RLS. The docs and the linter

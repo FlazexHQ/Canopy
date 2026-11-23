@@ -1,4 +1,4 @@
-import { and, checkImplied, projectReadable, toProjection } from "@canopy/policy"
+import { and, type Compiled, checkImplied, projectReadable, toProjection } from "@canopy/policy"
 import {
   CanopyError,
   type ClusterTime,
@@ -8,13 +8,19 @@ import {
   InvalidQueryError,
 } from "@canopy/protocol"
 import { parseUpdate, type QueryLimits, validateStoredDocument } from "@canopy/query"
-import { BSON, type ClientSession, type Document } from "mongodb"
+import { type AnyClientBulkWriteModel, BSON, type ClientSession, type Document } from "mongodb"
 import { EXACT_BSON, toDriver } from "./driver.ts"
 import type { Outcome, RecordModel } from "./idempotency.ts"
 import { leafPaths } from "./paths.ts"
 import { validateId } from "./validation.ts"
 import type { ReturnedDocument, WriteLimits, WriteRequest } from "./write-path.ts"
-import { assertMutable, assertWritable, type Scope, violation } from "./write-scope.ts"
+import {
+  assertMutable,
+  assertWritable,
+  type ReadBacks,
+  type Scope,
+  violation,
+} from "./write-scope.ts"
 
 /**
  * The largest document checked through `$documents` before a single insert. The check sends it once more,
@@ -24,8 +30,53 @@ import { assertMutable, assertWritable, type Scope, violation } from "./write-sc
  */
 const PRECHECK_MAX_BYTES = 8 * 1024 * 1024
 
-/** Runs a planned write in a session and reports what it did. */
-export type Run = (session: ClientSession) => Promise<Outcome>
+/**
+ * Runs a planned write in a session and reports what it did. With `defer`, the read back of the written
+ * document is queued on it and filled when it is flushed, which the caller does before the commit.
+ */
+export type Run = (session: ClientSession, defer?: ReadBacks) => Promise<Outcome>
+
+/**
+ * Runs a write that needs no transaction when it can, or `undefined` when it cannot: nothing has been
+ * written then, and the caller runs the plan in a transaction instead.
+ */
+export type Direct = (session: ClientSession) => Promise<Outcome | undefined>
+
+/** What MongoDB reported for one write of a client `bulkWrite`. */
+export interface Written {
+  readonly matched: number
+  readonly modified: number
+}
+
+/**
+ * A single document write that can run as one model of an ordered client `bulkWrite` next to others, with
+ * its checks and read backs done around it.
+ */
+export interface Grouped {
+  readonly model: AnyClientBulkWriteModel<Document>
+  /** The `_id`s of the documents the write names: the model's target, or the document it inserts. */
+  readonly ids: readonly unknown[]
+  /**
+   * The document to check before the write, through `$documents`, when the write needs `check` evaluated
+   * by MongoDB: the document is stored exactly as it is sent.
+   */
+  readonly precheck?: {
+    readonly op: "insert" | "update"
+    readonly doc: Document
+    readonly check: Compiled
+    readonly scope: Scope
+  }
+  /**
+   * Builds the outcome once the write ran. `checked` holds the readable documents the precheck returned.
+   * A read back that needs no check is queued on `defer`, or a failed `where` precondition is looked at.
+   */
+  readonly finish: (
+    session: ClientSession,
+    written: Written,
+    checked: (ReturnedDocument | null)[] | undefined,
+    defer: ReadBacks,
+  ) => Promise<Outcome>
+}
 
 /**
  * A planned write. `run` works inside a transaction or, when `fast` is set, on its own: a fast run is one
@@ -35,6 +86,13 @@ export type Run = (session: ClientSession) => Promise<Outcome>
 export interface Plan {
   readonly run: Run
   readonly fast: boolean
+  /**
+   * A way to run the write without a transaction that may decline (see {@link Direct}), tried when the
+   * plan is not `fast` and the write has no mutation ID.
+   */
+  readonly direct?: Direct
+  /** The same write as a model of a grouped `bulkWrite`, where it is exactly equivalent to `run`. */
+  readonly group?: Grouped
   /** The same write sent together with its idempotency record, where the plan supports it. */
   readonly withRecord?: CombinedRun
 }
@@ -113,13 +171,15 @@ function planInsert(
   const precheck = single && BSON.calculateObjectSize({ prepared }) <= PRECHECK_MAX_BYTES
   const ids = prepared.map((doc) => doc["_id"])
   const [first] = prepared
-  const run: Run = async (session) => {
+  const run: Run = async (session, defer) => {
     const checked = precheck ? await scope.precheck(prepared, check, read) : undefined
     if (single && first !== undefined)
       await scope.coll.insertOne(first, scope.writeOptions(session))
     else await scope.coll.insertMany(prepared, { ...scope.writeOptions(session), ordered: true })
     const ct = scope.fastTime(session)
-    const documents = precheck ? checked : await scope.verify(session, ids, check, "insert", read)
+    const documents = precheck
+      ? checked
+      : await scope.verify(session, ids, check, "insert", read, defer)
     return withCt(inserted(ids, documents), ct)
   }
   const withRecord: CombinedRun | undefined =
@@ -135,9 +195,19 @@ function planInsert(
           },
         }
       : undefined
+  const group: Grouped | undefined =
+    precheck && first !== undefined
+      ? {
+          model: { name: "insertOne", namespace: scope.namespace, document: first },
+          ids,
+          precheck: { op: "insert", doc: first, check, scope },
+          finish: (_session, _written, checked) => Promise.resolve(inserted(ids, checked)),
+        }
+      : undefined
   return {
     run,
     fast: single && (check.kind === "all" || precheck),
+    ...(group === undefined ? {} : { group }),
     ...(withRecord === undefined ? {} : { withRecord }),
   }
 }
@@ -176,6 +246,7 @@ function planUpdate(
       session: ClientSession,
       matched: number,
       modifiedCount: number,
+      defer?: ReadBacks,
     ): Promise<Outcome> => {
       if (matched === 0) {
         if (where.kind !== "all") await scope.assertNoConflict(session, and(base, using))
@@ -188,6 +259,7 @@ function planUpdate(
         modified ? effectiveCheck : undefined,
         "update",
         read,
+        defer,
       )
       return {
         matched,
@@ -198,10 +270,10 @@ function planUpdate(
         ...(documents === undefined ? {} : { documents }),
       }
     }
-    const run: Run = async (session) => {
+    const run: Run = async (session, defer) => {
       const result = await scope.coll.updateOne(filter, update, scope.writeOptions(session))
       const ct = scope.fastTime(session)
-      return withCt(await finish(session, result.matchedCount, result.modifiedCount), ct)
+      return withCt(await finish(session, result.matchedCount, result.modifiedCount, defer), ct)
     }
     const withRecord: CombinedRun = {
       expected: {
@@ -222,7 +294,13 @@ function planUpdate(
         return finish(session, written.matchedCount, written.modifiedCount)
       },
     }
-    return { run, fast: implied, withRecord }
+    const group: Grouped = {
+      model: { name: "updateOne", namespace: scope.namespace, filter, update },
+      ids: [id],
+      finish: (session, written, _checked, defer) =>
+        finish(session, written.matched, written.modified, defer),
+    }
+    return { run, fast: implied, withRecord, ...(implied ? { group } : {}) }
   }
   const run: Run = async (session) => {
     const ids = await scope.findIds(session, target, limits.write.maxBulk + 1)
@@ -276,14 +354,51 @@ function planReplace(
   const atomicUpsert = insertCheck?.kind === "all"
   const id = toDriver(request.id)
   const replacement = toDriver({ ...doc, _id: request.id }) as Document
-  const run: Run = async (session) => {
+  const stored = idFirst(replacement)
+  const missing = async (session: ClientSession): Promise<Outcome> => {
+    if (where.kind !== "all") await scope.assertNoConflict(session, visible)
+    return empty()
+  }
+  /**
+   * The outcome of a replacement that matched a document. `checked` holds the documents of a precheck:
+   * the check has been evaluated then, and the stored document is the one that was checked.
+   */
+  const settle = async (
+    session: ClientSession,
+    written: Written,
+    defer: ReadBacks | undefined,
+    checked: { readonly documents: (ReturnedDocument | null)[] | undefined } | undefined,
+  ): Promise<Outcome> => {
+    if (written.matched === 0) return missing(session)
+    const modified = written.modified > 0
+    const documents =
+      checked === undefined
+        ? await scope.verify(
+            session,
+            [id],
+            modified ? updateCheck : undefined,
+            "update",
+            read,
+            defer,
+          )
+        : checked.documents
+    return {
+      matched: written.matched,
+      modified: written.modified,
+      deleted: 0,
+      insertedIds: [],
+      changedIds: modified ? [id] : [],
+      ...(documents === undefined ? {} : { documents }),
+    }
+  }
+  const run: Run = async (session, defer) => {
     const result = await scope.coll.replaceOne(scope.filter(target), replacement, {
       ...scope.writeOptions(session),
       upsert: atomicUpsert,
     })
     let ct = scope.fastTime(session)
     if (result.upsertedCount > 0) {
-      const documents = await scope.verify(session, [id], undefined, "insert", read)
+      const documents = await scope.verify(session, [id], undefined, "insert", read, defer)
       return withCt(upserted(id, documents), ct)
     }
     if (result.matchedCount === 0) {
@@ -292,30 +407,63 @@ function planReplace(
       if (insertCheck.kind === "deny") throw violation(scope, "insert")
       await scope.coll.insertOne(replacement, scope.writeOptions(session))
       ct = scope.fastTime(session)
-      const documents = await scope.verify(session, [id], insertCheck, "insert", read)
+      const documents = await scope.verify(session, [id], insertCheck, "insert", read, defer)
       return withCt(upserted(id, documents), ct)
     }
-    const modified = result.modifiedCount > 0
-    const documents = await scope.verify(
-      session,
-      [id],
-      modified ? updateCheck : undefined,
-      "update",
-      read,
-    )
-    return withCt(
-      {
-        matched: result.matchedCount,
-        modified: result.modifiedCount,
-        deleted: 0,
-        insertedIds: [],
-        changedIds: modified ? [id] : [],
-        ...(documents === undefined ? {} : { documents }),
-      },
-      ct,
-    )
+    const written = { matched: result.matchedCount, modified: result.modifiedCount }
+    return withCt(await settle(session, written, defer, undefined), ct)
   }
-  return { run, fast: updateCheck.kind === "all" && (insertCheck === undefined || atomicUpsert) }
+  const prechecked =
+    !upsert &&
+    updateCheck.kind === "filter" &&
+    !readsClock(updateCheck.filter) &&
+    BSON.calculateObjectSize({ stored }) <= PRECHECK_MAX_BYTES
+  /**
+   * A replacement is stored exactly as sent, with `_id` first, so the check of a single replacement is
+   * evaluated by MongoDB on that form of it before anything is written, as for an insert, and the write
+   * is then one `replaceOne` with no transaction. The write sends the replacement as the transaction
+   * does, because MongoDB counts a replacement as a change by the bytes sent. The check is a filter of constants over the
+   * replacement alone, so nothing it reads can change between the check and the write. A check that
+   * fails is not an error yet: the target may be missing or invisible (not found), the replacement may be
+   * identical to the stored document (nothing to check), or the write may fail first. The write path
+   * runs the transaction then, which decides exactly as it always did.
+   */
+  const direct: Direct | undefined = prechecked
+    ? async (session) => {
+        const checked = await scope.tryPrecheck(stored, updateCheck, read)
+        if (checked === undefined) return undefined
+        const result = await scope.coll.replaceOne(scope.filter(target), replacement, {
+          ...scope.writeOptions(session),
+          upsert: false,
+        })
+        const ct = scope.fastTime(session)
+        const written = { matched: result.matchedCount, modified: result.modifiedCount }
+        return withCt(await settle(session, written, undefined, checked), ct)
+      }
+    : undefined
+  const group: Grouped | undefined =
+    !upsert && (updateCheck.kind === "all" || prechecked)
+      ? {
+          model: {
+            name: "replaceOne",
+            namespace: scope.namespace,
+            filter: scope.filter(target),
+            replacement,
+          },
+          ids: [id],
+          ...(prechecked
+            ? { precheck: { op: "update", doc: stored, check: updateCheck, scope } }
+            : {}),
+          finish: (session, written, checked, defer) =>
+            settle(session, written, defer, prechecked ? { documents: checked } : undefined),
+        }
+      : undefined
+  return {
+    run,
+    fast: updateCheck.kind === "all" && (insertCheck === undefined || atomicUpsert),
+    ...(direct === undefined ? {} : { direct }),
+    ...(group === undefined ? {} : { group }),
+  }
 }
 
 function planDelete(
@@ -450,3 +598,17 @@ function inserted(
 export function isBulkOp(op: WriteRequest["op"]): boolean {
   return op === "insertMany" || op === "updateMany" || op === "deleteMany"
 }
+
+/**
+ * Whether a `check` filter reads anything but the document it is evaluated on: a system variable other
+ * than `$$ROOT`, `$$CURRENT` and `$$REMOVE`, such as `$$NOW`, whose value differs from one command to the
+ * next. Such a check cannot be moved before the write without possibly deciding differently.
+ */
+function readsClock(value: unknown): boolean {
+  if (typeof value === "string") return /^\$\$[A-Z]/.test(value) && !DOCUMENT_VARIABLE.test(value)
+  if (Array.isArray(value)) return value.some(readsClock)
+  if (typeof value === "object" && value !== null) return Object.values(value).some(readsClock)
+  return false
+}
+
+const DOCUMENT_VARIABLE = /^\$\$(ROOT|CURRENT|REMOVE)(\.|$)/

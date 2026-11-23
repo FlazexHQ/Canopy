@@ -1,0 +1,544 @@
+{
+  "group": "sort",
+  "description": "Sorts over one or several keys in both directions, on strings, dates, numbers of every type, ObjectIds, binary data, timestamps, booleans and mixed or missing values. Every sort ends on _id ascending unless it names _id.",
+  "cases": [
+    {
+      "id": "todos-created-desc",
+      "title": "A descending sort; two documents share a timestamp and fall back to _id",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-createdAt&limit=10",
+        "query": [
+          [
+            "sort",
+            "-createdAt"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.todos-created-desc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"05ab6cc37d38b24f8c1c8b1f77e7900a\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-created-desc"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "todos-two-keys",
+      "title": "Ascending then descending",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=priority%2C-createdAt&limit=10",
+        "query": [
+          [
+            "sort",
+            "priority,-createdAt"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.todos-two-keys"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"41249036e590d0e3e353a2d8eb9ca6e7\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-two-keys"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "todos-three-keys",
+      "title": "Three keys",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=status%2Cpriority%2C-createdAt&limit=10",
+        "query": [
+          [
+            "sort",
+            "status,priority,-createdAt"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.todos-three-keys"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"c589ef4e682a30fac2bedd9aab92fabc\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-three-keys"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "todos-id-desc",
+      "title": "_id descending, without a second tie breaker",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=-_id&limit=10",
+        "query": [
+          [
+            "sort",
+            "-_id"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.todos-id-desc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"037e7a9f3f1103290684f3ef8d6a6b0f\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-id-desc"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "todos-nested-path",
+      "title": "A nested path, where one document has no nested document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=meta.source%2C-_id&limit=10",
+        "query": [
+          [
+            "sort",
+            "meta.source,-_id"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "sort.todos-nested-path"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"70aa455bd3e2bf5c7cae4d37a8c4d573\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-nested-path"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f100000000000000000000c\"},\"ownerId\":\"bob\",\"title\":\"todo 12\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-12T16:30:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-12T00:00:00.000Z\"},\"tags\":[]},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\",\"score\":7}},{\"_id\":{\"$oid\":\"6f1000000000000000000009\"},\"ownerId\":\"bob\",\"title\":\"todo 9\",\"status\":\"done\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-09T09:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\",\"score\":6}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\",\"score\":9.75}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5}},{\"_id\":{\"$oid\":\"6f100000000000000000000b\"},\"ownerId\":\"bob\",\"title\":\"todo 11\",\"status\":\"blocked\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-11T14:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-12T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\",\"score\":8}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\",\"score\":5}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\",\"score\":{\"$numberDouble\":\"-0.0\"}}},{\"_id\":{\"$oid\":\"6f1000000000000000000007\"},\"ownerId\":\"bob\",\"title\":\"todo 7\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-07T07:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-03-01T00:00:00.000Z\"},\"tags\":[\"work\"],\"meta\":{\"source\":\"web\",\"score\":4}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\",\"score\":3}}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbIndlYiIseyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA2In1dLCJxIjoiNTQzNTU5MzY0N2IyOGE4Mjk3MDJmMzJiOGE1YzlmZmQifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "todos-due-asc",
+      "title": "Dates with null and missing values",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=dueAt&limit=10",
+        "query": [
+          [
+            "sort",
+            "dueAt"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.todos-due-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"73b8fe53229bfa03be1c120388ccfa3b\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.todos-due-asc"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "numbers-asc",
+      "title": "Every numeric type, NaN, negative zero, infinities, null, missing and a string",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=n&limit=10",
+        "query": [
+          [
+            "sort",
+            "n"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.numbers-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"a19beb1c201a30ce5539a67cf74ce6b4\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.numbers-asc"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000008\"},\"label\":\"null\",\"n\":null},{\"_id\":{\"$oid\":\"6f5000000000000000000009\"},\"label\":\"missing\"},{\"_id\":{\"$oid\":\"6f5000000000000000000005\"},\"label\":\"nan\",\"n\":{\"$numberDouble\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000a\"},\"label\":\"negative infinity\",\"n\":{\"$numberDouble\":\"-Infinity\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000010\"},\"label\":\"int negative 5\",\"n\":-5},{\"_id\":{\"$oid\":\"6f5000000000000000000006\"},\"label\":\"negative zero\",\"n\":{\"$numberDouble\":\"-0.0\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000007\"},\"label\":\"int 0\",\"n\":0},{\"_id\":{\"$oid\":\"6f5000000000000000000012\"},\"label\":\"double 0.1\",\"n\":0.1},{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiMS41In0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDBkIn1dLCJxIjoiNWIyZjk3YTM3NmY0YmUxYzc2MmNkODNkOTBkMzZkZWEifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-desc",
+      "title": "The same descending",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?sort=-n&limit=10",
+        "query": [
+          [
+            "sort",
+            "-n"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.numbers-desc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"07ccb33af735a1daab015eee3c580019\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.numbers-desc"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f500000000000000000000e\"},\"label\":\"string 2\",\"n\":\"2\"},{\"_id\":{\"$oid\":\"6f500000000000000000000b\"},\"label\":\"positive infinity\",\"n\":{\"$numberDouble\":\"Infinity\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000c\"},\"label\":\"long above 2^53\",\"n\":{\"$numberLong\":\"9007199254740993\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"label\":\"double 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000012\"},\"label\":\"double 0.1\",\"n\":0.1}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkbnVtYmVyRG91YmxlIjoiMC4xIn0seyIkb2lkIjoiNmY1MDAwMDAwMDAwMDAwMDAwMDAwMDEyIn1dLCJxIjoiMGIxYTU3NmIzZDBhNmE4NDI1MGYwMGY0YTg3ZTI1ODgifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-at-asc",
+      "title": "Dates, with a null, a string and equal values",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=at&limit=10",
+        "query": [
+          [
+            "sort",
+            "at"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.events-at-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"1d9aaa3b7770f332b3aab7e10b5abcf3\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.events-at-asc"
+        },
+        "body": "{\"data\":[{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjE3NzI0OTYwMDAwMDAifX0sImUwOCJdLCJxIjoiZDA1NDhhNmM5MjI0YTkxODkzYjQwZDg4MDNjYjVjZTQifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-kind-asc",
+      "title": "Strings compare by bytes, not by locale",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=kind&limit=10",
+        "query": [
+          [
+            "sort",
+            "kind"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.events-kind-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"eb2245de0798850f69af6b00b90852e5\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.events-kind-asc"
+        },
+        "body": "{\"data\":[{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbImJldGEiLCJlMDMiXSwicSI6IjIxNGJiMmQ3MWRmYTNlN2U3OWFhZmQ5MGJlNTY0MDdhIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-depth-asc",
+      "title": "Numbers of several types in a nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=nested.depth&limit=10",
+        "query": [
+          [
+            "sort",
+            "nested.depth"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.events-depth-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"44293001037f0583d47a1be5171ae116\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.events-depth-asc"
+        },
+        "body": "{\"data\":[{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkbnVtYmVySW50IjoiMiJ9LCJlMDIiXSwicSI6IjQ0ZWM1OThmNDdiNTU2YzVjYjE5MjEwM2U0OTFmYTgyIn0\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-payload-asc",
+      "title": "Binary data sorts by length, then subtype, then bytes",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=payload&limit=10",
+        "query": [
+          [
+            "sort",
+            "payload"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.events-payload-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"1498e7e7e4aa4ba114b96fb03ef064a4\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.events-payload-asc"
+        },
+        "body": "{\"data\":[{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}},{\"_id\":\"e11\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000b\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":2}}},{\"_id\":\"e12\",\"kind\":\"a b\",\"at\":{\"$date\":\"2026-03-04T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f600000000000000000000c\"},\"stamp\":{\"$timestamp\":{\"t\":1000,\"i\":1}}},{\"_id\":\"e13\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-05T00:00:00.000Z\"},\"stamp\":{\"$timestamp\":{\"t\":999,\"i\":7}}},{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbeyIkYmluYXJ5Ijp7ImJhc2U2NCI6IkFBQT0iLCJzdWJUeXBlIjoiMDAifX0sImUwOSJdLCJxIjoiMTAwZDRmMjllMDEzMTMzNGQ2NjMyNzQxN2U2YWM4OTgifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-stamp-asc",
+      "title": "Timestamps",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?sort=stamp&limit=10",
+        "query": [
+          [
+            "sort",
+            "stamp"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "sort.events-stamp-asc"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"de3956b71a2ee49f2aed87508f08c3c1\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "sort.events-stamp-asc"
+        },
+        "body": "{\"data\":[{\"_id\":\"e01\",\"kind\":\"alpha\",\"at\":{\"$date\":{\"$numberLong\":\"-1\"}},\"ref\":{\"$oid\":\"6f6000000000000000000001\"},\"payload\":{\"$binary\":{\"base64\":\"\",\"subType\":\"00\"}},\"nested\":{\"depth\":1,\"label\":\"x\"},\"flag\":false},{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true},{\"_id\":\"e03\",\"kind\":\"beta\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000003\"},\"payload\":{\"$binary\":{\"base64\":\"AAE=\",\"subType\":\"00\"}},\"nested\":{\"depth\":2.5,\"label\":\"z\"},\"flag\":false},{\"_id\":\"e04\",\"kind\":\"éclair\",\"at\":{\"$date\":\"2026-03-01T12:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000004\"},\"payload\":{\"$binary\":{\"base64\":\"AQ==\",\"subType\":\"00\"}},\"nested\":{\"depth\":3},\"flag\":true},{\"_id\":\"e05\",\"kind\":\"Z\",\"at\":{\"$date\":\"2099-12-31T23:59:59.999Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000005\"},\"payload\":{\"$binary\":{\"base64\":\"/w==\",\"subType\":\"00\"}},\"nested\":{\"label\":\"no depth\"}},{\"_id\":\"e06\",\"kind\":\"\",\"at\":{\"$date\":\"2026-03-01T12:00:00.001Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000006\"},\"payload\":{\"$binary\":{\"base64\":\"AQIDBAUGBwgJCgsMDQ4PEA==\",\"subType\":\"04\"}},\"flag\":false},{\"_id\":\"e07\",\"kind\":\"alpha\",\"at\":{\"$date\":\"2026-03-02T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000007\"},\"payload\":{\"$binary\":{\"base64\":\"CQk=\",\"subType\":\"80\"}},\"nested\":{\"depth\":1,\"label\":\"x\"}},{\"_id\":\"e08\",\"kind\":\"日本\",\"at\":{\"$date\":\"2026-03-03T00:00:00.000Z\"},\"nested\":{\"depth\":4},\"flag\":true},{\"_id\":\"e09\",\"kind\":null,\"at\":null,\"ref\":{\"$oid\":\"6f6000000000000000000009\"},\"payload\":{\"$binary\":{\"base64\":\"AAA=\",\"subType\":\"00\"}}},{\"_id\":\"e10\",\"at\":\"unknown\",\"ref\":{\"$oid\":\"6f600000000000000000000a\"}}],\"page\":{\"limit\":10,\"next\":\"eyJzIjpbbnVsbCwiZTEwIl0sInEiOiI0OGQzZTk2ODAxZDBiNmUxZjk4ZDMyODUxMTZhMTkxNyJ9\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    }
+  ]
+}

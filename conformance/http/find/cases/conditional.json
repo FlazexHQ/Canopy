@@ -1,0 +1,334 @@
+{
+  "group": "conditional",
+  "description": "ETag validators over the page content (not its cluster time) and If-None-Match, which answers 304.",
+  "cases": [
+    {
+      "id": "first",
+      "title": "A page carries a weak ETag",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "conditional.first"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.first"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "match",
+      "title": "The same page with its ETag answers 304 and no body",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "if-none-match": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-request-id": "conditional.match"
+        }
+      },
+      "response": {
+        "status": 304,
+        "headers": {
+          "etag": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.match"
+        },
+        "body": "",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "match-in-list",
+      "title": "A list of validators that includes it",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "if-none-match": "\"x\", W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-request-id": "conditional.match-in-list"
+        }
+      },
+      "response": {
+        "status": 304,
+        "headers": {
+          "etag": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.match-in-list"
+        },
+        "body": "",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "stale",
+      "title": "A validator of other content gets the page",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "if-none-match": "W/\"00000000000000000000000000000000\"",
+          "x-request-id": "conditional.stale"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.stale"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "canonical-encoding",
+      "title": "The same page in canonical Extended JSON has another validator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "accept": "application/ejson",
+          "if-none-match": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-request-id": "conditional.canonical-encoding"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/ejson",
+          "etag": "W/\"cb0ae6c5a8924e967a6e2d7044612859\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.canonical-encoding"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":{\"$numberInt\":\"2\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767254400000\"}},\"dueAt\":{\"$date\":{\"$numberLong\":\"1769904000000\"}},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":{\"$numberInt\":\"1\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767346200000\"}},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":{\"$numberInt\":\"3\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767434400000\"}},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":{\"$numberInt\":\"3\"},\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "other-caller",
+      "title": "Another caller does not share the validator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "bob",
+        "headers": {
+          "if-none-match": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-request-id": "conditional.other-caller"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"008319f2ac9b27271b57ed9da450ed83\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.other-caller"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000007\"},\"ownerId\":\"bob\",\"title\":\"todo 7\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-07T07:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-03-01T00:00:00.000Z\"},\"tags\":[\"work\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000009\"},\"ownerId\":\"bob\",\"title\":\"todo 9\",\"status\":\"done\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-09T09:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000b\"},\"ownerId\":\"bob\",\"title\":\"todo 11\",\"status\":\"blocked\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-11T14:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-12T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDBiIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "star",
+      "title": "If-None-Match with * is not a validator match",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=_id&limit=3",
+        "query": [
+          [
+            "sort",
+            "_id"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "if-none-match": "*",
+          "x-request-id": "conditional.star"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "conditional.star"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "error-has-no-etag",
+      "title": "An error has no validator even when one is sent",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/nothing",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "if-none-match": "W/\"951b1caea6d11d75b34662e54e0d9f6e\"",
+          "x-request-id": "conditional.error-has-no-etag"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "conditional.error-has-no-etag"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing\",\"requestId\":\"conditional.error-has-no-etag\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

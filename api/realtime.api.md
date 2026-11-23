@@ -156,6 +156,7 @@ export interface GatewayOverrides {
     readonly mutationsUrl?: string;
     readonly auth?: GatewayAuth;
     readonly viewTokenKey?: JsonWebKey;
+    readonly dataPlaneRoutes?: readonly string[];
 }
 
 class Gauge {

@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Canopy data plane configuration",
+  "description": "The launcher document read without environment fallbacks. Unknown fields are ignored. Optional fields of the wrong type use their defaults unless a constraint says otherwise. Values are resolved as binary64 numbers. The resolved application and meta databases must differ. MongoDB URI, policy, upstream URL and JWT verification details are checked separately on startup.",
+  "type": "object",
+  "required": ["mongodb"],
+  "properties": {
+    "mongodb": {
+      "type": "object",
+      "required": ["uri"],
+      "properties": {
+        "uri": { "type": "string" },
+        "database": {
+          "$ref": "#/$defs/string",
+          "description": "Defaults to the database in the MongoDB URI."
+        },
+        "metaDatabase": { "$ref": "#/$defs/string", "default": "canopy" }
+      },
+      "anyOf": [
+        { "required": ["database"], "properties": { "database": { "type": "string" } } },
+        { "properties": { "uri": { "pattern": "^(?:(?!://)[\\s\\S])*://[^/]*/[^?#]" } } }
+      ]
+    },
+    "server": {
+      "properties": {
+        "host": { "$ref": "#/$defs/string", "default": "0.0.0.0" },
+        "port": {
+          "if": { "type": "number" },
+          "then": { "exclusiveMaximum": 65536 },
+          "default": 8080,
+          "description": "Positive numbers are truncated. Values at or below zero select an ephemeral port."
+        },
+        "metricsHost": { "$ref": "#/$defs/string", "default": "127.0.0.1" },
+        "metricsPort": {
+          "$ref": "#/$defs/number",
+          "default": 9464,
+          "description": "Positive numbers are truncated. Values at or below zero or at least 65536 disable the metrics listener."
+        },
+        "metricsToken": { "$ref": "#/$defs/string" },
+        "trustedProxies": {
+          "$ref": "#/$defs/strings",
+          "default": [],
+          "description": "IP addresses and CIDR ranges. Invalid entries are ignored."
+        },
+        "nodeId": { "$ref": "#/$defs/string", "default": "n1" },
+        "shards": {
+          "$ref": "#/$defs/number",
+          "description": "Uses a positive truncated count that fits the target platform. Otherwise uses the available parallelism clamped to 1 through 4, or 2 if unavailable."
+        }
+      }
+    },
+    "auth": {
+      "default": null,
+      "description": "Only an object enables JWT verification. Null explicitly disables it.",
+      "if": { "type": "object" },
+      "then": {
+        "required": ["issuer"],
+        "properties": {
+          "issuer": {
+            "anyOf": [{ "type": "string" }, { "type": "array", "contains": { "type": "string" } }]
+          },
+          "audience": { "$ref": "#/$defs/strings", "default": [] },
+          "jwks": {
+            "description": "Any value other than null is passed to the verifier as inline JWKS."
+          },
+          "jwksUrl": { "$ref": "#/$defs/string" },
+          "algorithms": { "$ref": "#/$defs/strings", "default": [] },
+          "rolesClaim": { "$ref": "#/$defs/string" },
+          "allowServiceRoleFromJwt": { "$ref": "#/$defs/boolean", "default": false },
+          "clockToleranceSeconds": { "$ref": "#/$defs/whole", "default": 60 },
+          "checkRevocations": { "$ref": "#/$defs/boolean", "default": false }
+        },
+        "anyOf": [
+          { "required": ["jwks"], "properties": { "jwks": { "not": { "type": "null" } } } },
+          { "required": ["jwksUrl"], "properties": { "jwksUrl": { "type": "string" } } }
+        ]
+      }
+    },
+    "keys": {
+      "properties": {
+        "publishable": { "$ref": "#/$defs/strings" },
+        "secret": { "$ref": "#/$defs/strings", "default": [] }
+      }
+    },
+    "policies": {
+      "description": "A stored array selects launcher supplied policies. Otherwise policies are loaded from the meta database. The launcher also emits a source field that the parser ignores.",
+      "properties": {
+        "stored": { "type": "array" },
+        "contexts": {
+          "description": "Context lookups for stored policies. Null or omission provides no lookups."
+        },
+        "watch": {
+          "$ref": "#/$defs/boolean",
+          "default": true,
+          "description": "Applies to policies loaded from the database."
+        },
+        "source": {
+          "description": "Informational launcher field. The parser selects the source by the presence of stored."
+        }
+      }
+    },
+    "realtime": {
+      "properties": {
+        "fullDocument": {
+          "if": { "type": "string" },
+          "then": { "enum": ["auto", "updateLookup", "images"] },
+          "default": "auto"
+        },
+        "checkpoints": {
+          "$ref": "#/$defs/string",
+          "default": "meta",
+          "description": "Only the string off disables checkpoint storage."
+        },
+        "resumeWindowMs": { "$ref": "#/$defs/whole", "default": 120000 },
+        "drainWindowMs": { "$ref": "#/$defs/whole", "default": 30000 },
+        "heartbeatMs": { "$ref": "#/$defs/whole", "default": 25000 },
+        "coalesceMs": {
+          "if": { "type": "number" },
+          "then": { "minimum": 0, "maximum": 1000 },
+          "default": 0,
+          "description": "Accepted numbers are truncated to whole milliseconds."
+        },
+        "transports": {
+          "$ref": "#/$defs/strings",
+          "if": { "type": "string" },
+          "then": { "$ref": "#/$defs/transport" },
+          "items": { "if": { "type": "string" }, "then": { "$ref": "#/$defs/transport" } },
+          "default": ["websocket", "sse", "long-poll"]
+        }
+      }
+    },
+    "cors": {
+      "properties": {
+        "origins": {
+          "$ref": "#/$defs/strings",
+          "description": "A wildcard entry allows any origin."
+        }
+      }
+    },
+    "rateLimits": {
+      "description": "Only the literal false disables limits. Other values enable them with any supplied options.",
+      "properties": {
+        "messages": {
+          "properties": {
+            "perSecond": { "$ref": "#/$defs/number", "default": 20 },
+            "burst": { "$ref": "#/$defs/number", "default": 100 }
+          }
+        },
+        "anonymousConnectionsPerAddress": { "$ref": "#/$defs/whole", "default": 50 },
+        "exemptService": { "$ref": "#/$defs/boolean", "default": true }
+      }
+    },
+    "mutations": { "properties": { "url": { "$ref": "#/$defs/string" } } },
+    "proxy": { "properties": { "url": { "$ref": "#/$defs/string" } } },
+    "log": { "properties": { "level": { "$ref": "#/$defs/string", "default": "info" } } },
+    "rest": {
+      "description": "The Data API settings a data plane route needs. Only the literal false disables the Data API, and then dataPlane.routes must be empty. Positive numbers are truncated. The default limit must not exceed the maximum.",
+      "properties": {
+        "defaultLimit": {
+          "if": { "type": "number" },
+          "then": { "minimum": 1 },
+          "default": 100,
+          "description": "Page size when the caller sets none."
+        },
+        "maxLimit": {
+          "if": { "type": "number" },
+          "then": { "minimum": 1 },
+          "default": 1000,
+          "description": "The largest page a caller may request."
+        },
+        "maxSkip": {
+          "$ref": "#/$defs/whole",
+          "default": 10000,
+          "description": "The largest skip. Cursors have no such limit. The TypeScript launcher does not set it."
+        }
+      }
+    },
+    "dataPlane": {
+      "properties": {
+        "routes": {
+          "$ref": "#/$defs/strings",
+          "if": { "type": "string" },
+          "then": { "$ref": "#/$defs/dataPlaneRoute" },
+          "items": { "if": { "type": "string" }, "then": { "$ref": "#/$defs/dataPlaneRoute" } },
+          "default": [],
+          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}, with OPTIONS and 405 on that path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
+        }
+      }
+    },
+    "viewTokens": {
+      "properties": {
+        "jwk": {
+          "type": "object",
+          "required": ["kty", "crv", "x"],
+          "properties": {
+            "kty": { "const": "OKP" },
+            "crv": { "const": "Ed25519" },
+            "x": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]=*(?![\\s\\S])",
+              "description": "A 32 byte Ed25519 public key encoded as base64url. Trailing padding is ignored."
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "string": { "if": { "type": "string" }, "else": { "description": "Ignored by the parser." } },
+    "number": { "if": { "type": "number" }, "else": { "description": "Ignored by the parser." } },
+    "whole": {
+      "$ref": "#/$defs/number",
+      "description": "Positive numbers are truncated and capped at the destination's maximum. Values at or below zero resolve to zero."
+    },
+    "boolean": { "if": { "type": "boolean" }, "else": { "description": "Ignored by the parser." } },
+    "strings": {
+      "if": { "type": "string" },
+      "then": { "description": "Read as a list of one string." },
+      "else": {
+        "if": { "type": "array" },
+        "then": { "items": { "$ref": "#/$defs/string" } },
+        "else": { "description": "Ignored by the parser." }
+      }
+    },
+    "transport": { "enum": ["websocket", "sse", "long-poll"] },
+    "dataPlaneRoute": { "enum": ["find"] }
+  }
+}

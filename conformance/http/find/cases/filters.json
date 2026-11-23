@@ -1,0 +1,1110 @@
+{
+  "group": "filters",
+  "description": "Shorthand query parameters and the EJSON filter, alone and combined, over strings, numbers, dates, ObjectIds, arrays and nested paths.",
+  "cases": [
+    {
+      "id": "eq",
+      "title": "Shorthand equality",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=eq.active&limit=10",
+        "query": [
+          [
+            "status",
+            "eq.active"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.eq"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"0aa07d33c0f7d35d893aca316bb65a97\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.eq"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ne",
+      "title": "Shorthand not equal",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=ne.active&limit=10",
+        "query": [
+          [
+            "status",
+            "ne.active"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ne"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"af12d4c3a29a87dd9502fb0ebe1da094\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ne"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "range-same-path",
+      "title": "Two operators on one path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?priority=gte.2&priority=lte.2&limit=10",
+        "query": [
+          [
+            "priority",
+            "gte.2"
+          ],
+          [
+            "priority",
+            "lte.2"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.range-same-path"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"1cf72983e3ebcb72ac19e16ea833f7bf\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.range-same-path"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "two-paths",
+      "title": "Conditions on two paths",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=eq.active&priority=gt.1&limit=10",
+        "query": [
+          [
+            "status",
+            "eq.active"
+          ],
+          [
+            "priority",
+            "gt.1"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.two-paths"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"018ea5210ba52cd72cfd302c41553925\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.two-paths"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "in-list",
+      "title": "A list of values",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=in.%28done%2Cblocked%29&limit=10",
+        "query": [
+          [
+            "status",
+            "in.(done,blocked)"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.in-list"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"af12d4c3a29a87dd9502fb0ebe1da094\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.in-list"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "nin-list",
+      "title": "Values not in a list",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=nin.%28done%2Cblocked%29&limit=10",
+        "query": [
+          [
+            "status",
+            "nin.(done,blocked)"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.nin-list"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"0aa07d33c0f7d35d893aca316bb65a97\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.nin-list"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "exists-false",
+      "title": "Missing fields",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?dueAt=exists.false&limit=10",
+        "query": [
+          [
+            "dueAt",
+            "exists.false"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.exists-false"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"5cd758bbf562db13927dea3378cfafa6\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.exists-false"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "eq-null",
+      "title": "Equality with null matches null and missing",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?dueAt=eq.null&limit=10",
+        "query": [
+          [
+            "dueAt",
+            "eq.null"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.eq-null"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"75498cff5b1c9c5fbc24d6eb4176d85a\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.eq-null"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "regex-literal",
+      "title": "A regular expression with options",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?title=regex.%2FTODO+1%2Fi&limit=10",
+        "query": [
+          [
+            "title",
+            "regex./TODO 1/i"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.regex-literal"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"8bf890b895930033d85c9d56f14aaf8b\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.regex-literal"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "size",
+      "title": "An array of a given size",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?tags=size.2&limit=10",
+        "query": [
+          [
+            "tags",
+            "size.2"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.size"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"44985592d6946291aecba6bd0a0c8a56\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.size"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "quoted-string",
+      "title": "A quoted value stays a string",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?title=eq.%22todo+3%22&limit=10",
+        "query": [
+          [
+            "title",
+            "eq.\"todo 3\""
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.quoted-string"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"5cd758bbf562db13927dea3378cfafa6\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.quoted-string"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "date-ejson",
+      "title": "A date written as Extended JSON",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?createdAt=gte.%7B%22%24date%22%3A%222026-01-06T00%3A00%3A00Z%22%7D&limit=10",
+        "query": [
+          [
+            "createdAt",
+            "gte.{\"$date\":\"2026-01-06T00:00:00Z\"}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.date-ejson"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"5dd9cfcfe0a6f5157d7fe5b4fac37787\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.date-ejson"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "objectid-ejson",
+      "title": "An ObjectId written as Extended JSON",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?_id=eq.%7B%22%24oid%22%3A%226f1000000000000000000005%22%7D",
+        "query": [
+          [
+            "_id",
+            "eq.{\"$oid\":\"6f1000000000000000000005\"}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.objectid-ejson"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"78d19109d4b34c6c2a3fbef1c77018ad\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.objectid-ejson"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ejson-filter",
+      "title": "The filter parameter",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22status%22%3A%22active%22%2C%22priority%22%3A%7B%22%24gte%22%3A2%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"status\":\"active\",\"priority\":{\"$gte\":2}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ejson-filter"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"018ea5210ba52cd72cfd302c41553925\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ejson-filter"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ejson-or",
+      "title": "An $or filter",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24or%22%3A%5B%7B%22status%22%3A%22blocked%22%7D%2C%7B%22priority%22%3A3%7D%5D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"$or\":[{\"status\":\"blocked\"},{\"priority\":3}]}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ejson-or"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"84b6a34a6d46e3b76ed23df265d35e22\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ejson-or"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ejson-nested",
+      "title": "A path into a nested document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22meta.source%22%3A%22web%22%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"meta.source\":\"web\"}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ejson-nested"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"b2e3d9df07f9233fbc1661899228b10c\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ejson-nested"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ejson-array-all",
+      "title": "An array containing all of several values",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22tags%22%3A%7B%22%24all%22%3A%5B%22work%22%2C%22urgent%22%5D%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"tags\":{\"$all\":[\"work\",\"urgent\"]}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ejson-array-all"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"85f58e4f1604cb5d54d51febea56f291\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ejson-array-all"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "ejson-in-objectids",
+      "title": "A list of ObjectIds",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22_id%22%3A%7B%22%24in%22%3A%5B%7B%22%24oid%22%3A%226f1000000000000000000001%22%7D%2C%7B%22%24oid%22%3A%226f1000000000000000000002%22%7D%2C%7B%22%24oid%22%3A%226f1000000000000000000007%22%7D%5D%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"_id\":{\"$in\":[{\"$oid\":\"6f1000000000000000000001\"},{\"$oid\":\"6f1000000000000000000002\"},{\"$oid\":\"6f1000000000000000000007\"}]}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.ejson-in-objectids"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"c4dc81f4e957707099506d1e7ab4e21f\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.ejson-in-objectids"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "filter-and-shorthand",
+      "title": "A filter and a shorthand condition are combined with and",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22priority%22%3A%7B%22%24gte%22%3A2%7D%7D&status=eq.active&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"priority\":{\"$gte\":2}}"
+          ],
+          [
+            "status",
+            "eq.active"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.filter-and-shorthand"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"018ea5210ba52cd72cfd302c41553925\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.filter-and-shorthand"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"cli\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "no-match",
+      "title": "A filter that matches nothing",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=eq.nothing",
+        "query": [
+          [
+            "status",
+            "eq.nothing"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.no-match"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.no-match"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "numbers-eq-2",
+      "title": "The number 2 matches every numeric type that holds it",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?n=eq.2&limit=10",
+        "query": [
+          [
+            "n",
+            "eq.2"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.numbers-eq-2"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"9599404a0d393e336298425fe136f8ba\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.numbers-eq-2"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"label\":\"double 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-gt-1",
+      "title": "Greater than 1 over mixed numeric types",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?n=gt.1&limit=10",
+        "query": [
+          [
+            "n",
+            "gt.1"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.numbers-gt-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"ecca5c747f04f722634c3b579aa963b3\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.numbers-gt-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000002\"},\"label\":\"long 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000003\"},\"label\":\"double 2\",\"n\":2},{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000b\"},\"label\":\"positive infinity\",\"n\":{\"$numberDouble\":\"Infinity\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000c\"},\"label\":\"long above 2^53\",\"n\":{\"$numberLong\":\"9007199254740993\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000d\"},\"label\":\"double 1.5\",\"n\":1.5},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-eq-null",
+      "title": "Null equality over numbers, null and missing",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?n=eq.null&limit=10",
+        "query": [
+          [
+            "n",
+            "eq.null"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.numbers-eq-null"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"316fa97a05a0817b681b416f35d58714\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.numbers-eq-null"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000008\"},\"label\":\"null\",\"n\":null},{\"_id\":{\"$oid\":\"6f5000000000000000000009\"},\"label\":\"missing\"}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-nan",
+      "title": "Equality with NaN",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?filter=%7B%22n%22%3A%7B%22%24numberDouble%22%3A%22NaN%22%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"n\":{\"$numberDouble\":\"NaN\"}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.numbers-nan"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"9919e573cb0b211c1b850d6818c8fd60\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.numbers-nan"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000005\"},\"label\":\"nan\",\"n\":{\"$numberDouble\":\"NaN\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "numbers-type-decimal",
+      "title": "A type test",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers?filter=%7B%22n%22%3A%7B%22%24type%22%3A%22decimal%22%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"n\":{\"$type\":\"decimal\"}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.numbers-type-decimal"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"6d244f3ec5ad6a37f8b5c9d2ce45b818\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.numbers-type-decimal"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f5000000000000000000004\"},\"label\":\"decimal 2\",\"n\":{\"$numberDecimal\":\"2\"}},{\"_id\":{\"$oid\":\"6f500000000000000000000f\"},\"label\":\"decimal 1.50\",\"n\":{\"$numberDecimal\":\"1.50\"}},{\"_id\":{\"$oid\":\"6f5000000000000000000011\"},\"label\":\"decimal nan\",\"n\":{\"$numberDecimal\":\"NaN\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "events-binary",
+      "title": "Equality with binary data",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/events?filter=%7B%22payload%22%3A%7B%22%24binary%22%3A%7B%22base64%22%3A%22AA%3D%3D%22%2C%22subType%22%3A%2200%22%7D%7D%7D&limit=10",
+        "query": [
+          [
+            "filter",
+            "{\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}}}"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "filters.events-binary"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"cbeab7f147072bb6c9aa97eb14a7cac9\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "filters.events-binary"
+        },
+        "body": "{\"data\":[{\"_id\":\"e02\",\"kind\":\"Alpha\",\"at\":{\"$date\":\"1970-01-01T00:00:00.000Z\"},\"ref\":{\"$oid\":\"6f6000000000000000000002\"},\"payload\":{\"$binary\":{\"base64\":\"AA==\",\"subType\":\"00\"}},\"nested\":{\"depth\":2,\"label\":\"y\"},\"flag\":true}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    }
+  ]
+}

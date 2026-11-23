@@ -1,0 +1,396 @@
+{
+  "group": "fields",
+  "description": "Projections with fields, intersected with the fields the caller may read.",
+  "cases": [
+    {
+      "id": "include",
+      "title": "Inclusion keeps _id",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=title%2Cstatus&limit=3",
+        "query": [
+          [
+            "fields",
+            "title,status"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.include"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"ea738a32c1bd07603e146cd1b06b38e2\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.include"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\",\"status\":\"active\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"title\":\"todo 2\",\"status\":\"done\"},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"title\":\"todo 3\",\"status\":\"active\"}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "exclude",
+      "title": "Exclusion",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=-status%2C-tags&limit=3",
+        "query": [
+          [
+            "fields",
+            "-status,-tags"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.exclude"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"07766b71361e47b0a8a6ef0449fc9b5a\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.exclude"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "nested-include",
+      "title": "A nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=title%2Cmeta.source&limit=10",
+        "query": [
+          [
+            "fields",
+            "title,meta.source"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.nested-include"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"483acce85c37a4ce80e1ed6005f46c8e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.nested-include"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\",\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"title\":\"todo 2\",\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"title\":\"todo 3\",\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"title\":\"todo 4\",\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"title\":\"todo 5\",\"meta\":{\"source\":\"api\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"title\":\"todo 6\",\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"title\":\"todo 8\",\"meta\":{\"source\":\"cli\"}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"title\":\"todo 10\",\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "nested-exclude",
+      "title": "An excluded nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=-meta.source&limit=10",
+        "query": [
+          [
+            "fields",
+            "-meta.source"
+          ],
+          [
+            "limit",
+            "10"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.nested-exclude"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"12a1e9081a4734797452eff26085079b\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.nested-exclude"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"tags\":[],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"status\":\"active\",\"priority\":3,\"createdAt\":{\"$date\":\"2026-01-03T10:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-20T00:00:00.000Z\"},\"tags\":[\"work\",\"urgent\"],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"ownerId\":\"alice\",\"title\":\"todo 5\",\"status\":\"blocked\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-05T12:00:00.123Z\"},\"dueAt\":{\"$date\":\"2026-01-06T00:00:00.000Z\"},\"tags\":[\"home\"],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000006\"},\"ownerId\":\"alice\",\"title\":\"todo 6\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-06T07:45:00.000Z\"},\"dueAt\":{\"$date\":\"2026-01-07T00:00:00.000Z\"},\"tags\":[\"work\",\"home\"],\"meta\":{}},{\"_id\":{\"$oid\":\"6f1000000000000000000008\"},\"ownerId\":\"alice\",\"title\":\"todo 8\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-08T18:00:00.000Z\"},\"dueAt\":null,\"meta\":{}},{\"_id\":{\"$oid\":\"6f100000000000000000000a\"},\"ownerId\":\"alice\",\"title\":\"todo 10\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-10T11:11:11.000Z\"},\"dueAt\":{\"$date\":\"2026-01-30T00:00:00.000Z\"},\"tags\":[\"urgent\"],\"meta\":{}}],\"page\":{\"limit\":10,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "without-id",
+      "title": "Without _id",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=-_id%2Ctitle&limit=3",
+        "query": [
+          [
+            "fields",
+            "-_id,title"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.without-id"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"889e4c353f86909138ebe536d7dc14af\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.without-id"
+        },
+        "body": "{\"data\":[{\"title\":\"todo 1\"},{\"title\":\"todo 2\"},{\"title\":\"todo 3\"}],\"page\":{\"limit\":3,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-include",
+      "title": "Asking for a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=title%2CinternalNotes",
+        "query": [
+          [
+            "fields",
+            "title,internalNotes"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.hidden-include"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"a78d7968ae37c344d99ed4e84c847532\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.hidden-include"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"title\":\"todo 2\"},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"},\"title\":\"todo 3\"},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"},\"title\":\"todo 4\"},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"},\"title\":\"todo 5\"}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA1In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "hidden-nested-include",
+      "title": "Asking for a hidden nested path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=meta.score",
+        "query": [
+          [
+            "fields",
+            "meta.score"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.hidden-nested-include"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e6ce7182bcd1cf9aa16ff77964fcef8e\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.hidden-nested-include"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000003\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000004\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000005\"}}],\"page\":{\"limit\":5,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDA1In1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "mixed",
+      "title": "Inclusion and exclusion mixed",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=title%2C-status",
+        "query": [
+          [
+            "fields",
+            "title,-status"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.mixed"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "fields.mixed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A projection cannot mix inclusion and exclusion\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"fields.mixed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "empty-name",
+      "title": "An empty field name",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=%2Ctitle",
+        "query": [
+          [
+            "fields",
+            ",title"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "fields.empty-name"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "fields.empty-name"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A field name may not be empty\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"fields.empty-name\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "service-hidden",
+      "title": "The service role may project a hidden field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?fields=internalNotes&limit=2",
+        "query": [
+          [
+            "fields",
+            "internalNotes"
+          ],
+          [
+            "limit",
+            "2"
+          ]
+        ],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "fields.service-hidden"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"3bc3703164f7f74ea371e82855bb0cde\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "fields.service-hidden"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"internalNotes\":\"secret-1\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"internalNotes\":\"secret-2\"}],\"page\":{\"limit\":2,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAyIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    }
+  ]
+}

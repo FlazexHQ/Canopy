@@ -11,7 +11,8 @@
     "packages": [
       "packages/*",
       "apps/*",
-      "examples/*"
+      "examples/*",
+      "bench"
     ],
     "catalog": {
       "@astrojs/starlight": "0.42.9",
@@ -110,6 +111,8 @@
     "vectors:matcher": "bun packages/testing/scripts/matcher-vectors.ts",
     "vectors:query": "bun --conditions=@canopy/source packages/testing/scripts/query-vectors.ts",
     "vectors:policy": "bun --conditions=@canopy/source packages/testing/scripts/policy-vectors.ts",
+    "vectors:http": "bun --conditions=@canopy/source packages/testing/scripts/http-find-vectors.ts",
+    "vectors:cursor": "bun --conditions=@canopy/source packages/testing/scripts/cursor-vectors.ts",
     "format": "bun fmt",
     "test": "turbo run test",
     "test:all": "vitest run",

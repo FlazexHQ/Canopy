@@ -1,0 +1,1224 @@
+{
+  "group": "errors",
+  "description": "Every error class of the route as Problem Details: addressing, filters, shorthand, sorts, credentials, roles and methods. The detail texts are part of the pinned bytes.",
+  "cases": [
+    {
+      "id": "unknown-collection",
+      "title": "A collection that does not exist",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/nothing",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.unknown-collection"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.unknown-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing\",\"requestId\":\"errors.unknown-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "not-exposed",
+      "title": "A collection that exists but is not exposed",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/hidden",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.not-exposed"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.not-exposed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden\",\"requestId\":\"errors.not-exposed\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "collection-name-operator",
+      "title": "A collection name that is a MongoDB operator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/$cmd",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.collection-name-operator"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.collection-name-operator"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Invalid collection name\",\"instance\":\"/rest/v1/$cmd\",\"requestId\":\"errors.collection-name-operator\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "collection-name-system",
+      "title": "A system collection name",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/system.users",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.collection-name-system"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.collection-name-system"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Invalid collection name\",\"instance\":\"/rest/v1/system.users\",\"requestId\":\"errors.collection-name-system\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "outside-base-path",
+      "title": "A path outside the base path",
+      "request": {
+        "method": "GET",
+        "target": "/other/todos",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.outside-base-path"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.outside-base-path"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/other/todos\",\"requestId\":\"errors.outside-base-path\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "bad-percent-encoding",
+      "title": "A path that is not validly percent encoded",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/%E0%A4%A",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.bad-percent-encoding"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.bad-percent-encoding"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The path is not validly percent encoded\",\"instance\":\"/rest/v1/%E0%A4%A\",\"requestId\":\"errors.bad-percent-encoding\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "method-not-allowed",
+      "title": "A method the path does not allow",
+      "request": {
+        "method": "PUT",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.method-not-allowed"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "GET, POST, PATCH, DELETE",
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.method-not-allowed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":405,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"PUT is not allowed here\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.method-not-allowed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-malformed",
+      "title": "A filter that is not JSON",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7Bbad",
+        "query": [
+          [
+            "filter",
+            "{bad"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-malformed"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-malformed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"filter must be valid Extended JSON\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-malformed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-not-document",
+      "title": "A filter that is not a document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%5B1%2C2%5D",
+        "query": [
+          [
+            "filter",
+            "[1,2]"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-not-document"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-not-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"filter must be a document\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-not-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-twice",
+      "title": "filter given twice",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%7D&filter=%7B%7D",
+        "query": [
+          [
+            "filter",
+            "{}"
+          ],
+          [
+            "filter",
+            "{}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-twice"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-twice"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"filter may only be given once\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-twice\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-expr",
+      "title": "$expr is refused",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24expr%22%3A%7B%22%24eq%22%3A%5B1%2C1%5D%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$expr\":{\"$eq\":[1,1]}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-expr"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-expr"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$expr is only allowed in check clauses\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-expr\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-function",
+      "title": "$expr wrapping $function is refused",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24expr%22%3A%7B%22%24function%22%3A%7B%22body%22%3A%22function%28%29%7Breturn+true%7D%22%2C%22args%22%3A%5B%5D%2C%22lang%22%3A%22js%22%7D%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$expr\":{\"$function\":{\"body\":\"function(){return true}\",\"args\":[],\"lang\":\"js\"}}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-function"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-function"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$expr is only allowed in check clauses\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-function\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-unknown-operator",
+      "title": "An operator that does not exist",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22status%22%3A%7B%22%24bogus%22%3A1%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"status\":{\"$bogus\":1}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-unknown-operator"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-unknown-operator"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The operator $bogus is not allowed\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-unknown-operator\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-too-deep",
+      "title": "A filter nested past the depth limit",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%22%24and%22%3A%5B%7B%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D%5D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{\"$and\":[{}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-too-deep"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-too-deep"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A query may not nest deeper than 16 levels\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-too-deep\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-in-too-long",
+      "title": "An $in list past its limit",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?filter=%7B%22priority%22%3A%7B%22%24in%22%3A%5B1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%2C1%5D%7D%7D",
+        "query": [
+          [
+            "filter",
+            "{\"priority\":{\"$in\":[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]}}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-in-too-long"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-in-too-long"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"$in may not have more than 1000 values\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-in-too-long\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "filter-bad-regex",
+      "title": "A regular expression that does not compile",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?title=regex.%28",
+        "query": [
+          [
+            "title",
+            "regex.("
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.filter-bad-regex"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.filter-bad-regex"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"<engine-text>\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.filter-bad-regex\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [
+          {
+            "rule": "engine-text",
+            "body": "$.detail"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-no-operator",
+      "title": "A shorthand value without an operator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=active",
+        "query": [
+          [
+            "status",
+            "active"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-no-operator"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-no-operator"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The filter status=active needs an operator, for example status=eq.active\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-no-operator\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-unknown-operator",
+      "title": "An unknown shorthand operator",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=like.act",
+        "query": [
+          [
+            "status",
+            "like.act"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-unknown-operator"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-unknown-operator"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown shorthand operator like for status\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-unknown-operator\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-operator-twice",
+      "title": "One operator twice on a path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?priority=gt.1&priority=gt.2",
+        "query": [
+          [
+            "priority",
+            "gt.1"
+          ],
+          [
+            "priority",
+            "gt.2"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-operator-twice"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-operator-twice"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"priority has the operator $gt more than once\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-operator-twice\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-unquoted-list",
+      "title": "A list without parentheses",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?status=in.a%2Cb",
+        "query": [
+          [
+            "status",
+            "in.a,b"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-unquoted-list"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-unquoted-list"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A list must be written as (a,b,c)\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-unquoted-list\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-bad-quote",
+      "title": "A quoted value that never closes",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?title=eq.%22open",
+        "query": [
+          [
+            "title",
+            "eq.\"open"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-bad-quote"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-bad-quote"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed quoted value: \\\"open\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-bad-quote\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-document-value",
+      "title": "A shorthand value that is a plain document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?meta=eq.%7B%22source%22%3A%22web%22%7D",
+        "query": [
+          [
+            "meta",
+            "eq.{\"source\":\"web\"}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-document-value"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-document-value"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A shorthand value must be a single EJSON value such as {\\\"$oid\\\":…}\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-document-value\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-bad-exists",
+      "title": "exists with something other than true or false",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?dueAt=exists.maybe",
+        "query": [
+          [
+            "dueAt",
+            "exists.maybe"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-bad-exists"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-bad-exists"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"exists takes true or false\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-bad-exists\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-where",
+      "title": "where is reserved for writes",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?where=%7B%7D",
+        "query": [
+          [
+            "where",
+            "{}"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-where"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-where"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"where only applies to writes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-where\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "shorthand-upsert",
+      "title": "upsert is reserved for writes",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?upsert=true",
+        "query": [
+          [
+            "upsert",
+            "true"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.shorthand-upsert"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.shorthand-upsert"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"upsert only applies to writes\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.shorthand-upsert\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "sort-empty-key",
+      "title": "A sort with an empty key",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=%2Ctitle",
+        "query": [
+          [
+            "sort",
+            ",title"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.sort-empty-key"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.sort-empty-key"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A sort key may not be empty\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.sort-empty-key\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "sort-repeated",
+      "title": "A sort that repeats a path",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=title%2C-title",
+        "query": [
+          [
+            "sort",
+            "title,-title"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.sort-repeated"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.sort-repeated"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The sort repeats title\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.sort-repeated\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "sort-too-many",
+      "title": "More sort keys than the limit of 8",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=a%2Cb%2Cc%2Cd%2Ce%2Cf%2Cg%2Ch%2Ci",
+        "query": [
+          [
+            "sort",
+            "a,b,c,d,e,f,g,h,i"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.sort-too-many"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.sort-too-many"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A sort may not have more than 8 keys\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.sort-too-many\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "sort-twice",
+      "title": "sort given twice",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?sort=title&sort=-title",
+        "query": [
+          [
+            "sort",
+            "title"
+          ],
+          [
+            "sort",
+            "-title"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.sort-twice"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.sort-twice"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"sort may only be given once\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.sort-twice\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "missing-key",
+      "title": "No credentials at all",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "none",
+        "headers": {
+          "x-request-id": "errors.missing-key"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.missing-key"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.missing-key\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "unknown-key",
+      "title": "An API key nobody issued",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "unknown-key",
+        "headers": {
+          "x-request-id": "errors.unknown-key"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.unknown-key"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.unknown-key\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "not-bearer",
+      "title": "An Authorization header that is not Bearer",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "authorization": "Basic YWxpY2U6cGFzcw==",
+          "x-request-id": "errors.not-bearer"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.not-bearer"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The Authorization header must use the Bearer scheme\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.not-bearer\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "expired-token",
+      "title": "An expired token",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "expired",
+        "headers": {
+          "x-request-id": "errors.expired-token"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer error=\"invalid_token\", error_description=\"The token has expired\"",
+          "x-request-id": "errors.expired-token"
+        },
+        "body": "{\"type\":\"urn:canopy:error:token-expired\",\"title\":\"Token expired\",\"status\":401,\"code\":\"CANOPY_TOKEN_EXPIRED\",\"detail\":\"The token has expired\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.expired-token\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "tampered-token",
+      "title": "A token whose signature is wrong",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "tampered",
+        "headers": {
+          "x-request-id": "errors.tampered-token"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.tampered-token"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Invalid token\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.tampered-token\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "wrong-issuer",
+      "title": "A token of another issuer",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "wrong-issuer",
+        "headers": {
+          "x-request-id": "errors.wrong-issuer"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.wrong-issuer"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Invalid token\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.wrong-issuer\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "secret-key-mismatch",
+      "title": "A secret key as bearer that differs from the apikey header",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "authorization": "Bearer canopy_sk_conformance",
+          "x-request-id": "errors.secret-key-mismatch"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "errors.secret-key-mismatch"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"The apikey header and the bearer secret key differ\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.secret-key-mismatch\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "secret-key-bearer",
+      "title": "A secret key sent only as bearer is the service role",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=2",
+        "query": [
+          [
+            "limit",
+            "2"
+          ]
+        ],
+        "caller": "service-bearer",
+        "headers": {
+          "x-request-id": "errors.secret-key-bearer"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e1e013cc807a8526d9c8d6f73fd5af13\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "errors.secret-key-bearer"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\",\"score\":1.5},\"internalNotes\":\"secret-1\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5},\"internalNotes\":\"secret-2\"}],\"page\":{\"limit\":2,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAyIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "service-role-claim",
+      "title": "A token that claims the service role",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos",
+        "query": [],
+        "caller": "service-claim",
+        "headers": {
+          "x-request-id": "errors.service-role-claim"
+        }
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.service-role-claim"
+        },
+        "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"A token may not assert the service role\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"errors.service-role-claim\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-header-service",
+      "title": "X-Canopy-Explain is ignored: the explanation is POST /{collection}/_explain",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=2",
+        "query": [
+          [
+            "limit",
+            "2"
+          ]
+        ],
+        "caller": "service",
+        "headers": {
+          "x-canopy-explain": "true",
+          "x-request-id": "errors.explain-header-service"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e1e013cc807a8526d9c8d6f73fd5af13\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "errors.explain-header-service"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\",\"score\":1.5},\"internalNotes\":\"secret-1\"},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5},\"internalNotes\":\"secret-2\"}],\"page\":{\"limit\":2,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAyIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-header-owner",
+      "title": "X-Canopy-Explain reveals nothing to a caller DLS applies to",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=2",
+        "query": [
+          [
+            "limit",
+            "2"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-canopy-explain": "true",
+          "x-request-id": "errors.explain-header-owner"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"50e6c72375ed774c67d9eb93a34459f4\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "errors.explain-header-owner"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\"}}],\"page\":{\"limit\":2,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAyIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "minted-request-id-success",
+      "title": "Without X-Request-Id the server mints one",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=1",
+        "query": [
+          [
+            "limit",
+            "1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"a549be866c5a41eda8b4b5a29a3781a7\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "<request-id>"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAxIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          },
+          {
+            "rule": "request-id",
+            "header": "x-request-id"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "minted-request-id-error",
+      "title": "A minted request id also appears in a problem",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/nothing",
+        "query": [],
+        "caller": "alice",
+        "headers": {}
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "<request-id>"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing\",\"requestId\":\"<request-id>\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [
+          {
+            "rule": "request-id",
+            "header": "x-request-id",
+            "body": "$.requestId"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "unsafe-request-id",
+      "title": "A request id with unsafe characters is replaced",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/nothing",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "bad id with spaces"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "<request-id>"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing\",\"requestId\":\"<request-id>\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [
+          {
+            "rule": "request-id",
+            "header": "x-request-id",
+            "body": "$.requestId"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "given-request-id",
+      "title": "A safe request id is echoed",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/nothing",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "errors.given-request-id"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "errors.given-request-id"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing\",\"requestId\":\"errors.given-request-id\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

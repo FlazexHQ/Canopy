@@ -29,7 +29,7 @@ limit and encode once fan out, so the engine's cost does not depend on the serve
 
 ## Evidence
 
-- Engine cost without the network: `packages/realtime/bench/fanout.ts` opens many in process connections on
+- Engine cost without the network: `bench/workloads/realtime/fanout.ts` opens many in process connections on
   a million document collection, drives writes from a separate process and measures write to delivery latency
   against a plain change stream baseline (`stream-probe.ts`). It is gated by the nightly scale job for the
   REST ratios; the fan out numbers are not recorded in the repository.

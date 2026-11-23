@@ -379,6 +379,17 @@ async function update(c: RequestContext, coll: string, filter: Filter, update: U
   write concern and no transaction. The response's `ct` is the session's operation time right after the write.
   Inserts with a matcher-certified `check` may later be pre-checked in-process
   ([S3](../spikes/S3-write-path-cost.md)).
+- **Pre-checked writes.** A single insert and a single replace without `upsert` are stored exactly as sent (a
+  replacement with `_id` first), so MongoDB evaluates `CHECK` on the document before the write, through
+  `$documents`, and the write is one `insertOne` or `replaceOne` with majority write concern and no
+  transaction. The check runs as an aggregation on the target collection (an empty `_id` match, then
+  `$unionWith` over `$documents`), so MongoDB compares strings with the collection's default collation, as it
+  does for the stored document; a `$documents` aggregation on the database has no collation and could pass a
+  document that fails its check once stored. `check` is a filter of constants over the document alone, so
+  nothing it reads can change between the check and the write. A replace whose pre-check fails still runs the
+  transaction: the target may be missing, invisible or unchanged, which the transaction decides as it always
+  did. Nothing is pre-checked when `check` reads `$$NOW` or another system variable besides `$$ROOT`, when a
+  mutation ID is given, for an upsert, or when the document is larger than 8 MiB.
 - **Round trips.** A single document transactional write targets `_id` directly, and evaluates `check` and
   reads back the post-image in one aggregation (`$facet` with a `$nor: [check]` count and the `USING(read)`
   read with the read field rules), so an update is update, aggregate, commit.

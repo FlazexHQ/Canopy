@@ -101,6 +101,11 @@ follow their live queries through the gateway over loopback. The `canopy-server`
 the gateway's metrics, scraped every second. The executable comes from `CANOPY_GATEWAY_BIN`, the container
 images, or a Cargo build of the repository.
 
+`CANOPY_DATA_PLANE_ROUTES=find` (experimental, off by default) makes the gateway answer
+`GET /rest/v1/{collection}` itself, in Rust, with the same policies, keys and tokens, and pass every other
+request to the TypeScript server as before. Unknown route names stop the gateway at startup. The Rust route does
+not apply the HTTP request rate limits, the request log or tracing yet.
+
 ## `rateLimits`
 
 Per caller token buckets for the data plane, counted in memory by each instance. `false` turns them off. See

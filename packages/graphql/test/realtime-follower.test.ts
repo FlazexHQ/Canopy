@@ -7,13 +7,13 @@ import {
   type SubQuery,
 } from "@canopy/protocol"
 import { afterEach, expect, it, vi } from "vitest"
-import vector1 from "../../protocol/vectors/01-snapshot-then-stream.json" with { type: "json" }
-import vector2 from "../../protocol/vectors/02-shared-document.json" with { type: "json" }
-import vector3 from "../../protocol/vectors/03-ordering-and-duplicates.json" with { type: "json" }
-import vector4 from "../../protocol/vectors/04-resync.json" with { type: "json" }
-import vector5 from "../../protocol/vectors/05-batch-and-replace.json" with { type: "json" }
-import vector6 from "../../protocol/vectors/06-nosub-error.json" with { type: "json" }
-import vector7 from "../../protocol/vectors/07-typed-values.json" with { type: "json" }
+import vector1 from "../../../conformance/protocol/01-snapshot-then-stream.json" with { type: "json" }
+import vector2 from "../../../conformance/protocol/02-shared-document.json" with { type: "json" }
+import vector3 from "../../../conformance/protocol/03-ordering-and-duplicates.json" with { type: "json" }
+import vector4 from "../../../conformance/protocol/04-resync.json" with { type: "json" }
+import vector5 from "../../../conformance/protocol/05-batch-and-replace.json" with { type: "json" }
+import vector6 from "../../../conformance/protocol/06-nosub-error.json" with { type: "json" }
+import vector7 from "../../../conformance/protocol/07-typed-values.json" with { type: "json" }
 import { LiveQueries } from "../src/live.ts"
 import { type LiveWebSocket, RealtimeFollower } from "../src/realtime-follower.ts"
 

@@ -7,7 +7,7 @@ description: The canopy.v1 realtime protocol, for SDK authors and gateways.
 with the subprotocol `canopy.v1+json`, or over server sent events and long polling with the same frames. Values
 are Extended JSON (canonical for ObjectId, dates, Decimal128, Long and binary).
 
-Conformance vectors in `@canopy/protocol` (`vectors/*.json`) describe exact exchanges; every official SDK and
+Conformance vectors in the repository (`conformance/protocol/*.json`) describe exact exchanges; every official SDK and
 binding runs them in CI.
 
 ## Client frames

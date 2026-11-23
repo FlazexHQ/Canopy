@@ -502,7 +502,7 @@ fn expected(case: &Json, keys: &[&str]) -> Json {
 
 #[test]
 fn the_compiler_agrees_with_typescript() {
-    let vectors = parse_json(include_str!("vectors/policy.json")).expect("vector file");
+    let vectors = parse_json(include_str!("../../../conformance/policy/policy.json")).expect("vector file");
     let Some(Json::Array(cases)) = vectors.get("cases") else { panic!("cases") };
     let mut mismatches = Vec::new();
     let mut compiled_sets = 0;

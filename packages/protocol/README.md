@@ -2,7 +2,7 @@
 
 # @canopy/protocol
 
-The canopy.v1 wire protocol: message types, the EJSON-lite codec, error codes and test vectors.
+The canopy.v1 wire protocol: message types, the EJSON-lite codec and error codes.
 
 Every other package speaks it; you need it directly to decode EJSON or to check error codes without the client.
 

@@ -5,7 +5,7 @@
   workaround, one (lost history) was not reproduced locally. Sharded clusters are still open, as in S7.
 - **Roadmap:** [12 §4](../design/12-roadmap.md#4-technical-spikes) (S12, risk R18),
   [14 §4.3](../design/14-native-core.md#43-the-native-gateway) and [14 §9](../design/14-native-core.md#9-risks)
-- **Prototype:** [`S12-prototype/`](S12-prototype/README.md)
+- **Prototype:** [`bench/spikes/S12/`](../../bench/spikes/S12/README.md)
 
 ## Question
 
@@ -208,7 +208,9 @@ copy the driver makes per event (below) and the server's image lookups, which do
   `stringprep` for SCRAM, `unicode-normalization` and `unicode-properties` (MIT or Apache 2.0, and Unicode
   3.0), as [14 §6](../design/14-native-core.md#6-platforms-toolchain-and-distribution) expects. Two more are only
   used at build time and not linked: `tiny-keccak` (CC0 1.0, through the driver's internal macros) and
-  `unicode-ident`. `mongodb+srv` URIs need the `dns-resolver` feature (Hickory), whose tree was not checked
-  here.
+  `unicode-ident`. `mongodb+srv` URIs need the `dns-resolver` feature (Hickory), whose tree this spike did
+  not check. The gateway enables it since stage D0 of the Rust data plane: the added crates (`hickory-net`,
+  `hickory-proto`, `hickory-resolver` and their dependencies) are all MIT or Apache 2.0 and `cargo deny` accepts them
+  without a new exception.
 - **The S2 write up** says the reader falls back to `operationTime`; finding 1 shows that fallback would lose
   events under load and should go.

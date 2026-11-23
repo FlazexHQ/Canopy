@@ -30,7 +30,7 @@ relay, how are events routed between the two, and what does it cost at 10k and 1
 
 ## Method
 
-`docs/spikes/S8-prototype/` (not part of the build):
+`bench/spikes/S8/` (not part of the build):
 
 - `worker.js` is a Worker with two DO classes, run in workerd through Miniflare 4.20260730.0.
   - **Connection DOs** accept hibernatable sockets (`ctx.acceptWebSocket(ws, [collection, "u:" + subject])`),

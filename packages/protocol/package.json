@@ -1,7 +1,7 @@
 {
   "name": "@canopy/protocol",
   "version": "0.0.0",
-  "description": "The canopy.v1 wire protocol: message types, the EJSON-lite codec, error codes and test vectors.",
+  "description": "The canopy.v1 wire protocol: message types, the EJSON-lite codec and error codes.",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -11,13 +11,11 @@
       "@canopy/source": "./src/index.ts",
       "default": "./dist/index.js"
     },
-    "./vectors/*.json": "./vectors/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "src",
-    "vectors",
     "!**/*.tsbuildinfo"
   ],
   "scripts": {

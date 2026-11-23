@@ -1,6 +1,6 @@
-import { isDocument, serverErrorCode } from "@canopy/protocol"
-import { type Db, MongoServerError } from "mongodb"
-import { fromDriverError } from "./errors.ts"
+import { isDocument } from "@canopy/protocol"
+import type { Db } from "mongodb"
+import { fromDriverError, isSearchUnavailable } from "./errors.ts"
 
 /** MongoDB Search availability and the indexes on collections configured for search. */
 export type SearchCapability =
@@ -56,8 +56,7 @@ export async function probeSearch(
     return { available: true, collections: result }
   } catch (error: unknown) {
     const failure = fromDriverError(error, false)
-    if (error instanceof MongoServerError && serverErrorCode(error) === 31082)
-      return { available: false, reason: failure.message }
+    if (isSearchUnavailable(error)) return { available: false, reason: failure.message }
     throw failure
   }
 }

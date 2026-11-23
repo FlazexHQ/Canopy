@@ -18,7 +18,18 @@ import {
 const DUPLICATE_KEY = 11000
 const DOCUMENT_VALIDATION_FAILURE = 121
 const MAX_TIME_EXPIRED = 50
-const SEARCH_NOT_ENABLED = 31082
+/**
+ * The codes of a deployment without MongoDB Search: `SearchNotEnabled` on MongoDB 8.0 and later, and the
+ * code MongoDB 7.0 answers with ("$search stage is only allowed on MongoDB Atlas").
+ */
+const SEARCH_NOT_ENABLED = new Set([31082, 6047401])
+
+/** Whether MongoDB refused a search stage or command because the deployment has no MongoDB Search. */
+export function isSearchUnavailable(error: unknown): boolean {
+  if (!(error instanceof MongoServerError)) return false
+  const code = serverErrorCode(error)
+  return code !== undefined && SEARCH_NOT_ENABLED.has(code)
+}
 /** BadValue, FailedToParse, TypeMismatch, NoQueryExecutionPlans and invalid regular expressions. */
 const REJECTED_QUERY = new Set([2, 9, 14, 291, 51091])
 
@@ -44,7 +55,7 @@ export function fromDriverError(error: unknown, service: boolean): CanopyError {
         ...(service && reason !== undefined ? { details: { reason } } : {}),
       })
     }
-    if (code === SEARCH_NOT_ENABLED)
+    if (isSearchUnavailable(error))
       return new CanopyError(
         ErrorCode.Unavailable,
         "Search is not available on this MongoDB deployment; it needs Atlas, an Atlas local deployment or MongoDB Search",

@@ -33,7 +33,7 @@ connection to the isolated replica set.
 
 ## Verification
 
-The [driver harness](../../packages/client/bench/s13-wire.ts) uses a Windows x64 host with an AMD
+The [driver harness](../../bench/workloads/wire/s13-wire.ts) uses a Windows x64 host with an AMD
 Ryzen 5 5600H, a dedicated MongoDB 8.0.34 single member replica set and a release Rust build.
 The starting SDK closeout revision was `e09395baedc877864762ee074cc27032d7416ae2`.
 
@@ -55,7 +55,7 @@ refused both attempts to encode the NUL key, so neither reached the gateway. The
 tests also passed their stored-policy corpus and policy invariants. Stored-policy authoring has
 its own entry point, outside the probe's wire commands.
 
-The [CRUD fixture adapter](../../packages/client/bench/s13-unified.ts) loads the upstream
+The [CRUD fixture adapter](../../bench/workloads/wire/s13-unified.ts) loads the upstream
 [Unified CRUD JSON at revision `2a20bd5`](https://github.com/mongodb/specifications/tree/2a20bd509e2ad4ee354b552145094ecdf434ee9d/source/crud/tests/unified).
 It selects seven cases for the commands the probe supports. These cases assert operation results
 and stored outcomes where supplied, with no command monitoring or topology requirements.
@@ -120,5 +120,5 @@ Set `CANOPY_S13_JAVA` to a Java 21 launcher if it is outside `PATH`. Set
 four drivers.
 
 ```sh
-node --conditions=@canopy/source packages/client/bench/s13-wire.ts
+node --conditions=@canopy/source bench/workloads/wire/s13-wire.ts
 ```

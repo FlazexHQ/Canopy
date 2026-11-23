@@ -18,7 +18,7 @@ exceptions = [
   # in the compiler only and is never linked into the addon: `cargo tree -i unicode-ident -e no-proc-macro`
   # prints nothing. Unicode 3.0 is a permissive, OSI approved license for its Unicode data tables.
   { allow = ["Unicode-3.0"], crate = "unicode-ident" },
-  # canopy-gateway, decided by the maintainer on 2026-11-19 (Q12 of the roadmap). The official MongoDB driver
+  # canopy-mongo, decided by the maintainer on 2026-11-19 (Q12 of the roadmap). The official MongoDB driver
   # reaches these Unicode data crates through `bson`, `url` and `idna`, and needs `unicode-normalization` and
   # `unicode-properties` for SCRAM (stringprep). Unicode 3.0 is a permissive, OSI approved data license.
   { allow = ["Unicode-3.0"], crate = "icu_collections" },
@@ -41,12 +41,12 @@ exceptions = [
   { allow = ["Unicode-3.0"], crate = "zerotrie" },
   { allow = ["Unicode-3.0"], crate = "zerovec" },
   { allow = ["Unicode-3.0"], crate = "zerovec-derive" },
-  # canopy-gateway, decided by the maintainer on 2026-11-19 (Q12): the Mozilla root certificates TLS to MongoDB
+  # canopy-mongo and canopy-auth, decided by the maintainer on 2026-11-19 (Q12): the Mozilla root certificates TLS to MongoDB
   # and to a JWKS endpoint is verified against. CDLA Permissive 2.0 is a permissive data license.
   { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
   { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
   # Runs only at compile time, inside the MongoDB driver's `const-random` macro, and is never linked:
-  # `cargo tree -i tiny-keccak -e no-proc-macro -p canopy-gateway` prints nothing.
+  # `cargo tree -i tiny-keccak -e no-proc-macro -p canopy-mongo` prints nothing.
   { allow = ["CC0-1.0"], crate = "tiny-keccak" },
 ]
 

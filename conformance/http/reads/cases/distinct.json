@@ -1,0 +1,659 @@
+{
+  "group": "distinct",
+  "description": "POST /{coll}/_distinct: the distinct values of a readable field over the documents the caller may read",
+  "cases": [
+    {
+      "id": "distinct-own",
+      "title": "The statuses of the owner's documents only",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-own"
+        },
+        "body": "{\"field\":\"status\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-own"
+        },
+        "body": "{\"data\":[\"active\",\"blocked\",\"done\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-other",
+      "title": "Another owner sees the values of other documents",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-other"
+        },
+        "body": "{\"field\":\"status\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-other"
+        },
+        "body": "{\"data\":[\"active\",\"blocked\",\"done\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-array",
+      "title": "An array field yields its elements",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-array"
+        },
+        "body": "{\"field\":\"tags\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-array"
+        },
+        "body": "{\"data\":[\"home\",\"urgent\",\"work\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-nested",
+      "title": "A readable nested field",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-nested"
+        },
+        "body": "{\"field\":\"meta.source\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-nested"
+        },
+        "body": "{\"data\":[\"api\",\"cli\",\"web\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-filter",
+      "title": "A filter narrows the documents, ANDed with the policy",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-filter"
+        },
+        "body": "{\"field\":\"tags\",\"filter\":{\"status\":\"active\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-filter"
+        },
+        "body": "{\"data\":[\"home\",\"urgent\",\"work\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-hidden",
+      "title": "The values of a hidden field are refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-hidden"
+        },
+        "body": "{\"field\":\"internalNotes\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-hidden"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The field internalNotes is not readable\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-hidden\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "distinct-hidden-nested",
+      "title": "The values of a hidden nested field are refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-hidden-nested"
+        },
+        "body": "{\"field\":\"meta.score\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-hidden-nested"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The field meta.score is not readable\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-hidden-nested\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "distinct-hidden-parent",
+      "title": "The parent of a hidden field would carry it, so it is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-hidden-parent"
+        },
+        "body": "{\"field\":\"meta\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-hidden-parent"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The field meta is not readable\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-hidden-parent\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "distinct-admin-score",
+      "title": "A role whose field rule shows meta.score may ask for it",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "carol",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-admin-score"
+        },
+        "body": "{\"field\":\"meta.score\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-admin-score"
+        },
+        "body": "{\"data\":[0,1.5,2.5,3,4,5,6,7,8,9.75],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "distinct-service-hidden",
+      "title": "service reads every field",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-service-hidden"
+        },
+        "body": "{\"field\":\"internalNotes\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-service-hidden"
+        },
+        "body": "{\"data\":[\"secret-1\",\"secret-10\",\"secret-11\",\"secret-12\",\"secret-2\",\"secret-3\",\"secret-4\",\"secret-5\",\"secret-6\",\"secret-7\",\"secret-8\",\"secret-9\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-restrictive",
+      "title": "A restrictive policy removes archived documents",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/staff/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-restrictive"
+        },
+        "body": "{\"field\":\"name\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-restrictive"
+        },
+        "body": "{\"data\":[\"Ada\",\"Brook\",\"Dara\",\"Eli\",\"Gus\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "distinct-salary",
+      "title": "A field hidden by the default field rule",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/staff/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-salary"
+        },
+        "body": "{\"field\":\"salary\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-salary"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The field salary is not readable\",\"instance\":\"/rest/v1/staff/_distinct\",\"requestId\":\"distinct.distinct-salary\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "distinct-ctx",
+      "title": "The values over the tasks of the caller's projects",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_distinct",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-ctx"
+        },
+        "body": "{\"field\":\"title\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-ctx"
+        },
+        "body": "{\"data\":[\"task 3\",\"task 4\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-numbers",
+      "title": "Numbers of several BSON types, as MongoDB answers",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/numbers/_distinct",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-numbers"
+        },
+        "body": "{\"field\":\"n\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-numbers"
+        },
+        "body": "{\"data\":[null,{\"$numberDouble\":\"NaN\"},{\"$numberDouble\":\"-Infinity\"},-5,{\"$numberDouble\":\"-0.0\"},0.1,1.5,2,{\"$numberLong\":\"9007199254740993\"},{\"$numberDouble\":\"Infinity\"},\"2\"],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-missing-field",
+      "title": "The field is required",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-missing-field"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-missing-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"field must be a string\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-missing-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-field-not-string",
+      "title": "The field must be a string",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-field-not-string"
+        },
+        "body": "{\"field\":3}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-field-not-string"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"field must be a string\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-field-not-string\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-field-dollar",
+      "title": "A field that starts with $ is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-field-dollar"
+        },
+        "body": "{\"field\":\"$status\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-field-dollar"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Invalid field path: $status\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-field-dollar\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-unknown-field",
+      "title": "An unknown body field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-unknown-field"
+        },
+        "body": "{\"field\":\"status\",\"sort\":1}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-unknown-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown distinct field sort\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-unknown-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-filter-hidden",
+      "title": "A filter on a hidden field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-filter-hidden"
+        },
+        "body": "{\"field\":\"status\",\"filter\":{\"internalNotes\":{\"$exists\":true}}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-filter-hidden"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-filter-hidden\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-sealed",
+      "title": "A collection without a read policy",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/sealed/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-sealed"
+        },
+        "body": "{\"field\":\"v\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "distinct.distinct-sealed"
+        },
+        "body": "{\"data\":[],\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-hidden-collection",
+      "title": "A collection that is not exposed",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/hidden/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-hidden-collection"
+        },
+        "body": "{\"field\":\"v\"}"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden/_distinct\",\"requestId\":\"distinct.distinct-hidden-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-get",
+      "title": "GET is not allowed on _distinct",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "distinct.distinct-get"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "POST",
+          "content-type": "application/problem+json",
+          "x-request-id": "distinct.distinct-get"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":405,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"GET is not allowed here\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-get\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "distinct-tampered",
+      "title": "A tampered token",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_distinct",
+        "query": [],
+        "caller": "tampered",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "distinct.distinct-tampered"
+        },
+        "body": "{\"field\":\"status\"}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "distinct.distinct-tampered"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Invalid token\",\"instance\":\"/rest/v1/todos/_distinct\",\"requestId\":\"distinct.distinct-tampered\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

@@ -53,8 +53,8 @@ Two rules bound every port:
 | Evidence | Source | What it means for Rust |
 |---|---|---|
 | A transactional update costs **1.78 ms of CPU** and one process saturates at **about 640 writes/s**. Canopy's own packages are **4.5 %** of CPU; the driver is 15 %, `bson` 6 %, socket writes 5 %. | [S3](../spikes/S3-write-path-cost.md) | Porting the policy or query code would not make REST writes faster. The cost is the JavaScript driver, BSON handling and MongoDB round trips. |
-| The compiled matcher runs at **8 % to 59 %** of the speed of a hand written JavaScript predicate on the same documents. | `packages/matcher/bench/baseline.json` | The matcher runs once per change event and candidate subscription. It is the inner loop of realtime and has a lot of headroom. |
-| At 1k connections, delivery p50 is within **10 % to 17 %** of a plain change stream. | `packages/realtime/bench/baseline.json` | Fine at small scale. Behaviour at 10k to 100k connections has never been measured ([S5](../spikes/S5-websocket-server-choice.md)). |
+| The compiled matcher runs at **8 % to 59 %** of the speed of a hand written JavaScript predicate on the same documents. | `bench/baselines/matcher/baseline.json` | The matcher runs once per change event and candidate subscription. It is the inner loop of realtime and has a lot of headroom. |
+| At 1k connections, delivery p50 is within **10 % to 17 %** of a plain change stream. | `bench/baselines/realtime/baseline.json` | Fine at small scale. Behaviour at 10k to 100k connections has never been measured ([S5](../spikes/S5-websocket-server-choice.md)). |
 | Change events and snapshots are read with `promoteValues: false`, so every number becomes a wrapper object, and every event is fully materialized before the predicate index can reject it. | `packages/realtime/src/snapshot.ts`, `packages/rest/src/driver.ts` | Allocation per event grows with document size, not with how much of it a predicate reads. Raw BSON with lazy field access removes that. |
 | The memory targets (≤ 32 KiB per idle connection, ≤ 4 KiB per subscription) and the 100k connection goal of the scale phase are unmeasured. | [10 §7](10-operations.md#7-performance-targets-and-benchmarking) | Memory per connection is where a garbage collected runtime pays the most and Rust the least. |
 | Storage already ships a Rust image library through Node-API (`@napi-rs/image`), with prebuilt binaries for every supported platform. | `packages/storage/package.json` | The distribution model in §6 already works in this repository. |
@@ -87,12 +87,31 @@ flowchart LR
     QU["canopy-query<br/>parser, limits, hashing"]
     PO["canopy-policy<br/>compiler, explain, $ctx"]
     EN["canopy-engine<br/>predicate index, observers,<br/>merge boxes, sequencing"]
-    GW["canopy-gateway<br/>change stream, WebSockets"]
+    MO["canopy-mongo<br/>driver, snapshots, raw BSON"]
+    AU["canopy-auth<br/>API keys, tokens, revocations"]
+    RT["canopy-realtime<br/>sessions, transports, change stream"]
+    CFG["canopy-config<br/>resolved JSON and schema"]
+    DA["canopy-data<br/>reads: policy, cursor, pages"]
+    HT["canopy-http<br/>Data API routes, Problem Details"]
+    GW["canopy-gateway<br/>process, proxy, forwarding"]
     MA --> PR
     QU --> MA
     PO --> QU
     EN --> PO
+    RT --> EN
+    RT --> MO
+    RT --> AU
+    GW --> CFG
+    CFG --> PR
+    DA --> PO
+    DA --> MO
+    HT --> DA
+    HT --> AU
+    GW --> RT
     GW --> EN
+    GW --> MO
+    GW --> AU
+    AU --> MO
   end
   subgraph Ports["Ports"]
     NAPI["@canopy/native<br/>Node-API: Bun, Node, Deno"]
@@ -109,9 +128,9 @@ flowchart LR
 
 ### 4.1 Crates
 
-All crates live in a Cargo workspace under `crates/`, mirror the TypeScript package of the same name, and keep
-its layering: `protocol ← matcher ← query ← policy ← engine ← gateway`. None of them performs I/O except the
-gateway, so each can be built for native targets and for WebAssembly.
+The Rust crates under `crates/` share a Cargo workspace. The core follows the TypeScript layering from
+protocol through matcher, query, policy and engine. These crates perform no I/O and build for native targets
+and WebAssembly. The native server composes them with the configuration, realtime, MongoDB and authentication crates.
 
 | Crate | Ports from | Content |
 |---|---|---|
@@ -120,13 +139,17 @@ gateway, so each can be built for native targets and for WebAssembly.
 | `canopy-query` | `@canopy/query` | Parser, allowlists, limits, canonical hashing. Hashes are byte identical to the TypeScript ones, checked by vectors. |
 | `canopy-policy` | `@canopy/policy` | The stored policy format read from the meta database, the compiler to both forms, explain, field rules, `$ctx` lookups, immutable fields. Policy linting stays TypeScript (tooling, not a hot path). |
 | `canopy-engine` | the core of `@canopy/realtime` | Predicate, membership and path indexes, observers, merge boxes, per connection sequencing, resume buffers, echo correlation. No I/O: it consumes normalized events and emits frames, so the simulation suite can drive it directly. |
-| `canopy-gateway` | the `canopy-realtime` binary | The native realtime server (§4.3). |
+| `canopy-mongo` | `canopy-gateway` | MongoDB driver, snapshot sessions, raw BSON cursors, stored policy loading and change stream checkpoints. |
+| `canopy-auth` | `canopy-gateway` | JWT and JWKS verification, API keys, revocations and Studio view tokens. |
+| `canopy-realtime` | `canopy-gateway` | WebSocket, SSE and long polling transports, session routing and MongoDB change stream ingestion. |
+| `canopy-config` | `canopy-gateway` | Resolved data plane configuration, the JSON parser and its [JSON Schema](../../crates/canopy-config/schema/config.schema.json). |
+| `canopy-data` | `@canopy/rest` (read path) | Read execution of `find`: caller, read policy and field rules, `$ctx` lookups, limits, the keyset cursor, one `find` per page on raw BSON, EJSON encoding. |
+| `canopy-http` | `@canopy/rest` (handler) | The Data API routes over plain request and response types (no server): authentication, negotiation, `ETag`, Problem Details. Checked against `conformance/http/find`. |
+| `canopy-gateway` | the `canopy-realtime` binary | Native server process, CLI and environment, client addresses, reverse proxy and mutation forwarding (§4.3). |
 
-Phase 5b splits `canopy-gateway` into the crates of the data plane (`canopy-mongo`, `canopy-auth`,
-`canopy-data`, `canopy-http`, `canopy-graphql`, `canopy-storage`, `canopy-realtime`, `canopy-wire`,
-`canopy-config`) and renames the binary `canopyd`, as proposed in
-[plan 004 §7](../plans/004-rust-data-plane.md#7-proposed-repository-layout). The core crates above keep
-their names and their rule of no I/O.
+Phase 5b begins by extracting `canopy-mongo`, `canopy-auth`, `canopy-realtime` and `canopy-config` from `canopy-gateway`. The
+remaining data plane crates and the `canopyd` binary rename are proposed in
+[plan 004 §7](../plans/004-rust-data-plane.md#7-proposed-repository-layout).
 
 ### 4.2 Ports
 
@@ -198,7 +221,7 @@ The guarantees of [02](02-document-level-security.md) and the invariants I1 to I
 - **Compiler equality.** For generated policy sets and callers, both compilers produce byte identical MongoDB
   filters (canonical EJSON) and identical matcher decisions. Any difference fails, even when both happen to
   return the same documents.
-- **Protocol.** The vectors in `packages/protocol/vectors/` run through the Rust codec and the gateway;
+- **Protocol.** The vectors in `conformance/protocol/` run through the Rust codec and the gateway;
   frames are byte identical.
 - **Realtime.** The seeded simulation (10k seeds nightly) and the chaos tests (step down, kill) run against
   the gateway as well as the TypeScript engine. The cross entry point test
@@ -285,7 +308,7 @@ PCRE and refuses backtracking features) instead of the `regex` crate, `fancy-reg
 languages accept and refuse exactly the same patterns and no new dependency enters the matcher. The speed
 gate holds on a Windows x64 laptop (Ryzen 5 5600H, Node 26, not yet the reference hardware): the Rust matcher
 is 3.8 to 5.1 times the TypeScript one per change event and 5.7 to 10.2 times in batches of 1000
-(`bench:events`, gated by the floors in `packages/matcher/bench/event-baseline.json`).
+(`bun --filter @canopy/bench matcher:events`, gated by the floors in `bench/baselines/matcher/event-baseline.json`).
 
 **Stage 2 status (2026-11-19).** `canopy-policy` and `@canopy/native` (Node-API with the
 `wasm32-wasip1-threads` fallback) are built; compiler equality runs in `cargo test` and in the port's tests,
@@ -338,7 +361,7 @@ replica set when the `CANOPY_BENCH_MONGODB_URI` secret is set.
 
 1. **Stage 1, core crates.** Done: the nightly three way differential ran at one million cases per operator
    with zero mismatches on `dbaa428`. Open: the matcher throughput gate on the reference hardware (the
-   workflow's `matcher` job, gated by `packages/matcher/bench/event-baseline.json`). The recorded figures are
+   workflow's `matcher` job, gated by `bench/baselines/matcher/event-baseline.json`). The recorded figures are
    from the Windows laptop.
 2. **Stage 2, policy and distribution.** Done on `dbaa428`: the native and WebAssembly suites, compiler
    equality, the bypass corpus and I1 to I6 across the CI matrix, the release artifacts and the install test
@@ -386,6 +409,20 @@ reports both. Details and the repository layout are in [plan 004](../plans/004-r
 | D5. MongoDB wire endpoint | M3 of [15](15-mongodb-depth.md#43-m3-a-mongodb-wire-protocol-endpoint) on the shared execution core | The wire endpoint gates of Phase 7 |
 | D6. Control plane split | The `control` service and image; the `canopy` image becomes the data plane | Stack, `sdk-e2e` and Playwright suites green; a failing control plane leaves data routes serving |
 | D7. Defaults | The data plane is the default for promoted routes; the TypeScript data packages are frozen as embedded mode | No P0 or P1 issue open for one release; Q17 decided |
+
+Stage D1 routing. A gateway answers a Data API route itself only when it is selected by
+`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes` in the launcher document), and today the only route is `find`:
+`GET /rest/v1/{collection}`, with the `OPTIONS` and `405` answers of that path. The setting is empty by default
+and a name the gateway does not know stops it at startup. Everything else, and every request while no route is
+selected, goes through the existing reverse proxy to the TypeScript server unchanged, so turning the route off
+is the rollback. The gateway starts listening only after its policies are loaded, applies a policy change to the
+route and to the realtime engine together, and reads the policies again whenever the policy watch reopens. A
+request the route cannot answer, such as one whose database is unreachable, fails with the Problem Details the
+TypeScript handler gives (`503 CANOPY_UNAVAILABLE`) and never with data, and is never retried on the upstream.
+The route does not apply the HTTP request rate limits (`rateLimits.requests`, `failedAuthentications`), the
+request log, tracing or `explainDenials` yet. The cross entry point DLS test and the bypass corpus run the route
+(`packages/server/test/dls-equivalence.test.ts`), and `packages/server/test/data-plane-switch.test.ts` shows the
+switch against the recorded `conformance/http/find` requests.
 
 ## 9. Risks
 

@@ -1,0 +1,54 @@
+{
+  "mongodb": {
+    "uri": "mongodb://db.example.test/app",
+    "database": "app",
+    "metaDatabase": "canopy"
+  },
+  "server": {
+    "port": 9000,
+    "metricsPort": 0,
+    "metricsHost": "0.0.0.0",
+    "nodeId": "n1",
+    "trustedProxies": []
+  },
+  "auth": null,
+  "keys": {
+    "publishable": [],
+    "secret": []
+  },
+  "policies": {
+    "source": "database",
+    "watch": true
+  },
+  "realtime": {
+    "fullDocument": "images",
+    "checkpoints": "off",
+    "resumeWindowMs": 45000,
+    "drainWindowMs": 5000,
+    "transports": ["sse", "long-poll"]
+  },
+  "cors": {
+    "origins": ["https://browser.example.test"]
+  },
+  "rateLimits": {
+    "messages": {
+      "perSecond": 5,
+      "burst": 9
+    },
+    "anonymousConnectionsPerAddress": 3,
+    "exemptService": false
+  },
+  "mutations": {
+    "url": "http://127.0.0.1:4000/rest/v1"
+  },
+  "proxy": {
+    "url": "http://127.0.0.1:4000"
+  },
+  "rest": {
+    "defaultLimit": 100,
+    "maxLimit": 1000
+  },
+  "log": {
+    "level": "info"
+  }
+}

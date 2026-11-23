@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - "crates/**"
+      - "conformance/**"
       - "packages/native/**"
       - "packages/wasm/**"
       - "Cargo.toml"

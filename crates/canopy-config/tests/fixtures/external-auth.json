@@ -1,0 +1,56 @@
+{
+  "mongodb": {
+    "uri": "mongodb://db.example.test/app",
+    "database": "app",
+    "metaDatabase": "meta"
+  },
+  "server": {
+    "port": 8080,
+    "metricsPort": 9464,
+    "metricsHost": "127.0.0.1",
+    "metricsToken": "fixture-metrics-token",
+    "nodeId": "fixture-node",
+    "trustedProxies": []
+  },
+  "auth": {
+    "issuer": "https://issuer.example.test",
+    "audience": "canopy-test",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "kid": "fixture"
+        }
+      ]
+    },
+    "algorithms": ["EdDSA"],
+    "rolesClaim": "app.roles",
+    "allowServiceRoleFromJwt": true,
+    "clockToleranceSeconds": 15
+  },
+  "keys": {
+    "publishable": ["fixture-public-key"],
+    "secret": ["fixture-secret-key"]
+  },
+  "policies": {
+    "stored": [],
+    "contexts": {}
+  },
+  "realtime": {
+    "fullDocument": "auto",
+    "checkpoints": "meta",
+    "resumeWindowMs": 120000,
+    "drainWindowMs": 30000,
+    "transports": ["websocket", "sse", "long-poll"]
+  },
+  "rateLimits": false,
+  "rest": {
+    "defaultLimit": 100,
+    "maxLimit": 1000
+  },
+  "log": {
+    "level": "debug"
+  }
+}

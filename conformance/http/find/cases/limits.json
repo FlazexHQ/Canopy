@@ -1,0 +1,337 @@
+{
+  "group": "limits",
+  "description": "The page size and skip bounds of the fixture's configuration: a default of 5, a maximum of 10 and a skip of at most 20.",
+  "cases": [
+    {
+      "id": "limit-1",
+      "title": "The smallest limit",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=1",
+        "query": [
+          [
+            "limit",
+            "1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-1"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"a549be866c5a41eda8b4b5a29a3781a7\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "limits.limit-1"
+        },
+        "body": "{\"data\":[{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}}],\"page\":{\"limit\":1,\"next\":\"eyJzIjpbeyIkb2lkIjoiNmYxMDAwMDAwMDAwMDAwMDAwMDAwMDAxIn1dLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-"
+        ]
+      }
+    },
+    {
+      "id": "limit-above-max",
+      "title": "A limit above the maximum",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=11",
+        "query": [
+          [
+            "limit",
+            "11"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-above-max"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-above-max"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be between 1 and 10\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-above-max\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "limit-zero",
+      "title": "A limit of zero",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=0",
+        "query": [
+          [
+            "limit",
+            "0"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-zero"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-zero"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be between 1 and 10\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-zero\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "limit-fraction",
+      "title": "A fractional limit",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=1.5",
+        "query": [
+          [
+            "limit",
+            "1.5"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-fraction"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-fraction"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be an integer\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-fraction\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "limit-text",
+      "title": "A limit that is not a number",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=ten",
+        "query": [
+          [
+            "limit",
+            "ten"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-text"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-text"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be an integer\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-text\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "limit-huge",
+      "title": "A limit beyond the safe integers",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=99999999999999999999",
+        "query": [
+          [
+            "limit",
+            "99999999999999999999"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-huge"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-huge"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be between 1 and 10\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-huge\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "limit-twice",
+      "title": "limit given twice",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?limit=2&limit=3",
+        "query": [
+          [
+            "limit",
+            "2"
+          ],
+          [
+            "limit",
+            "3"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.limit-twice"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.limit-twice"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit may only be given once\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.limit-twice\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "skip-max",
+      "title": "The largest skip",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=20",
+        "query": [
+          [
+            "skip",
+            "20"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.skip-max"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "etag": "W/\"e61f26cedba8e3196233f00caa8d2318\"",
+          "x-canopy-ct": "<ct>",
+          "x-request-id": "limits.skip-max"
+        },
+        "body": "{\"data\":[],\"page\":{\"limit\":5,\"next\":null},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "header": "x-canopy-ct",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "skip-above-max",
+      "title": "A skip above the maximum",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=21",
+        "query": [
+          [
+            "skip",
+            "21"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.skip-above-max"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.skip-above-max"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"skip must be between 0 and 20\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.skip-above-max\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "skip-negative",
+      "title": "A negative skip",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=-1",
+        "query": [
+          [
+            "skip",
+            "-1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.skip-negative"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.skip-negative"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"skip must be an integer\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.skip-negative\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "skip-text",
+      "title": "A skip that is not a number",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos?skip=some",
+        "query": [
+          [
+            "skip",
+            "some"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "limits.skip-text"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "limits.skip-text"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"skip must be an integer\",\"instance\":\"/rest/v1/todos\",\"requestId\":\"limits.skip-text\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

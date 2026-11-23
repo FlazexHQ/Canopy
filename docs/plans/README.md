@@ -181,7 +181,7 @@ Rule from here on: no new feature package merges while a P0 item is open.
 | E11 | Tests for the thin spots: `graphql` has 3 test files for 2605 lines; the Vue, Svelte and Solid bindings have one file each; React Native has none | Survey | M |
 | E12 | DLS equivalence across entry points: one property test that runs the same policy set and caller through REST, GraphQL and realtime and asserts the same visible documents and the same refusals | The promise "written once, enforced everywhere" is tested per entry point | L |
 | E13 | Mutation testing (Stryker) on `policy`, `query` and `matcher`, run nightly, to find assertions that cannot fail | Not present | M |
-| E14 | Bench gates for the matcher and realtime fan out, like the existing `packages/rest/bench/check.ts` | Only the REST ratios are gated | S |
+| E14 | Bench gates for the matcher and realtime fan out, like the existing `bench/workloads/rest/check.ts` | Only the REST ratios are gated | S |
 | E15 | Remove dead configuration: `test:integration` in `turbo.json` is defined by no package; `@canopy/policy` in the dev dependencies of `client` deserves a comment or a move of those tests | Survey | S |
 | E16 | API stability before 1.0: API Extractor (or `tsc` declaration snapshots) per published package, so a pull request shows every public surface change | No guard today | M |
 | E17 | Dropped: size limits removed | The maintainer removed the bundle size budgets on 2026-11-13; `size-limit` and `.size-limit.json` are gone | none |

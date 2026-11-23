@@ -1,0 +1,317 @@
+{
+  "description": "The keyset filter that selects the documents after a position, as canonical EJSON text, or the message of the refusal.",
+  "cases": [
+    {
+      "sort": null,
+      "position": [
+        3
+      ],
+      "filter": "{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"3\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}"
+    },
+    {
+      "sort": {
+        "score": 1
+      },
+      "position": [
+        7,
+        3
+      ],
+      "filter": "{\"$and\":[{\"score\":{\"$not\":{\"$lt\":{\"$numberInt\":\"7\"}}}},{\"$or\":[{\"score\":{\"$gt\":{\"$numberInt\":\"7\"}}},{\"score\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"score\":{\"$numberInt\":\"7\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"3\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "createdAt": -1
+      },
+      "position": [
+        {
+          "$date": {
+            "$numberLong": "1700000000000"
+          }
+        },
+        80062
+      ],
+      "filter": "{\"$and\":[{\"createdAt\":{\"$not\":{\"$gt\":{\"$date\":{\"$numberLong\":\"1700000000000\"}}}}},{\"$or\":[{\"createdAt\":{\"$lt\":{\"$date\":{\"$numberLong\":\"1700000000000\"}}}},{\"createdAt\":null},{\"createdAt\":{\"$type\":[{\"$numberInt\":\"-1\"},\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"}]}},{\"$and\":[{\"createdAt\":{\"$date\":{\"$numberLong\":\"1700000000000\"}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"80062\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        {
+          "$numberDouble": "NaN"
+        },
+        1
+      ],
+      "filter": "{\"$or\":[{\"k\":{\"$gte\":{\"$numberDouble\":\"-Infinity\"}}},{\"k\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":{\"$numberDouble\":\"NaN\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": -1
+      },
+      "position": [
+        5,
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$gt\":{\"$numberInt\":\"5\"}}}},{\"$or\":[{\"k\":{\"$lt\":{\"$numberInt\":\"5\"}}},{\"k\":{\"$numberDouble\":\"NaN\"}},{\"k\":null},{\"k\":{\"$type\":[{\"$numberInt\":\"-1\"}]}},{\"$and\":[{\"k\":{\"$numberInt\":\"5\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        null,
+        1
+      ],
+      "filter": "{\"$or\":[{\"k\":{\"$type\":[\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":null},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": -1
+      },
+      "position": [
+        {
+          "$minKey": 1
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$minKey\":1}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        {
+          "$maxKey": 1
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$maxKey\":1}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}"
+    },
+    {
+      "sort": {
+        "a": 1
+      },
+      "position": [
+        {
+          "$gt": 5
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"a\":{\"$not\":{\"$lt\":{\"$gt\":{\"$numberInt\":\"5\"}}}}},{\"$or\":[{\"a\":{\"$gt\":{\"$gt\":{\"$numberInt\":\"5\"}}}},{\"a\":{\"$type\":[{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"a\":{\"$eq\":{\"$gt\":{\"$numberInt\":\"5\"}}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "a": 1,
+        "b": -1
+      },
+      "position": [
+        "x",
+        {
+          "$eq": {
+            "y": 1
+          }
+        },
+        9
+      ],
+      "filter": "{\"$and\":[{\"a\":{\"$not\":{\"$lt\":\"x\"}}},{\"$or\":[{\"a\":{\"$gt\":\"x\"}},{\"a\":{\"$type\":[{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"a\":\"x\"},{\"$or\":[{\"b\":{\"$lt\":{\"$eq\":{\"y\":{\"$numberInt\":\"1\"}}}}},{\"b\":null},{\"b\":{\"$type\":[{\"$numberInt\":\"-1\"},\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"}]}}]}]},{\"$and\":[{\"a\":\"x\"},{\"b\":{\"$eq\":{\"$eq\":{\"y\":{\"$numberInt\":\"1\"}}}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"9\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "v": 1
+      },
+      "position": [
+        "sym",
+        "y1"
+      ],
+      "filter": "{\"$and\":[{\"v\":{\"$not\":{\"$lt\":\"sym\"}}},{\"$or\":[{\"v\":{\"$gt\":\"sym\"}},{\"v\":{\"$type\":[{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"v\":\"sym\"},{\"$or\":[{\"_id\":{\"$gt\":\"y1\"}},{\"_id\":{\"$type\":[{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "_id": -1
+      },
+      "position": [
+        {
+          "$oid": "6f1000000000000000000003"
+        }
+      ],
+      "filter": "{\"$or\":[{\"_id\":{\"$lt\":{\"$oid\":\"6f1000000000000000000003\"}}},{\"_id\":null},{\"_id\":{\"$type\":[{\"$numberInt\":\"-1\"},\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"}]}}]}"
+    },
+    {
+      "sort": {
+        "k": -1,
+        "j": 1
+      },
+      "position": [
+        {
+          "$numberDecimal": "NaN"
+        },
+        2,
+        3
+      ],
+      "filter": "{\"$or\":[{\"k\":null},{\"k\":{\"$type\":[{\"$numberInt\":\"-1\"}]}},{\"$and\":[{\"k\":{\"$numberDecimal\":\"NaN\"}},{\"$or\":[{\"j\":{\"$gt\":{\"$numberInt\":\"2\"}}},{\"j\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]},{\"$and\":[{\"k\":{\"$numberDecimal\":\"NaN\"}},{\"j\":{\"$numberInt\":\"2\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"3\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        true,
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":true}}},{\"$or\":[{\"k\":{\"$gt\":true}},{\"k\":{\"$type\":[{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":true},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": -1
+      },
+      "position": [
+        {
+          "$timestamp": {
+            "t": 5,
+            "i": 1
+          }
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$gt\":{\"$timestamp\":{\"t\":5,\"i\":1}}}}},{\"$or\":[{\"k\":{\"$lt\":{\"$timestamp\":{\"t\":5,\"i\":1}}}},{\"k\":null},{\"k\":{\"$type\":[{\"$numberInt\":\"-1\"},\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"}]}},{\"$and\":[{\"k\":{\"$timestamp\":{\"t\":5,\"i\":1}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        {
+          "$binary": {
+            "base64": "AQID",
+            "subType": "00"
+          }
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":{\"$binary\":{\"base64\":\"AQID\",\"subType\":\"00\"}}}}},{\"$or\":[{\"k\":{\"$gt\":{\"$binary\":{\"base64\":\"AQID\",\"subType\":\"00\"}}}},{\"k\":{\"$type\":[{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":{\"$binary\":{\"base64\":\"AQID\",\"subType\":\"00\"}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        {
+          "$numberDouble": "-Infinity"
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":{\"$numberDouble\":\"-Infinity\"}}}},{\"$or\":[{\"k\":{\"$gt\":{\"$numberDouble\":\"-Infinity\"}}},{\"k\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":{\"$numberDouble\":\"-Infinity\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": -1
+      },
+      "position": [
+        {
+          "$numberDouble": "Infinity"
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$gt\":{\"$numberDouble\":\"Infinity\"}}}},{\"$or\":[{\"k\":{\"$lt\":{\"$numberDouble\":\"Infinity\"}}},{\"k\":{\"$numberDouble\":\"NaN\"}},{\"k\":null},{\"k\":{\"$type\":[{\"$numberInt\":\"-1\"}]}},{\"$and\":[{\"k\":{\"$numberDouble\":\"Infinity\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        {
+          "$numberLong": "9007199254740993"
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":{\"$numberLong\":\"9007199254740993\"}}}},{\"$or\":[{\"k\":{\"$gt\":{\"$numberLong\":\"9007199254740993\"}}},{\"k\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":{\"$numberLong\":\"9007199254740993\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": -1
+      },
+      "position": [
+        {
+          "$numberDecimal": "-1.5"
+        },
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$gt\":{\"$numberDecimal\":\"-1.5\"}}}},{\"$or\":[{\"k\":{\"$lt\":{\"$numberDecimal\":\"-1.5\"}}},{\"k\":{\"$numberDouble\":\"NaN\"}},{\"k\":null},{\"k\":{\"$type\":[{\"$numberInt\":\"-1\"}]}},{\"$and\":[{\"k\":{\"$numberDecimal\":\"-1.5\"}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1
+      },
+      "position": [
+        "",
+        1
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":\"\"}}},{\"$or\":[{\"k\":{\"$gt\":\"\"}},{\"k\":{\"$type\":[{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":\"\"},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "k": 1,
+        "_id": -1
+      },
+      "position": [
+        0,
+        {
+          "$oid": "000000000000000000000002"
+        }
+      ],
+      "filter": "{\"$and\":[{\"k\":{\"$not\":{\"$lt\":{\"$numberInt\":\"0\"}}}},{\"$or\":[{\"k\":{\"$gt\":{\"$numberInt\":\"0\"}}},{\"k\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"k\":{\"$numberInt\":\"0\"}},{\"$or\":[{\"_id\":{\"$lt\":{\"$oid\":\"000000000000000000000002\"}}},{\"_id\":null},{\"_id\":{\"$type\":[{\"$numberInt\":\"-1\"},\"number\",{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "_id": 1,
+        "k": 1
+      },
+      "position": [
+        1,
+        2
+      ],
+      "filter": "{\"$and\":[{\"_id\":{\"$not\":{\"$lt\":{\"$numberInt\":\"1\"}}}},{\"$or\":[{\"_id\":{\"$gt\":{\"$numberInt\":\"1\"}}},{\"_id\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}},{\"$and\":[{\"_id\":{\"$numberInt\":\"1\"}},{\"$or\":[{\"k\":{\"$gt\":{\"$numberInt\":\"2\"}}},{\"k\":{\"$type\":[{\"$numberInt\":\"2\"},{\"$numberInt\":\"14\"},{\"$numberInt\":\"3\"},{\"$numberInt\":\"5\"},{\"$numberInt\":\"7\"},{\"$numberInt\":\"8\"},{\"$numberInt\":\"9\"},{\"$numberInt\":\"17\"},{\"$numberInt\":\"11\"},{\"$numberInt\":\"13\"},{\"$numberInt\":\"127\"}]}}]}]}]}]}"
+    },
+    {
+      "sort": {
+        "a": 1
+      },
+      "position": [
+        {
+          "$regularExpression": {
+            "pattern": "x",
+            "options": ""
+          }
+        },
+        1
+      ],
+      "error": "The cursor ends on a regular expression sort value in \"a\", which cannot be compared, so the next page cannot be read. Sort by a field without regular expression values, or filter those documents out."
+    },
+    {
+      "sort": {
+        "a": -1
+      },
+      "position": [
+        {
+          "$regularExpression": {
+            "pattern": "x",
+            "options": ""
+          }
+        },
+        1
+      ],
+      "error": "The cursor ends on a regular expression sort value in \"a\", which cannot be compared, so the next page cannot be read. Sort by a field without regular expression values, or filter those documents out."
+    },
+    {
+      "sort": {
+        "a": 1
+      },
+      "position": [
+        [],
+        1
+      ],
+      "error": "A cursor value may not be an array"
+    }
+  ]
+}

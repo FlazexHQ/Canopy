@@ -79,7 +79,8 @@ Fixed decisions (do not change without the user saying so):
   with argument arrays, handling `.cmd` shims on Windows; accept CRLF in parsed text; match file name case
   exactly; never rely on POSIX permission bits for security; handle `SIGINT`, `SIGTERM` and `SIGBREAK`; avoid
   native dependencies without prebuilt binaries for every platform. Full rules: `docs/design/01-architecture.md` §8.
-- Open decisions (name, license, auth engine, minimum MongoDB) live in `docs/design/12-roadmap.md` §7.
+- Open decisions (name, license, auth engine) live in `docs/design/12-roadmap.md` §7; the minimum MongoDB is
+  8.0 (decided 2026-11-23).
   Check whether they are settled before assuming an answer.
 
 ## Code rules (from the user, mandatory)
@@ -142,7 +143,7 @@ bun run db:smoke                           # change stream and transaction smoke
 bun run db:down
 bun run dev                                # canopy dev from source against deploy/dev (see below)
 bun --filter @canopy/matcher test          # one package
-bun --filter @canopy/rest bench            # write path cost benchmark against the dev replica set
+bun --filter @canopy/bench rest            # write path cost benchmark against the dev replica set
 bunx vitest run --project matcher test/compare.test.ts -t "orders types"     # one file / one test
 CANOPY_TEST_MONGODB_URI="mongodb://localhost:27017/?replicaSet=rs0" bun run test:all   # include MongoDB suites
 ```
@@ -156,19 +157,19 @@ tests need a MongoDB **replica set** (change streams and transactions do not wor
 by `CANOPY_TEST_MONGODB_URI`; without it those suites are reported as skipped. `CANOPY_DIFF_RUNS`,
 `CANOPY_SIM_SEEDS` and `CANOPY_ECHO_MUTATIONS` scale the differential, simulation and echo correlation runs. CI (`.github/workflows/ci.yml`) runs Biome,
 `tsc -b`, Knip, the docs export check, the docs site build and Vitest on Bun and on Node 24 and 26 on Linux, Windows and macOS, and the full suite against replica
-sets on MongoDB 7.0 and 8.0 (with V8 coverage and its floors on 8.0 under Node), the Studio and todo-react Playwright suites, the Docker
+sets on MongoDB 8.0 and 9.0 (with V8 coverage and its floors on 8.0 under Node), the Studio and todo-react Playwright suites, the Docker
 images job, the Changesets check and a license check of everything the published packages install (`bun packages/testing/scripts/licenses.ts`); `security.yml` runs dependency review on pull requests, CodeQL and secret scanning; `nightly.yml` runs the long differential and simulation runs, the browser tests on
 Windows and macOS, Linux arm64, Alpine (musl) and Deno. Actions are pinned to commit SHAs. Without Docker (the
 Windows and macOS runners), `bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir <folder>` downloads
 the official binaries and starts a replica set on localhost:27017. MongoDB 8 does not start on Linux kernels
-6.19 to 7.0.13 (SERVER-121912), which is why the Docker MongoDB jobs run on `ubuntu-22.04` for now; locally,
-`CANOPY_MONGO_IMAGE=mongo:7.0.45 bun run db:up` works on such a kernel. Under Deno, Vitest needs
-`--pool=threads`.
+6.19 to 7.0.13 (SERVER-121912), which is why the Docker MongoDB jobs run on `ubuntu-22.04` for now. MongoDB 7.0 is no longer supported or
+tested (decided 2026-11-23): test against 8.0 and 9.0 only. Under Deno, Vitest needs `--pool=threads`.
 
 Package layout: library code in `src/` (built by the package `tsconfig.json`), tests in `test/` with their own
 `tsconfig.json` on the server variant (so tests may use `node:` modules and the driver). Workspace packages export
 their sources under the `@canopy/source` condition, which `vitest.shared.ts` enables, so tests run without a
-build. Protocol conformance vectors live in `packages/protocol/vectors/` and run through the client.
+build. The language neutral test vectors live in `conformance/` (see `conformance/README.md`); the protocol vectors
+run through the client.
 
 Examples are private workspace members named `@canopy/example-<name>` with end to end tests in CI. They pin
 third party versions directly (no `catalog:`) so they stay copyable, run their server TypeScript directly on

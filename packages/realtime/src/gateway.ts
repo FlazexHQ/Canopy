@@ -82,6 +82,11 @@ export interface GatewayOverrides {
   readonly auth?: GatewayAuth
   /** The public key of Studio's view tokens as a JWK, so the gateway accepts them. */
   readonly viewTokenKey?: JsonWebKey
+  /**
+   * The Data API routes the gateway serves itself (`find`), by name. Without it the gateway reads
+   * `CANOPY_DATA_PLANE_ROUTES`, and without that it serves none and passes every request on to the server.
+   */
+  readonly dataPlaneRoutes?: readonly string[]
 }
 
 /**
@@ -175,6 +180,13 @@ export function gatewayConfig(
     ...(overrides.viewTokenKey === undefined
       ? {}
       : { viewTokens: { jwk: overrides.viewTokenKey } }),
+    rest:
+      config.rest === false
+        ? false
+        : { defaultLimit: config.rest.defaultLimit, maxLimit: config.rest.maxLimit },
+    ...(overrides.dataPlaneRoutes === undefined
+      ? {}
+      : { dataPlane: { routes: overrides.dataPlaneRoutes } }),
     log: { level: config.log.level },
   }
 }

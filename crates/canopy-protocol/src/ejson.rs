@@ -1,7 +1,8 @@
 //! EJSON, relaxed and canonical, with the limits applied to untrusted input.
 
 use crate::error::CanopyError;
-use crate::json::{Json, parse_json, write_json};
+use crate::json::{Json, js_number_string, parse_json, write_json_string};
+use crate::raw::ValueRef;
 use crate::value::{Binary, Document, Regex, Value, hex, hex_digit, object_id_hex, parse_object_id};
 
 /// Limits applied while decoding untrusted EJSON.
@@ -545,7 +546,8 @@ pub fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Encodes a value into relaxed EJSON (the `canopy.v1` wire form).
+/// Encodes a value into relaxed EJSON (the `canopy.v1` wire form). A BSON symbol, the deprecated string type
+/// that MongoDB sorts and compares with strings, is written as a plain string, in both encodings.
 pub fn encode(value: &Value) -> Result<Json, CanopyError> {
     encode_value(value, false)
 }
@@ -559,7 +561,7 @@ pub fn to_canonical(value: &Value) -> Result<Json, CanopyError> {
 /// Serializes a value to relaxed EJSON text.
 pub fn stringify(value: &Value) -> Result<String, CanopyError> {
     let mut out = String::new();
-    write_json(&mut out, &encode(value)?);
+    write_ejson(&mut out, value.view(), false)?;
     Ok(out)
 }
 
@@ -567,8 +569,129 @@ pub fn stringify(value: &Value) -> Result<String, CanopyError> {
 /// a key.
 pub fn canonical_string(value: &Value) -> Result<String, CanopyError> {
     let mut out = String::new();
-    write_json(&mut out, &to_canonical(value)?);
+    write_ejson(&mut out, value.view(), true)?;
     Ok(out)
+}
+
+/// Appends the EJSON text of a borrowed value to `out`: the text of [`stringify`], or of [`canonical_string`]
+/// when `canonical`, written in one pass from the view, so a raw BSON document is encoded straight from its
+/// bytes without an owned copy or an intermediate JSON tree. On an error, `out` holds a partial text that the
+/// caller discards.
+pub fn write_ejson(out: &mut String, value: ValueRef<'_>, canonical: bool) -> Result<(), CanopyError> {
+    match value {
+        ValueRef::Null | ValueRef::Undefined => out.push_str("null"),
+        ValueRef::String(text) | ValueRef::Symbol(text) => write_json_string(out, text),
+        ValueRef::Bool(flag) => out.push_str(if flag { "true" } else { "false" }),
+        ValueRef::Double(number) => write_number(out, number, canonical),
+        ValueRef::Int32(number) => write_number(out, f64::from(number), canonical),
+        ValueRef::Int64(number) => {
+            if !canonical && (-TWO_POW_53..=TWO_POW_53).contains(&number) {
+                #[allow(clippy::cast_precision_loss)]
+                out.push_str(&js_number_string(number as f64));
+            } else {
+                write_text_wrapper(out, "$numberLong", &number.to_string());
+            }
+        }
+        ValueRef::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_ejson(out, item, canonical)?;
+            }
+            out.push(']');
+        }
+        ValueRef::Document(document) => {
+            out.push('{');
+            let mut first = true;
+            for (key, item) in document.iter() {
+                if matches!(item, ValueRef::Undefined) {
+                    continue;
+                }
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                write_json_string(out, key);
+                out.push(':');
+                write_ejson(out, item, canonical)?;
+            }
+            out.push('}');
+        }
+        ValueRef::DateTime(ms) => {
+            if ms.unsigned_abs() > MAX_DATE_MS.unsigned_abs() {
+                return Err(CanopyError::invalid_query("Cannot encode an invalid Date"));
+            }
+            if !canonical && (1970..=9999).contains(&utc_year(ms)) {
+                write_text_wrapper(out, "$date", &iso_string(ms));
+            } else {
+                out.push_str("{\"$date\":");
+                write_text_wrapper(out, "$numberLong", &ms.to_string());
+                out.push('}');
+            }
+        }
+        ValueRef::Regex { pattern, options } => {
+            let regex = Regex::new(pattern, options);
+            out.push_str("{\"$regularExpression\":{\"pattern\":");
+            write_json_string(out, &regex.pattern);
+            out.push_str(",\"options\":");
+            write_json_string(out, &regex.options);
+            out.push_str("}}");
+        }
+        ValueRef::ObjectId(id) => write_text_wrapper(out, "$oid", &object_id_hex(&id)),
+        ValueRef::Decimal128(decimal) => write_text_wrapper(out, "$numberDecimal", &decimal.to_text()),
+        ValueRef::Binary { subtype, bytes } => {
+            out.push_str("{\"$binary\":{\"base64\":");
+            write_json_string(out, &base64_encode(bytes));
+            out.push_str(",\"subType\":");
+            write_json_string(out, &hex(&[subtype]));
+            out.push_str("}}");
+        }
+        ValueRef::Timestamp { t, i } => {
+            out.push_str("{\"$timestamp\":{\"t\":");
+            out.push_str(&js_number_string(f64::from(t)));
+            out.push_str(",\"i\":");
+            out.push_str(&js_number_string(f64::from(i)));
+            out.push_str("}}");
+        }
+        ValueRef::MinKey => out.push_str("{\"$minKey\":1}"),
+        ValueRef::MaxKey => out.push_str("{\"$maxKey\":1}"),
+        ValueRef::JavaScript { .. } => return Err(cannot_encode("Code")),
+        ValueRef::DbPointer { .. } => return Err(cannot_encode("DBRef")),
+    }
+    Ok(())
+}
+
+fn write_text_wrapper(out: &mut String, key: &str, text: &str) {
+    out.push('{');
+    write_json_string(out, key);
+    out.push(':');
+    write_json_string(out, text);
+    out.push('}');
+}
+
+fn write_number(out: &mut String, number: f64, canonical: bool) {
+    if number.is_nan() {
+        return write_text_wrapper(out, "$numberDouble", "NaN");
+    }
+    if number.is_infinite() {
+        return write_text_wrapper(out, "$numberDouble", if number > 0.0 { "Infinity" } else { "-Infinity" });
+    }
+    if number == 0.0 && number.is_sign_negative() {
+        return write_text_wrapper(out, "$numberDouble", "-0.0");
+    }
+    let formatted = js_number_string(number);
+    if !canonical {
+        return out.push_str(&formatted);
+    }
+    if crate::value::is_int32(number) {
+        write_text_wrapper(out, "$numberInt", &formatted);
+    } else if number.fract() == 0.0 && number.abs() < 1e21 {
+        write_text_wrapper(out, "$numberDouble", &format!("{formatted}.0"));
+    } else {
+        write_text_wrapper(out, "$numberDouble", &formatted);
+    }
 }
 
 fn wrapper(key: &str, value: Json) -> Json {
@@ -624,7 +747,7 @@ fn encode_date(ms: i64, canonical: bool) -> Result<Json, CanopyError> {
 fn encode_value(value: &Value, canonical: bool) -> Result<Json, CanopyError> {
     Ok(match value {
         Value::Null | Value::Undefined => Json::Null,
-        Value::String(text) => Json::String(text.clone()),
+        Value::String(text) | Value::Symbol(text) => Json::String(text.clone()),
         Value::Bool(flag) => Json::Bool(*flag),
         Value::Double(number) => encode_number(*number, canonical),
         Value::Int32(number) => encode_number(f64::from(*number), canonical),
@@ -667,7 +790,6 @@ fn encode_value(value: &Value, canonical: bool) -> Result<Json, CanopyError> {
         ),
         Value::MinKey => wrapper("$minKey", Json::Number(1.0)),
         Value::MaxKey => wrapper("$maxKey", Json::Number(1.0)),
-        Value::Symbol(_) => return Err(cannot_encode("BSONSymbol")),
         Value::JavaScript(_) => return Err(cannot_encode("Code")),
         Value::DbPointer(_) => return Err(cannot_encode("DBRef")),
     })
@@ -680,6 +802,78 @@ fn cannot_encode(tag: &str) -> CanopyError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bson::{decode_document, encode_document};
+    use crate::json::write_json;
+    use crate::raw::{DocRef, RawDocument};
+    use crate::value::JavaScript;
+
+    /// The text of the tree based encoder, which the streaming writer must reproduce byte for byte.
+    fn through_tree(value: &Value, canonical: bool) -> Result<String, CanopyError> {
+        let mut out = String::new();
+        write_json(&mut out, &(if canonical { to_canonical(value) } else { encode(value) })?);
+        Ok(out)
+    }
+
+    fn streamed(value: ValueRef<'_>, canonical: bool) -> Result<String, CanopyError> {
+        let mut out = String::new();
+        write_ejson(&mut out, value, canonical)?;
+        Ok(out)
+    }
+
+    #[test]
+    fn the_streaming_writer_equals_the_tree_encoder_for_owned_and_raw_values() {
+        let samples = [
+            r#"{"s":"x\u0000\"\\é\ud83d\ude00","b":true,"f":false,"n":null}"#,
+            r#"{"i":{"$numberInt":"-2147483648"},"j":{"$numberInt":"2147483647"},"d":1.5,"z":0,"big":1e21,"small":5e-324}"#,
+            r#"{"nan":{"$numberDouble":"NaN"},"inf":{"$numberDouble":"Infinity"},"ninf":{"$numberDouble":"-Infinity"},"nz":{"$numberDouble":"-0.0"},"whole":{"$numberDouble":"3.0"},"huge":{"$numberDouble":"1e300"}}"#,
+            r#"{"l":{"$numberLong":"9007199254740992"},"m":{"$numberLong":"9007199254740993"},"o":{"$numberLong":"-9007199254740993"},"p":{"$numberLong":"7"}}"#,
+            r#"{"d1":{"$date":"2026-01-01T08:00:00.123Z"},"d2":{"$date":{"$numberLong":"-1"}},"d3":{"$date":{"$numberLong":"253402300800000"}}}"#,
+            r#"{"re":{"$regularExpression":{"pattern":"a\\d","options":"xmi"}},"id":{"$oid":"6f1000000000000000000001"},"dec":{"$numberDecimal":"-1.50E+3"}}"#,
+            r#"{"bin":{"$binary":{"base64":"AQID","subType":"80"}},"uuid":{"$binary":{"base64":"AAAAAAAAAAAAAAAAAAAAAA==","subType":"04"}},"ts":{"$timestamp":{"t":4294967295,"i":7}}}"#,
+            r#"{"lo":{"$minKey":1},"hi":{"$maxKey":1},"nested":{"a":[1,[2,{"b":{"c":[]}}],{}]},"arr":[null]}"#,
+        ];
+        let mut with_undefined = Document::new();
+        with_undefined.insert("u", Value::Undefined);
+        with_undefined.insert("a", Value::Array(vec![Value::Undefined, Value::Int32(1)]));
+        with_undefined.insert("v", Value::String("kept".into()));
+        let mut values: Vec<(String, Value)> = samples
+            .iter()
+            .map(|sample| {
+                ((*sample).to_owned(), parse(sample, DecodeOptions::default()).expect("a sample parses"))
+            })
+            .collect();
+        values.push(("undefined fields".to_owned(), Value::Document(with_undefined)));
+        for (sample, value) in values {
+            let Value::Document(document) = &value else { unreachable!("a document") };
+            let bytes = encode_document(document).expect("BSON");
+            let raw = RawDocument::new(&bytes).expect("raw");
+            let through_bytes = Value::Document(decode_document(&bytes).expect("decoded"));
+            for canonical in [false, true] {
+                let expected = through_tree(&value, canonical).expect("the tree encoder encodes it");
+                assert_eq!(streamed(value.view(), canonical).as_deref(), Ok(expected.as_str()), "{sample}");
+                let expected_raw = through_tree(&through_bytes, canonical).expect("encodes");
+                assert_eq!(
+                    streamed(ValueRef::Document(DocRef::Raw(raw)), canonical).as_deref(),
+                    Ok(expected_raw.as_str()),
+                    "raw {sample}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_streaming_writer_refuses_what_the_tree_encoder_refuses() {
+        let code = Value::JavaScript(Box::new(JavaScript { code: "1".into(), scope: None }));
+        let late = Value::DateTime(MAX_DATE_MS + 1);
+        for value in [code, late] {
+            for canonical in [false, true] {
+                let tree = through_tree(&value, canonical).map_err(|error| error.message().to_owned());
+                let stream = streamed(value.view(), canonical).map_err(|error| error.message().to_owned());
+                assert!(tree.is_err());
+                assert_eq!(stream, tree);
+            }
+        }
+    }
 
     fn parsed(text: &str) -> Value {
         parse(text, DecodeOptions::default()).unwrap()
@@ -785,9 +979,23 @@ mod tests {
         document.insert("a", Value::Array(vec![Value::Undefined]));
         assert_eq!(stringify(&Value::Document(document)).unwrap(), r#"{"a":[null]}"#);
         assert_eq!(
-            stringify(&Value::Symbol("s".into())).unwrap_err().message(),
-            "Cannot encode BSON type BSONSymbol"
+            stringify(&Value::JavaScript(Box::new(JavaScript { code: "1".into(), scope: None })))
+                .unwrap_err()
+                .message(),
+            "Cannot encode BSON type Code"
         );
+    }
+
+    #[test]
+    fn a_symbol_is_written_as_a_plain_string_in_both_encodings() {
+        let mut document = Document::new();
+        document.insert("s", Value::Symbol("sym".into()));
+        document.insert("list", Value::Array(vec![Value::Symbol(String::new())]));
+        document.insert("text", Value::String("sym".into()));
+        let value = Value::Document(document);
+        let expected = r#"{"s":"sym","list":[""],"text":"sym"}"#;
+        assert_eq!(stringify(&value).unwrap(), expected);
+        assert_eq!(canonical_string(&value).unwrap(), expected);
     }
 
     #[test]

@@ -74,6 +74,8 @@ export {
   type SchemaSourceOptions,
 } from "./schema-source.ts"
 export {
+  type BatchItem,
+  type BatchItemResult,
   type BatchOperationResult,
   type BatchResult,
   type Caller,

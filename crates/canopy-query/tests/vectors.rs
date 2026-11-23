@@ -200,7 +200,7 @@ fn without_surrogate_escapes(source: &str) -> String {
 
 #[test]
 fn query_validation_and_hashing_agree_with_typescript() {
-    let vectors = parse_json(include_str!("vectors/query.json")).expect("vector file");
+    let vectors = parse_json(include_str!("../../../conformance/query/query.json")).expect("vector file");
     let Some(Json::Array(cases)) = vectors.get("cases") else { panic!("cases") };
     let mut mismatches = Vec::new();
     let mut hashed = 0;

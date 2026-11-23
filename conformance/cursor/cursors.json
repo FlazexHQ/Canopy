@@ -1,0 +1,57 @@
+{
+  "description": "A position and a query hash as a cursor: base64url of the canonical EJSON of { s: position, q: hash }.",
+  "cases": [
+    {
+      "position": [
+        {
+          "$date": {
+            "$numberLong": "1234"
+          }
+        },
+        {
+          "$oid": "6728f0c2a1b2c3d4e5f60718"
+        }
+      ],
+      "hash": "1cb4abd0e981f7e24003bfc0584f24ce",
+      "cursor": "eyJzIjpbeyIkZGF0ZSI6eyIkbnVtYmVyTG9uZyI6IjEyMzQifX0seyIkb2lkIjoiNjcyOGYwYzJhMWIyYzNkNGU1ZjYwNzE4In1dLCJxIjoiMWNiNGFiZDBlOTgxZjdlMjQwMDNiZmMwNTg0ZjI0Y2UifQ"
+    },
+    {
+      "position": [
+        null,
+        1
+      ],
+      "hash": "1cb4abd0e981f7e24003bfc0584f24ce",
+      "cursor": "eyJzIjpbbnVsbCx7IiRudW1iZXJJbnQiOiIxIn1dLCJxIjoiMWNiNGFiZDBlOTgxZjdlMjQwMDNiZmMwNTg0ZjI0Y2UifQ"
+    },
+    {
+      "position": [
+        "aü",
+        {
+          "$numberDouble": "NaN"
+        }
+      ],
+      "hash": "1cb4abd0e981f7e24003bfc0584f24ce",
+      "cursor": "eyJzIjpbImHDvCIseyIkbnVtYmVyRG91YmxlIjoiTmFOIn1dLCJxIjoiMWNiNGFiZDBlOTgxZjdlMjQwMDNiZmMwNTg0ZjI0Y2UifQ"
+    },
+    {
+      "position": [
+        "日本語😀",
+        "a\u0000b"
+      ],
+      "hash": "a7e218460fd987933f624f42c17fc189",
+      "cursor": "eyJzIjpbIuaXpeacrOiqnvCfmIAiLCJhXHUwMDAwYiJdLCJxIjoiYTdlMjE4NDYwZmQ5ODc5MzNmNjI0ZjQyYzE3ZmMxODkifQ"
+    },
+    {
+      "position": [
+        {
+          "$numberLong": "-9007199254740993"
+        },
+        {
+          "$numberDecimal": "0.10"
+        }
+      ],
+      "hash": "ff9be26226f60ae5a10ef9598802f8ab",
+      "cursor": "eyJzIjpbeyIkbnVtYmVyTG9uZyI6Ii05MDA3MTk5MjU0NzQwOTkzIn0seyIkbnVtYmVyRGVjaW1hbCI6IjAuMTAifV0sInEiOiJmZjliZTI2MjI2ZjYwYWU1YTEwZWY5NTk4ODAyZjhhYiJ9"
+    }
+  ]
+}

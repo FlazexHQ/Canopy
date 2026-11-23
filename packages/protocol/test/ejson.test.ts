@@ -180,6 +180,22 @@ describe("encode", () => {
     invalid(() => encode(new Date(Number.NaN)))
   })
 
+  it("writes a BSON symbol as a plain string in both encodings", () => {
+    const value = { s: new bson.BSONSymbol("sym"), list: [new bson.BSONSymbol("")], text: "sym" }
+    const expected = { s: "sym", list: [""], text: "sym" }
+    expect(encode(value)).toEqual(expected)
+    expect(toCanonical(value)).toEqual(expected)
+    expect(stringify(value)).toBe('{"s":"sym","list":[""],"text":"sym"}')
+    expect(canonicalString(new bson.BSONSymbol("é\u0000\u{1f600}"))).toBe(
+      canonicalString("é\u0000\u{1f600}"),
+    )
+  })
+
+  it("refuses a symbol wrapper that holds no string", () => {
+    invalid(() => encode({ _bsontype: "BSONSymbol", value: 1 }))
+    invalid(() => encode({ _bsontype: "BSONSymbol" }))
+  })
+
   it("round trips every value class through text", () => {
     const original = {
       oid: new ObjectId(OID),

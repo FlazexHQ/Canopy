@@ -1,0 +1,21 @@
+[package]
+name = "canopy-data"
+description = "Canopy's data plane read execution: callers and context lookups, policy filters and field rules, query limits, keyset cursors and snapshot pages read from MongoDB as raw BSON."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-engine = { path = "../canopy-engine" }
+canopy-matcher = { path = "../canopy-matcher" }
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["sync", "time"] }
+
+[lints]
+workspace = true

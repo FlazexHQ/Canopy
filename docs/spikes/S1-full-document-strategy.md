@@ -31,7 +31,7 @@ that is safe because events are applied by cluster time and a newer document onl
 - Ingestor start, progress and restart behavior: `packages/realtime/test/ingestor.test.ts`.
 - Convergence of views with updates arriving without post images, against a MongoDB oracle:
   `packages/realtime/test/realtime.test.ts` ("converges to the MongoDB result after random writes").
-- Load tooling that measures the criterion: `packages/realtime/bench/fanout.ts`, `writer.ts` and
+- Load tooling that measures the criterion: `bench/workloads/realtime/fanout.ts`, `writer.ts` and
   `stream-probe.ts` (a plain change stream as the baseline).
 
 ## Not done

@@ -7,7 +7,7 @@
 
 ## Method
 
-`packages/rest/bench/write-cost.ts` (`bun --filter @canopy/rest bench`) is an open loop load generator: it
+`bench/workloads/rest/write-cost.ts` (`bun --filter @canopy/bench rest`) is an open loop load generator: it
 schedules writes at a fixed rate and measures latency from each write's scheduled start, so queueing counts. A
 2 s warm up precedes each 8 to 10 s measured window. Scenarios:
 

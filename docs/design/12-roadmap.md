@@ -653,7 +653,7 @@ Decisions needed from the maintainers. Each has a recommendation and a deadline.
 | Q2 | License | Apache-2.0 for everything ([ADR-0012](../adr/0012-license-apache-2.md)) | Phase 0 |
 | Q3 | Primary server runtime | **Decided 2026-11-06:** Bun primary, then Node.js 26 LTS (24 minimum), then Deno ([ADR-0001](../adr/0001-typescript-6-and-bun.md)) | Done |
 | Q4 | Auth engine | Better Auth behind `AuthProvider`, pending S6 | After S6 |
-| Q5 | Minimum MongoDB | 7.0 until 1.0, then 8.0 | Phase 0 |
+| Q5 | Minimum MongoDB | **Decided 2026-11-23:** 8.0; the suites run on 8.0 and 9.0, and 7.0 is no longer supported | Done |
 | Q6 | Plans for a hosted cloud (affects multi-project meta-DB design and licensing) | Design for it, don't build it | Before Phase 3 |
 | Q7 | Offline depth for 1.0 | Queue only. A local-first database comes after 1.0. | Before Phase 2 |
 | Q8 | GraphQL priority | Phase 4, first item on the cut list | Phase 3 review |

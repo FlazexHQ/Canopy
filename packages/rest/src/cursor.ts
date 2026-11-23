@@ -1,5 +1,12 @@
 import { sha256 } from "@canopy/auth/crypto"
-import { Bracket, bracketOf, type SortKey, sortKeyOf, splitPath } from "@canopy/matcher"
+import {
+  Bracket,
+  bracketOf,
+  readNumeric,
+  type SortKey,
+  sortKeyOf,
+  splitPath,
+} from "@canopy/matcher"
 import { DENY_FILTER } from "@canopy/policy"
 import { InvalidQueryError, isDocument, parse, toCanonical } from "@canopy/protocol"
 import { canonicalQuery, validateStoredDocument } from "@canopy/query"
@@ -20,24 +27,25 @@ const MAX_CURSOR_LENGTH = 4096
 const NULL_TYPES = new Set<number>([Bracket.Missing, Bracket.Null])
 
 /**
- * The `$type` aliases of each comparison bracket, in MongoDB's sort order. Null and missing are matched with
- * `$eq: null` instead, because `$type: 'null'` does not match a missing field. Arrays have no entry: keyset
- * pagination over array valued sort fields is undefined.
+ * The `$type` codes and aliases of each comparison bracket, in MongoDB's sort order. Null and missing are
+ * matched with `null` equality instead, because `$type: 10` does not match a missing field. Arrays have no
+ * entry: keyset pagination over array valued sort fields is undefined. `"number"` stands for the four
+ * numeric types, and `2` and `14` are strings and symbols, which sort together.
  */
-const BRACKET_TYPES: readonly (readonly [number, readonly string[]])[] = [
-  [Bracket.MinKey, ["minKey"]],
+const BRACKET_TYPES: readonly (readonly [number, readonly (number | string)[]])[] = [
+  [Bracket.MinKey, [-1]],
   [Bracket.Null, []],
-  [Bracket.Number, ["double", "int", "long", "decimal"]],
-  [Bracket.String, ["string", "symbol"]],
-  [Bracket.Object, ["object"]],
-  [Bracket.BinData, ["binData"]],
-  [Bracket.ObjectId, ["objectId"]],
-  [Bracket.Bool, ["bool"]],
-  [Bracket.Date, ["date"]],
-  [Bracket.Timestamp, ["timestamp"]],
-  [Bracket.Regex, ["regex"]],
-  [Bracket.Code, ["javascript"]],
-  [Bracket.MaxKey, ["maxKey"]],
+  [Bracket.Number, ["number"]],
+  [Bracket.String, [2, 14]],
+  [Bracket.Object, [3]],
+  [Bracket.BinData, [5]],
+  [Bracket.ObjectId, [7]],
+  [Bracket.Bool, [8]],
+  [Bracket.Date, [9]],
+  [Bracket.Timestamp, [17]],
+  [Bracket.Regex, [11]],
+  [Bracket.Code, [13]],
+  [Bracket.MaxKey, [127]],
 ]
 
 /** Appends `_id` ascending as the tie breaker unless the sort already has it, as MongoDB queries here do. */
@@ -109,10 +117,16 @@ export function decodeCursor(cursor: string, keys: readonly CursorKey[], hash: s
 }
 
 /**
- * Builds the keyset filter that selects the documents after `values` in the order of `keys`:
- * `$or` over each key of "equal on every earlier key and after on this one". "After" respects the
- * direction and BSON type order: comparison operators only match inside one type bracket, so values of the
- * brackets that sort later (or earlier, for a descending key) are matched by `$type`.
+ * Builds the keyset filter that selects the documents after `values` in the order of `keys`: an `$or` over
+ * each key of "equal on every earlier key and after on this one". "After" respects the direction and BSON
+ * type order: comparison operators only match inside one type bracket, so values of the brackets that sort
+ * later (or earlier, for a descending key) are matched by `$type`.
+ *
+ * When the sort has more than the `_id` tie breaker, the filter is also ANDed with a bound on the first key
+ * that every selected document satisfies (not greater than the position for a descending key, not less for
+ * an ascending one). It selects nothing new, but it turns the one index scan the planner may choose for the
+ * `$or` into a scan that starts at the position instead of at the start of the index prefix, whichever plan
+ * the planner picks or has cached for the query shape.
  */
 export function keysetFilter(
   keys: readonly CursorKey[],
@@ -122,41 +136,78 @@ export function keysetFilter(
   for (let index = 0; index < keys.length; index += 1) {
     const key = keys[index]
     if (key === undefined) break
-    const equal = keys
-      .slice(0, index)
-      .map((earlier, i) => ({ [earlier.path]: { $eq: values[i] ?? null } }))
-    const after = afterValue(key.path, values[index] ?? null, key.direction)
-    if (after === undefined) continue
-    branches.push(equal.length === 0 ? after : { $and: [...equal, after] })
+    const options = afterOptions(key.path, values[index] ?? null, key.direction)
+    if (options.length === 0) continue
+    if (index === 0) {
+      branches.push(...options)
+      continue
+    }
+    const equal = keys.slice(0, index).map((earlier, i) => equalTo(earlier.path, values[i] ?? null))
+    branches.push({ $and: [...equal, options.length === 1 ? options[0] : { $or: options }] })
   }
   if (branches.length === 0) return { ...DENY_FILTER }
-  return branches.length === 1 ? (branches[0] as Record<string, unknown>) : { $or: branches }
+  const after = branches.length === 1 ? (branches[0] as Record<string, unknown>) : { $or: branches }
+  const first = keys[0]
+  const bound =
+    keys.length > 1 && first !== undefined ? boundOf(first, values[0] ?? null) : undefined
+  return bound === undefined ? after : { $and: [bound, after] }
 }
 
-function afterValue(
-  path: string,
-  value: unknown,
-  direction: 1 | -1,
-): Record<string, unknown> | undefined {
+/**
+ * The clauses that select the documents after one value of one key: strictly after inside the value's own
+ * bracket (NaN, which sorts before every other number but matches no comparison operator, is handled by
+ * equality and by the range of all finite and infinite numbers), plus every bracket that sorts after it.
+ */
+function afterOptions(path: string, value: unknown, direction: 1 | -1): Record<string, unknown>[] {
   const bracket = bracketOf(value)
   if (bracket === Bracket.Array) throw new InvalidQueryError("A cursor value may not be an array")
   if (bracket === Bracket.Regex)
-    throw new InvalidQueryError("Pages cannot continue past a regular expression sort value")
+    throw new InvalidQueryError(
+      `The cursor ends on a regular expression sort value in "${path}", which cannot be compared, so the next page cannot be read. Sort by a field without regular expression values, or filter those documents out.`,
+    )
   const position = NULL_TYPES.has(bracket) ? Bracket.Null : bracket
   const options: Record<string, unknown>[] = []
-  const comparable =
-    position !== Bracket.Null && position !== Bracket.MinKey && position !== Bracket.MaxKey
-  if (comparable) options.push({ [path]: { [direction === 1 ? "$gt" : "$lt"]: value } })
-  const types: string[] = []
-  for (const [other, aliases] of BRACKET_TYPES) {
+  if (position !== Bracket.Null && position !== Bracket.MinKey && position !== Bracket.MaxKey) {
+    const nan = position === Bracket.Number && isNaNNumber(value)
+    if (direction === 1) {
+      options.push({ [path]: nan ? { $gte: Number.NEGATIVE_INFINITY } : { $gt: value } })
+    } else if (!nan) {
+      options.push({ [path]: { $lt: value } })
+      if (position === Bracket.Number) options.push({ [path]: Number.NaN })
+    }
+  }
+  const types: (number | string)[] = []
+  for (const [other, codes] of BRACKET_TYPES) {
     const later = other > position
     if (direction === 1 ? !later : later || other === position) continue
-    if (other === Bracket.Null) options.push({ [path]: { $eq: null } })
-    else types.push(...aliases)
+    if (other === Bracket.Null) options.push({ [path]: null })
+    else types.push(...codes)
   }
   if (types.length > 0) options.push({ [path]: { $type: types } })
-  if (options.length === 0) return undefined
-  return options.length === 1 ? options[0] : { $or: options }
+  return options
+}
+
+/**
+ * Equality on one value. A document is compared through `$eq`, because a plain document whose first field
+ * starts with `$` would be read as operators rather than as the value.
+ */
+function equalTo(path: string, value: unknown): Record<string, unknown> {
+  return { [path]: isDocument(value) ? { $eq: value } : value }
+}
+
+/** The bound on the first key described at {@link keysetFilter}, or `undefined` where it would bound nothing. */
+function boundOf(key: CursorKey, value: unknown): Record<string, unknown> | undefined {
+  const bracket = bracketOf(value)
+  if (NULL_TYPES.has(bracket) || bracket === Bracket.MinKey || bracket === Bracket.MaxKey)
+    return undefined
+  if (bracket === Bracket.Number && isNaNNumber(value)) return undefined
+  return { [key.path]: { $not: { [key.direction === 1 ? "$lt" : "$gt"]: value } } }
+}
+
+function isNaNNumber(value: unknown): boolean {
+  const numeric = readNumeric(value)
+  if (numeric === undefined) return false
+  return numeric.kind === "decimal" ? /nan$/i.test(numeric.value) : Number.isNaN(numeric.value)
 }
 
 function toBase64Url(text: string): string {

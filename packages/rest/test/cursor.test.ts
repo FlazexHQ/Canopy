@@ -1,7 +1,17 @@
 import { compileFilter, compileSort } from "@canopy/matcher"
-import { CanopyError, canonicalString, ErrorCode, MaxKey, MinKey, ObjectId } from "@canopy/protocol"
+import { and } from "@canopy/policy"
+import {
+  CanopyError,
+  canonicalString,
+  ErrorCode,
+  InvalidQueryError,
+  MaxKey,
+  MinKey,
+  ObjectId,
+} from "@canopy/protocol"
 import { DEFAULT_LIMITS, parseFilter, queryHash } from "@canopy/query"
 import fc from "fast-check"
+import { BSON } from "mongodb"
 import { describe, expect, it } from "vitest"
 import {
   cursorKeys,
@@ -17,7 +27,7 @@ const sortValue: fc.Arbitrary<unknown> = fc.oneof(
   fc.constant(undefined),
   fc.constant(null),
   fc.integer({ min: -3, max: 3 }),
-  fc.constantFrom(0.5, -0.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY),
+  fc.constantFrom(0.5, -0.5, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NaN, -0),
   fc.constantFrom("", "a", "b", "ab", "B"),
   fc.boolean(),
   fc.constantFrom(new Date(0), new Date(1000)),
@@ -86,14 +96,165 @@ describe("keysetFilter", () => {
     expect(positionOf({ _id: 1 }, cursorKeys({ a: 1 }))).toEqual([null, 1])
   })
 
+  it("compares a document sort value as a value even when its first field starts with $", () => {
+    const keys = cursorKeys({ a: 1 })
+    const rows = [
+      { _id: 1, a: { $gt: 5 } },
+      { _id: 2, a: { $gt: 5 } },
+      { _id: 3, a: { $gt: 6 } },
+    ]
+    const filter = keysetFilter(keys, positionOf(rows[0] ?? {}, keys))
+    expect(JSON.stringify(filter)).toContain('{"a":{"$eq":{"$gt":5}}}')
+    const test = compileFilter(filter)
+    expect(rows.filter((row) => test.matches(row)).map((row) => row._id)).toEqual([2, 3])
+  })
+
   it("refuses to continue past a regular expression value", () => {
     expect(() => keysetFilter(cursorKeys({ a: 1 }), [/x/, 1])).toThrow(CanopyError)
+  })
+
+  it("says why a page cannot continue past a regular expression value", () => {
+    for (const direction of [1, -1] as const) {
+      try {
+        keysetFilter(cursorKeys({ a: direction }), [/x/, 1])
+        expect.unreachable("the keyset filter must refuse a regular expression position")
+      } catch (error: unknown) {
+        expect(error).toBeInstanceOf(InvalidQueryError)
+        expect((error as InvalidQueryError).message).toContain("regular expression sort value")
+        expect((error as InvalidQueryError).message).toContain('"a"')
+        expect((error as InvalidQueryError).message).toContain("next page cannot be read")
+      }
+    }
+  })
+})
+
+describe("keysetFilter form", () => {
+  const at = new Date(1_700_000_000_000)
+  const ID_AFTER_NUMBER = [2, 14, 3, 5, 7, 8, 9, 17, 11, 13, 127]
+
+  it("bounds the first key and lists each bracket once for a descending date sort", () => {
+    expect(keysetFilter(cursorKeys({ createdAt: -1 }), [at, 80062])).toEqual({
+      $and: [
+        { createdAt: { $not: { $gt: at } } },
+        {
+          $or: [
+            { createdAt: { $lt: at } },
+            { createdAt: null },
+            { createdAt: { $type: [-1, "number", 2, 14, 3, 5, 7, 8] } },
+            {
+              $and: [
+                { createdAt: at },
+                { $or: [{ _id: { $gt: 80062 } }, { _id: { $type: ID_AFTER_NUMBER } }] },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it("bounds an ascending key from below and leaves a plain _id sort unbounded", () => {
+    expect(keysetFilter(cursorKeys({ score: 1 }), [7, 3])).toEqual({
+      $and: [
+        { score: { $not: { $lt: 7 } } },
+        {
+          $or: [
+            { score: { $gt: 7 } },
+            { score: { $type: [2, 14, 3, 5, 7, 8, 9, 17, 11, 13, 127] } },
+            {
+              $and: [
+                { score: 7 },
+                { $or: [{ _id: { $gt: 3 } }, { _id: { $type: ID_AFTER_NUMBER } }] },
+              ],
+            },
+          ],
+        },
+      ],
+    })
+    expect(keysetFilter(cursorKeys(undefined), [3])).toEqual({
+      $or: [{ _id: { $gt: 3 } }, { _id: { $type: ID_AFTER_NUMBER } }],
+    })
+  })
+
+  it("adds no bound where the first value is null, MinKey, MaxKey or NaN", () => {
+    for (const value of [null, new MinKey(), new MaxKey(), Number.NaN])
+      expect(JSON.stringify(keysetFilter(cursorKeys({ k: 1 }), [value, 1]))).not.toContain("$not")
+  })
+
+  it("selects the numbers after NaN and the NaN documents after a number, which no comparison matches", () => {
+    expect(keysetFilter(cursorKeys({ k: 1 }), [Number.NaN, 1])).toEqual({
+      $or: [
+        { k: { $gte: Number.NEGATIVE_INFINITY } },
+        { k: { $type: [2, 14, 3, 5, 7, 8, 9, 17, 11, 13, 127] } },
+        {
+          $and: [
+            { k: Number.NaN },
+            { $or: [{ _id: { $gt: 1 } }, { _id: { $type: ID_AFTER_NUMBER } }] },
+          ],
+        },
+      ],
+    })
+    expect(keysetFilter(cursorKeys({ k: -1 }), [5, 1])).toEqual({
+      $and: [
+        { k: { $not: { $gt: 5 } } },
+        {
+          $or: [
+            { k: { $lt: 5 } },
+            { k: Number.NaN },
+            { k: null },
+            { k: { $type: [-1] } },
+            {
+              $and: [{ k: 5 }, { $or: [{ _id: { $gt: 1 } }, { _id: { $type: ID_AFTER_NUMBER } }] }],
+            },
+          ],
+        },
+      ],
+    })
+  })
+
+  it("is smaller than the form that listed every type by name, for the D0 shape", () => {
+    const owner = { kind: "filter", filter: { ownerId: "u62" } } as const
+    const filter = and(owner, {
+      kind: "filter",
+      filter: keysetFilter(cursorKeys({ createdAt: -1 }), [at, 80062]),
+    })
+    if (filter.kind !== "filter") throw new Error("expected a filter")
+    const size = BSON.calculateObjectSize(filter.filter)
+    // The previous form of the same filter measured 622 bytes.
+    expect(size).toBeLessThanOrEqual(470)
+    expect(Object.keys(filter.filter)).toEqual(["$and"])
+    expect((filter.filter["$and"] as unknown[]).length).toBe(3)
   })
 })
 
 describe("cursor encoding", () => {
   const keys = cursorKeys({ createdAt: -1 })
   const hash = cursorQueryHash("todos", { status: "active" }, keys)
+
+  it("carries a symbol sort value as the string it sorts with, and keeps symbols in the string bracket", () => {
+    const symbolKeys = cursorKeys({ v: 1 })
+    const symbolHash = cursorQueryHash("symbols", {}, symbolKeys)
+    const position = positionOf({ _id: "y1", v: new BSON.BSONSymbol("sym") }, symbolKeys)
+    const values = decodeCursor(
+      encodeCursor({ values: position }, symbolHash),
+      symbolKeys,
+      symbolHash,
+    )
+    expect(values).toEqual(["sym", "y1"])
+    const later = [3, 5, 7, 8, 9, 17, 11, 13, 127]
+    expect(keysetFilter(symbolKeys, values)).toEqual({
+      $and: [
+        { v: { $not: { $lt: "sym" } } },
+        {
+          $or: [
+            { v: { $gt: "sym" } },
+            { v: { $type: later } },
+            { $and: [{ v: "sym" }, { $or: [{ _id: { $gt: "y1" } }, { _id: { $type: later } }] }] },
+          ],
+        },
+      ],
+    })
+  })
 
   it("round trips BSON values through canonical EJSON", () => {
     const values = [new Date(1234), new ObjectId("6728f0c2a1b2c3d4e5f60718")]

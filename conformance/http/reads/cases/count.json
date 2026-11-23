@@ -1,0 +1,702 @@
+{
+  "group": "count",
+  "description": "POST /{coll}/_count: the count of the documents the caller may read, exact or estimated, and the refusals of the route",
+  "cases": [
+    {
+      "id": "count-own",
+      "title": "An owner counts only the documents the owner policy admits",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-own"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-own"
+        },
+        "body": "{\"data\":{\"count\":8,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-other-owner",
+      "title": "Another owner counts other documents",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-other-owner"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-other-owner"
+        },
+        "body": "{\"data\":{\"count\":4,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-anon",
+      "title": "A caller without a token counts nothing it may not read",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-anon"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-anon"
+        },
+        "body": "{\"data\":{\"count\":0,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-admin",
+      "title": "A role with a policy over every document counts all of them",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "carol",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-admin"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-admin"
+        },
+        "body": "{\"data\":{\"count\":12,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-service",
+      "title": "service bypasses DLS and counts every document",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-service"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-service"
+        },
+        "body": "{\"data\":{\"count\":12,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-filter",
+      "title": "A filter narrows the count, ANDed with the policy",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-filter"
+        },
+        "body": "{\"filter\":{\"status\":\"active\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-filter"
+        },
+        "body": "{\"data\":{\"count\":5,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-filter-ejson",
+      "title": "Extended JSON values in the filter",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-filter-ejson"
+        },
+        "body": "{\"filter\":{\"createdAt\":{\"$gte\":{\"$date\":\"2026-01-02T00:00:00Z\"}}}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-filter-ejson"
+        },
+        "body": "{\"data\":{\"count\":7,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-filter-hidden-field",
+      "title": "A filter on a hidden field is refused, so a count cannot probe hidden values",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-filter-hidden-field"
+        },
+        "body": "{\"filter\":{\"internalNotes\":\"secret-1\"}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-filter-hidden-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: internalNotes\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-filter-hidden-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-filter-hidden-nested",
+      "title": "A filter on a hidden nested field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-filter-hidden-nested"
+        },
+        "body": "{\"filter\":{\"meta.score\":{\"$gt\":1}}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-filter-hidden-nested"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The query may not reference unreadable fields: meta.score\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-filter-hidden-nested\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-restrictive",
+      "title": "A restrictive policy removes archived documents from the count",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/staff/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-restrictive"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-restrictive"
+        },
+        "body": "{\"data\":{\"count\":5,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-ctx",
+      "title": "A $ctx policy counts the tasks of the caller's projects",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-ctx"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-ctx"
+        },
+        "body": "{\"data\":{\"count\":4,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-ctx-other",
+      "title": "Another member counts the tasks of fewer projects",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_count",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-ctx-other"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-ctx-other"
+        },
+        "body": "{\"data\":{\"count\":2,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-estimated-owner",
+      "title": "count=estimated with a policy still counts only what the caller may read",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "prefer": "count=estimated",
+          "x-request-id": "count.count-estimated-owner"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-estimated-owner"
+        },
+        "body": "{\"data\":{\"count\":8,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-estimated-service",
+      "title": "count=estimated for service with an empty filter",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/numbers/_count",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "prefer": "count=estimated",
+          "x-request-id": "count.count-estimated-service"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-estimated-service"
+        },
+        "body": "{\"data\":{\"count\":18,\"exact\":false},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-empty-body",
+      "title": "An empty body counts everything readable",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "count.count-empty-body"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-empty-body"
+        },
+        "body": "{\"data\":{\"count\":8,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-unknown-field",
+      "title": "An unknown body field is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-unknown-field"
+        },
+        "body": "{\"where\":{}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-unknown-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown count field where\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-unknown-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-body-array",
+      "title": "A body that is not a document is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-body-array"
+        },
+        "body": "[]"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-body-array"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The count body must be a document\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-body-array\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-body-malformed",
+      "title": "A body that is not JSON is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-body-malformed"
+        },
+        "body": "{"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-body-malformed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed JSON\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-body-malformed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-refused-operator",
+      "title": "An operator outside the allowlist is refused",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-refused-operator"
+        },
+        "body": "{\"filter\":{\"$where\":\"true\"}}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-refused-operator"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The operator $where is not allowed\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-refused-operator\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-sealed",
+      "title": "A collection without a read policy counts nothing",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/sealed/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-sealed"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "count.count-sealed"
+        },
+        "body": "{\"data\":{\"count\":0,\"exact\":true},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-hidden-collection",
+      "title": "A collection that is not exposed is unknown",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/hidden/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-hidden-collection"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden/_count\",\"requestId\":\"count.count-hidden-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-missing-collection",
+      "title": "A collection that does not exist",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/nothing/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-missing-collection"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-missing-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'nothing'\",\"instance\":\"/rest/v1/nothing/_count\",\"requestId\":\"count.count-missing-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-get",
+      "title": "GET is not allowed on _count",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "count.count-get"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "POST",
+          "content-type": "application/problem+json",
+          "x-request-id": "count.count-get"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":405,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"GET is not allowed here\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-get\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-no-key",
+      "title": "No API key",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "none",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-no-key"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer",
+          "x-request-id": "count.count-no-key"
+        },
+        "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-no-key\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "count-expired",
+      "title": "An expired token",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_count",
+        "query": [],
+        "caller": "expired",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "count.count-expired"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer error=\"invalid_token\", error_description=\"The token has expired\"",
+          "x-request-id": "count.count-expired"
+        },
+        "body": "{\"type\":\"urn:canopy:error:token-expired\",\"title\":\"Token expired\",\"status\":401,\"code\":\"CANOPY_TOKEN_EXPIRED\",\"detail\":\"The token has expired\",\"instance\":\"/rest/v1/todos/_count\",\"requestId\":\"count.count-expired\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

@@ -3,18 +3,14 @@
 //! one) are tunneled to the upstream byte for byte.
 
 use std::cell::RefCell;
-use std::rc::Rc;
 
+use canopy_realtime::{Body, full};
 use http_body_util::{BodyExt, Empty};
 use hyper::body::{Bytes, Incoming};
 use hyper::client::conn::http1::SendRequest;
 use hyper::header::{CONNECTION, HOST, HeaderMap, HeaderName, HeaderValue, UPGRADE};
 use hyper::{Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
-
-use crate::http::{Body, full};
-
-type OutBody = http_body_util::combinators::UnsyncBoxBody<Bytes, hyper::Error>;
 
 /// Idle upstream connections a shard keeps for reuse.
 const POOL_SIZE: usize = 32;
@@ -53,18 +49,18 @@ impl Upstream {
 /// Upstream connections of one shard.
 #[derive(Default)]
 pub(crate) struct Pool {
-    idle: RefCell<Vec<SendRequest<OutBody>>>,
+    idle: RefCell<Vec<SendRequest<Body>>>,
 }
 
 impl Pool {
-    fn take(&self) -> Option<SendRequest<OutBody>> {
+    fn take(&self) -> Option<SendRequest<Body>> {
         let mut idle = self.idle.borrow_mut();
         idle.retain(|sender| !sender.is_closed());
         let index = idle.iter().position(SendRequest::is_ready)?;
         Some(idle.swap_remove(index))
     }
 
-    fn give(&self, sender: SendRequest<OutBody>) {
+    fn give(&self, sender: SendRequest<Body>) {
         let mut idle = self.idle.borrow_mut();
         if idle.len() < POOL_SIZE && !sender.is_closed() {
             idle.push(sender);
@@ -72,7 +68,7 @@ impl Pool {
     }
 }
 
-async fn connect(upstream: &Upstream, upgrades: bool) -> Result<SendRequest<OutBody>, String> {
+async fn connect(upstream: &Upstream, upgrades: bool) -> Result<SendRequest<Body>, String> {
     let stream =
         tokio::net::TcpStream::connect(upstream.authority.as_str()).await.map_err(|e| e.to_string())?;
     let _ = stream.set_nodelay(true);
@@ -147,7 +143,7 @@ fn bad_gateway() -> Response<Body> {
 /// accepts becomes a tunnel between the two connections.
 pub(crate) async fn forward(
     upstream: &Upstream,
-    pool: &Rc<Pool>,
+    pool: &Pool,
     mut request: Request<Incoming>,
     peer: &str,
 ) -> Response<Body> {
@@ -162,7 +158,7 @@ pub(crate) async fn forward(
     let path = parts.uri.path_and_query().map_or("/", |path| path.as_str());
     let Ok(uri) = path.parse::<hyper::Uri>() else { return bad_gateway() };
     parts.uri = uri;
-    let out_body: OutBody = if upgrade {
+    let out_body: Body = if upgrade {
         Empty::<Bytes>::new().map_err(|never| match never {}).boxed_unsync()
     } else {
         body.boxed_unsync()

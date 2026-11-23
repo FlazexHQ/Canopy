@@ -136,7 +136,7 @@ services. D5 also closes Phase 7's dependency on the wire endpoint.
 - **Nothing changes for apps.** REST paths, OpenAPI documents, error codes, wire protocol v1, GraphQL schema
   and `canopy.js` stay identical through every stage; the equivalence gates are what guarantees it.
 - **Errors developers can act on.** Every data plane error keeps its `CANOPY_*` code and Problem Details
-  shape, and `X-Canopy-Explain` returns the same explain trace from Rust.
+  shape, and `POST /rest/v1/{coll}/_explain` returns the same explain trace from Rust.
 - **Hot reload stays.** Policies and config edited in the project folder reach the data plane through the
   meta database (policies) or a restart from `canopy dev` (config), in under a second on the dev stack.
 
@@ -215,12 +215,14 @@ canopy/
 | `crates/canopy-gateway` | split into `canopy-mongo`, `canopy-auth`, `canopy-realtime`, `canopy-http`; binary renamed `canopyd` | D1 to D6 | Each surface reuses the same execution core; the binary becomes the data plane, not a gateway in front of one |
 | `packages/server` | `packages/control` (admin, migrations, publishing, webhooks) plus `packages/embedded` (composition for embedding) | D6, D7 | The process that served everything splits by plane |
 | `packages/rest`, `realtime`, `graphql`, `storage`, `node-http` | `packages/embedded`, frozen | D7 | One package for embedded mode, the equivalence reference |
-| `packages/protocol/vectors`, `crates/*/tests/vectors` | `conformance/` | D1 | Test data owned by neither language; Canopy.js vendors one folder |
-| `packages/*/bench`, `docs/spikes/*-prototype` | `bench/` | D0 | Benchmarks and prototypes are code, not documents; the gates read one baseline folder |
+| `packages/protocol/vectors`, `crates/*/tests/vectors` | `conformance/` | Done (2026-11-22) | Test data owned by neither language; Canopy.js vendors one folder |
+| `packages/*/bench`, `docs/spikes/*-prototype` | `bench/` | Done (2026-11-22) | Benchmarks and prototypes are code, not documents; the gates read one baseline folder |
 | `packages/native`, `packages/wasm` | unchanged | | napi-rs and wasm-bindgen expect the crate beside its npm package |
 
 Constraints the moves respect: Cargo workspace members stay `crates/*` plus the two port packages; Bun
-workspaces stay `packages/*`, `apps/*` and `examples/*`; `tools/` stays outside the workspace; every moved
+workspaces stay `packages/*`, `apps/*` and `examples/*`, plus the private `@canopy/bench` package in `bench/`
+(added in D0, because Bun's isolated linker resolves the workloads' imports only for a workspace member);
+`tools/` stays outside the workspace; every moved
 path is updated in `tsconfig.json` references, `knip.json`, `biome.json`, the CI and bench workflows,
 `tools/repo-check` and the Canopy.js `sync-core` script in the same change.
 

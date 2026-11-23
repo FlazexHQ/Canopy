@@ -19,7 +19,13 @@
       "outputs": ["*.node", "*.wasm", "generated/**"]
     },
     "test": {
-      "inputs": ["src/**", "test/**", "vectors/**", "vitest.config.ts", "package.json"],
+      "inputs": [
+        "src/**",
+        "test/**",
+        "$TURBO_ROOT$/conformance/**",
+        "vitest.config.ts",
+        "package.json"
+      ],
       "outputs": []
     }
   }

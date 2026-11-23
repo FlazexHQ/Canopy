@@ -765,8 +765,8 @@ and `emitDiff(before, ct)` (line ~301) calls `sameDoc(previous.doc, member.doc)`
 regression net. Add one test that a window of 200 documents emits exactly one `changed` message for an update
 of a single document (assert on the messages received by a session, not on internals).
 
-**Verify.** `bunx vitest run --project realtime` -> pass. Optional measurement: if `packages/rest/bench` or
-`packages/realtime/bench` has the fan-out benchmark (`ls packages/*/bench`), note engine time per event before
+**Verify.** `bunx vitest run --project realtime` -> pass. Optional measurement: if `bench/workloads/rest` or
+`bench/workloads/realtime` has the fan-out benchmark (`ls bench/workloads`), note engine time per event before
 and after in your report; not required.
 
 **Commit.** `perf(realtime): skip comparing a document with itself when diffing an observer`. Changeset
@@ -1161,7 +1161,7 @@ If these do not hold, the maintainer changed course again: STOP and report.
      reference it except `lefthook.yml` and CI, which now run `repo-check`, and `knip.json` ignores it.
    - Commands block: replace the comment on `bun run dev` ("arrives with the server") with: there is no root
      `dev` script; `canopy dev --with-mongo` (`packages/cli/src/dev.ts`) starts the replica set, server and
-     Studio. Verify that file exists before writing this. Add `bun run check` (from F19) and `bun --filter @canopy/rest bench` is already listed; add that CI also
+     Studio. Verify that file exists before writing this. Add `bun run check` (from F19) and `bun --filter @canopy/bench rest` is already listed; add that CI also
      runs the Studio and todo-react Playwright suites, the Docker images job and the changeset check.
 2. `README.md`: replace the status line about Phase 1, rewrite the package table so it lists every directory in
    `packages/` with a one line description taken from its `package.json`/README, remove the claim that `apps/`

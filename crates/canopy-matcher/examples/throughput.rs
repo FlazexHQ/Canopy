@@ -1,8 +1,8 @@
 //! In process matcher throughput, with the same documents and filters as the TypeScript benchmark
-//! (`packages/matcher/bench/throughput.ts`), so the two can be compared on one machine:
+//! (`bench/workloads/matcher/throughput.ts`), so the two can be compared on one machine:
 //!
 //!   cargo run --release -p canopy-matcher --example throughput
-//!   bun packages/matcher/bench/throughput.ts
+//!   bun bench/workloads/matcher/throughput.ts
 //!
 //! `CANOPY_BENCH_DOCS` sets the number of documents (default 1000000); `CANOPY_BENCH_FILTER` runs one filter
 //! of your own (EJSON) instead of the standard set.

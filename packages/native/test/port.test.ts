@@ -24,8 +24,8 @@ import {
   selectEngine,
 } from "../src/index.ts"
 
-function vectors<T>(crate: string, file: string): T {
-  const url = new URL(`../../../crates/${crate}/tests/vectors/${file}`, import.meta.url)
+function vectors<T>(folder: string, file: string): T {
+  const url = new URL(`../../../conformance/${folder}/${file}`, import.meta.url)
   return JSON.parse(readFileSync(url, "utf8")) as T
 }
 
@@ -104,7 +104,7 @@ describe.each(labelled)("the %s engine", (_, engine) => {
     const file = vectors<{
       documents: string[]
       cases: { filter: string; matches?: string; error?: string }[]
-    }>("canopy-matcher", "filters.json")
+    }>("matcher", "filters.json")
     const documents = file.documents.map((base64) => new Uint8Array(Buffer.from(base64, "base64")))
     const decoded = documents.map((bytes) =>
       deserialize(bytes, { promoteValues: false, bsonRegExp: true }),
@@ -180,7 +180,7 @@ describe.each(labelled)("the %s engine", (_, engine) => {
 
   it("gives the canonical text and hash of every query TypeScript does", () => {
     const file = vectors<{ cases: { kind: string; input: string; result?: unknown }[] }>(
-      "canopy-query",
+      "query",
       "query.json",
     )
     const mismatches: string[] = []
@@ -253,13 +253,13 @@ function recording(): { hooks: EngineHooks; log: string[] } {
 describe.each(labelled)(
   "the Rust policy engine of the %s build behind the TypeScript API",
   (_, engine) => {
-    const cases = vectors<{ cases: SetCase[] }>("canopy-policy", "policy.json").cases.filter(
+    const cases = vectors<{ cases: SetCase[] }>("policy", "policy.json").cases.filter(
       (test) => test.kind === "set" && test.requests !== undefined,
     )
 
     it("refuses the policy sets TypeScript refuses and builds the same bundle version", () => {
       let built = 0
-      for (const test of vectors<{ cases: SetCase[] }>("canopy-policy", "policy.json").cases) {
+      for (const test of vectors<{ cases: SetCase[] }>("policy", "policy.json").cases) {
         if (test.kind !== "set" || test.collections === undefined || test.contexts === undefined)
           continue
         const contexts = test.contexts

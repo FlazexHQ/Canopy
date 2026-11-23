@@ -63,7 +63,7 @@ const { values } = parseArgs({
     seed: { type: "string", default: "20261118" },
     out: {
       type: "string",
-      default: resolve(root, "crates/canopy-policy/tests/vectors/policy.json"),
+      default: resolve(root, "conformance/policy/policy.json"),
     },
   },
 })

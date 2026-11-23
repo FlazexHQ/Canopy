@@ -238,7 +238,7 @@ X-Canopy-Relay-Signature: ed25519=Base64Url(sig over "timestamp.body")
 
 ## 12. Conformance and evolution
 
-- **Test vectors.** `packages/protocol/vectors/*.json` contains scripted server streams and the expected client
+- **Test vectors.** `conformance/protocol/*.json` contains scripted server streams and the expected client
   cache and query states after each step. They cover added, changed and removed, multiple subscriptions per
   document, resume, resync, acks with and without echo, and coalesced frames. Every SDK (and every framework
   binding through it) must pass them.

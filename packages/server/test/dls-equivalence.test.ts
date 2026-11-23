@@ -9,6 +9,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Db, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
+import { bypassCorpus, bypassRequests } from "../../query/test/bypass-corpus.ts"
 import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
 
 const ISSUER = "https://idp.equivalence.test/"
@@ -86,6 +87,33 @@ const fields = {
   secret: fc.constantFrom("s1", "s2"),
 }
 
+/** What a read of `GET /rest/v1/items` answered, without the values that differ between two answers. */
+interface Answer {
+  readonly status: number
+  readonly etag: string | null
+  readonly contentType: string | null
+  readonly challenge: string | null
+  readonly body: unknown
+  /** `typescript` when the server answered; nothing when the gateway did. */
+  readonly servedBy: string | null
+}
+
+/** The documents `caller` may read, by the policies above, for the documents of `docs`. */
+function readableBy(caller: Caller, docs: readonly Item[]): Set<string> {
+  const roles = new Set(caller.roles ?? [])
+  return new Set(
+    docs
+      .filter((doc) => {
+        if (caller.sub === undefined) return doc.status === "open" && doc.level === 0
+        const own = doc.ownerId === caller.sub
+        const reviewed =
+          roles.has("reviewer") && ["open", "closed"].includes(doc.status) && doc.level <= 3
+        return (own || reviewed) && doc.status !== "archived"
+      })
+      .map((doc) => doc._id),
+  )
+}
+
 /**
  * A write decision normalized across entry points: the write took effect, was refused with this code, or
  * matched nothing (REST answers 404 where GraphQL and realtime report zero matches).
@@ -104,6 +132,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
   let base: string
   let gateway: ChildProcess | undefined
   let gatewayBase: string | undefined
+  let rustChecks = 0
   let sign: (caller: Caller) => Promise<string | undefined>
   let run = 0
   let gatewayChecks = 0
@@ -161,13 +190,20 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       }),
       { env: TEST_ENV, policies: createPolicySet([items]), onSetupToken: false },
     )
-    server = createServer(canopy.node())
+    const listener = canopy.node()
+    server = createServer((request, response) => {
+      response.setHeader("x-served-by", "typescript")
+      return listener(request, response)
+    })
     await canopy.attach(server)
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     if (GATEWAY === undefined) return
     const port = await freePort()
-    const child = spawn(GATEWAY, ["--config", "-"], { stdio: ["pipe", "ignore", "pipe"] })
+    const child = spawn(GATEWAY, ["--config", "-"], {
+      stdio: ["pipe", "ignore", "pipe"],
+      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find" },
+    })
     gateway = child
     let log = ""
     child.stderr?.on("data", (chunk: Buffer) => {
@@ -183,6 +219,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
         realtime: { checkpoints: "off", drainWindowMs: 100 },
         rateLimits: false,
         mutations: { url: `${base}/rest/v1` },
+        proxy: { url: base },
         log: { level: "error" },
       })}\n`,
     )
@@ -233,6 +270,54 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     })
     const body = (await response.json()) as { data?: Record<string, unknown>[]; code?: string }
     return response.ok ? byId(body.data ?? []) : `refused ${body.code}`
+  }
+
+  /** One read of the collection at `at`, normalized so that two servers' answers can be compared. */
+  const answer = async (
+    at: string,
+    caller: Caller,
+    query: Record<string, string>,
+    prefer?: string,
+  ): Promise<Answer> => {
+    const response = await fetch(`${at}/rest/v1/items?${new URLSearchParams(query)}`, {
+      headers: { ...(await headers(caller)), ...(prefer === undefined ? {} : { prefer }) },
+    })
+    const text = await response.text()
+    const body = JSON.parse(text) as Record<string, unknown>
+    delete body["ct"]
+    delete body["requestId"]
+    return {
+      status: response.status,
+      etag: response.headers.get("etag"),
+      contentType: response.headers.get("content-type"),
+      challenge: response.headers.get("www-authenticate"),
+      body,
+      servedBy: response.headers.get("x-served-by"),
+    }
+  }
+
+  const documentsOf = (page: Answer): Record<string, unknown>[] => {
+    const data = (page.body as { data?: unknown }).data
+    return Array.isArray(data) ? (data as Record<string, unknown>[]) : []
+  }
+
+  /** The Rust route's answer for a read, which must equal the TypeScript server's, and what it returned. */
+  const bothAnswers = async (
+    caller: Caller,
+    query: Record<string, string>,
+    prefer?: string,
+  ): Promise<Answer> => {
+    const expected = await answer(base, caller, query, prefer)
+    expect(expected.servedBy).toBe("typescript")
+    if (gatewayBase === undefined) return expected
+    const rust = await answer(gatewayBase, caller, query, prefer)
+    expect(rust.servedBy, "the gateway answered itself").toBeNull()
+    expect(
+      { ...rust, servedBy: null },
+      `Rust vs TypeScript for ${caller.name} ${JSON.stringify(query)}`,
+    ).toEqual({ ...expected, servedBy: null })
+    rustChecks += 1
+    return expected
   }
 
   const graphql = async (
@@ -413,6 +498,13 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
             const native = await realtimeRead(caller, filter, gatewayBase)
             expect(native, `gateway vs REST for ${caller.name}`).toEqual(rest)
             gatewayChecks += 1
+            const query = { filter: JSON.stringify(filter), limit: "100" }
+            const page = await bothAnswers(caller, query)
+            expect(byId(documentsOf(page)), `Rust route vs REST for ${caller.name}`).toEqual(rest)
+            const small = await bothAnswers(caller, { ...query, limit: "2", sort: "-level" })
+            const next = (small.body as { page?: { next?: string | null } }).page?.next
+            if (typeof next === "string")
+              await bothAnswers(caller, { ...query, limit: "2", sort: "-level", after: next })
           }
           const pickFields = (value: typeof rest) =>
             typeof value === "string"
@@ -516,7 +608,10 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       },
     )
     expect(seen.reads).toEqual(new Set(["empty", "documents"]))
-    if (GATEWAY !== undefined) expect(gatewayChecks).toBeGreaterThanOrEqual(RUNS)
+    if (GATEWAY !== undefined) {
+      expect(gatewayChecks).toBeGreaterThanOrEqual(RUNS)
+      expect(rustChecks).toBeGreaterThanOrEqual(RUNS * 2)
+    }
     expect([...seen.inserts]).toEqual(
       expect.arrayContaining(["applied", "refused CANOPY_POLICY_VIOLATION"]),
     )
@@ -524,4 +619,68 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       expect.arrayContaining(["applied", "refused CANOPY_POLICY_VIOLATION", "no match"]),
     )
   }, 600_000)
+
+  /** The documents every corpus entry runs against: each owner, status and level, so each caller reads some. */
+  const corpusDocs: Item[] = ["u1", "u2", "u3"].flatMap((ownerId) =>
+    ["open", "closed", "archived"].flatMap((status) =>
+      [0, 2, 5].map((level) => ({
+        _id: `b-${ownerId}-${status}-${level}`,
+        ownerId,
+        status,
+        level,
+        secret: "s1",
+      })),
+    ),
+  )
+
+  /** A request whose address would not fit a header keeps its shape with fewer values. */
+  const fitted = (payload: unknown): unknown =>
+    Array.isArray(payload)
+      ? payload.slice(0, 1001).map(fitted)
+      : payload !== null && typeof payload === "object"
+        ? Object.fromEntries(Object.entries(payload).map(([key, value]) => [key, fitted(value)]))
+        : payload
+
+  it("the bypass corpus admits no document a policy denies, and the Rust route answers as TypeScript does", async () => {
+    const coll = db.collection<Item>("items")
+    await coll.deleteMany({})
+    await coll.insertMany(corpusDocs)
+    const filterCorpus: { name: string; query: Record<string, string> }[] = bypassCorpus.map(
+      ([name, payload]) => ({ name, query: { filter: JSON.stringify(fitted(payload)) } }),
+    )
+    let checked = 0
+    let admitted = 0
+    for (const entry of [...filterCorpus, ...bypassRequests]) {
+      const prefer = "prefer" in entry ? entry.prefer : undefined
+      for (const caller of CALLERS) {
+        const page = await bothAnswers(caller, { limit: "100", ...entry.query }, prefer)
+        const readable = readableBy(caller, corpusDocs)
+        for (const doc of documentsOf(page)) {
+          expect(
+            readable.has(String(doc["_id"])),
+            `${entry.name}: ${String(doc["_id"])} is not readable by ${caller.name}`,
+          ).toBe(true)
+          expect("secret" in doc, `${entry.name}: ${caller.name} was shown a hidden field`).toBe(
+            false,
+          )
+          admitted += 1
+        }
+        const total = (page.body as { page?: { total?: unknown } }).page?.total
+        if (typeof total === "number")
+          expect(total, `${entry.name}: the count for ${caller.name}`).toBeLessThanOrEqual(
+            readable.size,
+          )
+        checked += 1
+      }
+    }
+    expect(checked).toBe((bypassCorpus.length + bypassRequests.length) * CALLERS.length)
+    expect(
+      admitted,
+      "some entries answer with documents, so the check above reads something",
+    ).toBeGreaterThan(0)
+    if (gatewayBase !== undefined) expect(rustChecks).toBeGreaterThanOrEqual(checked)
+    process.stdout.write(
+      `bypass corpus: ${bypassCorpus.length} filters and ${bypassRequests.length} requests, ${CALLERS.length} callers, ${checked} reads${gatewayBase === undefined ? "" : " through REST and the Rust route"}, ${admitted} documents shown, all readable\n`,
+    )
+  }, 120_000)
 })

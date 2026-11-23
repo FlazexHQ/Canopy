@@ -1,10 +1,11 @@
 import { existsSync, readdirSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 
-/** Every folder under `packages`, `apps` and `examples` with a Vitest config of its own. */
+/** Every folder under `packages`, `apps` and `examples`, and the `bench` folder, with a Vitest config of its own. */
 const projects = ["packages", "apps", "examples"]
   .filter((dir) => existsSync(dir))
   .flatMap((dir) => readdirSync(dir).map((name) => `${dir}/${name}`))
+  .concat("bench")
   .filter((dir) => existsSync(`${dir}/vitest.config.ts`))
 
 /**

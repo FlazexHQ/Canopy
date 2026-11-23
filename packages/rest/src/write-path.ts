@@ -3,6 +3,7 @@ import {
   CanopyError,
   type ClusterTime,
   ConflictError,
+  canonicalString,
   ErrorCode,
   InvalidQueryError,
   serverErrorCode,
@@ -11,10 +12,13 @@ import {
 } from "@canopy/protocol"
 import { DEFAULT_LIMITS, type QueryLimits } from "@canopy/query"
 import {
+  BSON,
+  type ClientBulkWriteResult,
   type ClientSession,
   type Db,
   type Document,
   type MongoClient,
+  MongoClientBulkWriteError,
   MongoServerError,
 } from "mongodb"
 import { abortCheck, EXACT_BSON, toDriver } from "./driver.ts"
@@ -33,8 +37,19 @@ import {
   withoutCt,
 } from "./idempotency.ts"
 import { validateCollectionName } from "./validation.ts"
-import { type CombinedRun, isBulkOp, type Plan, planWrite, type Run } from "./write-plans.ts"
-import { Scope } from "./write-scope.ts"
+import { deferrable } from "./write-defer.ts"
+import { GroupIds } from "./write-group.ts"
+import {
+  type CombinedRun,
+  type Direct,
+  type Grouped,
+  isBulkOp,
+  type Plan,
+  planWrite,
+  type Run,
+  type Written,
+} from "./write-plans.ts"
+import { ReadBacks, Scope, violation } from "./write-scope.ts"
 
 /** A write requested by a caller. Values may hold protocol BSON classes decoded from EJSON. */
 export type WriteRequest =
@@ -133,6 +148,15 @@ export interface BatchResult {
   readonly replayed: boolean
 }
 
+/** One operation of a non atomic batch: a write and its own idempotency key. */
+export interface BatchItem {
+  readonly request: WriteRequest
+  readonly mutationId?: string
+}
+
+/** What a non atomic batch reports for one operation: its result, or the error that refused it. */
+export type BatchItemResult = { readonly result: WriteResult } | { readonly error: CanopyError }
+
 /** Limits on writes. */
 export interface WriteLimits {
   /** Maximum documents an `updateMany` or `deleteMany` may touch. */
@@ -180,6 +204,13 @@ export interface WritePathOptions {
    * for development only.
    */
   readonly explainDenials?: boolean
+  /**
+   * Whether {@link WritePath.executeEach} sends consecutive single document writes of a batch as one
+   * ordered `bulkWrite` (MongoDB 8.0 or later). Defaults to `true`. A grouped write reports the cluster
+   * time of the whole command, which is at or after the time of its own write, where a write sent alone
+   * reports exactly its own.
+   */
+  readonly groupBatches?: boolean
 }
 
 /** A committed write, as reported to {@link WritePathOptions.onWrite}. */
@@ -201,6 +232,12 @@ export const DUPLICATE_KEY = 11000
 
 /** The wire version of MongoDB 8.0, the first with a `bulkWrite` command across namespaces. */
 const BULK_WRITE_WIRE_VERSION = 25
+
+/** The most document bytes a group of writes checks in one `$documents` aggregation. */
+const GROUP_PRECHECK_BYTES = 4 * 1024 * 1024
+
+/** How long the collation of a collection is remembered. */
+const COLLATION_CACHE_MS = 60_000
 
 /** The write concern of every write and idempotency record. */
 export const MAJORITY = { w: "majority" } as const
@@ -226,8 +263,10 @@ export class WritePath {
   private readonly ttlSeconds: number
   private readonly onWrite: ((event: WriteEvent) => void) | undefined
   private readonly explainDenials: boolean
+  private readonly groupBatches: boolean
   private indexes: Promise<void> | undefined
   private bulkSupport: Promise<boolean> | undefined
+  private readonly collations = new Map<string, { at: number; collated: Promise<boolean> }>()
 
   constructor(options: WritePathOptions) {
     this.client = options.client
@@ -242,6 +281,7 @@ export class WritePath {
     this.ttlSeconds = options.mutationTtlSeconds ?? 86_400
     this.onWrite = options.onWrite
     this.explainDenials = options.explainDenials === true
+    this.groupBatches = options.groupBatches !== false
   }
 
   /** The write limits in force. */
@@ -294,11 +334,20 @@ export class WritePath {
     validateMutationId(options.mutationId)
     const read = options.returnDocuments !== false
     const engine = this.engine()
-    const plan = this.plan(engine, caller.context, request, read)
-    if (plan.fast && options.mutationId === undefined) {
-      const result = await this.executeFast(plan.run, service)
-      this.report(caller, request, result, result.ct, undefined)
-      return result
+    const plan = await this.plan(engine, caller.context, request, read)
+    if (options.mutationId === undefined) {
+      if (plan.fast) {
+        const result = await this.executeFast(plan.run, service)
+        this.report(caller, request, result, result.ct, undefined)
+        return result
+      }
+      if (plan.direct !== undefined) {
+        const result = await this.executeFast(plan.direct, service)
+        if (result !== undefined) {
+          this.report(caller, request, result, result.ct, undefined)
+          return result
+        }
+      }
     }
     const committed = await this.transact(
       caller,
@@ -361,7 +410,7 @@ export class WritePath {
         return outcome
     }
     if (ids.length === 0) return outcome
-    const scope = this.scope(engine, caller.context, request.collection)
+    const scope = await this.scope(engine, caller.context, request)
     const session = this.client.startSession()
     try {
       const documents = await scope.verify(session, ids, undefined, "update", true)
@@ -393,13 +442,14 @@ export class WritePath {
       )
     const engine = this.engine()
     const read = options.returnDocuments !== false
-    const plans = requests.map((request, index) => {
+    const plans: Plan[] = []
+    for (const [index, request] of requests.entries()) {
       try {
-        return this.plan(engine, caller.context, request, read)
+        plans.push(await this.plan(engine, caller.context, request, read))
       } catch (error: unknown) {
         throw atIndex(toCanopyError(error), index)
       }
-    })
+    }
     const committed = await this.transact(
       caller,
       {
@@ -409,6 +459,9 @@ export class WritePath {
       },
       plans,
       options,
+      read && requests.length > 1
+        ? await deferrable(requests, (name) => this.collated(name))
+        : undefined,
     )
     if (!committed.replayed)
       for (const [index, outcome] of committed.outcomes.entries()) {
@@ -434,11 +487,290 @@ export class WritePath {
     }
   }
 
+  /**
+   * Runs the operations of a non atomic batch one after the other, each as if it were sent alone: its own
+   * mutation ID, its own transaction or fast path, and its own result or error, which never stops the
+   * operations after it.
+   *
+   * Where the deployment runs MongoDB 8.0 or later, consecutive single document writes are sent together
+   * as one ordered `bulkWrite` instead, with their `check` evaluated and their read backs done in one
+   * aggregation and one `find` around it. Only writes that cannot be told apart from running alone join a
+   * group: they have no mutation ID, run without a transaction, name pairwise different documents (a
+   * read back or a failed `where` after the group must not see a later write of the group), and each
+   * reports what MongoDB reported for it (`matched`, `modified`, its `_id`s). A write that MongoDB
+   * refuses is sent again alone, so its error is the one it always had, and the writes after it form the
+   * next group. A write concern error of the command is the error of every write it applied, as it is for
+   * a write sent alone. The one difference is `ct`: the writes of a group share the cluster time of their
+   * command, which is at or after the time of each of them (see {@link WritePathOptions.groupBatches}).
+   */
+  async executeEach(
+    caller: Caller,
+    items: readonly BatchItem[],
+    options: Pick<WriteOptions, "signal" | "returnDocuments"> = {},
+  ): Promise<BatchItemResult[]> {
+    const engine = this.engine()
+    const results = new Array<BatchItemResult | undefined>(items.length)
+    const grouping = this.groupBatches && (await this.clientBulkWrite())
+    let next = 0
+    while (next < items.length) {
+      const members = grouping ? await this.formGroup(caller, engine, items, next, options) : []
+      if (members.length < 2) {
+        const item = items[next]
+        if (item !== undefined) results[next] = await this.executeItem(caller, item, options)
+        next += 1
+        continue
+      }
+      next += await this.executeGroup(caller, members, options, results)
+    }
+    return items.map((_, index): BatchItemResult => {
+      const result = results[index]
+      if (result === undefined)
+        return { error: new CanopyError(ErrorCode.Internal, "The batch operation has no outcome") }
+      return result
+    })
+  }
+
+  private async executeItem(
+    caller: Caller,
+    item: BatchItem,
+    options: Pick<WriteOptions, "signal" | "returnDocuments">,
+  ): Promise<BatchItemResult> {
+    try {
+      return {
+        result: await this.execute(caller, item.request, {
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(options.returnDocuments === undefined
+            ? {}
+            : { returnDocuments: options.returnDocuments }),
+          ...(item.mutationId === undefined ? {} : { mutationId: item.mutationId }),
+        }),
+      }
+    } catch (error: unknown) {
+      return { error: toCanopyError(error) }
+    }
+  }
+
+  /**
+   * The operations from `start` that can be sent together: consecutive, planned without error, without a
+   * mutation ID, groupable, and on documents no earlier one of the group may touch. The group stops at
+   * the first operation that does not qualify, which then runs alone or starts the next group.
+   */
+  private async formGroup(
+    caller: Caller,
+    engine: PolicyEngine,
+    items: readonly BatchItem[],
+    start: number,
+    options: Pick<WriteOptions, "returnDocuments">,
+  ): Promise<GroupMember[]> {
+    const read = options.returnDocuments !== false
+    const members: GroupMember[] = []
+    const ids = new GroupIds()
+    let bytes = 0
+    for (let index = start; index < items.length; index++) {
+      const item = items[index]
+      if (item === undefined || item.mutationId !== undefined) break
+      let plan: Plan
+      try {
+        plan = await this.plan(engine, caller.context, item.request, read)
+      } catch {
+        break
+      }
+      const { group } = plan
+      if (group === undefined) break
+      const size = group.precheck === undefined ? 0 : BSON.calculateObjectSize(group.precheck.doc)
+      if (bytes + size > GROUP_PRECHECK_BYTES) break
+      const collated = group.ids.some((id) => typeof id === "string")
+        ? await this.collated(item.request.collection)
+        : false
+      if (!ids.admit(item.request.collection, group.ids, collated)) break
+      bytes += size
+      members.push({ index, item, group })
+    }
+    return members
+  }
+
+  /**
+   * Runs a group (see {@link executeEach}) and fills the result of each member. Returns how many
+   * operations of the group are settled: all of them, or up to the write MongoDB refused, after which
+   * the operations have not been tried yet.
+   */
+  private async executeGroup(
+    caller: Caller,
+    members: readonly GroupMember[],
+    options: Pick<WriteOptions, "signal" | "returnDocuments">,
+    results: (BatchItemResult | undefined)[],
+  ): Promise<number> {
+    const service = caller.context.roles.has(Role.Service)
+    const read = options.returnDocuments !== false
+    const [first] = members
+    if (first === undefined) return 0
+    const failAll = (error: unknown): number => {
+      const canopy = fromDriverError(error, service)
+      for (const member of members) results[member.index] = { error: canopy }
+      return members.length
+    }
+    try {
+      abortCheck(options.signal, "write")
+    } catch (error: unknown) {
+      return failAll(error)
+    }
+    const refused = new Map<number, CanopyError>()
+    const declined = new Set<number>()
+    const checked = new Map<number, (ReturnedDocument | null)[] | undefined>()
+    try {
+      const units = new Map<string, GroupMember[]>()
+      for (const member of members) {
+        const { precheck } = member.group
+        if (precheck === undefined) continue
+        const key = `${member.item.request.collection}\u0000${precheck.op}`
+        units.set(key, [...(units.get(key) ?? []), member])
+      }
+      for (const unit of units.values()) {
+        const prechecks = unit.flatMap((member) =>
+          member.group.precheck === undefined ? [] : [member.group.precheck],
+        )
+        const [lead] = prechecks
+        if (lead === undefined) continue
+        const outcome = await lead.scope.precheckMany(
+          prechecks.map((precheck) => precheck.doc),
+          lead.check,
+          read,
+        )
+        for (const member of unit) {
+          const own = member.group.precheck
+          if (own === undefined) continue
+          const key = canonicalString(own.doc["_id"])
+          if (outcome.failed.has(key)) {
+            if (own.op === "insert") refused.set(member.index, violation(own.scope, own.op))
+            else declined.add(member.index)
+          } else
+            checked.set(
+              member.index,
+              outcome.documents === undefined ? undefined : [outcome.documents.get(key) ?? null],
+            )
+        }
+      }
+    } catch (error: unknown) {
+      if (!(error instanceof MongoServerError)) return failAll(error)
+      for (const member of members)
+        results[member.index] = await this.executeItem(caller, member.item, options)
+      return members.length
+    }
+    const cut = members.findIndex((member) => declined.has(member.index))
+    const head = cut < 0 ? members : members.slice(0, cut)
+    const live = head.filter((member) => !refused.has(member.index))
+    const session = this.client.startSession({ causalConsistency: true })
+    let settled = head.length
+    try {
+      let bulk: ClientBulkWriteResult | undefined
+      let failure: unknown
+      if (live.length > 0) {
+        try {
+          bulk = await this.client.bulkWrite(
+            live.map((member) => member.group.model),
+            {
+              session,
+              ordered: true,
+              verboseResults: true,
+              writeConcern: MAJORITY,
+              maxTimeMS: this.limits.maxTimeMS,
+            },
+          )
+        } catch (error: unknown) {
+          failure = error
+        }
+      }
+      if (unsupportedBulkWrite(failure)) {
+        this.bulkSupport = Promise.resolve(false)
+        for (const member of members)
+          results[member.index] = await this.executeItem(caller, member.item, options)
+        return members.length
+      }
+      const ct = toCt(session.operationTime)
+      const partial =
+        bulk ?? (failure instanceof MongoClientBulkWriteError ? failure.partialResult : undefined)
+      const writeErrors =
+        failure instanceof MongoClientBulkWriteError ? failure.writeErrors : undefined
+      const failedAt =
+        writeErrors === undefined || writeErrors.size === 0
+          ? undefined
+          : Math.min(...writeErrors.keys())
+      const concern =
+        failure instanceof MongoClientBulkWriteError && failure.writeConcernErrors.length > 0
+          ? fromDriverError(failure, service)
+          : undefined
+      const readBacks = new ReadBacks()
+      const deferred = new Set<number>()
+      const outcomes = new Map<number, Outcome>()
+      for (const [position, member] of live.entries()) {
+        if (failedAt !== undefined && position >= failedAt) break
+        const written = writtenOf(partial, position, member.group)
+        if (written !== undefined && concern !== undefined) {
+          results[member.index] = { error: concern }
+          continue
+        }
+        if (written === undefined || ct === undefined) {
+          results[member.index] = {
+            error:
+              failure === undefined
+                ? new CanopyError(ErrorCode.Internal, "The bulk write has no result")
+                : fromDriverError(
+                    failure instanceof MongoClientBulkWriteError
+                      ? (failure.cause ?? failure)
+                      : failure,
+                    service,
+                  ),
+          }
+          continue
+        }
+        try {
+          const queued = readBacks.size
+          outcomes.set(
+            member.index,
+            await member.group.finish(session, written, checked.get(member.index), readBacks),
+          )
+          if (readBacks.size > queued) deferred.add(member.index)
+        } catch (error: unknown) {
+          results[member.index] = { error: fromDriverError(error, service) }
+        }
+      }
+      try {
+        await readBacks.flush(session)
+      } catch (error: unknown) {
+        for (const index of deferred) {
+          outcomes.delete(index)
+          results[index] = { error: fromDriverError(error, service) }
+        }
+      }
+      for (const member of members) {
+        const outcome = outcomes.get(member.index)
+        if (outcome === undefined || ct === undefined) continue
+        this.report(caller, member.item.request, outcome, ct, undefined)
+        results[member.index] = { result: { ...withoutCt(outcome), ct, replayed: false } }
+      }
+      const refusedWrite = failedAt === undefined ? undefined : live[failedAt]
+      const alone = refusedWrite ?? members[cut]
+      if (alone !== undefined) {
+        results[alone.index] = await this.executeItem(caller, alone.item, options)
+        settled = alone.index - first.index + 1
+      }
+    } finally {
+      await session.endSession()
+    }
+    for (const member of members) {
+      const error = refused.get(member.index)
+      if (error !== undefined && member.index - first.index < settled)
+        results[member.index] = { error }
+    }
+    return settled
+  }
+
   private async transact(
     caller: Caller,
     key: RecordKey,
     plans: readonly Plan[],
     options: WriteOptions,
+    deferred?: readonly boolean[],
   ): Promise<{ outcomes: readonly Outcome[]; ct: ClusterTime; replayed: boolean }> {
     const service = caller.context.roles.has(Role.Service)
     const { mutationId } = options
@@ -470,11 +802,13 @@ export class WritePath {
               return [outcome]
             }
             const results: Outcome[] = []
+            const readBacks = deferred === undefined ? undefined : new ReadBacks()
             for (const [index, run] of runs.entries()) {
               failedAt = index
-              results.push(await run(s))
+              results.push(await run(s, deferred?.[index] === true ? readBacks : undefined))
             }
             failedAt = undefined
+            await readBacks?.flush(s)
             if (mutationId !== undefined) await this.record(s, mutationId, caller, key, results)
             return results
           },
@@ -505,6 +839,29 @@ export class WritePath {
     } finally {
       await session.endSession()
     }
+  }
+
+  /**
+   * Whether the collection has a default collation, which makes two different strings one `_id`. Read
+   * from the server at most once a minute per collection; a failed lookup counts as a collation, so
+   * nothing is deferred on a guess.
+   */
+  private collated(name: string): Promise<boolean> {
+    const now = Date.now()
+    const known = this.collations.get(name)
+    if (known !== undefined && now - known.at < COLLATION_CACHE_MS) return known.collated
+    const collated = this.db
+      .listCollections({ name }, { nameOnly: false })
+      .toArray()
+      .then(
+        (found) => found.some((entry) => entry["options"]?.["collation"] !== undefined),
+        () => {
+          this.collations.delete(name)
+          return true
+        },
+      )
+    this.collations.set(name, { at: now, collated })
+    return collated
   }
 
   /**
@@ -539,15 +896,18 @@ export class WritePath {
     }
   }
 
-  private async executeFast(fast: Run, service: boolean): Promise<WriteResult> {
+  private async executeFast(fast: Run, service: boolean): Promise<WriteResult>
+  private async executeFast(fast: Direct, service: boolean): Promise<WriteResult | undefined>
+  private async executeFast(fast: Direct, service: boolean): Promise<WriteResult | undefined> {
     const session = this.client.startSession({ causalConsistency: true })
     try {
-      let outcome: Outcome
+      let outcome: Outcome | undefined
       try {
         outcome = await fast(session)
       } catch (error: unknown) {
         throw fromDriverError(error, service)
       }
+      if (outcome === undefined) return undefined
       const { ct: written, ...rest } = outcome
       const ct = written ?? toCt(session.operationTime)
       if (ct === undefined)
@@ -660,7 +1020,13 @@ export class WritePath {
     }
   }
 
-  private scope(engine: PolicyEngine, ctx: RequestContext, name: string): Scope {
+  /** The scope of a write: its collection, checked to exist for the caller, and the request's limits. */
+  private async scope(
+    engine: PolicyEngine,
+    ctx: RequestContext,
+    request: WriteRequest,
+  ): Promise<Scope> {
+    const name = request.collection
     validateCollectionName(name)
     const service = ctx.roles.has(Role.Service)
     if (!service && !engine.isExposed(name))
@@ -672,19 +1038,50 @@ export class WritePath {
     })
   }
 
-  private plan(
+  private async plan(
     engine: PolicyEngine,
     ctx: RequestContext,
     request: WriteRequest,
     read: boolean,
-  ): Plan {
+  ): Promise<Plan> {
     return planWrite(
       { write: this.limits, query: this.queryLimits },
-      this.scope(engine, ctx, request.collection),
+      await this.scope(engine, ctx, request),
       request,
       read,
     )
   }
+}
+
+/** An operation of a group of writes sent together: where it is in the batch, and how it joins. */
+interface GroupMember {
+  readonly index: number
+  readonly item: BatchItem
+  readonly group: Grouped
+}
+
+/** The server errors that say the deployment has no client `bulkWrite` command, so nothing was written. */
+const UNSUPPORTED_COMMAND = new Set([59, 115])
+
+/** Whether a failed `bulkWrite` was refused as a command the server does not have. */
+function unsupportedBulkWrite(failure: unknown): boolean {
+  const cause = failure instanceof MongoClientBulkWriteError ? failure.cause : failure
+  return cause instanceof MongoServerError && UNSUPPORTED_COMMAND.has(serverErrorCode(cause) ?? 0)
+}
+
+/** What a `bulkWrite` reported for the write at `position`, `undefined` when it reported nothing. */
+function writtenOf(
+  result: ClientBulkWriteResult | undefined,
+  position: number,
+  group: Grouped,
+): Written | undefined {
+  if (result === undefined) return undefined
+  if (group.model.name === "insertOne")
+    return result.insertResults?.has(position) === true ? { matched: 0, modified: 0 } : undefined
+  const update = result.updateResults?.get(position)
+  return update === undefined
+    ? undefined
+    : { matched: update.matchedCount, modified: update.modifiedCount }
 }
 
 /** Adds the position of the failing operation of a batch to an error. */

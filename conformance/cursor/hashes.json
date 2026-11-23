@@ -1,0 +1,179 @@
+{
+  "description": "The cursor query hash: the first 32 hex digits of the SHA-256 of the canonical query (collection, filter, sort with the _id tie breaker). Equivalent filters hash alike.",
+  "cases": [
+    {
+      "collection": "todos",
+      "filter": {},
+      "sort": {},
+      "hash": "a7e218460fd987933f624f42c17fc189"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "status": "active"
+      },
+      "sort": {
+        "createdAt": -1
+      },
+      "hash": "1cb4abd0e981f7e24003bfc0584f24ce"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "a": 1,
+        "b": {
+          "$in": [
+            2,
+            1
+          ]
+        }
+      },
+      "sort": {},
+      "hash": "ff9be26226f60ae5a10ef9598802f8ab"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "b": {
+          "$in": [
+            1,
+            2
+          ]
+        },
+        "a": 1
+      },
+      "sort": {},
+      "hash": "ff9be26226f60ae5a10ef9598802f8ab"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "profile.name": {
+          "$regex": "^a",
+          "$options": "i"
+        }
+      },
+      "sort": {
+        "a": 1,
+        "b": -1
+      },
+      "hash": "b021347f43e91e1859c5527a2de49ed8"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "$or": [
+          {
+            "done": false
+          },
+          {
+            "n": {
+              "$gte": 2.5
+            }
+          }
+        ],
+        "at": {
+          "$date": "1970-01-01T00:00:00.000Z"
+        }
+      },
+      "sort": {
+        "createdAt": -1
+      },
+      "hash": "9e2ea8a81b2f96186d1d4e092989dc43"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "id": {
+          "$oid": "000000000000000000000001"
+        },
+        "s": "ü\u0000x"
+      },
+      "sort": {
+        "a": 1,
+        "b": -1
+      },
+      "hash": "2407694a48ee5e028ecbb103ee832c04"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "n": {
+          "$not": {
+            "$lt": 3
+          }
+        },
+        "tags": {
+          "$all": [
+            "x",
+            "y"
+          ]
+        }
+      },
+      "sort": {
+        "_id": -1
+      },
+      "hash": "342ff2497253f71fa27badb96a78642f"
+    },
+    {
+      "collection": "numbers",
+      "filter": {
+        "n": {
+          "$gt": {
+            "$numberLong": "9007199254740993"
+          }
+        }
+      },
+      "sort": {
+        "n": 1
+      },
+      "hash": "60cd885da7fff4e4487c58cdda603327"
+    },
+    {
+      "collection": "events",
+      "filter": {
+        "$and": [
+          {
+            "a": 1
+          },
+          {
+            "b": 2
+          }
+        ]
+      },
+      "sort": {
+        "when": 1,
+        "kind": -1
+      },
+      "hash": "0b8954f59a805cbbae385429b54f9980"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "name": "日本語",
+        "emoji": "😀"
+      },
+      "sort": {
+        "name": 1
+      },
+      "hash": "9ee10ec1a2db229e971d65e4b5dfc651"
+    },
+    {
+      "collection": "todos",
+      "filter": {
+        "a": {
+          "$numberDecimal": "1.50"
+        },
+        "b": {
+          "$numberInt": "2"
+        },
+        "c": 2
+      },
+      "sort": {
+        "c": -1,
+        "a": 1
+      },
+      "hash": "94c328e8132c3dd26dd704f6d8abbf30"
+    }
+  ]
+}

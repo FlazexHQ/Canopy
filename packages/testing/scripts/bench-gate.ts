@@ -3,8 +3,8 @@ import { parseArgs } from "node:util"
 import { check, newBaseline, readBaseline, readGate } from "./gate.ts"
 
 /**
- * Gates a benchmark on the `gate` section of its results file, as written by `packages/matcher/bench/
- * throughput.ts`, `packages/matcher/bench/event-cost.ts` and `packages/realtime/bench/fanout.ts`:
+ * Gates a benchmark on the `gate` section of its results file, as written by `bench/workloads/matcher/
+ * throughput.ts`, `bench/workloads/matcher/event-cost.ts` and `bench/workloads/realtime/fanout.ts`:
  *
  *   { "gate": { "ratios": { "<name>": 0.42 }, "required": { "<name>": { "value": 1, "min": 1 } } } }
  *

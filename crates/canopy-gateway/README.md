@@ -3,6 +3,12 @@
 Canopy's native realtime server, written in Rust. It speaks wire protocol `canopy.v1` exactly like the
 `canopy-realtime` sidecar, so every SDK and binding works against it unchanged.
 
+The Rust `canopy-realtime` library runs the WebSocket, SSE and long polling transports, the session engine
+and change stream ingestion. The `canopy-config` crate parses the resolved configuration and defines its
+[JSON Schema](../canopy-config/schema/config.schema.json). The `canopy-gateway` binary reads the CLI arguments,
+configuration input and environment variables. It also handles client address resolution, logging, the reverse
+proxy and mutation forwarding to the TypeScript server.
+
 - One change stream per deployment, read as raw BSON and matched in place by `canopy-matcher`.
 - The routing of `canopy-engine`: observers shared by identical queries, indexed by equality value (MongoDB
   numeric equality), membership and path; merge boxes that send a document once per connection; bounded resume
@@ -64,6 +70,21 @@ closing standard input drains the server and stops it.
 `CANOPY_GATEWAY_MUTATIONS_URL` (or `mutations.url`) is the REST base URL writes are forwarded to, for example
 `http://127.0.0.1:8080/rest/v1`. Without it, `mut` frames are refused, as on the sidecar.
 
+`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes`, a name or a list of names) lists the Data API routes the
+gateway answers itself instead of passing them to the upstream server. It is empty by default, so every REST
+request goes to the upstream. `find` selects `GET /rest/v1/{collection}` with the `OPTIONS` and `405` answers
+of that path; every other path and method (writes, documents, `_count`, `_distinct`, `_aggregate`, `_batch`,
+`openapi.json`, GraphQL, storage) is passed on untouched. A name the gateway does not know stops it at startup,
+as does `rest: false` in the configuration with a route selected. The route reads with the gateway's own MongoDB
+client, with the keys, JWKS, revocations and policies the realtime sessions use (the policies are read again
+every time the policy watch opens, so a change made while it was down still applies), and it answers as the
+TypeScript handler does, byte for byte where the response is deterministic. `rest.defaultLimit` and
+`rest.maxLimit` set the page sizes (the TypeScript launcher passes its own), and `cors.origins` the browser
+origins. A failing read never falls back to the upstream and never returns data: a database that cannot be
+reached answers `503` Problem Details. The route does not apply the HTTP request rate limits
+(`rateLimits.requests` and `failedAuthentications`), the request log, tracing or `explainDenials` of the
+TypeScript handler yet, so leave it off where those matter.
+
 `CANOPY_GATEWAY_SHARDS` (or `server.shards`) sets the number of I/O shards, by default the number of cores up to
 four.
 
@@ -74,7 +95,8 @@ window ends or 64 KiB are queued, and share one `write` (and one `batch` frame f
 batching). It trades delivery latency for CPU per frame on connections that receive many frames, such as a
 broadcast to thousands of viewers.
 
-The gateway looks up stored keys in `api_keys` in the configured meta database. It closes sessions when
+The gateway uses `canopy-mongo` for snapshot reads, stored policies and change stream checkpoints.
+`canopy-auth` looks up stored keys in `api_keys` in the configured meta database. The gateway closes sessions when
 their key is revoked or deleted. When launched as the front door for built in auth, it follows
 `revocations` in the same database and refuses tokens from revoked sessions.
 

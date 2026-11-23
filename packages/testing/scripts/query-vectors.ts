@@ -37,7 +37,7 @@ const { values } = parseArgs({
   options: {
     runs: { type: "string", default: "3000" },
     seed: { type: "string", default: "20261118" },
-    out: { type: "string", default: resolve(root, "crates/canopy-query/tests/vectors/query.json") },
+    out: { type: "string", default: resolve(root, "conformance/query/query.json") },
   },
 })
 const runs = Number(values.runs)

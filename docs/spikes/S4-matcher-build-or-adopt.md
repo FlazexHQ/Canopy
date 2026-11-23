@@ -25,7 +25,7 @@ prediction on the client.
   `@canopy/testing`) and requires the matcher and a real MongoDB `find` to agree on filters, sort order,
   projections and updates. The seed is fixed (`CANOPY_DIFF_SEED`) and `nightly.yml` runs `CANOPY_DIFF_RUNS=3500`.
   Operator, regex and comparison suites sit beside it (`operators.test.ts`, `regex.test.ts`, `compare.test.ts`).
-- Speed: `packages/matcher/bench/throughput.ts` evaluates representative filters over a million documents;
+- Speed: `bench/workloads/matcher/throughput.ts` evaluates representative filters over a million documents;
   anchored and plain text regular expressions got their own fast paths (commit `6a8f6f0`).
 - Size: the client imports `@canopy/matcher/lite`, a subset, so the SDK does not carry the whole matcher.
 

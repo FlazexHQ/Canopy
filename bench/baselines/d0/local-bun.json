@@ -1,0 +1,1827 @@
+{
+  "format": "canopy-d0/1",
+  "measuredAt": "2026-11-22T14:18:52.075Z",
+  "target": {
+    "mongodb": "8.0.34",
+    "topology": {
+      "replicaSet": "rs0",
+      "members": 1,
+      "srv": false
+    },
+    "pingMillis": 0.7850000000000819,
+    "tier": "",
+    "region": "",
+    "runtime": "bun 1.4.5",
+    "os": "win32 10.0.26300 x64",
+    "cpu": {
+      "model": "AMD Ryzen 5 5600H with Radeon Graphics",
+      "count": 12
+    },
+    "memoryGiB": 15
+  },
+  "config": {
+    "docs": 100000,
+    "seconds": 8,
+    "concurrency": 32,
+    "implementation": "typescript",
+    "monitorCommands": true
+  },
+  "calibration": {
+    "serverStatusCall": {
+      "bytesIn": 209,
+      "bytesOut": 112502,
+      "numRequests": 1
+    },
+    "serverOpsPerStatusCall": 1,
+    "idleSeconds": 5,
+    "background": {
+      "bytesInPerSecond": 0,
+      "bytesOutPerSecond": 0,
+      "requestsPerSecond": 0
+    },
+    "backgroundOpsPerSecond": 0.2
+  },
+  "allocation": {
+    "source": "not reported by this runtime (allocatedBytesPerRequest is null)",
+    "gcEntries": "not reported by this runtime (gcCount and gcMillis are null)"
+  },
+  "scenarios": [
+    {
+      "group": "reads",
+      "name": "driver: page of 20",
+      "reference": null,
+      "driver": true,
+      "requests": 15720,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1963,
+      "p50": 14.395,
+      "p95": 25.499,
+      "p99": 42.304,
+      "cpuMillisPerRequest": 0.6481,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0103,
+      "network": {
+        "bytesIn": 279,
+        "bytesOut": 5930.8,
+        "serverRequests": 1.0005
+      },
+      "pool": {
+        "checkouts": 15720,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0231
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 51554401,
+        "heapUsedAfter": 42211016,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "ownerId": "u444"
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 21
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 21,
+            "docsExamined": 21,
+            "returned": 21,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: page of 20, owner policy",
+      "reference": "driver: page of 20",
+      "driver": false,
+      "requests": 11238,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1402,
+      "p50": 22.04,
+      "p95": 29.661,
+      "p99": 34.562,
+      "cpuMillisPerRequest": 0.8732,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0003,
+      "network": {
+        "bytesIn": 332,
+        "bytesOut": 5954.1,
+        "serverRequests": 1.0004
+      },
+      "pool": {
+        "checkouts": 11238,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0037
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 38146721,
+        "heapUsedAfter": 47289142,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "ownerId": "u491"
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 21,
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 21,
+            "docsExamined": 21,
+            "returned": 21,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: page of 100",
+      "reference": null,
+      "driver": true,
+      "requests": 5053,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 629,
+      "p50": 49.67,
+      "p95": 61.517,
+      "p99": 72.277,
+      "cpuMillisPerRequest": 2.0501,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0007,
+      "network": {
+        "bytesIn": 279,
+        "bytesOut": 27381.5,
+        "serverRequests": 1.0008
+      },
+      "pool": {
+        "checkouts": 5053,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0034
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 41598834,
+        "heapUsedAfter": 47992801,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "ownerId": "u270"
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 101
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 100,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: page of 100, owner policy",
+      "reference": "driver: page of 100",
+      "driver": false,
+      "requests": 3416,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 424,
+      "p50": 71.162,
+      "p95": 103.527,
+      "p99": 154.548,
+      "cpuMillisPerRequest": 2.8589,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.001,
+      "network": {
+        "bytesIn": 332.1,
+        "bytesOut": 27405.9,
+        "serverRequests": 1.0012
+      },
+      "pool": {
+        "checkouts": 3416,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0047
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 36696946,
+        "heapUsedAfter": 58669685,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "ownerId": "u995"
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 101,
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 100,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: second page by range",
+      "reference": null,
+      "driver": true,
+      "requests": 16109,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 2011,
+      "p50": 14.257,
+      "p95": 23.768,
+      "p99": 30.34,
+      "cpuMillisPerRequest": 0.5742,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0002,
+      "network": {
+        "bytesIn": 371.9,
+        "bytesOut": 5930.8,
+        "serverRequests": 1.0002
+      },
+      "pool": {
+        "checkouts": 16109,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0027
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 36681991,
+        "heapUsedAfter": 39981615,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "ownerId": "u258",
+              "$or": [
+                {
+                  "createdAt": {
+                    "$lt": {
+                      "$date": "2023-11-15T20:30:58.000Z"
+                    }
+                  }
+                },
+                {
+                  "createdAt": {
+                    "$date": "2023-11-15T20:30:58.000Z"
+                  },
+                  "_id": {
+                    "$gt": 80258
+                  }
+                }
+              ]
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 21
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 41,
+            "docsExamined": 41,
+            "returned": 21,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1.9523809523809523
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: second page by cursor",
+      "reference": "driver: second page by range",
+      "driver": false,
+      "requests": 10361,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1293,
+      "p50": 23.866,
+      "p95": 36.021,
+      "p99": 43.908,
+      "cpuMillisPerRequest": 0.8716,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0003,
+      "network": {
+        "bytesIn": 932,
+        "bytesOut": 5953.9,
+        "serverRequests": 1.0004
+      },
+      "pool": {
+        "checkouts": 10361,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0041
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 49434605,
+        "heapUsedAfter": 57365262,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "$and": [
+                {
+                  "ownerId": "u206"
+                },
+                {
+                  "$or": [
+                    {
+                      "$or": [
+                        {
+                          "createdAt": {
+                            "$lt": {
+                              "$date": "2023-11-15T20:30:06.000Z"
+                            }
+                          }
+                        },
+                        {
+                          "createdAt": {
+                            "$eq": null
+                          }
+                        },
+                        {
+                          "createdAt": {
+                            "$type": [
+                              "minKey",
+                              "double",
+                              "int",
+                              "long",
+                              "decimal",
+                              "string",
+                              "symbol",
+                              "object",
+                              "binData",
+                              "objectId",
+                              "bool"
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "$and": [
+                        {
+                          "createdAt": {
+                            "$eq": {
+                              "$date": "2023-11-15T20:30:06.000Z"
+                            }
+                          }
+                        },
+                        {
+                          "$or": [
+                            {
+                              "_id": {
+                                "$gt": 80206
+                              }
+                            },
+                            {
+                              "_id": {
+                                "$type": [
+                                  "string",
+                                  "symbol",
+                                  "object",
+                                  "binData",
+                                  "objectId",
+                                  "bool",
+                                  "date",
+                                  "timestamp",
+                                  "regex",
+                                  "javascript",
+                                  "maxKey"
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            "sort": {
+              "createdAt": -1,
+              "_id": 1
+            },
+            "limit": 21,
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 41,
+            "docsExamined": 41,
+            "returned": 21,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1.9523809523809523
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: find by id",
+      "reference": null,
+      "driver": true,
+      "requests": 40551,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 5066,
+      "p50": 5.658,
+      "p95": 9.486,
+      "p99": 14.22,
+      "cpuMillisPerRequest": 0.2189,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0001,
+      "network": {
+        "bytesIn": 266.9,
+        "bytesOut": 506.6,
+        "serverRequests": 1.0001
+      },
+      "pool": {
+        "checkouts": 40551,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.002
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 59878501,
+        "heapUsedAfter": 58587955,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "_id": 20570,
+              "ownerId": "u570"
+            },
+            "limit": 1,
+            "singleBatch": true
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 1,
+            "docsExamined": 1,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: find by id",
+      "reference": "driver: find by id",
+      "driver": false,
+      "requests": 25684,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 3209,
+      "p50": 8.723,
+      "p95": 15.495,
+      "p99": 27.118,
+      "cpuMillisPerRequest": 0.3437,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "find": 1
+      },
+      "serverOpsPerRequest": 1.0001,
+      "network": {
+        "bytesIn": 356.9,
+        "bytesOut": 529.7,
+        "serverRequests": 1.0002
+      },
+      "pool": {
+        "checkouts": 25684,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0025
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 59797096,
+        "heapUsedAfter": 50679729,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "find",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "find": "orders",
+            "filter": {
+              "$and": [
+                {
+                  "_id": {
+                    "$eq": 95037
+                  }
+                },
+                {
+                  "ownerId": "u37"
+                }
+              ]
+            },
+            "limit": 1,
+            "singleBatch": true,
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["LIMIT", "FETCH", "IXSCAN"],
+            "keysExamined": 1,
+            "docsExamined": 1,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: count",
+      "reference": null,
+      "driver": true,
+      "requests": 28560,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 3568,
+      "p50": 8.439,
+      "p95": 13.731,
+      "p99": 18.746,
+      "cpuMillisPerRequest": 0.2927,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "aggregate": 1
+      },
+      "serverOpsPerRequest": 1.0002,
+      "network": {
+        "bytesIn": 321.9,
+        "bytesOut": 260.1,
+        "serverRequests": 1.0002
+      },
+      "pool": {
+        "checkouts": 28560,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.003
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 34187514,
+        "heapUsedAfter": 43883958,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "aggregate",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "aggregate": "orders",
+            "pipeline": [
+              {
+                "$match": {
+                  "ownerId": "u198"
+                }
+              },
+              {
+                "$group": {
+                  "_id": 1,
+                  "n": {
+                    "$sum": 1
+                  }
+                }
+              }
+            ],
+            "cursor": {}
+          },
+          "plan": {
+            "stages": ["GROUP", "COUNT_SCAN"],
+            "keysExamined": 100,
+            "docsExamined": 0,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 0
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: count",
+      "reference": "driver: count",
+      "driver": false,
+      "requests": 10932,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1365,
+      "p50": 19.224,
+      "p95": 51.823,
+      "p99": 92.513,
+      "cpuMillisPerRequest": 0.5775,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "aggregate": 1
+      },
+      "serverOpsPerRequest": 1.0002,
+      "network": {
+        "bytesIn": 375,
+        "bytesOut": 283.3,
+        "serverRequests": 1.0004
+      },
+      "pool": {
+        "checkouts": 10932,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0076
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 61051741,
+        "heapUsedAfter": 49041231,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "aggregate",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "aggregate": "orders",
+            "pipeline": [
+              {
+                "$match": {
+                  "ownerId": "u796"
+                }
+              },
+              {
+                "$group": {
+                  "_id": 1,
+                  "n": {
+                    "$sum": 1
+                  }
+                }
+              }
+            ],
+            "cursor": {},
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["GROUP", "COUNT_SCAN"],
+            "keysExamined": 100,
+            "docsExamined": 0,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 0
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: distinct",
+      "reference": null,
+      "driver": true,
+      "requests": 34803,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 4348,
+      "p50": 6.964,
+      "p95": 11.224,
+      "p99": 15.261,
+      "cpuMillisPerRequest": 0.2339,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "distinct": 1
+      },
+      "serverOpsPerRequest": 1.0001,
+      "network": {
+        "bytesIn": 251.9,
+        "bytesOut": 189.3,
+        "serverRequests": 1.0001
+      },
+      "pool": {
+        "checkouts": 34803,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0031
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 57103753,
+        "heapUsedAfter": 55153275,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "distinct",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "distinct": "orders",
+            "key": "status",
+            "query": {
+              "ownerId": "u41"
+            }
+          },
+          "plan": {
+            "stages": ["FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 100,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: distinct",
+      "reference": "driver: distinct",
+      "driver": false,
+      "requests": 27947,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 3492,
+      "p50": 8.541,
+      "p95": 12.916,
+      "p99": 16.741,
+      "cpuMillisPerRequest": 0.3025,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "distinct": 1
+      },
+      "serverOpsPerRequest": 1,
+      "network": {
+        "bytesIn": 304.9,
+        "bytesOut": 212.3,
+        "serverRequests": 1.0001
+      },
+      "pool": {
+        "checkouts": 27947,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.003
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 43151329,
+        "heapUsedAfter": 54757202,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "distinct",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "distinct": "orders",
+            "key": "status",
+            "query": {
+              "ownerId": "u303"
+            },
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 100,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 1
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "driver: aggregate",
+      "reference": null,
+      "driver": true,
+      "requests": 22650,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 2830,
+      "p50": 10.233,
+      "p95": 17.476,
+      "p99": 24.443,
+      "cpuMillisPerRequest": 0.3477,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "aggregate": 1
+      },
+      "serverOpsPerRequest": 0.9999,
+      "network": {
+        "bytesIn": 365.9,
+        "bytesOut": 281.1,
+        "serverRequests": 1
+      },
+      "pool": {
+        "checkouts": 22650,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0038
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 43480046,
+        "heapUsedAfter": 63832064,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "aggregate",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "aggregate": "orders",
+            "pipeline": [
+              {
+                "$match": {
+                  "ownerId": "u583"
+                }
+              },
+              {
+                "$group": {
+                  "_id": "$address.city",
+                  "total": {
+                    "$sum": "$amount"
+                  },
+                  "n": {
+                    "$sum": 1
+                  }
+                }
+              }
+            ],
+            "cursor": {}
+          },
+          "plan": {
+            "stages": ["GROUP", "FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 100
+        }
+      ]
+    },
+    {
+      "group": "reads",
+      "name": "rest: aggregate",
+      "reference": "driver: aggregate",
+      "driver": false,
+      "requests": 15440,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1928,
+      "p50": 15.03,
+      "p95": 26.035,
+      "p99": 41.044,
+      "cpuMillisPerRequest": 0.5303,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "aggregate": 1
+      },
+      "serverOpsPerRequest": 1,
+      "network": {
+        "bytesIn": 453.9,
+        "bytesOut": 304.1,
+        "serverRequests": 1
+      },
+      "pool": {
+        "checkouts": 15440,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0052
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 41755881,
+        "heapUsedAfter": 68462525,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": [
+        {
+          "command": "aggregate",
+          "database": "canopy_d0_26976",
+          "collection": "orders",
+          "sent": {
+            "aggregate": "orders",
+            "pipeline": [
+              {
+                "$match": {
+                  "ownerId": "u438"
+                }
+              },
+              {
+                "$group": {
+                  "_id": "$address.city",
+                  "total": {
+                    "$sum": "$amount"
+                  },
+                  "n": {
+                    "$sum": 1
+                  }
+                }
+              },
+              {
+                "$limit": 1001
+              }
+            ],
+            "allowDiskUse": false,
+            "cursor": {},
+            "maxTimeMS": 5000
+          },
+          "plan": {
+            "stages": ["GROUP", "FETCH", "IXSCAN"],
+            "keysExamined": 100,
+            "docsExamined": 100,
+            "returned": 1,
+            "inMemorySort": false,
+            "collectionScan": false
+          },
+          "examinedPerReturned": 100
+        }
+      ]
+    },
+    {
+      "group": "writes",
+      "name": "driver: insertOne (majority)",
+      "reference": null,
+      "driver": true,
+      "requests": 14332,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1791,
+      "p50": 15.906,
+      "p95": 28.365,
+      "p99": 66.302,
+      "cpuMillisPerRequest": 0.3053,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "insert": 1
+      },
+      "serverOpsPerRequest": 1,
+      "network": {
+        "bytesIn": 556.7,
+        "bytesOut": 230.1,
+        "serverRequests": 1.0001
+      },
+      "pool": {
+        "checkouts": 14332,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0054
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 37705184,
+        "heapUsedAfter": 42244004,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: insert",
+      "reference": "driver: insertOne (majority)",
+      "driver": false,
+      "requests": 8000,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 998,
+      "p50": 31.084,
+      "p95": 47.451,
+      "p99": 69.661,
+      "cpuMillisPerRequest": 1.004,
+      "commandsPerRequest": 2,
+      "commandsByName": {
+        "aggregate": 1,
+        "insert": 1
+      },
+      "serverOpsPerRequest": 2.0019,
+      "network": {
+        "bytesIn": 1338.6,
+        "bytesOut": 776.1,
+        "serverRequests": 2.0005
+      },
+      "pool": {
+        "checkouts": 16000,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0115
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 51933375,
+        "heapUsedAfter": 41329311,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "driver: updateOne (majority)",
+      "reference": null,
+      "driver": true,
+      "requests": 16058,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 2004,
+      "p50": 15.622,
+      "p95": 18.748,
+      "p99": 28.216,
+      "cpuMillisPerRequest": 0.2607,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "update": 1
+      },
+      "serverOpsPerRequest": 1.0002,
+      "network": {
+        "bytesIn": 350.9,
+        "bytesOut": 245.2,
+        "serverRequests": 1.0002
+      },
+      "pool": {
+        "checkouts": 16058,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0034
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 46603954,
+        "heapUsedAfter": 55009830,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: patch, atomic fast path",
+      "reference": "driver: updateOne (majority)",
+      "driver": false,
+      "requests": 10525,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 1314,
+      "p50": 23.21,
+      "p95": 38.559,
+      "p99": 51.629,
+      "cpuMillisPerRequest": 0.766,
+      "commandsPerRequest": 2,
+      "commandsByName": {
+        "update": 1,
+        "find": 1
+      },
+      "serverOpsPerRequest": 2.0013,
+      "network": {
+        "bytesIn": 712.9,
+        "bytesOut": 751.8,
+        "serverRequests": 2.0004
+      },
+      "pool": {
+        "checkouts": 21050,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0085
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 50616951,
+        "heapUsedAfter": 38714198,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: patch, transaction with check",
+      "reference": "driver: updateOne (majority)",
+      "driver": false,
+      "requests": 6489,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 809,
+      "p50": 35.963,
+      "p95": 60.05,
+      "p99": 80.252,
+      "cpuMillisPerRequest": 1.1655,
+      "commandsPerRequest": 3.0003,
+      "commandsByName": {
+        "update": 1.0002,
+        "find": 0.2481,
+        "aggregate": 0.7519,
+        "commitTransaction": 1,
+        "abortTransaction": 0.0002
+      },
+      "serverOpsPerRequest": 3.0008,
+      "network": {
+        "bytesIn": 1392.1,
+        "bytesOut": 936.9,
+        "serverRequests": 3.0009
+      },
+      "pool": {
+        "checkouts": 19469,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0185
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 48269150,
+        "heapUsedAfter": 68959853,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: patch with mutation ID",
+      "reference": "driver: updateOne (majority)",
+      "driver": false,
+      "requests": 5832,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 725,
+      "p50": 43.38,
+      "p95": 62.425,
+      "p99": 94.928,
+      "cpuMillisPerRequest": 1.4602,
+      "commandsPerRequest": 3.0007,
+      "commandsByName": {
+        "bulkWrite": 1.0003,
+        "find": 1,
+        "commitTransaction": 1,
+        "abortTransaction": 0.0003
+      },
+      "serverOpsPerRequest": 4.0013,
+      "network": {
+        "bytesIn": 1496.9,
+        "bytesOut": 1137.4,
+        "serverRequests": 3.0014
+      },
+      "pool": {
+        "checkouts": 17500,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0171
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 47922797,
+        "heapUsedAfter": 47889422,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: insert with mutation ID",
+      "reference": "driver: insertOne (majority)",
+      "driver": false,
+      "requests": 5234,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 653,
+      "p50": 46.955,
+      "p95": 78.608,
+      "p99": 96.377,
+      "cpuMillisPerRequest": 1.4778,
+      "commandsPerRequest": 3,
+      "commandsByName": {
+        "bulkWrite": 1,
+        "aggregate": 1,
+        "commitTransaction": 1
+      },
+      "serverOpsPerRequest": 4.0006,
+      "network": {
+        "bytesIn": 1860.6,
+        "bytesOut": 1153.3,
+        "serverRequests": 3.0008
+      },
+      "pool": {
+        "checkouts": 15702,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.016
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 59537608,
+        "heapUsedAfter": 54160365,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "driver: replaceOne (majority)",
+      "reference": null,
+      "driver": true,
+      "requests": 16265,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 2030,
+      "p50": 15.623,
+      "p95": 19.228,
+      "p99": 23.398,
+      "cpuMillisPerRequest": 0.2104,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "update": 1
+      },
+      "serverOpsPerRequest": 1.0002,
+      "network": {
+        "bytesIn": 595.5,
+        "bytesOut": 245.2,
+        "serverRequests": 1.0002
+      },
+      "pool": {
+        "checkouts": 16265,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0048
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 59447785,
+        "heapUsedAfter": 64773318,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: replace",
+      "reference": "driver: replaceOne (majority)",
+      "driver": false,
+      "requests": 5939,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 741,
+      "p50": 44.249,
+      "p95": 58.231,
+      "p99": 65.521,
+      "cpuMillisPerRequest": 1.4154,
+      "commandsPerRequest": 3.0003,
+      "commandsByName": {
+        "update": 1.0002,
+        "aggregate": 1,
+        "commitTransaction": 1,
+        "abortTransaction": 0.0002
+      },
+      "serverOpsPerRequest": 3.0009,
+      "network": {
+        "bytesIn": 1520.5,
+        "bytesOut": 944.2,
+        "serverRequests": 3.001
+      },
+      "pool": {
+        "checkouts": 17819,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0138
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 45535471,
+        "heapUsedAfter": 55915756,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "driver: deleteOne (majority)",
+      "reference": null,
+      "driver": true,
+      "requests": 8001,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 988,
+      "p50": 15.789,
+      "p95": 29.09,
+      "p99": 297.089,
+      "cpuMillisPerRequest": 0.3711,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "delete": 1
+      },
+      "serverOpsPerRequest": 1.0004,
+      "network": {
+        "bytesIn": 336,
+        "bytesOut": 230.4,
+        "serverRequests": 1.0005
+      },
+      "pool": {
+        "checkouts": 8001,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.005
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 38313146,
+        "heapUsedAfter": 54296792,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: delete",
+      "reference": "driver: deleteOne (majority)",
+      "driver": false,
+      "requests": 4658,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 581,
+      "p50": 47.333,
+      "p95": 123.153,
+      "p99": 146.902,
+      "cpuMillisPerRequest": 0.983,
+      "commandsPerRequest": 1,
+      "commandsByName": {
+        "findAndModify": 1
+      },
+      "serverOpsPerRequest": 1.0007,
+      "network": {
+        "bytesIn": 370,
+        "bytesOut": 472.2,
+        "serverRequests": 1.0009
+      },
+      "pool": {
+        "checkouts": 4658,
+        "failed": 0,
+        "p50": 0,
+        "p99": 1,
+        "totalPerRequest": 0.0172
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 66411462,
+        "heapUsedAfter": 83480335,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "driver: bulkWrite of 5 (ordered, majority)",
+      "reference": null,
+      "driver": true,
+      "requests": 6423,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 800,
+      "p50": 35.606,
+      "p95": 63.375,
+      "p99": 101.242,
+      "cpuMillisPerRequest": 0.9829,
+      "commandsPerRequest": 2,
+      "commandsByName": {
+        "insert": 1,
+        "update": 1
+      },
+      "serverOpsPerRequest": 5.0004,
+      "network": {
+        "bytesIn": 1344.7,
+        "bytesOut": 475.5,
+        "serverRequests": 2.0006
+      },
+      "pool": {
+        "checkouts": 12846,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0176
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 37256411,
+        "heapUsedAfter": 64042175,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: batch of 5 (not atomic)",
+      "reference": "driver: bulkWrite of 5 (ordered, majority)",
+      "driver": false,
+      "requests": 851,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 104,
+      "p50": 265.007,
+      "p95": 607.175,
+      "p99": 943.215,
+      "cpuMillisPerRequest": 7.3443,
+      "commandsPerRequest": 11,
+      "commandsByName": {
+        "aggregate": 2,
+        "insert": 1,
+        "update": 4,
+        "find": 3,
+        "commitTransaction": 1
+      },
+      "serverOpsPerRequest": 11.0004,
+      "network": {
+        "bytesIn": 5006.8,
+        "bytesOut": 3978.3,
+        "serverRequests": 11.0024
+      },
+      "pool": {
+        "checkouts": 9361,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0975
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 72878343,
+        "heapUsedAfter": 60101330,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "driver: transaction of 4 writes",
+      "reference": null,
+      "driver": true,
+      "requests": 3193,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 393,
+      "p50": 74.287,
+      "p95": 148.583,
+      "p99": 189.426,
+      "cpuMillisPerRequest": 2.119,
+      "commandsPerRequest": 5.0081,
+      "commandsByName": {
+        "insert": 1.0022,
+        "update": 3.0038,
+        "abortTransaction": 0.0022,
+        "commitTransaction": 1
+      },
+      "serverOpsPerRequest": 5.0083,
+      "network": {
+        "bytesIn": 1825.5,
+        "bytesOut": 1130.9,
+        "serverRequests": 5.0088
+      },
+      "pool": {
+        "checkouts": 15991,
+        "failed": 0,
+        "p50": 0,
+        "p99": 0,
+        "totalPerRequest": 0.0307
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 63328016,
+        "heapUsedAfter": 45633248,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    },
+    {
+      "group": "writes",
+      "name": "rest: atomic batch of 4",
+      "reference": "driver: transaction of 4 writes",
+      "driver": false,
+      "requests": 869,
+      "errors": 0,
+      "firstError": null,
+      "perSecond": 107,
+      "p50": 257.035,
+      "p95": 527.026,
+      "p99": 626.805,
+      "cpuMillisPerRequest": 6.3832,
+      "commandsPerRequest": 9.0207,
+      "commandsByName": {
+        "aggregate": 1.0035,
+        "insert": 1.0035,
+        "update": 3.0069,
+        "find": 3.0035,
+        "commitTransaction": 1,
+        "abortTransaction": 0.0035
+      },
+      "serverOpsPerRequest": 9.0223,
+      "network": {
+        "bytesIn": 3854.7,
+        "bytesOut": 3204.1,
+        "serverRequests": 9.0207
+      },
+      "pool": {
+        "checkouts": 7839,
+        "failed": 0,
+        "p50": 0,
+        "p99": 1,
+        "totalPerRequest": 0.1059
+      },
+      "memory": {
+        "allocatedBytesPerRequest": null,
+        "heapUsedBefore": 53648203,
+        "heapUsedAfter": 74985396,
+        "gcCount": null,
+        "gcMillis": null
+      },
+      "plans": []
+    }
+  ],
+  "fanout": {
+    "runtime": "bun 1.4.5",
+    "engine": "ts",
+    "mongodb": "8.0.34",
+    "docs": 100000,
+    "owners": 10000,
+    "hot": 200,
+    "seconds": 8,
+    "results": [
+      {
+        "name": "per user, 1k connections, 500 writes/s",
+        "mode": "owners",
+        "connections": 1000,
+        "rate": 500,
+        "subscribeSeconds": 2.773110595703125,
+        "ready": {
+          "count": 1000,
+          "p50": 121.057373046875,
+          "p90": 231.978271484375,
+          "p99": 401.158447265625,
+          "max": 499.595947265625
+        },
+        "snapshotDocs": 10000,
+        "writes": 4000,
+        "expectedDeliveries": 4000,
+        "convergence": {
+          "checked": 3315,
+          "current": 3315
+        },
+        "delivery": {
+          "count": 4000,
+          "p50": 16.311279296875,
+          "p90": 339.107666015625,
+          "p99": 483.9267578125,
+          "max": 613.05615234375
+        },
+        "stream": {
+          "count": 4000,
+          "p50": 12.58251953125,
+          "p90": 326.99072265625,
+          "p99": 484.611083984375,
+          "max": 602.628173828125
+        },
+        "ack": {
+          "p50": 12.91064453125,
+          "p99": 509.8037109375
+        },
+        "engineMs": 0.09764959999999806,
+        "deliveriesPerSecond": 500,
+        "cpuPercent": 24,
+        "rssMB": 198,
+        "heapMB": 69
+      },
+      {
+        "name": "shared query, 1k connections, 20 writes/s",
+        "mode": "hot",
+        "connections": 1000,
+        "rate": 20,
+        "subscribeSeconds": 4.841013671875,
+        "ready": {
+          "count": 1000,
+          "p50": 3.310302734375,
+          "p90": 8.046630859375,
+          "p99": 596.809814453125,
+          "max": 599.972900390625
+        },
+        "snapshotDocs": 200000,
+        "writes": 160,
+        "expectedDeliveries": 160000,
+        "convergence": {
+          "checked": 136000,
+          "current": 136000
+        },
+        "delivery": {
+          "count": 160000,
+          "p50": 18.18896484375,
+          "p90": 24.77685546875,
+          "p99": 33.080810546875,
+          "max": 52.759521484375
+        },
+        "stream": {
+          "count": 160,
+          "p50": 12.495361328125,
+          "p90": 18.952880859375,
+          "p99": 24.2255859375,
+          "max": 44.699951171875
+        },
+        "ack": {
+          "p50": 12.1005859375,
+          "p99": 22.1708984375
+        },
+        "engineMs": 3.422184374999827,
+        "deliveriesPerSecond": 20000,
+        "cpuPercent": 10,
+        "rssMB": 378,
+        "heapMB": 213
+      }
+    ],
+    "gate": {
+      "ratios": {
+        "fanout per user, 1k connections, 500 writes/s: plain change stream p50 ÷ delivery p50": 0.7713999191749862,
+        "fanout shared query, 1k connections, 20 writes/s: plain change stream p50 ÷ delivery p50": 0.6869748463128507
+      },
+      "required": {
+        "fanout per user, 1k connections, 500 writes/s: subscribers holding the final state of each written document": {
+          "value": 1,
+          "min": 1
+        },
+        "fanout shared query, 1k connections, 20 writes/s: subscribers holding the final state of each written document": {
+          "value": 1,
+          "min": 1
+        }
+      }
+    }
+  }
+}

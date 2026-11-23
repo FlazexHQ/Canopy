@@ -31,7 +31,7 @@ Every document about Canopy lives in this folder:
 | **Runtime** | The data plane is a native binary. TypeScript runs on Bun (primary), then Node.js 26 LTS (24 LTS minimum), then Deno; Cloudflare Workers for the edge worker |
 | **Operating systems** | Windows (10, 11, Server 2022+), Linux (Debian, Ubuntu, Fedora, RHEL, Arch, Alpine and other distributions) and macOS (Apple silicon and Intel), x64 and arm64, natively on every runtime |
 | **Package manager** | Bun (primary), then pnpm, Yarn and npm |
-| **Database** | MongoDB 7.0+ replica set or sharded cluster (8.0+ required from 1.0), self-hosted or Atlas |
+| **Database** | MongoDB 8.0+ replica set or sharded cluster, self-hosted or Atlas (tested on 8.0 and 9.0) |
 | **License** | Apache-2.0 (proposed) |
 | **Last updated** | 2026-11-22 |
 
