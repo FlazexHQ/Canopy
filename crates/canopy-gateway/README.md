@@ -85,9 +85,12 @@ and is not read further) and `rest.search` the collections whose aggregations ma
 `$vectorSearch` (the TypeScript launcher passes its own), and `cors.origins` the browser origins. A verified
 JWT is remembered for at most 60 seconds, keyed by its exact text; expiry and revocations are still checked on
 every request, and a refetched JWKS forgets every remembered token. A failing read never falls back to the upstream and never returns data: a database that cannot be
-reached answers `503` Problem Details. The route does not apply the HTTP request rate limits
-(`rateLimits.requests` and `failedAuthentications`), the request log, tracing or `explainDenials` of the
-TypeScript handler yet, so leave it off where those matter.
+reached answers `503` Problem Details. The routes apply the HTTP request rate limits of the TypeScript handler
+unless `rateLimits` is `false`: `rateLimits.requests` per caller (API key and subject, and the client address of
+anonymous callers) and `rateLimits.failedAuthentications` per client address, which is refused before its
+credentials are checked once its budget is spent; a refusal answers `429` with `Retry-After` and counts in
+`canopy_http_rate_limited_total{surface="rest"}` on the metrics port. Each process counts on its own, so while some Data API routes run in the gateway and the rest in the TypeScript server, a caller has a budget in each, up to twice the configured rate across both. The requests they answer are sampled into `request_log` of the meta database as the server samples its own, at the `requestLogSampleRate` of the admin settings (read again every ten seconds). The routes record no tracing spans yet, so
+leave them off where tracing matters.
 
 `CANOPY_GATEWAY_SHARDS` (or `server.shards`) sets the number of I/O shards, by default the number of cores up to
 four.

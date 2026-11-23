@@ -1,7 +1,7 @@
-# D1 gate: `find` in Rust against the TypeScript route
+# D1 gate: the reads in Rust against the TypeScript routes
 
-Stage D1 of [plan 004](../../../docs/plans/004-rust-data-plane.md#5-stages) promotes `find` to the Rust data
-plane only when it reaches **at least 1.5 times the simple read throughput per vCPU** of the TypeScript route.
+Stage D1 of [plan 004](../../../docs/plans/004-rust-data-plane.md#5-stages) promotes a read route to the Rust
+data plane only when it reaches **at least 1.5 times the simple read throughput per vCPU** of the TypeScript route.
 The Linux runs on GitHub Actions below pass the gate in every scenario; the local runs on the development
 laptop show what moved it. The gate numbers of record still come from the reference runner and a same region
 Atlas cluster.
@@ -29,20 +29,26 @@ by [`workloads/d1/find.ts`](../../workloads/d1/find.ts) (`bun --filter @canopy/b
 
 ## Linux runs on GitHub Actions
 
-Ubuntu 22.04 runners with 4 vCPUs, MongoDB in Docker on the same runner, the same harness and settings as below,
-with verified JWTs remembered by the gateway (at most 60 seconds, expiry and revocations checked on every
-request). The MongoDB 8 job ran on an AMD EPYC 9V45 and the MongoDB 9 job on an AMD EPYC 7763, so compare the
-ratios, not the two columns' times. Rust over TypeScript in requests per server CPU second (CPU per request in
-brackets, TypeScript then Rust):
+Run 45128153402 of the full benchmark workflow (`suite: d1`, commit `4d2cc93`): Ubuntu 22.04 runners with 4
+vCPUs, MongoDB in Docker on the same runner, the same harness and settings as below, with `find`, `count`,
+`distinct` and `aggregate` selected and verified JWTs remembered by the gateway (at most 60 seconds, expiry and
+revocations checked on every request). The MongoDB 8 job ran on an Intel Xeon Platinum 8573C and the MongoDB 9
+job on an AMD EPYC 9V45, so compare the ratios, not the two columns' times. Rust over TypeScript in requests per
+server CPU second (CPU per request in brackets, TypeScript then Rust):
 
 | Scenario                  |       Node 26, MongoDB 8 |           Bun, MongoDB 8 |       Node 26, MongoDB 9 |           Bun, MongoDB 9 |
 | ------------------------- | -----------------------: | -----------------------: | -----------------------: | -----------------------: |
-| page of 20, owner policy  | **3.91** (0.69, 0.18 ms) | **3.78** (0.63, 0.17 ms) | **3.67** (1.34, 0.37 ms) | **3.53** (1.29, 0.37 ms) |
-| page of 100, owner policy | **3.69** (1.39, 0.38 ms) | **3.92** (1.42, 0.36 ms) | **3.31** (2.46, 0.74 ms) | **3.38** (2.48, 0.73 ms) |
-| filtered page of 20       | **3.25** (0.51, 0.16 ms) | **2.61** (0.39, 0.15 ms) | **3.39** (1.09, 0.32 ms) | **2.42** (0.78, 0.32 ms) |
+| page of 20, owner policy  | **3.70** (1.19, 0.32 ms) | **3.41** (1.08, 0.32 ms) | **4.09** (0.65, 0.16 ms) | **3.95** (0.60, 0.15 ms) |
+| page of 100, owner policy | **3.39** (2.23, 0.66 ms) | **3.05** (1.96, 0.64 ms) | **3.74** (1.33, 0.36 ms) | **3.93** (1.35, 0.34 ms) |
+| filtered page of 20       | **3.21** (0.93, 0.29 ms) | **2.13** (0.61, 0.28 ms) | **3.31** (0.49, 0.15 ms) | **2.80** (0.37, 0.13 ms) |
+| count, owner policy       | **2.95** (0.69, 0.23 ms) | **2.20** (0.49, 0.22 ms) | **3.49** (0.39, 0.11 ms) | **2.53** (0.25, 0.10 ms) |
+| filtered count            | **2.85** (0.69, 0.24 ms) | **1.92** (0.46, 0.24 ms) | **3.22** (0.37, 0.12 ms) | **2.15** (0.24, 0.11 ms) |
+| distinct statuses         | **3.03** (0.59, 0.20 ms) | **1.97** (0.35, 0.18 ms) | **3.44** (0.32, 0.09 ms) | **2.71** (0.22, 0.08 ms) |
+| aggregate by status       | **2.44** (0.76, 0.31 ms) | **1.81** (0.54, 0.30 ms) | **2.98** (0.43, 0.14 ms) | **2.19** (0.33, 0.15 ms) |
 
-**Gate status on Linux: 12 of 12 pass.** On a page of 20, Rust serves 2,500 to 7,900 requests per second at a p50
-of 3.9 to 11.7 ms, against 970 to 2,230 at 13 to 31 ms for TypeScript.
+**Gate status on Linux: 28 of 28 pass**, with no errors on either target. On a page of 20, Rust serves 2,900 to
+9,200 requests per second at a p50 of 3.3 to 10 ms, against 1,100 to 2,300 at 13 to 27 ms for TypeScript. The
+earlier run 45117084705 (commit `504e5fe`, `find` alone) passed its 12 measurements too, from 2.42 to 3.92.
 
 ## Local runs
 

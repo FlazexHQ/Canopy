@@ -42,6 +42,14 @@
       "perSecond": 20,
       "burst": 100
     },
+    "requests": {
+      "perSecond": 50,
+      "burst": 200
+    },
+    "failedAuthentications": {
+      "perSecond": 1,
+      "burst": 30
+    },
     "anonymousConnectionsPerAddress": 50,
     "exemptService": true
   },

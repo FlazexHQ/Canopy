@@ -172,6 +172,11 @@ export function gatewayConfig(
         ? false
         : {
             messages: { perSecond: limits.messages.perSecond, burst: limits.messages.burst },
+            requests: { perSecond: limits.requests.perSecond, burst: limits.requests.burst },
+            failedAuthentications: {
+              perSecond: limits.failedAuthentications.perSecond,
+              burst: limits.failedAuthentications.burst,
+            },
             anonymousConnectionsPerAddress: limits.anonymousConnectionsPerAddress,
             exemptService: limits.exemptService,
           },

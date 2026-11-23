@@ -82,8 +82,19 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             ],
         ),
         (&["cors", "properties"], &["origins"]),
-        (&["rateLimits", "properties"], &["messages", "anonymousConnectionsPerAddress", "exemptService"]),
+        (
+            &["rateLimits", "properties"],
+            &[
+                "messages",
+                "requests",
+                "failedAuthentications",
+                "anonymousConnectionsPerAddress",
+                "exemptService",
+            ],
+        ),
         (&["rateLimits", "properties", "messages", "properties"], &["perSecond", "burst"]),
+        (&["rateLimits", "properties", "requests", "properties"], &["perSecond", "burst"]),
+        (&["rateLimits", "properties", "failedAuthentications", "properties"], &["perSecond", "burst"]),
         (&["mutations", "properties"], &["url"]),
         (&["proxy", "properties"], &["url"]),
         (&["log", "properties"], &["level"]),
@@ -108,6 +119,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
             .auth
             .ok_or("Expected JWT auth")?;
     let limits = base.messages.ok_or("Expected message limits")?;
+    let rates = base.request_rates.ok_or("Expected request limits")?;
     let Policies::Database { watch } = base.policies else {
         return Err("Expected database policies".to_owned());
     };
@@ -170,6 +182,19 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
             Json::Number(limits.per_second),
         ),
         (&["rateLimits", "properties", "messages", "properties", "burst"], Json::Number(limits.burst)),
+        (
+            &["rateLimits", "properties", "requests", "properties", "perSecond"],
+            Json::Number(rates.requests.0),
+        ),
+        (&["rateLimits", "properties", "requests", "properties", "burst"], Json::Number(rates.requests.1)),
+        (
+            &["rateLimits", "properties", "failedAuthentications", "properties", "perSecond"],
+            Json::Number(rates.failed_authentications.0),
+        ),
+        (
+            &["rateLimits", "properties", "failedAuthentications", "properties", "burst"],
+            Json::Number(rates.failed_authentications.1),
+        ),
         (&["log", "properties", "level"], Json::String(base.log_level)),
         (&["rest", "properties", "defaultLimit"], Json::Number(f64::from(base.rest_limits.default_limit))),
         (&["rest", "properties", "maxLimit"], Json::Number(f64::from(base.rest_limits.max_limit))),

@@ -51,6 +51,18 @@ pub struct MessageRate {
     pub exempt_service: bool,
 }
 
+/// The HTTP request limits of the Data API routes: token buckets per caller and, for failed authentications,
+/// per client address.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RequestRates {
+    /// Requests per caller: `(per second, burst)`.
+    pub requests: (f64, f64),
+    /// Failed authentications per client address: `(per second, burst)`.
+    pub failed_authentications: (f64, f64),
+    /// Whether `service` callers are exempt.
+    pub exempt_service: bool,
+}
+
 /// The origins allowed to make browser requests.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cors {
@@ -206,6 +218,8 @@ pub struct GatewayConfig {
     pub messages: Option<MessageRate>,
     /// Anonymous connection limit per address, when enabled.
     pub anonymous_per_address: Option<usize>,
+    /// The HTTP request limits of the Data API routes, when enabled.
+    pub request_rates: Option<RequestRates>,
     /// Upstream REST URL for realtime mutations.
     pub mutations_url: Option<String>,
     /// Requested logging level.
@@ -499,6 +513,17 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         burst: number(&doc, &["rateLimits", "messages", "burst"]).or(fallback.message_burst).unwrap_or(100.0),
         exempt_service: flag(&doc, &["rateLimits", "exemptService"]).unwrap_or(true),
     });
+    let bucket = |name: &str, per_second: f64, burst: f64| {
+        (
+            number(&doc, &["rateLimits", name, "perSecond"]).unwrap_or(per_second),
+            number(&doc, &["rateLimits", name, "burst"]).unwrap_or(burst),
+        )
+    };
+    let request_rates = rate_limits_on.then(|| RequestRates {
+        requests: bucket("requests", 50.0, 200.0),
+        failed_authentications: bucket("failedAuthentications", 1.0, 30.0),
+        exempt_service: flag(&doc, &["rateLimits", "exemptService"]).unwrap_or(true),
+    });
     let anonymous_per_address = rate_limits_on.then(|| {
         let limit = number(&doc, &["rateLimits", "anonymousConnectionsPerAddress"])
             .or(fallback.anonymous_per_address)
@@ -571,6 +596,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         coalesce_ms,
         messages,
         anonymous_per_address,
+        request_rates,
         mutations_url: text(&doc, &["mutations", "url"]).or(fallback.mutations_url),
         log_level: text(&doc, &["log", "level"]).or(fallback.log_level).unwrap_or_else(|| "info".to_owned()),
         websocket: transports.iter().any(|t| t == "websocket"),

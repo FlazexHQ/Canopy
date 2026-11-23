@@ -1,7 +1,7 @@
 name: Full benchmark
 
 # Runs the full benchmark suite on Linux, comparing Bun and Node v26 against MongoDB 9, and the D1 read gate
-# (find in Rust against the TypeScript route) on MongoDB 8 and 9.
+# (find, count, distinct and aggregate in Rust against the TypeScript routes) on MongoDB 8 and 9.
 on:
   push:
     branches: [bench/full-linux]
@@ -196,7 +196,7 @@ jobs:
           path: bench-results/
 
   d1:
-    name: D1 read gate, find in Rust against TypeScript (${{ matrix.mongo }})
+    name: D1 read gate, the reads in Rust against TypeScript (${{ matrix.mongo }})
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     strategy:
@@ -221,7 +221,7 @@ jobs:
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
           CANOPY_MONGO_IMAGE: mongo:${{ matrix.mongo }}
-      - name: find in Rust against the TypeScript route on Node v26 and Bun
+      - name: The reads in Rust against the TypeScript routes on Node v26 and Bun
         run: |
           mkdir -p bench-results
           CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d1-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d1/find.ts

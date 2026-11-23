@@ -19,6 +19,7 @@
       "!!conformance/policy",
       "!!conformance/http",
       "!!conformance/cursor",
+      "!!conformance/auth",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
       "!!**/routeTree.gen.ts",

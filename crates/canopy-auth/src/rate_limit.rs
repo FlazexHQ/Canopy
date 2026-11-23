@@ -18,7 +18,9 @@ pub struct BucketSpec {
 pub type Clock = Arc<dyn Fn() -> f64 + Send + Sync>;
 
 fn system_clock() -> Clock {
-    Arc::new(|| SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64))
+    Arc::new(|| {
+        SystemTime::now().duration_since(UNIX_EPOCH).map_or(0.0, |elapsed| elapsed.as_millis() as f64)
+    })
 }
 
 struct Bucket {

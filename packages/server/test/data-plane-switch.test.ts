@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process"
 import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { fileURLToPath } from "node:url"
+import { RateLimits } from "@canopy/auth"
 import { toNodeListener } from "@canopy/node-http"
 import { findGatewayBinary } from "@canopy/realtime"
 import { MONGODB_URI } from "@canopy/testing"
@@ -286,6 +287,57 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
       expect(via, `${method} ${target} through the selected gateway`).toEqual(direct)
       const plain = await comparable(await raw(unselected.base, method, target, body))
       expect(plain, `${method} ${target} through the other gateway`).toEqual(direct)
+    }
+  }, 60_000)
+
+  it("refuses over the request and failed authentication budgets exactly as the TypeScript handler does", async () => {
+    const tight = {
+      requests: { perSecond: 0.001, burst: 3 },
+      failedAuthentications: { perSecond: 0.001, burst: 2 },
+    }
+    const limited = typescript({
+      rateLimits: new RateLimits({
+        ...tight,
+        messages: { perSecond: 1, burst: 1 },
+        anonymousConnectionsPerAddress: 1,
+      }),
+    })
+    const limitedBase = await listening(limited)
+    const gateway = await start(launcher(limitedBase, { rateLimits: tight }), READ_ROUTES)
+    const sequence = ["alice", "alice", "alice", "alice", "bob", "anon", "anon", "service"]
+    const failures = ["tampered", "unknown-key", "alice", "expired", "service"]
+    const answers = async (base: string) => {
+      const out = []
+      for (const caller of [...sequence, ...failures]) {
+        const response = await fetch(`${base}/rest/v1/todos/_count`, {
+          method: "POST",
+          headers: { ...fixture.callers[caller], "content-type": "application/json" },
+          body: "{}",
+        })
+        out.push({
+          caller,
+          retryAfter: response.headers.get("retry-after"),
+          ...(await comparable(response)),
+        })
+      }
+      return out
+    }
+    try {
+      const direct = await answers(limitedBase)
+      const via = await answers(gateway.base)
+      expect(direct.map((answer) => answer.status)).toEqual([
+        200, 200, 200, 429, 200, 200, 200, 200, 401, 401, 429, 429, 429,
+      ])
+      expect(
+        via.every((answer) => answer.servedBy === null),
+        "the gateway answered every request",
+      ).toBe(true)
+      expect(via.map((answer) => ({ ...answer, servedBy: null }))).toEqual(
+        direct.map((answer) => ({ ...answer, servedBy: null })),
+      )
+    } finally {
+      gateway.child.stdin?.end()
+      await closing(limited)
     }
   }, 60_000)
 

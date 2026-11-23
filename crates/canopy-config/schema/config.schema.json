@@ -146,6 +146,20 @@
             "burst": { "$ref": "#/$defs/number", "default": 100 }
           }
         },
+        "requests": {
+          "description": "Data API requests per caller, for the routes the gateway serves itself.",
+          "properties": {
+            "perSecond": { "$ref": "#/$defs/number", "default": 50 },
+            "burst": { "$ref": "#/$defs/number", "default": 200 }
+          }
+        },
+        "failedAuthentications": {
+          "description": "Failed authentications per client address on the routes the gateway serves itself; an address without budget is refused before its credentials are checked.",
+          "properties": {
+            "perSecond": { "$ref": "#/$defs/number", "default": 1 },
+            "burst": { "$ref": "#/$defs/number", "default": 30 }
+          }
+        },
         "anonymousConnectionsPerAddress": { "$ref": "#/$defs/whole", "default": 50 },
         "exemptService": { "$ref": "#/$defs/boolean", "default": true }
       }

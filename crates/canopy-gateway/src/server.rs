@@ -38,7 +38,8 @@ impl HttpRoutes for ShardRoutes {
         if let Some(data_plane) = &self.routes.data_plane
             && data_plane.owns(&request)
         {
-            return data_plane.serve(request).await;
+            let address = self.client_address(request.headers(), peer);
+            return data_plane.serve(request, address, peer).await;
         }
         let upstream = self.routes.proxy.as_ref();
         match request.uri().path() {

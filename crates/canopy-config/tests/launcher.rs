@@ -1,12 +1,20 @@
 //! Cross language launcher fixtures.
 
-use canopy_config::{Cors, DataPlaneRoute, FullDocument, RestLimits};
+use canopy_config::{Cors, DataPlaneRoute, FullDocument, RequestRates, RestLimits};
 use canopy_config::{Fallbacks, Policies, TrustedProxy, parse, resolve};
 use canopy_protocol::json::parse_json;
 
 #[test]
 fn reads_minimal_launcher_config() -> Result<(), String> {
     let config = parse(include_str!("fixtures/minimal.json"))?;
+    assert_eq!(
+        config.request_rates,
+        Some(RequestRates {
+            requests: (50.0, 200.0),
+            failed_authentications: (1.0, 30.0),
+            exempt_service: true
+        })
+    );
     assert_eq!(config.mongodb_uri, "mongodb://db.example.test/app");
     assert_eq!(config.database, "app");
     assert_eq!(config.meta_database, "canopy");
@@ -65,6 +73,7 @@ fn refuses_routes_when_the_launcher_disables_the_data_api() -> Result<(), String
 #[test]
 fn reads_external_auth_launcher_config() -> Result<(), String> {
     let config = parse(include_str!("fixtures/external-auth.json"))?;
+    assert!(config.request_rates.is_none(), "rateLimits: false turns the request limits off too");
     let auth = config.auth.ok_or("Expected JWT settings")?;
     assert_eq!(config.meta_database, "meta");
     assert_eq!(config.node_id, "fixture-node");
@@ -118,6 +127,14 @@ fn reads_fallback_transport_launcher_config() -> Result<(), String> {
     assert_eq!(parse(fixture)?.coalesce_ms, 0);
     let config = resolve(Some(fixture), Fallbacks { coalesce_ms: Some(Ok(17.0)), ..Fallbacks::default() })?;
     assert_eq!(config.coalesce_ms, 17);
+    assert_eq!(
+        config.request_rates,
+        Some(RequestRates {
+            requests: (7.0, 11.0),
+            failed_authentications: (2.0, 4.0),
+            exempt_service: false
+        })
+    );
     assert_eq!(config.port, 9000);
     assert_eq!(config.metrics_port, None);
     assert_eq!(config.metrics_host, "0.0.0.0");

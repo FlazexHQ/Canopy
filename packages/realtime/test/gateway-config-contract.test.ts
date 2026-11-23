@@ -82,6 +82,8 @@ const cases: readonly Fixture[] = [
       },
       rateLimits: {
         messages: { perSecond: 5, burst: 9 },
+        requests: { perSecond: 7, burst: 11 },
+        failedAuthentications: { perSecond: 2, burst: 4 },
         anonymousConnectionsPerAddress: 3,
         exemptService: false,
       },

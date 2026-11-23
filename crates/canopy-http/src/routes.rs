@@ -1,4 +1,6 @@
-use canopy_auth::Authenticator;
+use std::sync::Arc;
+
+use canopy_auth::{Authenticator, RateLimits, rate_limit_error};
 use canopy_data::{Caller, CountMode, Encoding, FindRequest, ReadPath};
 use canopy_protocol::ejson::{DecodeOptions, parse};
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
@@ -117,6 +119,8 @@ pub struct Rest {
     cors: Option<Cors>,
     served: Served,
     max_body_bytes: u64,
+    rate_limits: Option<Arc<RateLimits>>,
+    on_rate_limited: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Rest {
@@ -130,7 +134,30 @@ impl Rest {
             cors: options.cors,
             served: options.served,
             max_body_bytes: options.max_body_bytes,
+            rate_limits: None,
+            on_rate_limited: None,
         }
+    }
+
+    /// Applies request rate limits, as the TypeScript handler does with `rateLimits`: an address that has used
+    /// up its failed authentications is refused before its credentials are checked, and a caller over its
+    /// request budget after them, with `429` and `Retry-After`. `on_rate_limited` is called for every refusal.
+    #[must_use]
+    pub fn with_rate_limits(
+        mut self,
+        limits: Arc<RateLimits>,
+        on_rate_limited: Option<Arc<dyn Fn() + Send + Sync>>,
+    ) -> Rest {
+        self.rate_limits = Some(limits);
+        self.on_rate_limited = on_rate_limited;
+        self
+    }
+
+    fn limited(&self, wait_ms: u64) -> CanopyError {
+        if let Some(count) = &self.on_rate_limited {
+            count();
+        }
+        rate_limit_error(wait_ms)
     }
 
     /// The largest request body the routes read, in bytes. A transport stops reading beyond it and passes
@@ -191,7 +218,7 @@ impl Rest {
             Ok(None) => return None,
             Err(error) => {
                 let problem = Problem::new(&error, &instance, &request_id, &self.problem_type_base);
-                problem_response(&problem, None)
+                problem_response(&problem, retry_after(&error))
             }
         };
         Some(with_request_id(response, &request_id))
@@ -239,8 +266,36 @@ impl Rest {
     /// need resolved (every collection when `None`).
     async fn caller(&self, request: &Request, collections: Option<&[&str]>) -> Result<Caller, CanopyError> {
         let credentials = credentials_from_headers(request)?;
-        let principal =
-            self.authenticator.authenticate(&credentials.key, credentials.token.as_deref()).await?;
+        let authenticate = self.authenticator.authenticate(&credentials.key, credentials.token.as_deref());
+        let Some(limits) = &self.rate_limits else {
+            return self.reads.caller(&authenticate.await?, collections).await;
+        };
+        let address = request.client_address.as_deref().unwrap_or("unknown");
+        let wait = limits.authentication_blocked(address);
+        if wait > 0 {
+            return Err(self.limited(wait));
+        }
+        let principal = match authenticate.await {
+            Ok(principal) => principal,
+            Err(error) => {
+                if error.code() == ErrorCode::Unauthorized {
+                    limits.authentication_failed(address);
+                }
+                return Err(error);
+            }
+        };
+        if principal.read_only {
+            return Err(CanopyError::named(
+                ErrorCode::Forbidden,
+                "ForbiddenError",
+                "A view token only follows data over realtime",
+            ));
+        }
+        let key = principal.key_id.as_deref().unwrap_or(&credentials.key);
+        let wait = limits.request(Some(key), &principal.subject, &principal.roles, address);
+        if wait > 0 {
+            return Err(self.limited(wait));
+        }
         self.reads.caller(&principal, collections).await
     }
 
@@ -396,6 +451,27 @@ impl Rest {
             .with_header("x-canopy-ct", ct)
             .with_body(page.with_ct(&text)))
     }
+}
+
+/// The `Retry-After` seconds of a rate limited request, from the error's details.
+fn retry_after(error: &CanopyError) -> Option<u64> {
+    if error.code() != ErrorCode::RateLimited {
+        return None;
+    }
+    match canopy_protocol::json::parse_json(error.details()?).ok()?.get("retryAfterSeconds") {
+        Some(canopy_protocol::json::Json::Number(seconds)) if *seconds >= 0.0 => {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let seconds = *seconds as u64;
+            Some(seconds)
+        }
+        _ => None,
+    }
+}
+
+/// The path of a request target as a URL parser reads it (dot segments resolved, no query), as the TypeScript
+/// server logs it; `None` for a target that is not a path.
+pub fn request_path(target: &str) -> Option<String> {
+    parse_target(target).map(|url| url.path().to_owned())
 }
 
 fn parse_target(target: &str) -> Option<url::Url> {

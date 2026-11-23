@@ -339,6 +339,80 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_requests_the_routes_answer_are_sampled_into_the_request_log() {
+    use canopy_mongo::mongodb::bson::{Bson, Document, doc};
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set to log to");
+        return;
+    };
+    let fixture = fixture();
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let (port, _) = upstream().await;
+    let service = common::get_as(&fixture, "service", "/");
+    let mut logged = Vec::new();
+    for rate in [1.0, 0.0] {
+        let database = common::scratch_name("canopy_gateway_log_rs");
+        seed(&client.database(&database), &fixture).await;
+        let meta = client.database(&format!("{database}_meta"));
+        meta.collection::<Document>("settings")
+            .insert_one(doc! { "_id": "settings", "requestLogSampleRate": rate })
+            .await
+            .expect("the settings are written");
+        let gateway = Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("find,count")).await;
+        let mut find = canopy_http::Request::new("GET", "/rest/v1/todos/../todos?limit=1&title=eq.private");
+        find.headers = service.headers.clone();
+        let mut count = canopy_http::Request::new("POST", "/rest/v1/todos/_count").with_body(b"{}".to_vec());
+        count.headers = service.headers.clone();
+        count.headers.push(("content-type".to_owned(), "application/json".to_owned()));
+        let mut ids = Vec::new();
+        for request in [find, count] {
+            let response = gateway.send(&request).await;
+            assert_eq!(response.status, 200, "{}", String::from_utf8_lossy(&response.body));
+            ids.push(response.header("x-request-id").expect("a request id").to_owned());
+        }
+        let log = meta.collection::<Document>("request_log");
+        let started = Instant::now();
+        let mut entries: Vec<Document> = Vec::new();
+        while started.elapsed() < Duration::from_secs(if rate > 0.0 { 5 } else { 1 }) {
+            let mut cursor = log.find(doc! {}).sort(doc! { "_id": 1 }).await.expect("a find");
+            entries.clear();
+            while cursor.advance().await.expect("a document") {
+                entries.push(cursor.deserialize_current().expect("a document"));
+            }
+            if entries.len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        drop(gateway);
+        client.database(&database).drop().await.expect("dropped");
+        meta.drop().await.expect("dropped");
+        logged.push((rate, entries, ids));
+    }
+    let (_, entries, ids) = &logged[0];
+    assert_eq!(entries.len(), 2, "every request is kept at a rate of 1: {entries:?}");
+    for (entry, (method, path, id)) in
+        entries.iter().zip([("GET", "/rest/v1/todos", &ids[0]), ("POST", "/rest/v1/todos/_count", &ids[1])])
+    {
+        let keys: Vec<&str> = entry.keys().map(String::as_str).collect();
+        assert_eq!(
+            keys,
+            ["_id", "at", "surface", "method", "path", "status", "durationMs", "ip", "requestId"]
+        );
+        assert_eq!(entry.get_str("surface").ok(), Some("rest"));
+        assert_eq!(entry.get_str("method").ok(), Some(method));
+        assert_eq!(entry.get_str("path").ok(), Some(path), "the path without its query and dot segments");
+        assert_eq!(entry.get("status"), Some(&Bson::Int32(200)));
+        assert!(matches!(entry.get("durationMs"), Some(Bson::Int32(_) | Bson::Double(_))));
+        assert_eq!(entry.get_str("ip").ok(), Some("127.0.0.1"));
+        assert_eq!(entry.get_str("requestId").ok(), Some(id.as_str()));
+        assert!(matches!(entry.get("at"), Some(Bson::DateTime(_))));
+    }
+    assert!(logged[1].1.is_empty(), "nothing is kept at a rate of 0: {:?}", logged[1].1);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_body_beyond_the_limit_answers_413_and_never_reaches_the_upstream() {
     let fixture = fixture();
     let (port, seen) = upstream().await;

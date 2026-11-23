@@ -1,7 +1,12 @@
 //! The Data API routes the gateway serves itself: the request is handed to `canopy-http` over plain types and
 //! its answer goes back as a Hyper response. Every request the routes do not own never reaches this module.
 
-use canopy_auth::Authenticator;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use canopy_auth::{Authenticator, BucketSpec, RateLimitOptions, RateLimits};
+
+use crate::request_log::{Logged, RequestLog};
 use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
 use canopy_data::{Policies, ReadLimits, ReadPath};
 use canopy_http::{Rest, RestOptions, Served};
@@ -16,6 +21,8 @@ use hyper::{Method, Request, Response, StatusCode};
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
     rest: Rest,
+    rate_limited: Arc<AtomicU64>,
+    request_log: Option<Arc<RequestLog>>,
 }
 
 impl DataPlane {
@@ -26,6 +33,7 @@ impl DataPlane {
         client: Client,
         auth: Authenticator,
         policies: Policies,
+        request_log: Option<Arc<RequestLog>>,
     ) -> DataPlane {
         let limits = ReadLimits {
             default_limit: config.rest_limits.default_limit,
@@ -52,7 +60,33 @@ impl DataPlane {
             max_body_bytes: config.rest_limits.max_body_bytes,
             ..RestOptions::default()
         };
-        DataPlane { rest: Rest::new(auth, reads, options) }
+        let mut rest = Rest::new(auth, reads, options);
+        let rate_limited = Arc::new(AtomicU64::new(0));
+        if let Some(rates) = config.request_rates {
+            let limits = RateLimits::new(RateLimitOptions {
+                requests: BucketSpec { per_second: rates.requests.0, burst: rates.requests.1 },
+                failed_authentications: BucketSpec {
+                    per_second: rates.failed_authentications.0,
+                    burst: rates.failed_authentications.1,
+                },
+                exempt_service: rates.exempt_service,
+                ..RateLimitOptions::default()
+            });
+            let counter = Arc::clone(&rate_limited);
+            let count: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                counter.fetch_add(1, Ordering::Relaxed);
+            });
+            rest = rest.with_rate_limits(Arc::new(limits), Some(count));
+        }
+        DataPlane { rest, rate_limited, request_log }
+    }
+
+    /// The Prometheus lines of the routes: the requests the rate limits refused.
+    pub(crate) fn metrics(&self) -> String {
+        format!(
+            "# HELP canopy_http_rate_limited_total REST and GraphQL requests refused by the rate limits\n# TYPE canopy_http_rate_limited_total counter\ncanopy_http_rate_limited_total{{surface=\"rest\"}} {}\n",
+            self.rate_limited.load(Ordering::Relaxed)
+        )
     }
 
     /// Whether the routes answer this request. A request that is not owned goes to the upstream server untouched.
@@ -61,12 +95,20 @@ impl DataPlane {
         self.rest.owns(request.method().as_str(), target)
     }
 
-    /// Answers a request [`DataPlane::owns`]. The body of a `POST` is read up to the routes' limit; a longer
-    /// one is not read further and answers `413`.
-    pub(crate) async fn serve(&self, request: Request<Incoming>) -> Response<Body> {
+    /// Answers a request [`DataPlane::owns`] from the client at `address` (the socket peer is `peer`). The body
+    /// of a `POST` is read up to the routes' limit; a longer one is not read further and answers `413`. A
+    /// sampled request is written to the request log.
+    pub(crate) async fn serve(
+        &self,
+        request: Request<Incoming>,
+        address: String,
+        peer: &str,
+    ) -> Response<Body> {
+        let started = std::time::Instant::now();
         let (parts, body) = request.into_parts();
         let target = parts.uri.path_and_query().map_or("", |target| target.as_str());
         let mut plain = canopy_http::Request::new(parts.method.as_str(), target);
+        plain.client_address = Some(address.clone());
         for (name, value) in &parts.headers {
             plain
                 .headers
@@ -82,10 +124,23 @@ impl DataPlane {
                 Err(_) => canopy_http::Body::Unreadable,
             };
         }
-        match self.rest.serve(&plain).await {
-            Some(response) => response_of(response),
-            None => full(StatusCode::INTERNAL_SERVER_ERROR, Bytes::from_static(b"Internal error")),
+        let response = match self.rest.serve(&plain).await {
+            Some(response) => response,
+            None => return full(StatusCode::INTERNAL_SERVER_ERROR, Bytes::from_static(b"Internal error")),
+        };
+        if let Some(log) = &self.request_log
+            && let Some(path) = canopy_http::request_path(&plain.target)
+        {
+            log.record(&Logged {
+                method: &plain.method,
+                path: &path,
+                status: response.status,
+                started,
+                ip: peer,
+                request_id: response.header("x-request-id"),
+            });
         }
+        response_of(response)
     }
 }
 

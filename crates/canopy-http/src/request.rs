@@ -26,12 +26,21 @@ pub struct Request {
     pub headers: Vec<(String, String)>,
     /// The body. Only the routes that take one read it.
     pub body: Body,
+    /// The client address the transport resolved (the socket peer, or the forwarded address behind a trusted
+    /// proxy); the rate limits key anonymous callers and failed authentications by it.
+    pub client_address: Option<String>,
 }
 
 impl Request {
     /// Creates a request without headers or body.
     pub fn new(method: impl Into<String>, target: impl Into<String>) -> Request {
-        Request { method: method.into(), target: target.into(), headers: Vec::new(), body: Body::default() }
+        Request {
+            method: method.into(),
+            target: target.into(),
+            headers: Vec::new(),
+            body: Body::default(),
+            client_address: None,
+        }
     }
 
     /// Sets the body.

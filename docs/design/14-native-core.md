@@ -421,8 +421,10 @@ is the rollback. The gateway starts listening only after its policies are loaded
 route and to the realtime engine together, and reads the policies again whenever the policy watch reopens. A
 request the route cannot answer, such as one whose database is unreachable, fails with the Problem Details the
 TypeScript handler gives (`503 CANOPY_UNAVAILABLE`) and never with data, and is never retried on the upstream.
-The route does not apply the HTTP request rate limits (`rateLimits.requests`, `failedAuthentications`), the
-request log, tracing or `explainDenials` yet. The cross entry point DLS test and the bypass corpus run the routes
+The routes apply the HTTP request rate limits as the TypeScript handler does (`rateLimits.requests` per caller,
+`failedAuthentications` per client address, `429` with `Retry-After`, held to `@canopy/auth` by
+`conformance/auth/rate-limits.json`). Each process counts on its own, so while some Data API routes run in the gateway and the rest in the TypeScript server, a caller has a budget in each, up to twice the configured rate across both. The requests they answer are sampled into `request_log` of the meta database as the server samples its own, at the `requestLogSampleRate` of the admin settings (read again every ten seconds). They record no tracing spans
+yet; `explainDenials` concerns writes, which stay in TypeScript until D2. The cross entry point DLS test and the bypass corpus run the routes
 (`packages/server/test/dls-equivalence.test.ts`), and `packages/server/test/data-plane-switch.test.ts` shows the
 switch against the recorded `conformance/http/find` and `conformance/http/reads` requests. The aggregation
 sanitizer is held to the TypeScript one by `conformance/policy/pipeline.json`.

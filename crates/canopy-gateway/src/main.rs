@@ -9,6 +9,7 @@ mod data_plane;
 mod forward;
 mod log;
 mod proxy;
+mod request_log;
 mod server;
 
 use std::convert::Infallible;
@@ -228,8 +229,23 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     } else {
         None
     };
-    let data_plane =
-        data_policies.map(|policies| DataPlane::new(&config, client.clone(), auth.clone(), policies));
+    let request_log = match data_policies {
+        Some(_) => {
+            let request_log = Arc::new(request_log::RequestLog::new(meta.clone(), log));
+            if let Err(error) = request_log.refresh().await {
+                log.warn(
+                    "could not read the settings; the request log keeps nothing",
+                    &[("err", &error.to_string())],
+                );
+            }
+            let follower = Arc::clone(&request_log);
+            tokio::spawn(async move { follower.follow().await });
+            Some(request_log)
+        }
+        None => None,
+    };
+    let data_plane = data_policies
+        .map(|policies| DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log));
     let routes = Arc::new(Routes {
         ready: Arc::clone(&stream_open),
         trusted_proxies: config.trusted_proxies.clone(),
@@ -315,7 +331,10 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         let listener = tokio::net::TcpListener::bind((config.metrics_host.as_str(), port))
             .await
             .map_err(|error| format!("Could not listen for metrics on {port}: {error}"))?;
-        tokio::spawn(serve_metrics(listener, metrics, config.metrics_token.clone()));
+        let routes = Arc::clone(&routes);
+        let extra: Arc<dyn Fn() -> String + Send + Sync> =
+            Arc::new(move || routes.data_plane.as_ref().map(DataPlane::metrics).unwrap_or_default());
+        tokio::spawn(serve_metrics(listener, metrics, extra, config.metrics_token.clone()));
     }
     let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
         .await
@@ -408,13 +427,14 @@ async fn watch_policies(meta: mongodb::Database, updates: PolicyUpdates, log: Lo
 async fn serve_metrics(
     listener: tokio::net::TcpListener,
     metrics: Arc<Mutex<String>>,
+    extra: Arc<dyn Fn() -> String + Send + Sync>,
     token: Option<String>,
 ) {
     while let Ok((socket, _)) = listener.accept().await {
-        let (metrics, token) = (Arc::clone(&metrics), token.clone());
+        let (metrics, extra, token) = (Arc::clone(&metrics), Arc::clone(&extra), token.clone());
         tokio::spawn(async move {
             let service = service_fn(move |request: Request<Incoming>| {
-                let (metrics, token) = (Arc::clone(&metrics), token.clone());
+                let (metrics, extra, token) = (Arc::clone(&metrics), Arc::clone(&extra), token.clone());
                 async move {
                     let authorized = token.as_ref().is_none_or(|token| {
                         request
@@ -429,7 +449,8 @@ async fn serve_metrics(
                     } else if !authorized {
                         *response.status_mut() = StatusCode::UNAUTHORIZED;
                     } else {
-                        let text = metrics.lock().map(|text| text.clone()).unwrap_or_default();
+                        let mut text = metrics.lock().map(|text| text.clone()).unwrap_or_default();
+                        text.push_str(&extra());
                         *response.body_mut() = Full::new(Bytes::from(text));
                         if let Ok(value) = "text/plain; version=0.0.4".parse() {
                             response.headers_mut().insert("content-type", value);
