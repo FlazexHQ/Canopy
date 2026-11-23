@@ -22,15 +22,16 @@ pub struct PageLimits {
     pub max_skip: u64,
 }
 
-/// The parts of a find request as the query parameters gave them, before validation against policies.
+/// The parts of a find request as the query parameters or a `_query` body gave them, before validation against
+/// policies.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct FindParams {
     /// The caller's filter: the `filter` parameter combined with the shorthand filters.
     pub filter: Document,
-    /// The sort.
-    pub sort: Option<Document>,
-    /// The projection.
-    pub fields: Option<Document>,
+    /// The sort: a document, or from a body any value, which the query parser then refuses.
+    pub sort: Option<Value>,
+    /// The projection: a document, or from a body any value, which the query parser then refuses.
+    pub fields: Option<Value>,
     /// The page size.
     pub limit: Option<u32>,
     /// The number of documents to skip.
@@ -349,8 +350,8 @@ pub fn find_params_from_query(
     let limit_text = single(params, "limit")?;
     let skip_text = single(params, "skip")?;
     let count_text = single(params, "count")?;
-    let sort = sort_text.map(parse_sort_param).transpose()?;
-    let fields = fields_text.map(parse_fields_param).transpose()?;
+    let sort = sort_text.map(parse_sort_param).transpose()?.map(Value::Document);
+    let fields = fields_text.map(parse_fields_param).transpose()?.map(Value::Document);
     let limit = limit_text
         .map(|text| integer_param("limit", text, 1, u64::from(limits.max_limit)))
         .transpose()?
@@ -360,6 +361,72 @@ pub fn find_params_from_query(
     let count = match count_text {
         None => prefer_count,
         Some(text) => Some(count_param(text)?),
+    };
+    Ok(FindParams { filter, sort, fields, limit, skip, after, count })
+}
+
+const QUERY_BODY_KEYS: [&str; 7] = ["filter", "sort", "fields", "limit", "skip", "after", "count"];
+
+/// An integer of a body, as the TypeScript handler reads it: a JavaScript number that is a safe integer.
+fn integer_value(name: &str, value: &Value, min: u64, max: u64) -> Result<u64, CanopyError> {
+    let number = match value {
+        Value::Int32(number) => f64::from(*number),
+        Value::Double(number) => *number,
+        _ => return fail(format!("{name} must be an integer")),
+    };
+    if !number.is_finite() || number.trunc() != number || number.abs() > 9_007_199_254_740_991.0 {
+        return fail(format!("{name} must be an integer"));
+    }
+    #[allow(clippy::cast_precision_loss)]
+    if number < min as f64 || number > max as f64 {
+        return fail(format!("{name} must be between {min} and {max}"));
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Ok(number as u64)
+}
+
+/// Reads a find request from a decoded `_query` body, in the order the TypeScript handler reads it. `sort` and
+/// `fields` may be documents (`{ "createdAt": -1 }`) or the parameter strings (`"-createdAt"`); `count` may also
+/// come from `Prefer: count=...`, which the body overrides.
+pub fn find_params_from_body(
+    body: &Value,
+    limits: PageLimits,
+    prefer_count: Option<CountMode>,
+) -> Result<FindParams, CanopyError> {
+    let Value::Document(body) = body else { return fail("The query body must be a document") };
+    if let Some(unknown) = body.keys().find(|key| !QUERY_BODY_KEYS.contains(key)) {
+        return fail(format!("Unknown query field {unknown}"));
+    }
+    let filter = match body.get("filter") {
+        None | Some(Value::Null | Value::Undefined) => Document::new(),
+        Some(Value::Document(filter)) => filter.clone(),
+        Some(_) => return fail("filter must be a document"),
+    };
+    let after = match body.get("after") {
+        None => None,
+        Some(Value::String(after)) => Some(after.clone()),
+        Some(_) => return fail("after must be a string"),
+    };
+    let sort = match body.get("sort") {
+        None => None,
+        Some(Value::String(text)) => Some(Value::Document(parse_sort_param(text)?)),
+        Some(other) => Some(other.clone()),
+    };
+    let fields = match body.get("fields") {
+        None => None,
+        Some(Value::String(text)) => Some(Value::Document(parse_fields_param(text)?)),
+        Some(other) => Some(other.clone()),
+    };
+    let limit = body
+        .get("limit")
+        .map(|value| integer_value("limit", value, 1, u64::from(limits.max_limit)))
+        .transpose()?
+        .and_then(|limit| u32::try_from(limit).ok());
+    let skip = body.get("skip").map(|value| integer_value("skip", value, 0, limits.max_skip)).transpose()?;
+    let count = match body.get("count") {
+        None => prefer_count,
+        Some(Value::String(text)) => Some(count_param(text)?),
+        Some(_) => return fail("count must be exact or estimated"),
     };
     Ok(FindParams { filter, sort, fields, limit, skip, after, count })
 }
@@ -461,11 +528,11 @@ mod tests {
     fn sort_fields_and_paging_parameters() {
         let params = parsed("sort=-createdAt,title&fields=title,done&limit=3&skip=4&after=abc&count=exact");
         assert_eq!(
-            canonical_string(&Value::Document(params.sort.unwrap())).unwrap(),
+            canonical_string(&params.sort.unwrap()).unwrap(),
             r#"{"createdAt":{"$numberInt":"-1"},"title":{"$numberInt":"1"}}"#
         );
         assert_eq!(
-            canonical_string(&Value::Document(params.fields.unwrap())).unwrap(),
+            canonical_string(&params.fields.unwrap()).unwrap(),
             r#"{"title":{"$numberInt":"1"},"done":{"$numberInt":"1"}}"#
         );
         assert_eq!((params.limit, params.skip, params.after.as_deref()), (Some(3), Some(4), Some("abc")));

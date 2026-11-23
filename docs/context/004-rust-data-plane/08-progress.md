@@ -2,6 +2,28 @@
 
 This document records completed tasks, open issues, and planned work for the Rust data plane defined in [004-rust-data-plane.md](../../plans/004-rust-data-plane.md).
 
+## Checkpoint (2026-11-23): where to continue
+
+**State.** Branch `bench/d1-gate` (commits `504e5fe`, `4d2cc93`, `6c3a263`, then this checkpoint) is merged into `master`. Stage D1 is nearly done: `find`, `_count`, `_distinct` and `_aggregate` are served in Rust behind `CANOPY_DATA_PLANE_ROUTES` and pass the D1 throughput gate on Linux CI in all 28 measurements (`bench/baselines/d1/README.md`), with the reads oracle byte identical on MongoDB 8 and 9, DLS equivalence and the bypass corpus green, request rate limits, failed authentication limits and the request log in parity with TypeScript.
+
+**In progress, not finished: `_query` (find with a body) in Rust.** Done: 45 recorded cases in `conformance/http/reads/cases/query.json` (recorded on MongoDB 8, `--check` current on 9; a recorded body may now refer to an earlier cursor, `Spec.body` is a `Value`), `canopy_http::find_params_from_body`, `FindParams` and `FindRequest` taking any value for `sort` and `fields`, `Served::query`, `Route::Query` and `Rest::query` (the page with `ct` in the body, no `ETag`, no `X-Canopy-Ct`). `crates/canopy-http/tests/reads_conformance.rs` replays 128 of 128 on MongoDB 8, query included. **Not done, and failing until it is:**
+1. `canopy-config`: `DataPlaneRoute::Query` named `query` (`NAMES`, `parse`, the refusal message now listing five names), the schema enum and description, `crates/canopy-config/tests/schema.rs` and `launcher.rs`, the fixture `data-plane.json` and the launcher contract case in `packages/realtime/test/gateway-config-contract.test.ts`.
+2. `canopy-gateway/src/data_plane.rs`: `query: routes.contains(&DataPlaneRoute::Query)` in `Served`.
+3. Tests that replay the reads oracle with `count,distinct,aggregate` selected now also send the `_query` cases and expect Rust to answer them, so they **fail until `query` is added to their route lists**: `crates/canopy-gateway/tests/data_plane.rs` (`the_selected_read_routes_answer_every_recorded_read_request_through_the_gateway`, the refusal messages in `a_route_name_the_gateway_does_not_know_stops_it_at_startup`) and `packages/server/test/data-plane-switch.test.ts` (`READ_ROUTES`). Also add `query` to `bench/workloads/d1/find.ts` routes and a scenario, the DLS equivalence routes, docs (gateway README, `docs/design/14-native-core.md`, the configuration reference) and a changeset.
+4. Verify (Rust on MongoDB 8 and 9, Vitest with Node 26 through fnm, lints, vector checks), then commit.
+
+**Remaining after `_query`, in order:**
+1. **Tracing spans on the Rust routes:** waits on the user's decision about OpenTelemetry crates (with an OTLP exporter from the `OTEL_*` variables) in the gateway.
+2. **`POST /rest/v1/{coll}/_explain` from Rust**, answering the same trace (`packages/rest/src/explain-route.ts`, `canopy_policy::explain_access`).
+3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
+4. **`conformance/errors.json`**, the single source of `CanopyError` codes for both languages.
+5. **Numeric id deferral in atomic batches** (Open Issues).
+6. **D2 (writes)**, including `explainDenials`, which only concerns writes; then D3 to D7.
+
+**Known differences, documented:** each process keeps its own rate limit budget while routes are split between the gateway and TypeScript; the gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
+
+**Environment notes:** the replica sets are MongoDB 8.0.34 on `localhost:37017` and 9.0.8 on `localhost:37090` (data in `%TEMP%/canopy-review-mongo` and `%TEMP%/canopy-review-mongo9`; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`, which reuses the data). The 9.0.8 server stopped once during this session and was restarted that way. Never touch the standalone `mongod` on 27017. Node 22 is first on PATH: run Node 26 with `fnm exec --using=26`. Generated vector files are excluded from `bun fmt` and Biome (`bunfig.toml`, `biome.json`); add any new `conformance/` folder there too.
+
 ## Task Execution Log
 
 | Task | Stage | Summary | Status | Key Files |
@@ -308,9 +330,4 @@ Workflow from here (user, 2026-11-23): the orchestrator writes all the code; Gem
 
 ## Next Planned Tasks
 
-1. **Parity before any route becomes the default:** tracing spans on the Rust routes (OpenTelemetry in the gateway: a decision for the user), and `POST /rest/v1/{coll}/_explain` answering the same trace from Rust.
-2. **`_query` (find with a body) in Rust**, so every read of the Data API can be served by the data plane.
-3. **Reference hardware and Atlas runs** of D0 and D1, the gate numbers of record.
-4. **Conformance additions:** `conformance/errors.json`, the single canonical source of `CanopyError` codes for TypeScript and Rust.
-5. **Numeric id deferral in atomic batches** (see Open Issues).
-6. **Stages D2 to D7:** writes, GraphQL, storage, the MongoDB wire endpoint, the control plane split, then defaults and embedded mode.
+See the checkpoint at the top of this file: finish `_query` (config route name, gateway wiring, the replays that select the read routes, docs), then tracing (a decision), `_explain` from Rust, reference hardware and Atlas runs, `conformance/errors.json`, numeric id deferral, and D2.

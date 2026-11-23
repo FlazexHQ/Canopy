@@ -31,10 +31,11 @@ pub struct FindRequest {
     pub collection: String,
     /// The caller's filter.
     pub filter: Document,
-    /// The sort, such as `{ createdAt: -1 }`.
-    pub sort: Option<Document>,
-    /// An inclusion or exclusion projection, intersected with the readable fields.
-    pub fields: Option<Document>,
+    /// The sort, such as `{ createdAt: -1 }`. Any other value is refused by the query parser.
+    pub sort: Option<Value>,
+    /// An inclusion or exclusion projection, intersected with the readable fields. Any other value is refused
+    /// by the query parser.
+    pub fields: Option<Value>,
     /// The page size.
     pub limit: Option<u32>,
     /// How many documents to skip. Not combinable with `after`.
@@ -150,9 +151,9 @@ impl ReadPath {
         let parsed = parse_query(
             &QueryInput {
                 filter: Some(Value::Document(request.filter.clone())),
-                sort: request.sort.clone().map(Value::Document),
+                sort: request.sort.clone(),
                 limit: None,
-                fields: request.fields.clone().map(Value::Document),
+                fields: request.fields.clone(),
             },
             &self.query_limits,
         )?;

@@ -159,9 +159,9 @@ async fn answers_to_an_allowed_origin_expose_the_headers_a_browser_needs() {
 
 #[tokio::test]
 async fn each_read_action_is_served_here_only_when_enabled() {
-    let all = Served { find: true, count: true, distinct: true, aggregate: true };
+    let all = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
     let rest = rest_with(RestOptions { served: all, ..RestOptions::default() }).await;
-    for action in ["_count", "_distinct", "_aggregate"] {
+    for action in ["_count", "_distinct", "_aggregate", "_query"] {
         let target = format!("/rest/v1/todos/{action}");
         for method in ["POST", "OPTIONS", "GET", "DELETE"] {
             assert!(rest.owns(method, &target), "{method} {target} is answered here");
@@ -172,9 +172,8 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         assert!(!rest.owns("POST", &format!("/rest/v1/todos/7/{action}")));
     }
     for (method, target) in [
-        ("POST", "/rest/v1/todos/_query"),
         ("POST", "/rest/v1/todos/_explain"),
-        ("OPTIONS", "/rest/v1/todos/_query"),
+        ("OPTIONS", "/rest/v1/todos/_explain"),
         ("POST", "/rest/v1/todos"),
         ("GET", "/rest/v1/todos/7"),
         ("POST", "/rest/v1/_batch"),
@@ -182,7 +181,7 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's");
     }
 
-    let count_only = Served { find: false, count: true, distinct: false, aggregate: false };
+    let count_only = Served { find: false, count: true, distinct: false, aggregate: false, query: false };
     let rest = rest_with(RestOptions { served: count_only, ..RestOptions::default() }).await;
     assert!(rest.owns("POST", "/rest/v1/todos/_count"));
     assert!(rest.owns("OPTIONS", "/rest/v1/todos/_count"));
@@ -193,6 +192,7 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         ("POST", "/rest/v1/todos/_distinct"),
         ("OPTIONS", "/rest/v1/todos/_distinct"),
         ("GET", "/rest/v1/todos/_aggregate"),
+        ("POST", "/rest/v1/todos/_query"),
     ] {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's when not enabled");
         assert!(rest.serve(&Request::new(method, target)).await.is_none(), "{method} {target}");

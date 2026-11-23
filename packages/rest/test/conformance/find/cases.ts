@@ -38,7 +38,7 @@ export interface Spec {
   readonly engineDetail: boolean
   readonly known?: string
   /** The exact request body, for the routes that take one. */
-  readonly body?: string
+  readonly body?: Value
 }
 
 /** One output file of cases. */

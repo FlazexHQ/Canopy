@@ -9,7 +9,7 @@ use ring::digest::{Context, SHA256};
 
 use crate::credentials::credentials_from_headers;
 use crate::negotiate::{negotiate, preferences_of, request_id_of};
-use crate::params::{PageLimits, find_params_from_query};
+use crate::params::{FindParams, PageLimits, find_params_from_body, find_params_from_query};
 use crate::paths::{segments_of, trim_trailing_slashes};
 use crate::problem::{DEFAULT_PROBLEM_TYPE_BASE, Problem, problem_response};
 use crate::request::{Body, Request, Response};
@@ -54,11 +54,13 @@ pub struct Served {
     pub distinct: bool,
     /// `POST /{collection}/_aggregate`.
     pub aggregate: bool,
+    /// `POST /{collection}/_query`, a find with its parameters in a body.
+    pub query: bool,
 }
 
 impl Default for Served {
     fn default() -> Served {
-        Served { find: true, count: false, distinct: false, aggregate: false }
+        Served { find: true, count: false, distinct: false, aggregate: false, query: false }
     }
 }
 
@@ -106,6 +108,8 @@ enum Route {
     Distinct,
     /// `POST /{collection}/_aggregate`, served here.
     Aggregate,
+    /// `POST /{collection}/_query`, served here.
+    Query,
     /// A route the TypeScript handler serves.
     Unserved,
 }
@@ -185,6 +189,7 @@ impl Rest {
                 "_count" => self.served.count,
                 "_distinct" => self.served.distinct,
                 "_aggregate" => self.served.aggregate,
+                "_query" => self.served.query,
                 _ => false,
             },
             _ => false,
@@ -259,6 +264,7 @@ impl Rest {
             Route::Count => self.count(request, collection).await.map(Some),
             Route::Distinct => self.distinct(request, collection).await.map(Some),
             Route::Aggregate => self.aggregate(request, collection).await.map(Some),
+            Route::Query => self.query(request, collection).await.map(Some),
         }
     }
 
@@ -378,6 +384,24 @@ impl Rest {
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
+    /// A find whose parameters are a body. The page carries its cluster time in the body only: no `ETag`, no
+    /// `X-Canopy-Ct`, as the TypeScript handler answers it.
+    async fn query(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, Some(&[collection])).await?;
+        let input = match self.body(request)? {
+            None | Some(Value::Null) => Value::Document(Document::new()),
+            Some(input) => input,
+        };
+        let limits = self.reads.limits();
+        let params = find_params_from_body(
+            &input,
+            PageLimits { max_limit: limits.max_limit, max_skip: limits.max_skip },
+            preferences_of(request).count,
+        )?;
+        let page = self.reads.find(&caller, find_request(collection, params)).await?;
+        Rest::json(request, |encoding| Ok(page.with_ct(&page.encode(encoding)?)))
+    }
+
     async fn aggregate(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
         let caller = self.caller(request, None).await?;
         let input = self.body(request)?.unwrap_or(Value::Undefined);
@@ -419,22 +443,7 @@ impl Rest {
                 return Err(CanopyError::invalid_query(format!("{name} only applies to writes")));
             }
         }
-        let page = self
-            .reads
-            .find(
-                &caller,
-                FindRequest {
-                    collection: collection.to_owned(),
-                    filter: params.filter,
-                    sort: params.sort,
-                    fields: params.fields,
-                    limit: params.limit,
-                    skip: params.skip,
-                    after: params.after,
-                    count: params.count,
-                },
-            )
-            .await?;
+        let page = self.reads.find(&caller, find_request(collection, params)).await?;
         let encoding = negotiate(request.header("accept").as_deref());
         let text = page.encode(encoding)?;
         let tag = validator(encoding, &text);
@@ -450,6 +459,19 @@ impl Rest {
             .with_header("etag", tag)
             .with_header("x-canopy-ct", ct)
             .with_body(page.with_ct(&text)))
+    }
+}
+
+fn find_request(collection: &str, params: FindParams) -> FindRequest {
+    FindRequest {
+        collection: collection.to_owned(),
+        filter: params.filter,
+        sort: params.sort,
+        fields: params.fields,
+        limit: params.limit,
+        skip: params.skip,
+        after: params.after,
+        count: params.count,
     }
 }
 
@@ -529,6 +551,7 @@ fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>,
                 Some("_count") if served.count => Some(Route::Count),
                 Some("_distinct") if served.distinct => Some(Route::Distinct),
                 Some("_aggregate") if served.aggregate => Some(Route::Aggregate),
+                Some("_query") if served.query => Some(Route::Query),
                 _ => None,
             };
             (&["POST"], action.filter(|_| method == "POST"))
@@ -581,10 +604,13 @@ mod tests {
 
     #[test]
     fn the_read_actions_are_served_only_when_enabled() {
-        let all = Served { find: true, count: true, distinct: true, aggregate: true };
-        for (action, route) in
-            [("_count", Route::Count), ("_distinct", Route::Distinct), ("_aggregate", Route::Aggregate)]
-        {
+        let all = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+        for (action, route) in [
+            ("_count", Route::Count),
+            ("_distinct", Route::Distinct),
+            ("_aggregate", Route::Aggregate),
+            ("_query", Route::Query),
+        ] {
             assert_eq!(resolve(&segments(&["todos", action]), "POST", all), (Some(route), vec!["POST"]));
             assert_eq!(resolve(&segments(&["todos", action]), "GET", all), (None, vec!["POST"]));
             assert_eq!(
@@ -592,7 +618,6 @@ mod tests {
                 Some(Route::Unserved)
             );
         }
-        assert_eq!(resolve(&segments(&["todos", "_query"]), "POST", all).0, Some(Route::Unserved));
         assert_eq!(resolve(&segments(&["todos", "_explain"]), "POST", all).0, Some(Route::Unserved));
     }
 

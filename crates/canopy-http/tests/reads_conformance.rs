@@ -14,7 +14,7 @@ use common::{
     text,
 };
 
-const ALL: Served = Served { find: true, count: true, distinct: true, aggregate: true };
+const ALL: Served = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
 
 #[test]
 fn the_recorded_cases_are_unique_and_cover_the_three_routes() {

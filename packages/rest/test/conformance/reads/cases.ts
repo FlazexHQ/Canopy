@@ -1,4 +1,4 @@
-import type { Group, Spec } from "../find/cases.ts"
+import type { Group, Spec, Value } from "../find/cases.ts"
 
 const BASE = "/rest/v1"
 
@@ -665,5 +665,237 @@ const aggregate: Group = {
   ],
 }
 
+/** A `_query` whose body continues from the `next` cursor of the earlier case `id`. */
+function continued(
+  id: string,
+  title: string,
+  from: string,
+  body: Record<string, unknown>,
+  options: Options = {},
+): Spec {
+  const base = call(id, title, "alice", "/todos/_query", body, options)
+  const text: Value = (recorded) => JSON.stringify({ ...body, after: recorded.next(from) })
+  return { ...base, body: text }
+}
+
+const query: Group = {
+  name: "query",
+  description:
+    "POST /{coll}/_query: a find whose parameters are a JSON body, paged by cursors, and the refusals of the body",
+  specs: [
+    call("query-empty", "An empty body reads the first page", "alice", "/todos/_query", {}),
+    call(
+      "query-no-body",
+      "No body at all reads the first page",
+      "alice",
+      "/todos/_query",
+      undefined,
+    ),
+    call("query-null-body", "A null body reads the first page", "alice", "/todos/_query", "null", {
+      raw: true,
+    }),
+    call(
+      "query-filter-sort-limit",
+      "A filter, a sort document and a limit",
+      "alice",
+      "/todos/_query",
+      {
+        filter: { status: "active" },
+        sort: { createdAt: -1 },
+        limit: 2,
+      },
+    ),
+    call(
+      "query-sort-and-fields-strings",
+      "The sort and fields as parameter strings",
+      "alice",
+      "/todos/_query",
+      {
+        sort: "-createdAt,title",
+        fields: "title,status",
+        limit: 2,
+      },
+    ),
+    call("query-fields-document", "A projection document", "bob", "/todos/_query", {
+      fields: { title: 1, tags: 1 },
+    }),
+    call("query-exclusion", "An exclusion projection", "bob", "/todos/_query", {
+      fields: { tags: 0, meta: 0 },
+    }),
+    call("query-count-exact", "count asks for the total", "alice", "/todos/_query", {
+      count: "exact",
+      limit: 1,
+    }),
+    call(
+      "query-count-prefer",
+      "Prefer: count=exact asks for the total too",
+      "alice",
+      "/todos/_query",
+      { limit: 1 },
+      { headers: { prefer: "count=exact" } },
+    ),
+    call(
+      "query-count-body-wins",
+      "count in the body wins over Prefer",
+      "alice",
+      "/todos/_query",
+      {
+        count: "estimated",
+        limit: 1,
+      },
+      { headers: { prefer: "count=exact" } },
+    ),
+    call("query-count-bad", "count other than exact or estimated", "alice", "/todos/_query", {
+      count: "planned",
+    }),
+    call("query-count-not-string", "count that is not a string", "alice", "/todos/_query", {
+      count: 1,
+    }),
+    call("query-page-1", "The first page of two", "alice", "/todos/_query", {
+      sort: { createdAt: 1 },
+      limit: 2,
+    }),
+    continued("query-page-2", "The next page from its cursor", "query-page-1", {
+      sort: { createdAt: 1 },
+      limit: 2,
+    }),
+    continued("query-cursor-other-sort", "A cursor of another query", "query-page-1", {
+      sort: { createdAt: -1 },
+      limit: 2,
+    }),
+    continued("query-cursor-and-skip", "A cursor with skip", "query-page-1", {
+      sort: { createdAt: 1 },
+      limit: 2,
+      skip: 1,
+    }),
+    call("query-after-not-string", "after that is not a string", "alice", "/todos/_query", {
+      after: 5,
+    }),
+    call("query-skip", "skip without a cursor", "alice", "/todos/_query", { skip: 1, limit: 2 }),
+    call("query-skip-too-far", "skip beyond the limit", "alice", "/todos/_query", { skip: 21 }),
+    call("query-limit-fraction", "A limit that is not an integer", "alice", "/todos/_query", {
+      limit: 1.5,
+    }),
+    call("query-limit-zero", "A limit of zero", "alice", "/todos/_query", { limit: 0 }),
+    call("query-limit-too-big", "A limit beyond the maximum", "alice", "/todos/_query", {
+      limit: 11,
+    }),
+    call("query-limit-string", "A limit given as text", "alice", "/todos/_query", { limit: "2" }),
+    call("query-limit-null", "A null limit", "alice", "/todos/_query", { limit: null }),
+    call("query-unknown-field", "A field _query does not take", "alice", "/todos/_query", {
+      where: {},
+    }),
+    call("query-filter-not-document", "A filter that is not a document", "alice", "/todos/_query", {
+      filter: [1],
+    }),
+    call("query-filter-null", "A null filter matches everything", "alice", "/todos/_query", {
+      filter: null,
+    }),
+    call(
+      "query-sort-not-document",
+      "A sort that is neither text nor a document",
+      "alice",
+      "/todos/_query",
+      {
+        sort: 5,
+      },
+    ),
+    call(
+      "query-sort-bad-direction",
+      "A sort direction other than 1 or -1",
+      "alice",
+      "/todos/_query",
+      {
+        sort: { createdAt: 2 },
+      },
+    ),
+    call(
+      "query-fields-mixed",
+      "A projection mixing inclusion and exclusion",
+      "alice",
+      "/todos/_query",
+      {
+        fields: { title: 1, tags: 0 },
+      },
+    ),
+    call("query-ejson-filter", "EJSON values in the filter", "alice", "/todos/_query", {
+      filter: { createdAt: { $gte: { $date: "2026-01-02T00:00:00Z" } } },
+    }),
+    call(
+      "query-hidden-filter",
+      "A filter on a hidden field is refused",
+      "alice",
+      "/todos/_query",
+      { filter: { internalNotes: "secret-1" } },
+      { neverInBody: TODO_HIDDEN },
+    ),
+    call(
+      "query-hidden-projection",
+      "A projection of a hidden field shows nothing hidden",
+      "alice",
+      "/todos/_query",
+      { fields: { internalNotes: 1, title: 1 } },
+      { neverInBody: TODO_HIDDEN },
+    ),
+    call(
+      "query-hidden-sort",
+      "A sort by a hidden field is refused",
+      "alice",
+      "/todos/_query",
+      { sort: { "meta.score": -1 } },
+      { neverInBody: TODO_HIDDEN },
+    ),
+    call("query-text-search", "A text search where a field is hidden", "alice", "/todos/_query", {
+      filter: { $text: { $search: "todo" } },
+    }),
+    call("query-anon", "An anonymous caller", "anon", "/todos/_query", {}),
+    call("query-service", "The service key sees every document", "service", "/todos/_query", {
+      sort: { _id: 1 },
+      limit: 3,
+    }),
+    call(
+      "query-staff",
+      "A restrictive policy and a hidden field",
+      "bob",
+      "/staff/_query",
+      { sort: { _id: 1 } },
+      { neverInBody: STAFF_HIDDEN },
+    ),
+    call(
+      "query-canonical",
+      "The canonical encoding",
+      "anon",
+      "/numbers/_query",
+      { sort: { _id: 1 }, limit: 2 },
+      { headers: { accept: "application/ejson" } },
+    ),
+    call(
+      "query-body-not-document",
+      "A body that is not a document",
+      "alice",
+      "/todos/_query",
+      "[1]",
+      {
+        raw: true,
+      },
+    ),
+    call("query-malformed", "A body that is not JSON", "alice", "/todos/_query", "{", {
+      raw: true,
+    }),
+    call("query-sealed", "A collection without a read policy", "alice", "/sealed/_query", {}),
+    call(
+      "query-hidden-collection",
+      "A collection that is not exposed",
+      "alice",
+      "/hidden/_query",
+      {},
+    ),
+    call("query-get", "GET is not allowed on _query", "alice", "/todos/_query", undefined, {
+      method: "GET",
+    }),
+    call("query-expired", "An expired token", "expired", "/todos/_query", {}),
+  ],
+}
+
 /** The groups of the read routes besides `find`, recorded into `conformance/http/reads`. */
-export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate]
+export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate, query]

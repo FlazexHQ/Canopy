@@ -155,6 +155,6 @@ function requestOf(group: string, spec: Spec, resolve: (value: Value) => string)
     query: queryOf(target),
     caller: spec.caller,
     headers: Object.fromEntries(Object.entries(headers).sort(([a], [b]) => (a < b ? -1 : 1))),
-    ...(spec.body === undefined ? {} : { body: spec.body }),
+    ...(spec.body === undefined ? {} : { body: resolve(spec.body) }),
   }
 }
