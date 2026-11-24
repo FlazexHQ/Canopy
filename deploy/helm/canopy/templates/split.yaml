@@ -1,0 +1,254 @@
+{{- if .Values.split.enabled }}
+{{- $root := . }}
+{{- $name := include "canopy.fullname" . }}
+{{- $prefix := $name | trunc 55 | trimSuffix "-" }}
+{{- $split := .Values.split }}
+{{- $gateway := deepCopy $split.gatewayConfig }}
+{{- if $split.wirePort }}
+{{- $wire := default (dict) (get $gateway "wire") }}
+{{- $_ := set $gateway "wire" (set $wire "port" $split.wirePort) }}
+{{- else }}
+{{- $_ := set $gateway "wire" false }}
+{{- end }}
+{{- if $split.publicUrl }}
+{{- $_ := set $gateway "auth" (dict "issuer" (printf "%s/auth/v1" $split.publicUrl) "audience" $split.publicUrl "jwksUrl" (printf "http://%s-control:8080/.well-known/jwks.json" $prefix) "algorithms" (list "EdDSA") "rolesClaim" "roles" "checkRevocations" true) }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $prefix }}-split
+data:
+  Caddyfile: |
+    {{- .Files.Get "files/Caddyfile.split" | nindent 4 }}
+  gateway.json: |
+    {{- mustToPrettyJson $gateway | nindent 4 }}
+  {{- if $split.publicUrl }}
+  canopy.config.ts: |
+    export default {
+      auth: { kind: "builtin" },
+      policies: { source: "database" },
+    }
+  {{- end }}
+{{- range $component := list "data" "control" "studio" "edge" }}
+{{- $image := index $split $component }}
+{{- $componentName := printf "%s-%s" $prefix $component }}
+{{- if eq $component "edge" }}
+{{- $componentName = $name }}
+{{- end }}
+{{- $labels := printf "%s\napp.kubernetes.io/component: %s" (include "canopy.selectorLabels" $root) $component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $prefix }}-{{ $component }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: {{ if eq $component "data" }}{{ $root.Values.replicaCount }}{{ else }}{{ $image.replicaCount }}{{ end }}
+  selector:
+    matchLabels:
+      {{- $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+      annotations:
+        checksum/canopy-split: {{ list ($root.Files.Get "files/Caddyfile.split") $gateway $split.publicUrl | toJson | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ add $root.Values.drainWindowSeconds 15 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $component }}
+          image: {{ if eq $component "control" }}{{ printf "%s:%s" $root.Values.image.repository $root.Values.image.tag | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+            {{- if or (eq $component "data") (eq $component "control") }}
+            - name: metrics
+              containerPort: 9464
+            {{- end }}
+            {{- if and (eq $component "data") $split.wirePort }}
+            - name: wire
+              containerPort: {{ $split.wirePort }}
+            {{- end }}
+          {{- if or (eq $component "data") (eq $component "control") }}
+          envFrom:
+            - secretRef:
+                name: {{ required "existingSecret names the secret with MONGODB_URI and the keys" $root.Values.existingSecret }}
+          env:
+            {{- range $key, $value := $root.Values.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            - name: CANOPY_DB
+              value: {{ $root.Values.database | quote }}
+            - name: CANOPY_ENV
+              value: {{ $root.Values.environment | quote }}
+            - name: CANOPY_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- if eq $component "data" }}
+            - name: CANOPY_POLICIES
+              value: database
+            - name: CANOPY_DATA_PLANE_ROUTES
+              value: all
+            {{- else }}
+            - name: CANOPY_ROLE
+              value: control
+            - name: CANOPY_POLICIES
+              value: ""
+            - name: CANOPY_DRAIN_WINDOW
+              value: "{{ $root.Values.drainWindowSeconds }}s"
+              {{- if $split.publicUrl }}
+            - name: CANOPY_PUBLIC_URL
+              value: {{ $split.publicUrl | quote }}
+              {{- end }}
+            {{- end }}
+          {{- else if eq $component "edge" }}
+          env:
+            - name: CANOPY_CONTROL_UPSTREAM
+              value: {{ $prefix }}-control:8080
+            - name: CANOPY_DATA_UPSTREAM
+              value: {{ $prefix }}-data:8080
+            - name: CANOPY_STUDIO_UPSTREAM
+              value: {{ $prefix }}-studio:8080
+          {{- end }}
+          {{- if and (eq $component "control") (or $split.publicUrl $split.controlConfigMap) }}
+          args: ["--config", "/app/split/canopy.config.ts"]
+          {{- end }}
+          resources:
+            {{- toYaml $root.Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: {{ if eq $component "edge" }}/edge/healthz{{ else }}/healthz{{ end }}
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: {{ if eq $component "edge" }}/edge/healthz{{ else }}/healthz{{ end }}
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: {{ if eq $component "edge" }}/edge/healthz{{ else if eq $component "studio" }}/healthz{{ else }}/readyz{{ end }}
+              port: http
+            periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq $component "data" }}
+            - name: settings
+              mountPath: /app/gateway.json
+              subPath: gateway.json
+              readOnly: true
+            {{- else if eq $component "edge" }}
+            - name: settings
+              mountPath: /etc/caddy/Caddyfile
+              subPath: Caddyfile
+              readOnly: true
+            - name: caddy-data
+              mountPath: /data
+            - name: caddy-config
+              mountPath: /config
+            {{- else if and (eq $component "control") (or $split.publicUrl $split.controlConfigMap) }}
+            - name: settings
+              mountPath: /app/split
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if eq $component "edge" }}
+        - name: caddy-data
+          emptyDir: {}
+        - name: caddy-config
+          emptyDir: {}
+        {{- end }}
+        {{- if or (eq $component "data") (eq $component "edge") (and (eq $component "control") (or $split.publicUrl $split.controlConfigMap)) }}
+        - name: settings
+          {{- if and (eq $component "data") $split.gatewayConfigSecret }}
+          secret:
+            secretName: {{ $split.gatewayConfigSecret }}
+          {{- else }}
+          configMap:
+            name: {{ if and (eq $component "control") $split.controlConfigMap }}{{ $split.controlConfigMap }}{{ else }}{{ $prefix }}-split{{ end }}
+          {{- end }}
+        {{- end }}
+      {{- with $root.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $root.Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $componentName }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  {{- if eq $component "edge" }}
+  type: {{ $root.Values.service.type }}
+  {{- end }}
+  selector:
+    {{- $labels | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ if eq $component "edge" }}{{ $root.Values.service.port }}{{ else }}8080{{ end }}
+      targetPort: http
+    {{- if and (eq $component "data") $split.wirePort }}
+    - name: wire
+      port: {{ $split.wirePort }}
+      targetPort: wire
+    {{- end }}
+{{- if and $root.Values.metrics.enabled (or (eq $component "data") (eq $component "control")) }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $prefix | trunc 47 | trimSuffix "-" }}-{{ $component }}-metrics
+spec:
+  clusterIP: None
+  selector:
+    {{- $labels | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
+{{- end }}
+{{- if eq $component "data" }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ $componentName }}
+spec:
+  maxUnavailable: {{ $root.Values.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- $labels | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

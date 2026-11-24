@@ -1,0 +1,35 @@
+# Add after split.yaml to enable built in auth for local development. The external URL supplies the issuer
+# and audience. The gateway fetches signing keys over the internal network and watches MongoDB revocations.
+# For production, supply your own control config and gateway config with HTTPS and email verification.
+
+services:
+  control:
+    environment:
+      CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
+      CANOPY_SPLIT_BUILTIN_AUTH: "on"
+      CANOPY_JWT_JWKS_URL: ""
+      CANOPY_JWT_ISSUER: ""
+      CANOPY_JWT_AUDIENCE: ""
+      CANOPY_JWT_ROLES_CLAIM: ""
+      CANOPY_JWT_ALGORITHMS: ""
+  data:
+    configs:
+      - source: builtin-gateway
+        target: /app/builtin-gateway.json
+    command: ["--config", "/app/builtin-gateway.json"]
+
+configs:
+  builtin-gateway:
+    content: |
+      {
+        "server": { "metricsHost": "0.0.0.0" },
+        "wire": { "port": 27018 },
+        "auth": {
+          "issuer": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}/auth/v1",
+          "audience": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}",
+          "jwksUrl": "http://control:8080/.well-known/jwks.json",
+          "algorithms": ["EdDSA"],
+          "rolesClaim": "roles",
+          "checkRevocations": true
+        }
+      }

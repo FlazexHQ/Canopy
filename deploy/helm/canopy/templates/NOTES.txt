@@ -1,4 +1,9 @@
+{{- if .Values.split.enabled }}
+Canopy is starting the data, control, Studio and edge deployments.
+Once control has migrated the shared meta database, publish application policies with canopy policies push.
+{{- else }}
 Canopy is starting as {{ include "canopy.fullname" . }} with {{ .Values.replicaCount }} pods.
+{{- end }}
 
 The pods read MONGODB_URI, CANOPY_MASTER_KEY, CANOPY_PUBLISHABLE_KEYS and CANOPY_SECRET_KEYS from the secret
 "{{ .Values.existingSecret }}". Until it exists the pods do not start. Create it with:

@@ -49,3 +49,31 @@ resources:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+# The split stack uses the same external MongoDB replica set as the default deployment.
+# Publish policies with canopy policies push. The split deployments read the meta database.
+split:
+  enabled: false
+  data:
+    image: canopy-gateway:latest
+  control:
+    replicaCount: 1
+  studio:
+    image: canopy-studio:latest
+    replicaCount: 1
+  edge:
+    image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b
+    replicaCount: 2
+  # Set to 0 to disable the MongoDB listener and Service port.
+  wirePort: 27018
+  # Set the public HTTPS URL without a trailing slash to enable built in auth.
+  publicUrl: ""
+  # Optional ConfigMap key canopy.config.ts for custom control settings.
+  controlConfigMap: ""
+  # Optional Secret key gateway.json for a complete gateway config, including any storage credentials.
+  # This file replaces the generated gateway config. Include the built in auth settings if enabled
+  # and keep the listener aligned with wirePort. Use S3 or R2, or provision storage for a local backend.
+  gatewayConfigSecret: ""
+  gatewayConfig:
+    server:
+      metricsHost: 0.0.0.0

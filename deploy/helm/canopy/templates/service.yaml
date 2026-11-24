@@ -1,3 +1,4 @@
+{{- if not .Values.split.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -29,4 +30,5 @@ spec:
     - name: metrics
       port: 9464
       targetPort: metrics
+{{- end }}
 {{- end }}

@@ -14,12 +14,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && headers="$(readelf -l -d /src/canopy-gateway)" \
     && ! printf '%s\n' "$headers" | grep -E 'INTERP|NEEDED'
 RUN printf '%s\n' '{"server":{"metricsHost":"0.0.0.0"}}' > gateway.json
+RUN install -d -o 65532 -g 65532 /src/storage
 
 FROM scratch
 WORKDIR /app
 COPY --from=gateway-build /src/canopy-gateway /usr/local/bin/canopy-gateway
 COPY --from=gateway-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=gateway-build /src/gateway.json ./gateway.json
+COPY --from=gateway-build --chown=65532:65532 /src/storage ./storage
 ENV NODE_ENV=production \
     PORT=8080 \
     METRICS_PORT=9464 \

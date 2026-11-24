@@ -1,0 +1,4 @@
+{
+  "server": { "metricsHost": "0.0.0.0" },
+  "wire": { "port": 27018 }
+}

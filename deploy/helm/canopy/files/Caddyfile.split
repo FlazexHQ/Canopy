@@ -1,0 +1,36 @@
+{
+	admin off
+}
+
+{$CANOPY_SITE::8080} {
+	handle /edge/healthz {
+		respond "ok" 200
+	}
+
+	@control path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin /admin/*
+	handle @control {
+		reverse_proxy {$CANOPY_CONTROL_UPSTREAM:control:8080}
+	}
+
+	@studio path /studio /studio/*
+	handle @studio {
+		reverse_proxy {$CANOPY_STUDIO_UPSTREAM:studio:8080}
+	}
+
+	@render path /storage/v1/render /storage/v1/render/*
+	handle @render {
+		respond "Image transforms are unavailable in the split stack" 501
+	}
+
+	handle {
+		reverse_proxy {$CANOPY_DATA_UPSTREAM:data:8080} {
+			flush_interval -1
+		}
+	}
+
+	handle_errors 502 503 504 {
+		header Content-Type "application/problem+json"
+		header Retry-After "5"
+		respond `{"type":"urn:canopy:error:unavailable","title":"Unavailable","status":503,"code":"CANOPY_UNAVAILABLE"}` 503
+	}
+}

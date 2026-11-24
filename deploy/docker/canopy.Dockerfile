@@ -30,7 +30,7 @@ COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts \
     && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json /Canopy.js/src/tsconfig.config.json \
     && bun install --frozen-lockfile --ignore-scripts
-RUN bunx tsc -b packages/server
+RUN bunx tsc -b packages/server packages/cli
 RUN bun install --frozen-lockfile --production --ignore-scripts && mkdir -p /src/storage
 RUN mkdir -p node_modules/@canopy && ln -s ../../packages/policy node_modules/@canopy/policy \
     && ln -s ../../packages/config node_modules/@canopy/config \

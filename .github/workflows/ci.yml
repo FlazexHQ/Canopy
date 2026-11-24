@@ -542,6 +542,17 @@ jobs:
           docker compose -f deploy/compose/canopy.yaml logs realtime | grep '"realtimeServer":"gateway"'
           bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
           deploy/compose/canopy-smoke.sh
+      - name: Smoke test the split stack with the control plane stopped
+        env:
+          CANOPY_IMAGE: canopy:ci
+          CANOPY_GATEWAY_IMAGE: canopy-gateway:ci
+          CANOPY_STUDIO_IMAGE: canopy-studio:ci
+          CANOPY_PORT: "28080"
+          CANOPY_MONGO_PORT: "37017"
+          CANOPY_WIRE_PORT: "37018"
+          CANOPY_METRICS_PORT: "29464"
+          CANOPY_CONTROL_METRICS_PORT: "29465"
+        run: bun deploy/compose/split-smoke.ts --no-build
       - name: The sidecar and gateway images start and report ready
         run: |
           docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \
