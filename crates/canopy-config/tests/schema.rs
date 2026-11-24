@@ -38,6 +38,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "audit",
             "graphql",
             "storage",
+            "wire",
             "dataPlane",
             "viewTokens"
         ]
@@ -58,6 +59,19 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "persisted",
             "collections"
         ],
+    );
+    let Some(Json::Array(wire)) = at(root, &["wire", "oneOf"]) else {
+        return Err("Missing wire schema options".to_owned());
+    };
+    let settings = wire.get(1).ok_or("Missing wire settings schema")?;
+    let properties = settings.get("properties").ok_or("Missing wire settings fields")?;
+    assert_eq!(
+        fields(properties),
+        ["port", "host", "maxMessageBytes", "maxConnections", "idleTimeoutMs", "tls"]
+    );
+    assert_eq!(
+        fields(at(properties, &["tls", "properties"]).ok_or("Missing wire TLS fields")?),
+        ["certFile", "keyFile"]
     );
     for (path, expected) in [
         (&["mongodb", "properties"][..], &["uri", "database", "metaDatabase"][..]),

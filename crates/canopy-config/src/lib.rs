@@ -2,7 +2,9 @@
 
 mod graphql;
 mod storage;
+mod wire;
 pub use storage::{BucketSettings, StorageBackend, StorageSettings};
+pub use wire::{WireSettings, WireTls};
 mod trusted_proxy;
 
 pub use graphql::{CollectionSettings, GraphqlSettings, Introspection, PersistedSettings, RelationSettings};
@@ -283,6 +285,8 @@ pub struct GatewayConfig {
     pub graphql: Option<GraphqlSettings>,
     /// The file storage API, when configured.
     pub storage: Option<StorageSettings>,
+    /// The MongoDB wire listener, when configured.
+    pub wire: Option<WireSettings>,
     /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
     /// `rest.search` lists them.
     pub search_collections: Vec<String>,
@@ -691,11 +695,13 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             Some(_) => return Err("CANOPY_TRACING must be true, false, 1 or 0".to_owned()),
         },
     };
+    let host = text(&doc, &["server", "host"]).or(fallback.host).unwrap_or_else(|| "0.0.0.0".to_owned());
+    let wire = wire::settings(doc.get("wire"), &host)?;
     Ok(GatewayConfig {
         mongodb_uri,
         database,
         meta_database,
-        host: text(&doc, &["server", "host"]).or(fallback.host).unwrap_or_else(|| "0.0.0.0".to_owned()),
+        host,
         port: u16::try_from(whole(port)).map_err(|_| "PORT is out of range")?,
         metrics_host: text(&doc, &["server", "metricsHost"]).unwrap_or_else(|| "127.0.0.1".to_owned()),
         metrics_port: (metrics_port > 0.0).then(|| u16::try_from(whole(metrics_port)).ok()).flatten(),
@@ -740,6 +746,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         rest_limits,
         graphql,
         storage,
+        wire,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
         tracing,
         writes,

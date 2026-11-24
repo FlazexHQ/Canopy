@@ -45,6 +45,7 @@
   },
   "rest": false,
   "graphql": false,
+  "wire": false,
   "log": {
     "level": "info"
   },

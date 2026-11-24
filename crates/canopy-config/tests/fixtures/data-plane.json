@@ -81,6 +81,14 @@
       "only": true
     }
   },
+  "wire": {
+    "port": 27018,
+    "host": "127.0.0.1",
+    "maxMessageBytes": 16000000,
+    "maxConnections": 32,
+    "idleTimeoutMs": 10000,
+    "tls": { "certFile": "wire-cert.pem", "keyFile": "wire-key.pem" }
+  },
   "dataPlane": {
     "routes": [
       "find",

@@ -13,6 +13,7 @@ mod proxy;
 mod request_log;
 mod server;
 mod telemetry;
+mod wire;
 
 use std::convert::Infallible;
 use std::io::BufRead as _;
@@ -180,7 +181,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             .map_err(|error| error.message().to_owned())?
         }
     };
-    let data_policies = (!config.data_plane_routes.is_empty())
+    let data_policies = (!config.data_plane_routes.is_empty() || config.wire.is_some())
         .then(|| canopy_data::Policies::new(PolicyEngine::new(set.clone())));
     let engine_config = engine_config(&config);
     let max_frame_bytes = engine_config.limits.max_frame_bytes;
@@ -250,28 +251,30 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     } else {
         None
     };
-    let request_log = match data_policies {
-        Some(_) => {
-            let request_log = Arc::new(request_log::RequestLog::new(meta.clone(), log));
-            if let Err(error) = request_log.refresh().await {
-                log.warn(
-                    "could not read the settings; the request log keeps nothing",
-                    &[("err", &error.to_string())],
-                );
-            }
-            let follower = Arc::clone(&request_log);
-            tokio::spawn(async move { follower.follow().await });
-            Some(request_log)
+    let request_log = if config.data_plane_routes.is_empty() {
+        None
+    } else {
+        let request_log = Arc::new(request_log::RequestLog::new(meta.clone(), log));
+        if let Err(error) = request_log.refresh().await {
+            log.warn(
+                "could not read the settings; the request log keeps nothing",
+                &[("err", &error.to_string())],
+            );
         }
-        None => None,
+        let follower = Arc::clone(&request_log);
+        tokio::spawn(async move { follower.follow().await });
+        Some(request_log)
     };
-    let data_plane = data_policies
-        .map(|policies| {
+    let reads = data_policies.map(|policies| data_plane::read_path(&config, client.clone(), policies));
+    let data_plane = reads
+        .as_ref()
+        .filter(|_| !config.data_plane_routes.is_empty())
+        .map(|reads| {
             DataPlane::new(
                 &config,
                 client.clone(),
                 auth.clone(),
-                policies,
+                Arc::clone(reads),
                 request_log,
                 telemetry.clone(),
                 Some(engine_tx.clone()),
@@ -321,7 +324,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .start_engine(
             engine,
             EngineOptions {
-                auth,
+                auth: auth.clone(),
                 reader: Reader::new(client.clone(), &config.database, 32),
                 write,
                 watched: Arc::clone(&watched),
@@ -374,22 +377,47 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             })
             .map_err(|error| error.to_string())?;
     }
+    let wire = match (config.wire.as_ref(), reads) {
+        (Some(settings), Some(reads)) => {
+            let writes = data_plane::write_path(&config, client.clone(), reads.policies().clone())?;
+            Some(
+                wire::Listener::bind(
+                    settings,
+                    auth,
+                    data_plane::rate_limits(&config),
+                    reads,
+                    Arc::new(writes),
+                )
+                .await?,
+            )
+        }
+        _ => None,
+    };
+    let wire_metrics = wire.as_ref().map(wire::Listener::metrics);
     if let Some(port) = config.metrics_port {
         let listener = tokio::net::TcpListener::bind((config.metrics_host.as_str(), port))
             .await
             .map_err(|error| format!("Could not listen for metrics on {port}: {error}"))?;
         let routes = Arc::clone(&routes);
-        let extra: Arc<dyn Fn() -> String + Send + Sync> =
-            Arc::new(move || routes.data_plane.as_ref().map(DataPlane::metrics).unwrap_or_default());
+        let extra: Arc<dyn Fn() -> String + Send + Sync> = Arc::new(move || {
+            let mut text = routes.data_plane.as_ref().map(DataPlane::metrics).unwrap_or_default();
+            if let Some(metrics) = &wire_metrics {
+                text.push_str(&metrics.render());
+            }
+            text
+        });
         tokio::spawn(serve_metrics(listener, metrics, extra, config.metrics_token.clone()));
     }
     let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
         .await
         .map_err(|error| format!("Could not listen on {}: {error}", config.port))?;
     let port = listener.local_addr().map(|addr| addr.port().to_string()).unwrap_or_default();
+    let wire_port = wire.as_ref().map(wire::Listener::port).transpose().map_err(|error| error.to_string())?;
+    let wire = wire.map(wire::Listener::start);
     realtime.start_accepting(listener);
     if control {
-        let line = format!("{{\"t\":\"listening\",\"port\":{port}}}\n");
+        let wire = wire_port.map_or_else(String::new, |port| format!(",\"wirePort\":{port}"));
+        let line = format!("{{\"t\":\"listening\"{wire},\"port\":{port}}}\n");
         let _ = std::io::Write::write_all(&mut std::io::stdout(), line.as_bytes());
         let _ = std::io::Write::flush(&mut std::io::stdout());
     }
@@ -397,12 +425,16 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         "canopy-gateway listening",
         &[("port", &port), ("database", &config.database), ("shards", &config.shards.to_string())],
     );
+    if let Some(port) = wire_port {
+        log.info("MongoDB wire listening", &[("port", &port.to_string())]);
+    }
     shutdown_signal(stdin_closed).await;
     key_watch.abort();
     if let Some(watch) = revocation_watch {
         watch.abort();
     }
     log.info("draining", &[("drainMs", &config.drain_window_ms.to_string())]);
+    let wire = wire.map(|running| running.drain(Duration::from_millis(config.drain_window_ms)));
     realtime.drain(config.drain_window_ms);
     drop(engine_tx);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(config.drain_window_ms + 2000);
@@ -410,6 +442,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     realtime.close_http();
+    if let Some(wire) = wire {
+        let _ = wire.await;
+    }
     tokio::time::sleep(Duration::from_millis(100)).await;
     if let Some(telemetry) = telemetry {
         let _ = tokio::task::spawn_blocking(move || telemetry.shutdown()).await;

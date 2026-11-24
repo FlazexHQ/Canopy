@@ -88,6 +88,17 @@ export interface GatewayOverrides {
    * `CANOPY_DATA_PLANE_ROUTES`, and without that it serves none and passes every request on to the server.
    */
   readonly dataPlaneRoutes?: readonly string[]
+  /** Settings for a dedicated MongoDB wire listener. The listener is off by default. */
+  readonly wire?:
+    | false
+    | {
+        readonly port: number
+        readonly host?: string
+        readonly maxMessageBytes?: number
+        readonly maxConnections?: number
+        readonly idleTimeoutMs?: number
+        readonly tls?: { readonly certFile: string; readonly keyFile: string }
+      }
   /** Resolved GraphQL operations, when supplied by the caller. */
   readonly graphqlPersisted?: {
     readonly operations: Readonly<Record<string, string>>
@@ -271,6 +282,7 @@ export function gatewayConfig(
             uploadTtlMs: 86_400_000,
             maxSignedUrlSeconds: 7 * 86_400,
           },
+    ...(overrides.wire === undefined ? {} : { wire: overrides.wire }),
     ...(overrides.dataPlaneRoutes === undefined
       ? {}
       : { dataPlane: { routes: overrides.dataPlaneRoutes } }),

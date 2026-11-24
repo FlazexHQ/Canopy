@@ -156,7 +156,7 @@ enum Route {
 /// The Data API routes served by the Rust data plane.
 pub struct Rest {
     authenticator: Authenticator,
-    pub(crate) reads: ReadPath,
+    pub(crate) reads: Arc<ReadPath>,
     pub(crate) base_path: String,
     pub(crate) problem_type_base: String,
     cors: Option<Cors>,
@@ -170,10 +170,10 @@ pub struct Rest {
 
 impl Rest {
     /// Creates the routes over a read path, authenticating callers with `authenticator`.
-    pub fn new(authenticator: Authenticator, reads: ReadPath, options: RestOptions) -> Rest {
+    pub fn new(authenticator: Authenticator, reads: impl Into<Arc<ReadPath>>, options: RestOptions) -> Rest {
         Rest {
             authenticator,
-            reads,
+            reads: reads.into(),
             base_path: trim_trailing_slashes(&options.base_path).to_owned(),
             problem_type_base: options.problem_type_base,
             cors: options.cors,

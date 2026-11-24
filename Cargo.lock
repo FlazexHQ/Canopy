@@ -252,6 +252,7 @@ dependencies = [
  "canopy-protocol",
  "canopy-realtime",
  "canopy-storage",
+ "canopy-wire",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -265,6 +266,7 @@ dependencies = [
  "ring",
  "rustls",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
 ]
 

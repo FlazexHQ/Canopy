@@ -24,6 +24,7 @@ canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-realtime = { path = "../canopy-realtime" }
 canopy-storage = { path = "../canopy-storage" }
+canopy-wire = { path = "../canopy-wire" }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
@@ -35,6 +36,7 @@ ring = "0.17"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "io-std", "signal"] }
+tokio-rustls = { version = "0.26", default-features = false }
 tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
 [dev-dependencies]

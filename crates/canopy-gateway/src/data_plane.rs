@@ -56,7 +56,11 @@ fn id_types(config: &GatewayConfig) -> HashMap<String, IdType> {
 
 /// The write path of the write routes: the app database, idempotency records in the meta database, and when
 /// `audit.dataWrites` is set an audit entry for every committed write, without its documents.
-fn write_path(config: &GatewayConfig, client: Client, policies: Policies) -> Result<WritePath, String> {
+pub(crate) fn write_path(
+    config: &GatewayConfig,
+    client: Client,
+    policies: Policies,
+) -> Result<WritePath, String> {
     let meta = client.database(&config.meta_database);
     let mut writes = WritePath::new(client, &config.database, &config.meta_database, policies)
         .map_err(|error| error.message().to_owned())?
@@ -293,6 +297,33 @@ impl StorageRoute {
     }
 }
 
+pub(crate) fn read_path(config: &GatewayConfig, client: Client, policies: Policies) -> Arc<ReadPath> {
+    let limits = ReadLimits {
+        default_limit: config.rest_limits.default_limit,
+        max_limit: config.rest_limits.max_limit,
+        max_skip: config.rest_limits.max_skip,
+        ..ReadLimits::default()
+    };
+    Arc::new(
+        ReadPath::new(client, &config.database, policies, limits)
+            .with_search(config.search_collections.iter().cloned()),
+    )
+}
+
+pub(crate) fn rate_limits(config: &GatewayConfig) -> Option<Arc<RateLimits>> {
+    config.request_rates.map(|rates| {
+        Arc::new(RateLimits::new(RateLimitOptions {
+            requests: BucketSpec { per_second: rates.requests.0, burst: rates.requests.1 },
+            failed_authentications: BucketSpec {
+                per_second: rates.failed_authentications.0,
+                burst: rates.failed_authentications.1,
+            },
+            exempt_service: rates.exempt_service,
+            ..RateLimitOptions::default()
+        }))
+    })
+}
+
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
     rest: Arc<Rest>,
@@ -313,24 +344,16 @@ impl DataPlane {
         config: &GatewayConfig,
         client: Client,
         auth: Authenticator,
-        policies: Policies,
+        reads: Arc<ReadPath>,
         request_log: Option<Arc<RequestLog>>,
         telemetry: Option<Telemetry>,
         realtime: Option<EngineSender>,
     ) -> Result<DataPlane, String> {
-        let limits = ReadLimits {
-            default_limit: config.rest_limits.default_limit,
-            max_limit: config.rest_limits.max_limit,
-            max_skip: config.rest_limits.max_skip,
-            ..ReadLimits::default()
-        };
         let serves_writes = routes_select(config, DataPlaneRoute::Writes);
         let graphql = config.graphql.as_ref().filter(|_| routes_select(config, DataPlaneRoute::Graphql));
         let writes = (serves_writes || graphql.is_some())
-            .then(|| write_path(config, client.clone(), policies.clone()))
+            .then(|| write_path(config, client.clone(), reads.policies().clone()))
             .transpose()?;
-        let reads = ReadPath::new(client.clone(), &config.database, policies.clone(), limits)
-            .with_search(config.search_collections.iter().cloned());
         let cors = config.cors.as_ref().map(|cors| match cors {
             Cors::Any => canopy_http::Cors::Any,
             Cors::Origins(origins) => canopy_http::Cors::Origins(origins.clone()),
@@ -358,17 +381,8 @@ impl DataPlane {
         if let Some(writes) = writes {
             rest = rest.with_writes(Arc::new(writes), id_types(config));
         }
-        if let Some(rates) = config.request_rates {
-            let limits = RateLimits::new(RateLimitOptions {
-                requests: BucketSpec { per_second: rates.requests.0, burst: rates.requests.1 },
-                failed_authentications: BucketSpec {
-                    per_second: rates.failed_authentications.0,
-                    burst: rates.failed_authentications.1,
-                },
-                exempt_service: rates.exempt_service,
-                ..RateLimitOptions::default()
-            });
-            rest = rest.with_rate_limits(Arc::new(limits), None);
+        if let Some(limits) = rate_limits(config) {
+            rest = rest.with_rate_limits(limits, None);
         }
         let rest = Arc::new(rest);
         let storage = config
@@ -380,7 +394,7 @@ impl DataPlane {
                     settings,
                     client,
                     config.meta_database.clone(),
-                    policies,
+                    rest.reads().policies().clone(),
                     Arc::clone(&rest),
                     cors,
                 )

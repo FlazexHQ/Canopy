@@ -157,6 +157,17 @@ export interface GatewayOverrides {
     readonly auth?: GatewayAuth;
     readonly viewTokenKey?: JsonWebKey;
     readonly dataPlaneRoutes?: readonly string[];
+    readonly wire?: false | {
+        readonly port: number;
+        readonly host?: string;
+        readonly maxMessageBytes?: number;
+        readonly maxConnections?: number;
+        readonly idleTimeoutMs?: number;
+        readonly tls?: {
+            readonly certFile: string;
+            readonly keyFile: string;
+        };
+    };
     readonly graphqlPersisted?: {
         readonly operations: Readonly<Record<string, string>>;
         readonly only: boolean;

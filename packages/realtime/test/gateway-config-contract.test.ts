@@ -111,6 +111,14 @@ const cases: readonly Fixture[] = [
         "graphql",
         "storage",
       ],
+      wire: {
+        port: 27018,
+        host: "127.0.0.1",
+        maxMessageBytes: 16000000,
+        maxConnections: 32,
+        idleTimeoutMs: 10000,
+        tls: { certFile: "wire-cert.pem", keyFile: "wire-key.pem" },
+      },
       graphqlPersisted: {
         only: true,
         operations: {
@@ -119,7 +127,7 @@ const cases: readonly Fixture[] = [
       },
     },
   },
-  { name: "rest-disabled", input: { rest: false } },
+  { name: "rest-disabled", input: { rest: false }, overrides: { wire: false } },
   {
     name: "fallback-transports",
     input: {

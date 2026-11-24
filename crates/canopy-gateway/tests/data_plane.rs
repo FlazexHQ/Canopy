@@ -38,6 +38,203 @@ use prost::Message as _;
 
 const GATEWAY: &str = env!("CARGO_BIN_EXE_canopy-gateway");
 
+const WIRE_SECRET: &str = "fixture-wire-service-key";
+
+fn wire_config(uri: &str, database: &str, wire: &str, auth: &str) -> String {
+    let document = format!(
+        r#"{{
+            "mongodb":{{"uri":"{uri}","database":"{database}"}},
+            "server":{{"host":"127.0.0.1","port":0,"metricsPort":0,"shards":1}},
+            "auth":{auth},
+            "keys":{{"secret":["{WIRE_SECRET}"]}},
+            "policies":{{"stored":[
+                {{"_id":"notes","version":1,"exposed":true,"realtime":false,"policies":[
+                    {{"name":"own notes","kind":"permissive","ops":["read"],"roles":["authenticated"],
+                    "using":"{{\"owner\":{{\"$auth\":\"sub\"}}}}"}}]}}
+            ]}},
+            "realtime":{{"checkpoints":"off","drainWindowMs":100}},
+            "wire":{wire}
+        }}"#
+    );
+    json_text(&canopy_protocol::json::parse_json(&document).expect("valid wire fixture configuration"))
+}
+
+#[tokio::test]
+async fn wire_driver_scram_reads_and_writes_through_the_gateway() {
+    wire_driver_reads(false).await;
+}
+
+#[tokio::test]
+async fn wire_driver_oidc_enforces_the_collection_policies() {
+    wire_driver_reads(true).await;
+}
+
+async fn wire_driver_reads(oidc: bool) {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use canopy_mongo::mongodb::{
+        bson::{DateTime, Document, doc},
+        options::{
+            ClientOptions,
+            oidc::{Callback, IdpServerResponse},
+        },
+    };
+    use ring::signature::{Ed25519KeyPair, KeyPair as _};
+
+    let Some(uri) = mongodb_uri() else { return };
+    let database = format!("gateway_wire_{}_{}", std::process::id(), u8::from(oidc));
+    let backing = Client::with_uri_str(&uri).await.expect("the backing client");
+    backing
+        .database(&database)
+        .collection("notes")
+        .insert_many([doc! { "_id": 1, "owner": "wire-reader" }, doc! { "_id": 2, "owner": "other" }])
+        .await
+        .expect("seed documents");
+
+    let key = Ed25519KeyPair::from_seed_unchecked(&[53; 32]).expect("a signing key");
+    let public = URL_SAFE_NO_PAD.encode(key.public_key());
+    let auth = format!(
+        r#"{{
+        "issuer":"https://wire-issuer.example.test","audience":"wire-driver","algorithms":["EdDSA"],
+        "jwks":{{"keys":[{{"kty":"OKP","crv":"Ed25519","x":"{public}","kid":"wire-test"}}]}}
+    }}"#
+    );
+    let config = wire_config(&uri, &database, r#"{"port":0}"#, &auth);
+    let gateway = Gateway::start(config, (!oidc).then_some("find,count")).await;
+    let port = gateway.wire_port.expect("the wire port");
+    let base = format!("127.0.0.1:{port}/{database}");
+    let target = if oidc {
+        format!("mongodb://{base}?authMechanism=MONGODB-OIDC&authSource=%24external")
+    } else {
+        format!("mongodb://service:{WIRE_SECRET}@{base}?authMechanism=SCRAM-SHA-256&authSource=admin")
+    };
+    let mut options = ClientOptions::parse(target).await.expect("driver options");
+    options.server_selection_timeout = Some(Duration::from_secs(5));
+    options.retry_writes = Some(false);
+    if oidc {
+        let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
+        let expires = DateTime::now().timestamp_millis() / 1000 + 120;
+        let claims = URL_SAFE_NO_PAD.encode(format!(
+            r#"{{"iss":"https://wire-issuer.example.test","aud":"wire-driver","sub":"wire-reader","exp":{expires}}}"#
+        ));
+        let signed = format!("{header}.{claims}");
+        let token = format!("{signed}.{}", URL_SAFE_NO_PAD.encode(key.sign(signed.as_bytes())));
+        options.credential.as_mut().expect("OIDC credential").oidc_callback = Callback::machine(move |_| {
+            let token = token.clone();
+            Box::pin(async move { Ok(IdpServerResponse::builder().access_token(token).build()) })
+        });
+    }
+    let wire = Client::with_options(options).expect("the wire client");
+    let db = wire.database(&database);
+    let ping = db.run_command(doc! {"ping":1}).await.expect("wire ping");
+    assert_eq!(ping.get_f64("ok").expect("a ping status"), 1.0);
+    let mut found =
+        db.collection::<Document>("notes").find(doc! {}).sort(doc! {"_id":1}).await.expect("wire find");
+    let mut ids = Vec::new();
+    while found.advance().await.expect("next document") {
+        ids.push(found.deserialize_current().expect("a document").get_i32("_id").expect("an id"));
+    }
+    assert_eq!(ids, if oidc { vec![1] } else { vec![1, 2] });
+    let count = db.run_command(doc! {"count":"notes"}).await.expect("wire count");
+    assert_eq!(count.get_i32("n").expect("a document count"), if oidc { 1 } else { 2 });
+    let inserted =
+        db.collection::<Document>("notes").insert_one(doc! { "_id": 3, "owner": "wire-reader" }).await;
+    let stored = backing
+        .database(&database)
+        .collection::<Document>("notes")
+        .count_documents(doc! { "_id": 3 })
+        .await
+        .expect("count the written document");
+    if oidc {
+        let error = inserted.expect_err("no policy grants insert to the caller");
+        assert!(
+            matches!(
+                *error.kind,
+                canopy_mongo::mongodb::error::ErrorKind::Write(_)
+                    | canopy_mongo::mongodb::error::ErrorKind::Command(_)
+            ),
+            "{error:?}"
+        );
+        assert!(format!("{error:?}").contains("Unauthorized"), "{error:?}");
+        assert_eq!(stored, 0);
+    } else {
+        inserted.expect("the service key inserts through the wire");
+        assert_eq!(stored, 1);
+    }
+    drop(gateway);
+    backing.database(&database).drop().await.expect("drop the fixture database");
+}
+
+#[tokio::test]
+async fn wire_refuses_oversized_headers_without_waiting_for_the_body() {
+    use tokio::io::AsyncWriteExt as _;
+
+    let Some(uri) = mongodb_uri() else { return };
+    let config = wire_config(&uri, "gateway_wire_frames", r#"{"port":0,"maxMessageBytes":1024}"#, "null");
+    let gateway = Gateway::start(config, None).await;
+    let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.wire_port.expect("the wire port")))
+        .await
+        .expect("connect the wire socket");
+    let mut header = [0_u8; 16];
+    header[..4].copy_from_slice(&1025_i32.to_le_bytes());
+    header[12..].copy_from_slice(&2013_i32.to_le_bytes());
+    socket.write_all(&header).await.expect("write only the wire header");
+    wire_closed(&mut socket).await;
+}
+
+#[tokio::test]
+async fn wire_enforces_capacity_and_releases_idle_connections() {
+    let Some(uri) = mongodb_uri() else { return };
+    let config = wire_config(
+        &uri,
+        "gateway_wire_capacity",
+        r#"{"port":0,"maxConnections":1,"idleTimeoutMs":1000}"#,
+        "null",
+    );
+    let gateway = Gateway::start(config, None).await;
+    let address = ("127.0.0.1", gateway.wire_port.expect("the wire port"));
+    let mut first = tokio::net::TcpStream::connect(address).await.expect("connect first socket");
+    wire_ping(&mut first).await;
+    let mut second = tokio::net::TcpStream::connect(address).await.expect("connect second socket");
+    wire_closed(&mut second).await;
+    wire_closed(&mut first).await;
+    let mut third = tokio::net::TcpStream::connect(address).await.expect("connect after idle expiry");
+    wire_ping(&mut third).await;
+}
+
+async fn wire_closed(socket: &mut tokio::net::TcpStream) {
+    use tokio::io::AsyncReadExt as _;
+    match tokio::time::timeout(Duration::from_secs(3), socket.read(&mut [0_u8])).await {
+        Ok(Ok(0)) => {}
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+        other => panic!("Expected a closed wire connection, got {other:?}"),
+    }
+}
+
+async fn wire_ping(socket: &mut tokio::net::TcpStream) {
+    use canopy_mongo::mongodb::bson::doc;
+    use canopy_wire::frame::{Header, encode_op_msg, parse_message};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+    let command = doc! { "ping":1, "$db":"gateway_wire_capacity" };
+    let mut suppressed = encode_op_msg(28, 0, &command).expect("encode silent ping");
+    suppressed[16] = 2;
+    socket.write_all(&suppressed).await.expect("send silent ping");
+    let message = encode_op_msg(29, 0, &command).expect("encode ping");
+    socket.write_all(&message).await.expect("send ping");
+    let reply = tokio::time::timeout(Duration::from_secs(3), async {
+        let mut reply = vec![0; 16];
+        socket.read_exact(&mut reply).await.expect("read reply header");
+        let header = Header::parse(&reply, 1024).expect("parse reply header");
+        reply.resize(header.length, 0);
+        socket.read_exact(&mut reply[16..]).await.expect("read reply body");
+        parse_message(&reply, 1024).expect("parse ping reply")
+    })
+    .await
+    .expect("the gateway replies");
+    assert_eq!(reply.header.response_to, 29);
+    assert_eq!(reply.body.get_f64("ok").expect("a ping status"), 1.0);
+}
+
 /// What the upstream saw: the method and the exact request target of each request, in arrival order.
 type Seen = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -78,6 +275,7 @@ async fn upstream() -> (u16, Seen) {
 struct Gateway {
     child: Child,
     port: u16,
+    wire_port: Option<u16>,
 }
 
 impl Gateway {
@@ -117,7 +315,12 @@ impl Gateway {
             .nth(1)
             .and_then(|rest| rest.trim_end_matches(['}', '\n', '\r']).parse().ok())
             .unwrap_or_else(|| panic!("the gateway did not report a port: {line:?}"));
-        Gateway { child, port }
+        let wire_port =
+            canopy_protocol::json::parse_json(&line).ok().and_then(|event| match event.get("wirePort") {
+                Some(Json::Number(port)) => Some(*port as u16),
+                _ => None,
+            });
+        Gateway { child, port, wire_port }
     }
 
     /// Writes one line to the gateway's standard input.

@@ -38,6 +38,7 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert_eq!(config.rest_limits, RestLimits::default());
     assert_eq!(config.graphql, Some(GraphqlSettings::default()));
     assert!(config.storage.is_none());
+    assert!(config.wire.is_none());
     assert_eq!(config.rest_limits.max_body_bytes, 1_048_576);
     assert!(config.search_collections.is_empty());
     Ok(())
@@ -47,6 +48,15 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
 fn reads_data_plane_launcher_config() -> Result<(), String> {
     let fixture = include_str!("fixtures/data-plane.json");
     let config = parse(fixture)?;
+    let wire = config.wire.as_ref().ok_or("Missing wire settings")?;
+    assert_eq!(wire.port, 27018);
+    assert_eq!(wire.host, "127.0.0.1");
+    assert_eq!(wire.max_message_bytes, 16_000_000);
+    assert_eq!(wire.max_connections, 32);
+    assert_eq!(wire.idle_timeout_ms, 10_000);
+    let tls = wire.tls.as_ref().ok_or("Missing TLS settings")?;
+    assert_eq!(tls.cert_file, "wire-cert.pem");
+    assert_eq!(tls.key_file, "wire-key.pem");
     assert_eq!(
         config.data_plane_routes,
         [
@@ -116,6 +126,41 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
     }
     let host = Fallbacks { data_plane_routes: Some(vec!["unknown".to_owned()]), ..Fallbacks::default() };
     assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, config.data_plane_routes);
+    Ok(())
+}
+
+#[test]
+fn wire_defaults_and_validates_limits() -> Result<(), String> {
+    fn parse_wire(wire: &str) -> Result<canopy_config::GatewayConfig, String> {
+        parse(&format!(
+            r#"{{"mongodb":{{"uri":"mongodb://db.example.test/app"}},"server":{{"host":"::1"}},"wire":{wire}}}"#
+        ))
+    }
+
+    assert!(parse_wire("false")?.wire.is_none());
+    let wire = parse_wire(r#"{"port":0}"#)?.wire.ok_or("Missing wire settings")?;
+    assert_eq!(wire.host, "::1");
+    assert_eq!(wire.port, 0);
+    assert_eq!(wire.max_message_bytes, 48_000_000);
+    assert_eq!(wire.max_connections, 256);
+    assert_eq!(wire.idle_timeout_ms, 60_000);
+    assert!(wire.tls.is_none());
+    for invalid in [
+        "null",
+        "true",
+        "{}",
+        r#"{"port":65536}"#,
+        r#"{"port":1,"host":" "}"#,
+        r#"{"port":1,"maxMessageBytes":15}"#,
+        r#"{"port":1,"maxMessageBytes":48000001}"#,
+        r#"{"port":1,"maxConnections":0}"#,
+        r#"{"port":1,"idleTimeoutMs":-1}"#,
+        r#"{"port":1,"idleTimeoutMs":null}"#,
+        r#"{"port":1,"tls":{"certFile":"cert.pem"}}"#,
+        r#"{"port":1,"tls":{"certFile":"cert.pem","keyFile":""}}"#,
+    ] {
+        assert!(parse_wire(invalid).is_err(), "{invalid}");
+    }
     Ok(())
 }
 
