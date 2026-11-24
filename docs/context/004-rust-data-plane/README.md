@@ -2,31 +2,33 @@
 
 This folder contains the complete technical context gathered for implementing [004-rust-data-plane.md](../../plans/004-rust-data-plane.md). It synthesizes architectural decisions, current Rust crate implementations, TypeScript reference implementations, empirical spike findings, performance baselines, stage gate criteria, and target repository reorganizations.
 
-## Context Document Navigation
+## Recommended Reading Order
 
-1. [01-architecture-and-decisions.md](01-architecture-and-decisions.md)
-   Explains the core decision behind ADR-0017 (Option C: Rust data plane for every data path), the plane separation model between the Rust data plane, TypeScript control plane, and TypeScript developer surface, and how it relates to ADR-0001, ADR-0006, ADR-0014, ADR-0015, and ADR-0016.
+An engineer continuing the implementation of Plan 004 should read the context documents in the following sequence:
+
+1. [08-progress.md](08-progress.md)
+   **Start here.** The Checkpoint at the top records the exact current status of the codebase, in progress work on the `_query` route, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D1 through D7.
 
 2. [02-current-rust-workspace.md](02-current-rust-workspace.md)
-   Catalogs the existing crates in `crates/`, details what `canopy-gateway` currently implements (Tokio, Hyper, raw BSON cursors, mutation forwarding, fallback transports, JWT and API keys), analyzes existing overheads, and outlines workspace constraints.
+   **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the new data plane crates: `canopy-data` (reads execution), `canopy-http` (Data API routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
 
 3. [03-typescript-reference-implementations.md](03-typescript-reference-implementations.md)
-   Documents the TypeScript implementations that serve as the behavioral specification and equivalence oracle for the port: the REST read path (`read-path.ts`, keyset pagination, limits), the REST write path (`write-path.ts`, transactions, fast path, idempotency, cluster time tracking), GraphQL (`handler.ts`), and storage (`storage.ts`).
+   **Identify what to port.** Specifies the exact TypeScript files, functions, and classes that define the behavioral contract for each remaining stage: completing D1 (`_query`, `_explain`, tracing spans, numeric id deferral), D2 transactional writes (`WritePath`, atomic fast path, transactions, idempotency documents, echo before ack), D3 GraphQL, D4 storage, D5 wire protocol, D6 control plane split, and D7 embedded mode.
 
-4. [04-spikes-and-performance-baselines.md](04-spikes-and-performance-baselines.md)
-   Summarizes empirical data from spikes S3 (write path costs and driver CPU bounds), S7 (echo before ack correctness), S11 (native gateway fan out and memory), S12 (Rust driver capabilities), S13 (inbound wire protocol feasibility), the Stage 4 cut analysis (0.92x and 0.99x throughput ceiling of crossing language boundaries), and the initial D0 local performance baselines.
+4. [05-stages-and-gates.md](05-stages-and-gates.md)
+   **Review gate criteria and deliverables.** Details the execution status of stages D0 through D7, concrete work items for each remaining stage, language neutral conformance oracles in `conformance/`, and performance gate thresholds required before route promotion.
 
-5. [05-stages-and-gates.md](05-stages-and-gates.md)
-   Provides the roadmap from stage D0 through D7, detailing exact deliverables, acceptance criteria, equivalence requirements, performance gates, and dependencies.
+5. [01-architecture-and-decisions.md](01-architecture-and-decisions.md)
+   **Architectural background.** Explains the core decision behind ADR-0017 (Option C: Rust data plane for every data path), the plane separation model between the Rust data plane, TypeScript control plane, and TypeScript developer surface, and how it relates to earlier ADRs.
 
-6. [06-target-repository-layout.md](06-target-repository-layout.md)
-   Details the target flat crate layout under `crates/`, the planned restructuring of `canopy-gateway` into focused crates (`canopyd`, `canopy-mongo`, `canopy-auth`, `canopy-data`, `canopy-storage`, `canopy-http`, `canopy-graphql`, `canopy-realtime`, `canopy-wire`, `canopy-config`), the language neutral `conformance/` directory, and migration mappings.
+6. [04-spikes-and-performance-baselines.md](04-spikes-and-performance-baselines.md)
+   **Empirical performance foundations.** Summarizes data from spikes S3 (write path cost breakdown), S7 (echo before ack correctness), S11 (native gateway scale), S12 (Rust driver capabilities), S13 (inbound wire protocol efficiency), the Stage 4 cut analysis, and D0 and D1 baseline reports.
 
-7. [07-security-invariants-and-compliance.md](07-security-invariants-and-compliance.md)
-   Outlines mandatory invariants I1 through I6, fail closed requirements, MongoDB terminology standards, and codebase rules including the punctuation dash prohibition.
+7. [06-target-repository-layout.md](06-target-repository-layout.md)
+   **Structural evolution.** Details the target crate structure under `crates/`, the planned restructuring of `canopy-gateway` into focused crates and eventual rename to `canopyd`, package consolidations, and conformance directory mappings.
 
-8. [08-progress.md](08-progress.md)
-   Tracks plan 004 execution progress, completed tasks, open issues such as dependency advisories, and upcoming milestones across stages D0 through D7.
+8. [07-security-invariants-and-compliance.md](07-security-invariants-and-compliance.md)
+   **Security and engineering standards.** Outlines mandatory invariants I1 through I6, fail closed requirements, MongoDB terminology standards, and codebase rules including the punctuation dash prohibition.
 
 ## Key Source References
 
@@ -37,6 +39,27 @@ This folder contains the complete technical context gathered for implementing [0
 - Security Model: [09-security.md](../../design/09-security.md)
 - Document Level Security: [02-document-level-security.md](../../design/02-document-level-security.md)
 - Spikes: [S3-write-path-cost.md](../../spikes/S3-write-path-cost.md), [S7-echo-before-ack.md](../../spikes/S7-echo-before-ack.md), [S11-native-gateway.md](../../spikes/S11-native-gateway.md), [S12-rust-driver-fidelity.md](../../spikes/S12-rust-driver-fidelity.md), [S13-inbound-wire.md](../../spikes/S13-inbound-wire.md)
-- Current Rust Gateway: [crates/canopy-gateway/src/main.rs](../../../crates/canopy-gateway/src/main.rs), [crates/canopy-gateway/src/mongo.rs](../../../crates/canopy-gateway/src/mongo.rs), [crates/canopy-gateway/src/forward.rs](../../../crates/canopy-gateway/src/forward.rs)
-- Current TypeScript Implementations: [packages/rest/src/read-path.ts](../../../packages/rest/src/read-path.ts), [packages/rest/src/write-path.ts](../../../packages/rest/src/write-path.ts), [packages/graphql/src/handler.ts](../../../packages/graphql/src/handler.ts), [packages/storage/src/storage.ts](../../../packages/storage/src/storage.ts)
-- Benchmarks and Baselines: [bench/README.md](../../../bench/README.md), D0 baseline report in [bench/baselines/d0/README.md](../../../bench/baselines/d0/README.md), workloads in [bench/workloads/](../../../bench/workloads/), baselines in [bench/baselines/](../../../bench/baselines/), and spike prototypes in [bench/spikes/](../../../bench/spikes/)
+- Rust Data Plane Crates:
+  - [crates/canopy-data/src/lib.rs](../../../crates/canopy-data/src/lib.rs)
+  - [crates/canopy-http/src/lib.rs](../../../crates/canopy-http/src/lib.rs)
+  - [crates/canopy-auth/src/lib.rs](../../../crates/canopy-auth/src/lib.rs)
+  - [crates/canopy-config/src/lib.rs](../../../crates/canopy-config/src/lib.rs)
+  - [crates/canopy-mongo/src/lib.rs](../../../crates/canopy-mongo/src/lib.rs)
+  - [crates/canopy-realtime/src/lib.rs](../../../crates/canopy-realtime/src/lib.rs)
+  - [crates/canopy-gateway/src/main.rs](../../../crates/canopy-gateway/src/main.rs)
+- TypeScript Reference Implementations:
+  - [packages/rest/src/read-path.ts](../../../packages/rest/src/read-path.ts)
+  - [packages/rest/src/write-path.ts](../../../packages/rest/src/write-path.ts)
+  - [packages/graphql/src/handler.ts](../../../packages/graphql/src/handler.ts)
+  - [packages/storage/src/storage.ts](../../../packages/storage/src/storage.ts)
+- Conformance Oracles:
+  - [conformance/README.md](../../../conformance/README.md)
+  - [conformance/http/find/](../../../conformance/http/find/)
+  - [conformance/http/reads/](../../../conformance/http/reads/)
+  - [conformance/cursor/](../../../conformance/cursor/)
+  - [conformance/policy/pipeline.json](../../../conformance/policy/pipeline.json)
+  - [conformance/auth/rate-limits.json](../../../conformance/auth/rate-limits.json)
+- Benchmarks and Baselines:
+  - [bench/README.md](../../../bench/README.md)
+  - [bench/baselines/d0/README.md](../../../bench/baselines/d0/README.md)
+  - [bench/baselines/d1/README.md](../../../bench/baselines/d1/README.md)

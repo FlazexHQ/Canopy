@@ -6,13 +6,9 @@ This document records completed tasks, open issues, and planned work for the Rus
 
 **State.** Branch `bench/d1-gate` (commits `504e5fe`, `4d2cc93`, `6c3a263`, then this checkpoint) is merged into `master`. Stage D1 is nearly done: `find`, `_count`, `_distinct` and `_aggregate` are served in Rust behind `CANOPY_DATA_PLANE_ROUTES` and pass the D1 throughput gate on Linux CI in all 28 measurements (`bench/baselines/d1/README.md`), with the reads oracle byte identical on MongoDB 8 and 9, DLS equivalence and the bypass corpus green, request rate limits, failed authentication limits and the request log in parity with TypeScript.
 
-**In progress, not finished: `_query` (find with a body) in Rust.** Done: 45 recorded cases in `conformance/http/reads/cases/query.json` (recorded on MongoDB 8, `--check` current on 9; a recorded body may now refer to an earlier cursor, `Spec.body` is a `Value`), `canopy_http::find_params_from_body`, `FindParams` and `FindRequest` taking any value for `sort` and `fields`, `Served::query`, `Route::Query` and `Rest::query` (the page with `ct` in the body, no `ETag`, no `X-Canopy-Ct`). `crates/canopy-http/tests/reads_conformance.rs` replays 128 of 128 on MongoDB 8, query included. **Not done, and failing until it is:**
-1. `canopy-config`: `DataPlaneRoute::Query` named `query` (`NAMES`, `parse`, the refusal message now listing five names), the schema enum and description, `crates/canopy-config/tests/schema.rs` and `launcher.rs`, the fixture `data-plane.json` and the launcher contract case in `packages/realtime/test/gateway-config-contract.test.ts`.
-2. `canopy-gateway/src/data_plane.rs`: `query: routes.contains(&DataPlaneRoute::Query)` in `Served`.
-3. Tests that replay the reads oracle with `count,distinct,aggregate` selected now also send the `_query` cases and expect Rust to answer them, so they **fail until `query` is added to their route lists**: `crates/canopy-gateway/tests/data_plane.rs` (`the_selected_read_routes_answer_every_recorded_read_request_through_the_gateway`, the refusal messages in `a_route_name_the_gateway_does_not_know_stops_it_at_startup`) and `packages/server/test/data-plane-switch.test.ts` (`READ_ROUTES`). Also add `query` to `bench/workloads/d1/find.ts` routes and a scenario, the DLS equivalence routes, docs (gateway README, `docs/design/14-native-core.md`, the configuration reference) and a changeset.
-4. Verify (Rust on MongoDB 8 and 9, Vitest with Node 26 through fnm, lints, vector checks), then commit.
+**Done (2026-11-24): `_query` (find with a body) in Rust**, commit `a30e8fc`. `DataPlaneRoute::Query` (`query`) in `canopy-config` and its schema, `Served::query` in the gateway, and `query` selected by the gateway reads replay, the switch test, the DLS equivalence of the read actions (each filter also sent to `_query`, plus a `_query` projecting the hidden field) and the D1 benchmark (scenario "query page of 20"). Verified: 307 Rust tests on MongoDB 8 and 9, the switch, contract and DLS equivalence suites on both (560 reads through REST and the Rust routes, nothing hidden shown).
 
-**Remaining after `_query`, in order:**
+**Remaining, in order:**
 1. **Tracing spans on the Rust routes:** waits on the user's decision about OpenTelemetry crates (with an OTLP exporter from the `OTEL_*` variables) in the gateway.
 2. **`POST /rest/v1/{coll}/_explain` from Rust**, answering the same trace (`packages/rest/src/explain-route.ts`, `canopy_policy::explain_access`).
 3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
@@ -23,6 +19,55 @@ This document records completed tasks, open issues, and planned work for the Rus
 **Known differences, documented:** each process keeps its own rate limit budget while routes are split between the gateway and TypeScript; the gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
 
 **Environment notes:** the replica sets are MongoDB 8.0.34 on `localhost:37017` and 9.0.8 on `localhost:37090` (data in `%TEMP%/canopy-review-mongo` and `%TEMP%/canopy-review-mongo9`; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`, which reuses the data). The 9.0.8 server stopped once during this session and was restarted that way. Never touch the standalone `mongod` on 27017. Node 22 is first on PATH: run Node 26 with `fnm exec --using=26`. Generated vector files are excluded from `bun fmt` and Biome (`bunfig.toml`, `biome.json`); add any new `conformance/` folder there too.
+
+## Remaining Work by Stage
+
+Ordered as the work should proceed:
+
+### Stage D1: Complete REST Reads in Rust
+1. **`_query` route integration:** done (`a30e8fc`).
+2. **Tracing spans on Rust routes:** implement request spans in `canopy-gateway` using the agreed OpenTelemetry crates, continuing `traceparent` headers with low cardinality route names.
+3. **`POST /rest/v1/{coll}/_explain` from Rust:** port `packages/rest/src/explain-route.ts` using `canopy_policy::explain_access`, restricted strictly to `service` callers.
+4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
+5. **`conformance/errors.json`:** generate canonical error definitions driving TypeScript classes and Rust enums.
+6. **Numeric ID deferral in atomic batches:** extend batch read back deferral to numeric types across BSON representations.
+
+### Stage D2: Transactional Writes in Rust
+1. **Write execution core in `canopy-data`:** port `WritePath` methods (`insert`, `patch`, `replace`, `delete`, `executeBatch`, `executeEach`, `explainDenials`).
+2. **Single document fast paths:** insert precheck and replace precheck via `$unionWith` on the target collection, fast path patch when checks compile to all documents.
+3. **Multi-document transactions:** execute writes in transactions with majority concerns, capturing commit cluster time.
+4. **Idempotency records:** store idempotency documents in `canopy.mutations` with request fingerprints, replaying stored outcomes on duplicate keys.
+5. **HTTP write routes in `canopy-http`:** handle `POST`, `PATCH`, `PUT`, `DELETE`, and `POST /_batch`.
+6. **Native socket mutations in `canopy-realtime`:** process realtime mutations directly in process without loopback forwarding.
+7. **Verification and oracle:** record `conformance/http/writes/`, run S7 echo before ack harness (100,000 mutations with zero violations), and verify 1.5x write throughput gate.
+
+### Stage D3: GraphQL Schema and Execution
+1. **Spike S15 library selection:** select the Rust GraphQL library.
+2. **Crate `canopy-graphql`:** implement schema synthesis and execution over `canopy-data` read and write services.
+3. **Subscriptions:** wire GraphQL subscriptions to `canopy-engine`.
+4. **Verification and oracle:** record `conformance/http/graphql/` and verify existing GraphQL test suite passes unchanged.
+
+### Stage D4: File Storage
+1. **Crate `canopy-storage`:** implement storage policies on `storage.objects`.
+2. **Backends:** support GridFS and S3 backends with signed URLs, chunked uploads, and image transforms.
+3. **Verification and oracle:** record `conformance/http/storage/` and verify storage policy suite.
+
+### Stage D5: MongoDB Wire Protocol Endpoint
+1. **Crate `canopy-wire`:** implement `OP_MSG` listener.
+2. **Authentication and allowlist:** support `hello`, `MONGODB-OIDC`, `SCRAM-SHA-256`, and command allowlist.
+3. **Execution core integration:** bind cursors to identity, wire change streams to `canopy-engine`, and route writes through D2 write path.
+4. **Verification:** verify with official driver unified spec tests (Node, Python, Go, Java) and wire query denial corpus.
+
+### Stage D6: Control Plane Split
+1. **Package `packages/control`:** extract Better Auth, admin API, meta migrations, policy publishing, and webhooks into an independent service.
+2. **Data plane binary:** rename `canopy-gateway` to `canopyd`.
+3. **Deployment updates:** update Docker Compose, Helm charts, and Kubernetes manifests.
+4. **Verification:** verify with `sdk-e2e`, Studio, and Playwright suites, testing control plane failure resilience.
+
+### Stage D7: Defaults and Embedded Mode
+1. **Promote defaults:** make the Rust data plane default for all routes.
+2. **Package `packages/embedded`:** consolidate TypeScript data packages into frozen embedded mode and equivalence reference.
+3. **Release verification:** resolve question Q17; zero P0 or P1 open bugs for one full release cycle.
 
 ## Task Execution Log
 
