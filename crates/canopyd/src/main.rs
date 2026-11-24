@@ -618,7 +618,9 @@ mod tests {
 
     #[test]
     fn welcome_advertises_writes_when_the_gateway_has_a_mutations_url() -> Result<(), String> {
-        let mut gateway = config::resolve(Some(r#"{"mongodb":{"uri":"mongodb://localhost/app"}}"#))?;
+        let mut gateway = config::resolve(Some(
+            r#"{"mongodb":{"uri":"mongodb://localhost/app"},"dataPlane":{"routes":[]}}"#,
+        ))?;
         for mutations in [false, true] {
             gateway.mutations_url = mutations.then(|| "http://localhost:8080/rest/v1".to_owned());
             let policies = create_policy_set(Vec::new(), Vec::new()).map_err(|e| e.message().to_owned())?;

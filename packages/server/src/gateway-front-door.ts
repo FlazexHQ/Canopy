@@ -29,12 +29,14 @@ function frontDoor(
   proxyPort: number,
   internalPort: number,
   metricsPort: number,
+  serves: CreateCanopyOptions["serves"],
 ): GatewayOverrides {
   const internal = `http://127.0.0.1:${internalPort}`
   const verification = canopy.auth?.verification
   const audience = verification?.audience
   return {
     metricsPort,
+    ...(serves === undefined ? {} : { dataPlaneRoutes: [] }),
     metricsHost: "127.0.0.1",
     proxyUrl: `http://127.0.0.1:${proxyPort}`,
     viewTokenKey: canopy.viewTokenKey,
@@ -148,7 +150,13 @@ export async function startGatewayFrontDoor(
     const running = await startGateway(
       config,
       logger,
-      frontDoor(canopy, upstream.port, internal?.port ?? upstream.port, metricsPort),
+      frontDoor(
+        canopy,
+        upstream.port,
+        internal?.port ?? upstream.port,
+        metricsPort,
+        options.serves,
+      ),
     )
     gateway = running
     using _abort = signal === undefined ? undefined : addAbortListener(signal, () => running.stop())

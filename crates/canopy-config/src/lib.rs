@@ -463,7 +463,8 @@ fn data_plane_routes(
     fallback: Option<Vec<String>>,
     configured: &Configured,
 ) -> ConfigResult<Vec<DataPlaneRoute>> {
-    let names = strings(doc, &["dataPlane", "routes"]).or(fallback).unwrap_or_default();
+    let names =
+        strings(doc, &["dataPlane", "routes"]).or(fallback).unwrap_or_else(|| vec![ALL_ROUTES.to_owned()]);
     let mut routes = Vec::new();
     let mut add = |route: DataPlaneRoute| {
         if !routes.contains(&route) {

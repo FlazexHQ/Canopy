@@ -184,7 +184,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
     assert!(base.cors.is_none());
     assert!(base.mutations_url.is_none());
     assert!(base.proxy_url.is_none());
-    assert!(base.data_plane_routes.is_empty());
+    assert_eq!(base.data_plane_routes, DataPlaneRoute::ALL[..9]);
     let list = |values: Vec<String>| Json::Array(values.into_iter().map(Json::String).collect());
     for (path, expected) in [
         (&["mongodb", "properties", "metaDatabase"][..], Json::String(base.meta_database)),
@@ -250,7 +250,7 @@ fn schema_defaults_match_the_parser() -> Result<(), String> {
         (&["rest", "properties", "maxSkip"], Json::Number(base.rest_limits.max_skip as f64)),
         (&["rest", "properties", "maxBodyBytes"], Json::Number(base.rest_limits.max_body_bytes as f64)),
         (&["rest", "properties", "search"], list(base.search_collections.clone())),
-        (&["dataPlane", "properties", "routes"], Json::Array(vec![])),
+        (&["dataPlane", "properties", "routes"], list(vec!["all".to_owned()])),
     ] {
         assert_eq!(at(root, path).and_then(|setting| setting.get("default")), Some(&expected), "{path:?}");
     }
@@ -370,7 +370,7 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     let routes = |document: &str, fallback: Fallbacks| {
         resolve(Some(document), fallback).map(|config| config.data_plane_routes)
     };
-    assert_eq!(routes(&format!("{{{uri}}}"), Fallbacks::default())?, []);
+    assert_eq!(routes(&format!("{{{uri}}}"), Fallbacks::default())?, DataPlaneRoute::ALL[..9]);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&[]))?, []);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&["find"]))?, [DataPlaneRoute::Find]);
     assert_eq!(routes(&format!("{{{uri}}}"), from_host(&["find", "find"]))?, [DataPlaneRoute::Find]);

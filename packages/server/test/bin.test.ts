@@ -358,6 +358,7 @@ suite("canopy-server against MongoDB", { timeout: 60_000 }, () => {
       const masterKey = "m".repeat(44)
       const { run, base, metrics } = await boot(POLICIES, {
         CANOPY_REALTIME_SERVER: "gateway",
+        CANOPY_DATA_PLANE_ROUTES: "",
         CANOPY_MASTER_KEY: masterKey,
       })
       try {

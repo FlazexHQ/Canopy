@@ -215,7 +215,7 @@ async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
     }}"#
     );
     let config = wire_config(&uri, &database, r#"{"port":0}"#, &auth);
-    let gateway = Gateway::start(config, (!oidc).then_some("find,count")).await;
+    let gateway = Gateway::start(config, Some(if oidc { "" } else { "find,count" })).await;
     let port = gateway.wire_port.expect("the wire port");
     let base = format!("127.0.0.1:{port}/{database}");
     let mut target = if oidc {
@@ -312,33 +312,40 @@ async fn wire_driver_watches(
         .await
         .expect("open driver change stream");
     source.insert_one(doc! { "_id": 9, "owner": "other" }).await.expect("insert hidden document");
-    source
-        .insert_one(doc! { "_id": 10, "owner": "wire-reader", "rank": 1, "secret": "hidden" })
-        .await
-        .expect("insert visible document");
-
-    source
-        .update_one(doc! { "_id": 10 }, doc! { "$set": { "rank": 2 } })
-        .await
-        .expect("update visible document");
-    source
-        .replace_one(
-            doc! { "_id": 10 },
-            doc! { "_id": 10, "owner": "wire-reader", "rank": 3, "secret": true },
-        )
-        .await
-        .expect("replace visible document");
-    source
-        .update_one(doc! { "_id": 10 }, doc! { "$set": { "owner": "other" } })
-        .await
-        .expect("move document out of the policy");
-
     for (op, rank) in [
         (OperationType::Insert, Some(1)),
         (OperationType::Update, Some(2)),
         (OperationType::Replace, Some(3)),
         (OperationType::Delete, None),
     ] {
+        let key = doc! { "_id": 10 };
+        match op {
+            OperationType::Insert => {
+                source
+                    .insert_one(doc! { "_id": 10, "owner": "wire-reader", "rank": 1, "secret": "hidden" })
+                    .await
+                    .expect("insert visible document");
+            }
+            OperationType::Update => {
+                source
+                    .update_one(key, doc! { "$set": { "rank": 2 } })
+                    .await
+                    .expect("update visible document");
+            }
+            OperationType::Replace => {
+                source
+                    .replace_one(key, doc! { "_id": 10, "owner": "wire-reader", "rank": 3, "secret": true })
+                    .await
+                    .expect("replace visible document");
+            }
+            OperationType::Delete => {
+                source
+                    .update_one(key, doc! { "$set": { "owner": "other" } })
+                    .await
+                    .expect("move document out of the policy");
+            }
+            _ => unreachable!("unexpected operation"),
+        }
         let event = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 if let Some(change) = stream.next_if_any().await.expect("read change stream") {
@@ -363,6 +370,7 @@ async fn wire_driver_watches(
         }
     }
     drop(stream);
+    wire_driver_watch_burst(&collection, &source).await;
     let service = Client::with_uri_str(format!(
         "mongodb://service:{WIRE_SECRET}@{base}?authMechanism=SCRAM-SHA-256&authSource=admin"
     ))
@@ -443,13 +451,107 @@ async fn wire_driver_watches(
     assert_code(error, 286);
 }
 
+async fn wire_driver_watch_burst(
+    collection: &canopy_mongo::mongodb::Collection<canopy_mongo::mongodb::bson::Document>,
+    source: &canopy_mongo::mongodb::Collection<canopy_mongo::mongodb::bson::Document>,
+) {
+    use std::collections::BTreeMap;
+
+    use canopy_mongo::mongodb::{bson::doc, change_stream::event::OperationType, options::FullDocumentType};
+
+    let mut stream = collection
+        .watch()
+        .full_document(FullDocumentType::UpdateLookup)
+        .max_await_time(Duration::from_millis(200))
+        .await
+        .expect("open burst change stream");
+    source
+        .insert_many([
+            doc! { "_id": 20, "owner": "wire-reader", "rank": 0, "secret": true },
+            doc! { "_id": 21, "owner": "wire-reader", "rank": 0, "secret": true },
+            doc! { "_id": 22, "owner": "other", "rank": 0, "secret": true },
+            doc! { "_id": 23, "owner": "wire-reader", "rank": 0, "secret": true },
+        ])
+        .await
+        .expect("seed burst documents");
+    let mut workers = tokio::task::JoinSet::new();
+    for id in [20, 21, 22] {
+        for _ in 0..4 {
+            let source = source.clone();
+            workers.spawn(async move {
+                for _ in 0..8 {
+                    let result = source
+                        .update_one(doc! { "_id": id }, doc! { "$inc": { "rank": 1 } })
+                        .await
+                        .expect("concurrent update");
+                    assert_eq!(result.modified_count, 1);
+                }
+            });
+        }
+    }
+    while let Some(worker) = workers.join_next().await {
+        worker.expect("burst worker");
+    }
+    source
+        .update_one(doc! { "_id": 23 }, doc! { "$set": { "owner": "other" } })
+        .await
+        .expect("move burst document out of policy");
+    source.insert_one(doc! { "_id": 24, "owner": "wire-reader" }).await.expect("insert burst marker");
+
+    let (rebuilt, updates) = tokio::time::timeout(Duration::from_secs(15), async {
+        let mut rebuilt = BTreeMap::new();
+        let mut updates = BTreeMap::new();
+        loop {
+            let Some(event) = stream.next_if_any().await.expect("read burst change stream") else {
+                continue;
+            };
+            let id = event.document_key.expect("document key").get_i32("_id").expect("numeric ID");
+            assert!(matches!(id, 20 | 21 | 23 | 24), "unexpected watched document {id}");
+            match event.operation_type {
+                OperationType::Insert | OperationType::Update => {
+                    let image = event.full_document.expect("visible burst image");
+                    assert_eq!(image.get_str("owner").expect("owner"), "wire-reader");
+                    assert!(!image.contains_key("secret"));
+                    if event.operation_type == OperationType::Update {
+                        *updates.entry(id).or_insert(0) += 1;
+                    }
+                    rebuilt.insert(id, image);
+                }
+                OperationType::Delete => {
+                    assert_eq!(id, 23);
+                    assert!(event.full_document.is_none());
+                    assert!(rebuilt.remove(&id).is_some());
+                }
+                other => panic!("unexpected burst operation: {other:?}"),
+            }
+            if id == 24 {
+                break (rebuilt, updates);
+            }
+        }
+    })
+    .await
+    .expect("receive burst marker");
+    assert_eq!(updates, BTreeMap::from([(20, 32), (21, 32)]));
+    let mut cursor = source
+        .find(doc! { "_id": { "$gte": 20, "$lte": 24 }, "owner": "wire-reader" })
+        .projection(doc! { "secret": 0 })
+        .await
+        .expect("read current documents under the policy");
+    let mut expected = BTreeMap::new();
+    while cursor.advance().await.expect("advance policy query") {
+        let image = cursor.deserialize_current().expect("decode current document");
+        expected.insert(image.get_i32("_id").expect("numeric ID"), image);
+    }
+    assert_eq!(rebuilt, expected);
+}
+
 #[tokio::test]
 async fn wire_refuses_oversized_headers_without_waiting_for_the_body() {
     use tokio::io::AsyncWriteExt as _;
 
     let Some(uri) = mongodb_uri() else { return };
     let config = wire_config(&uri, "gateway_wire_frames", r#"{"port":0,"maxMessageBytes":1024}"#, "null");
-    let gateway = Gateway::start(config, None).await;
+    let gateway = Gateway::start(config, Some("")).await;
     let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.wire_port.expect("the wire port")))
         .await
         .expect("connect the wire socket");
@@ -469,7 +571,7 @@ async fn wire_echoes_the_request_compressor_and_closes_on_unnegotiated_frames() 
     let Some(uri) = mongodb_uri() else { return };
     let database = "gateway_wire_compression";
     let config = wire_config(&uri, database, r#"{"port":0}"#, "null");
-    let gateway = Gateway::start(config, None).await;
+    let gateway = Gateway::start(config, Some("")).await;
     let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.wire_port.expect("the wire port")))
         .await
         .expect("connect the wire socket");
@@ -501,7 +603,7 @@ async fn wire_enforces_capacity_and_releases_idle_connections() {
         r#"{"port":0,"maxConnections":1,"idleTimeoutMs":1000}"#,
         "null",
     );
-    let gateway = Gateway::start(config, None).await;
+    let gateway = Gateway::start(config, Some("")).await;
     let address = ("127.0.0.1", gateway.wire_port.expect("the wire port"));
     let mut first = tokio::net::TcpStream::connect(address).await.expect("connect first socket");
     wire_ping(&mut first).await;
@@ -1268,7 +1370,7 @@ async fn other_requests_reach_the_upstream_unchanged_and_without_the_route_so_do
     assert!(seen.lock().unwrap().is_empty(), "the owned requests never reach the upstream");
     drop(with_find);
 
-    let without = Gateway::start(launcher(&fixture, dead, "unreachable", port, ""), None).await;
+    let without = Gateway::start(launcher(&fixture, dead, "unreachable", port, ""), Some("")).await;
     seen.lock().unwrap().clear();
     let mut expected = Vec::new();
     for (method, target) in other_requests().into_iter().chain(owned_requests()) {
@@ -1439,7 +1541,7 @@ async fn selected_graphql_replays_the_typescript_oracle_through_the_gateway() {
     );
     let config = launcher(&fixture, &uri, &database, port, &extra);
     {
-        let gateway = Gateway::start(config.clone(), None).await;
+        let gateway = Gateway::start(config.clone(), Some("")).await;
         let response = gateway.send(&canopy_http::Request::new("GET", text(&fixture, "basePath"))).await;
         assert_eq!(response.header("x-upstream"), Some("yes"));
     }
@@ -1562,7 +1664,7 @@ async fn every_data_route_keeps_serving_while_the_control_plane_is_down() {
         probe.local_addr().expect("an address").port()
     };
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let gateway = Gateway::start(launcher(&fixture, &uri, &database, dead, ""), Some("all")).await;
+    let gateway = Gateway::start(launcher(&fixture, &uri, &database, dead, ""), None).await;
     let json = |method: &str, target: &str, body: &str| {
         let mut request =
             common::get_as(&fixture, "service", target).with_header("content-type", "application/json");
@@ -1630,7 +1732,7 @@ async fn the_probe_reports_whether_the_local_gateway_is_ready() {
         eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
         return;
     };
-    let gateway = Gateway::start(wire_config(&uri, "gateway_probe", "false", "null"), None).await;
+    let gateway = Gateway::start(wire_config(&uri, "gateway_probe", "false", "null"), Some("")).await;
     let probe = |port: u16| {
         Command::new(GATEWAY)
             .arg("--probe")

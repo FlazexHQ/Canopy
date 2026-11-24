@@ -86,8 +86,9 @@ export interface GatewayOverrides {
   /** The public key of Studio's view tokens as a JWK, so the gateway accepts them. */
   readonly viewTokenKey?: JsonWebKey
   /**
-   * The HTTP routes the gateway serves itself, including `graphql`. Without it the gateway reads
-   * `CANOPY_DATA_PLANE_ROUTES`, and without that it serves none and passes every request on to the server.
+   * The HTTP routes the gateway serves itself. An empty list selects no routes. When omitted,
+   * `CANOPY_DATA_PLANE_ROUTES` takes a comma separated list or an empty string. When both are omitted,
+   * the gateway serves all configured data routes.
    */
   readonly dataPlaneRoutes?: readonly string[]
   /** Settings for a dedicated MongoDB wire listener. The listener is off by default. */
@@ -137,7 +138,8 @@ export async function readPersistedGraphqlOperations(input: {
 /**
  * The gateway's configuration from the resolved config of `canopy-realtime`. Policies from a directory are
  * passed in stored form, because the gateway cannot evaluate TypeScript; policies in the database are read and
- * watched by the gateway itself.
+ * watched by the gateway itself. The gateway resolves the route selection from the environment or its
+ * default when the document omits it.
  */
 export function gatewayConfig(
   config: ResolvedConfig,
@@ -333,7 +335,11 @@ export async function runGateway(
   logger: Logger,
   onStop: (stop: () => void) => void,
 ): Promise<number> {
-  const gateway = await startGateway(config, logger)
+  const gateway = await startGateway(
+    config,
+    logger,
+    process.env["CANOPY_DATA_PLANE_ROUTES"] === undefined ? { dataPlaneRoutes: [] } : {},
+  )
   onStop(() => gateway.stop())
   return gateway.exited
 }

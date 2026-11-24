@@ -68,11 +68,17 @@ of standard input. In that mode later lines may replace the policies (`{"t":"pol
 closing standard input drains the server and stops it.
 
 `CANOPY_GATEWAY_MUTATIONS_URL` (or `mutations.url`) is the REST base URL writes are forwarded to, for example
-`http://127.0.0.1:8080/rest/v1`. Without it, `mut` frames are refused, as on the sidecar.
+`http://127.0.0.1:8080/rest/v1`. When the gateway serves `writes`, it handles `mut` frames locally. Otherwise it
+forwards them to this URL or refuses them if no URL is set.
 
-`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes`, a name or a list of names) lists the Data API routes the
-gateway answers itself instead of passing them to the upstream server. It is empty by default, so every REST
-request goes to the upstream. `find` selects `GET /rest/v1/{collection}`, and `count`, `distinct`, `aggregate`,
+`CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes`, a name or a list of names) lists the data routes the gateway
+serves locally. Standalone `canopyd` and the unrestricted server front door default to `all`, which selects
+the Data API routes and any configured GraphQL and storage routes. Set `dataPlane.routes` to `[]` or set
+`CANOPY_DATA_PLANE_ROUTES` to an empty string to select no routes. The document takes precedence over the
+environment. With `rest: false`, `all` selects only storage when configured. The `canopy-realtime` sidecar
+selects no data routes unless the variable is set.
+
+`find` selects `GET /rest/v1/{collection}`, and `count`, `distinct`, `aggregate`,
 `query` and `explain` select `POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` (a find
 with its parameters in the body) and `_explain` (for secret keys only), each with the `OPTIONS` and `405` answers
 of its path. `document` selects `GET /rest/v1/{collection}/{id}`, one document by its `_id` with an optional
@@ -80,10 +86,11 @@ of its path. `document` selects `GET /rest/v1/{collection}/{id}`, one document b
 collection, `PATCH`, `PUT` and `DELETE` on a document and `POST /rest/v1/_batch`, run in the gateway's own
 transactions with the idempotency records in the meta database, the `{id}` types of `rest.idTypes`, records kept
 `rest.mutationTtlSeconds` long, `rest.explainDenials` in development and an audit entry per committed write when
-`audit.dataWrites` is set (the launcher passes all four from the server's configuration). Every other path and
-method (`openapi.json`, GraphQL, storage) is passed on untouched. A name the
-gateway does not know stops it at startup, as does `rest: false` in the configuration with a route selected. The route reads with the gateway's own MongoDB
-client, with the keys, JWKS, revocations and policies the realtime sessions use (the policies are read again
+`audit.dataWrites` is set (the launcher passes all four from the server's configuration). The `graphql` and `storage`
+selections serve their configured paths. Unselected paths and methods go to the upstream server. An unknown
+route name stops the gateway at startup. With `rest: false`, explicitly selecting an individual route other
+than `storage` also stops it. A route reads with the gateway's own MongoDB client, with the keys, JWKS,
+revocations and policies the realtime sessions use (the policies are read again
 every time the policy watch opens, so a change made while it was down still applies), and it answers as the
 TypeScript handler does, byte for byte where the response is deterministic. `rest.defaultLimit` and
 `rest.maxLimit` set the page sizes, `rest.maxBodyBytes` the largest request body (a longer one answers `413`

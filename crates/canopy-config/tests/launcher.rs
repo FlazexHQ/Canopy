@@ -34,7 +34,7 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert!(config.checkpoints);
     assert!(config.websocket && config.http_fallback);
     assert_eq!(config.log_level, "info");
-    assert!(config.data_plane_routes.is_empty());
+    assert_eq!(config.data_plane_routes, DataPlaneRoute::ALL[..9]);
     assert_eq!(config.rest_limits, RestLimits::default());
     assert_eq!(config.graphql, Some(GraphqlSettings::default()));
     assert!(config.storage.is_none());
@@ -323,17 +323,14 @@ fn selects_r2_storage_with_rest_disabled_and_uses_storage_defaults() -> Result<(
 }
 
 #[test]
-fn all_selects_every_route_whose_surface_is_configured() -> Result<(), String> {
+fn defaults_to_all_routes_whose_surface_is_configured() -> Result<(), String> {
     use DataPlaneRoute::{
         Aggregate, Count, Distinct, Document, Explain, Find, Graphql, Query, Storage, Writes,
     };
     let rest = [Find, Count, Distinct, Aggregate, Query, Explain, Document, Writes];
     let storage = r#""storage":{"buckets":{},"backend":{"kind":"local","root":"files"}}"#;
-    let with = |extra: &str| {
-        parse(&format!(
-            r#"{{"mongodb":{{"uri":"mongodb://db.example.test/app"}},"dataPlane":{{"routes":["all"]}}{extra}}}"#
-        ))
-    };
+    let with =
+        |extra: &str| parse(&format!(r#"{{"mongodb":{{"uri":"mongodb://db.example.test/app"}}{extra}}}"#));
 
     let everything = with(&format!(",{storage}"))?;
     assert_eq!(everything.data_plane_routes, [&rest[..], &[Graphql, Storage]].concat());

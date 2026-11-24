@@ -149,7 +149,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
       launcher(upstreamBase, { dataPlane: { routes: ["find"] } }),
       "",
     )
-    unselected = await start(launcher(upstreamBase, {}), undefined)
+    unselected = await start(launcher(upstreamBase, {}), "")
     readsSelected = await start(launcher(upstreamBase, {}), READ_ROUTES)
     withCors = await start(launcher(corsBase, { cors: { origins: [ORIGIN] } }), "find")
   }, 120_000)

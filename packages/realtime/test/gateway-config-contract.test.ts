@@ -24,6 +24,17 @@ interface Fixture {
   readonly overrides?: GatewayOverrides
 }
 
+it("leaves routes to the gateway default or environment unless explicitly overridden", () => {
+  const config = resolved({})
+  expect(gatewayConfig(config, undefined, {})).not.toHaveProperty("dataPlane")
+  expect(gatewayConfig(config, undefined, { CANOPY_DATA_PLANE_ROUTES: "" })).not.toHaveProperty(
+    "dataPlane",
+  )
+  expect(
+    gatewayConfig(config, undefined, { CANOPY_DATA_PLANE_ROUTES: "all" }, { dataPlaneRoutes: [] }),
+  ).toHaveProperty("dataPlane.routes", [])
+})
+
 const publicKey = { kty: "OKP", crv: "Ed25519", x: "A".repeat(43) }
 const cases: readonly Fixture[] = [
   { name: "minimal", input: {} },
