@@ -1,0 +1,223 @@
+{
+  "description": "The stable CANOPY_* error codes of the wire protocol and REST Problem Details: the one source both languages are checked against.",
+  "codes": [
+    {
+      "name": "Unauthorized",
+      "code": "CANOPY_UNAUTHORIZED",
+      "status": 401,
+      "title": "Unauthorized",
+      "slug": "unauthorized",
+      "class": "UnauthorizedError",
+      "description": "The caller is not authenticated.",
+      "hint": "Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.",
+      "docs": "unauthorized"
+    },
+    {
+      "name": "TokenExpired",
+      "code": "CANOPY_TOKEN_EXPIRED",
+      "status": 401,
+      "title": "Token expired",
+      "slug": "token-expired",
+      "class": "UnauthorizedError",
+      "description": "The access token has expired.",
+      "hint": "Refresh the access token and retry; the SDK does this itself when it is given a token provider.",
+      "docs": "token-expired"
+    },
+    {
+      "name": "Forbidden",
+      "code": "CANOPY_FORBIDDEN",
+      "status": 403,
+      "title": "Forbidden",
+      "slug": "forbidden",
+      "class": "ForbiddenError",
+      "description": "No policy grants the operation.",
+      "hint": "No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.",
+      "docs": "forbidden"
+    },
+    {
+      "name": "NotFound",
+      "code": "CANOPY_NOT_FOUND",
+      "status": 404,
+      "title": "Not found",
+      "slug": "not-found",
+      "class": "NotFoundError",
+      "description": "The document does not exist or is not visible.",
+      "hint": "The document does not exist, or no read policy lets the caller see it.",
+      "docs": "not-found"
+    },
+    {
+      "name": "PolicyViolation",
+      "code": "CANOPY_POLICY_VIOLATION",
+      "status": 403,
+      "title": "Policy violation",
+      "slug": "policy-violation",
+      "class": "PolicyViolationError",
+      "description": "A write failed a policy clause.",
+      "hint": "The write failed a policy's where or check clause, or touched a field the caller may not write.",
+      "docs": "policy-violation"
+    },
+    {
+      "name": "InvalidQuery",
+      "code": "CANOPY_INVALID_QUERY",
+      "status": 400,
+      "title": "Invalid query",
+      "slug": "invalid-query",
+      "class": "InvalidQueryError",
+      "description": "The query, filter or value is not valid.",
+      "hint": "Check the operators, field paths and value types; operators Canopy does not support are refused.",
+      "docs": "invalid-query"
+    },
+    {
+      "name": "Conflict",
+      "code": "CANOPY_CONFLICT",
+      "status": 409,
+      "title": "Conflict",
+      "slug": "conflict",
+      "class": "ConflictError",
+      "description": "The document changed since it was read.",
+      "hint": "The document changed since it was read: read it again and retry the write.",
+      "docs": "conflict"
+    },
+    {
+      "name": "DuplicateKey",
+      "code": "CANOPY_DUPLICATE_KEY",
+      "status": 409,
+      "title": "Duplicate key",
+      "slug": "duplicate-key",
+      "class": "CanopyError",
+      "description": "A unique index refused the write."
+    },
+    {
+      "name": "PayloadTooLarge",
+      "code": "CANOPY_PAYLOAD_TOO_LARGE",
+      "status": 413,
+      "title": "Payload too large",
+      "slug": "payload-too-large",
+      "class": "CanopyError",
+      "description": "The request body is too large."
+    },
+    {
+      "name": "ValidationFailed",
+      "code": "CANOPY_VALIDATION_FAILED",
+      "status": 422,
+      "title": "Validation failed",
+      "slug": "validation-failed",
+      "class": "ValidationError",
+      "description": "The collection validator refused the document.",
+      "hint": "The collection's validator refused the document: compare the document with its JSON Schema.",
+      "docs": "validation-failed"
+    },
+    {
+      "name": "RateLimited",
+      "code": "CANOPY_RATE_LIMITED",
+      "status": 429,
+      "title": "Rate limited",
+      "slug": "rate-limited",
+      "class": "RateLimitError",
+      "description": "The caller sent too many requests.",
+      "hint": "Wait for Retry-After (or details.retryAfterSeconds) before sending more.",
+      "docs": "rate-limited"
+    },
+    {
+      "name": "LimitSubscriptions",
+      "code": "CANOPY_LIMIT_SUBSCRIPTIONS",
+      "status": 429,
+      "title": "Too many subscriptions",
+      "slug": "limit-subscriptions",
+      "class": "CanopyError",
+      "description": "The connection holds too many subscriptions."
+    },
+    {
+      "name": "SubscriptionTooLarge",
+      "code": "CANOPY_SUBSCRIPTION_TOO_LARGE",
+      "status": 400,
+      "title": "Subscription too large",
+      "slug": "subscription-too-large",
+      "class": "CanopyError",
+      "description": "A subscription's result is too large.",
+      "hint": "Give the live query a limit, or narrow its filter.",
+      "docs": "subscription-too-large"
+    },
+    {
+      "name": "BulkLimit",
+      "code": "CANOPY_BULK_LIMIT",
+      "status": 400,
+      "title": "Bulk limit exceeded",
+      "slug": "bulk-limit",
+      "class": "CanopyError",
+      "description": "A bulk request exceeds its limit."
+    },
+    {
+      "name": "CollectionDropped",
+      "code": "CANOPY_COLLECTION_DROPPED",
+      "status": 410,
+      "title": "Collection dropped",
+      "slug": "collection-dropped",
+      "class": "CanopyError",
+      "description": "The collection was dropped."
+    },
+    {
+      "name": "SessionMoved",
+      "code": "CANOPY_SESSION_MOVED",
+      "status": 409,
+      "title": "Session moved",
+      "slug": "session-moved",
+      "class": "CanopyError",
+      "description": "The session lives on another node."
+    },
+    {
+      "name": "ProtocolError",
+      "code": "CANOPY_PROTOCOL_ERROR",
+      "status": 400,
+      "title": "Protocol error",
+      "slug": "protocol-error",
+      "class": "ProtocolError",
+      "description": "A frame broke the wire protocol."
+    },
+    {
+      "name": "Timeout",
+      "code": "CANOPY_TIMEOUT",
+      "status": 504,
+      "title": "Timeout",
+      "slug": "timeout",
+      "class": "CanopyError",
+      "description": "The operation timed out."
+    },
+    {
+      "name": "Unavailable",
+      "code": "CANOPY_UNAVAILABLE",
+      "status": 503,
+      "title": "Unavailable",
+      "slug": "unavailable",
+      "class": "CanopyError",
+      "description": "A dependency is unavailable."
+    },
+    {
+      "name": "Internal",
+      "code": "CANOPY_INTERNAL",
+      "status": 500,
+      "title": "Internal error",
+      "slug": "internal",
+      "class": "CanopyError",
+      "description": "An unexpected server error."
+    },
+    {
+      "name": "AuthHookFailed",
+      "code": "CANOPY_AUTH_HOOK_FAILED",
+      "status": 500,
+      "title": "Claims hook failed",
+      "slug": "auth-hook-failed",
+      "class": "AuthHookFailedError",
+      "description": "The built in auth claims hook failed; no token was issued."
+    },
+    {
+      "name": "ConfigInvalid",
+      "code": "CANOPY_CONFIG_INVALID",
+      "status": 500,
+      "title": "Invalid configuration",
+      "slug": "config-invalid",
+      "class": "CanopyError",
+      "description": "Local only: a configuration that does not validate. Never sent over the wire."
+    }
+  ]
+}

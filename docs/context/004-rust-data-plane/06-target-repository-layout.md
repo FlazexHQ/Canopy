@@ -42,7 +42,7 @@ canopy/
 │   ├── matcher/                 Filter, projection, sort, and update vectors (moved from crates/canopy-matcher/tests/vectors)
 │   ├── query/                   Query test vectors (moved from crates/canopy-query/tests/vectors)
 │   ├── policy/                  Policy compilation test vectors (moved from crates/canopy-policy/tests/vectors)
-│   ├── errors.json              The canonical source for all CanopyError codes (Planned)
+│   ├── errors.json              The canonical source for all CanopyError codes
 │   └── http/                    REST and GraphQL request/response pairs for gates D1 through D3 (Planned)
 ├── bench/                       Unified benchmark harnesses and baselines (@canopy/bench workspace package, completed in D0)
 │   ├── workloads/               Workloads: matcher/, realtime/, rest/, wire/
@@ -97,5 +97,5 @@ Under the crate dependency layering rule, core and configuration crates must nev
 
 To prevent semantic drift between TypeScript and Rust implementations:
 - Language neutral test vectors have moved into root `conformance/`: `conformance/protocol/` for wire frames, `conformance/matcher/` for filter, projection, sort, and update vectors, `conformance/query/` for query vectors, and `conformance/policy/` for compiled DLS rules. All Rust vector tests (`tests/vectors.rs`), TypeScript test suites, and the Canopy.js `sync-core` script read directly from `conformance/`. Generators in `packages/testing/scripts/` write to `conformance/` by default. `conformance/query/query.json` retains 12,762 cases (a strict superset containing 28 more cases than the generator reproduces).
-- All `ErrorCode` and `CanopyError` definitions will be driven by a single planned `conformance/errors.json` file, with code generators generating TypeScript classes and Rust enums.
+- `conformance/errors.json` is the one source of the `ErrorCode` values, statuses, titles, hints and docs pages; the tests of both languages fail when their tables drift from it.
 - The three-way differential test suite (MongoDB server oracle vs TypeScript core vs Rust core) executes against `conformance/` on every pull request.

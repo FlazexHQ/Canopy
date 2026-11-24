@@ -12,7 +12,7 @@ This document records completed tasks, open issues, and planned work for the Rus
 1. **Tracing spans on the Rust routes: done (2026-11-24).** Decided under the user's standing goal to finish the plan: the OpenTelemetry crates (`opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` 0.33 with `http-proto` and the blocking reqwest client, nine new crates, all Apache 2.0 or MIT, `cargo deny` clean) in `canopy-gateway/src/telemetry.rs`. `telemetry.tracing` (or `CANOPY_TRACING`, passed by the launcher) turns it on; a server span per request a Rust route answers (continuing `traceparent`), a client span per MongoDB command (the driver's command events, parented through the OpenTelemetry context of the request future), `canopy.policy.load` for database policy loads; OTLP/HTTP protobuf only (another `OTEL_EXPORTER_OTLP_PROTOCOL` stops the gateway). Tested end to end against a fake collector in `crates/canopy-gateway/tests/data_plane.rs`. Realtime fan out spans (`canopy.realtime.fanout`) are not recorded by the gateway yet.
 2. **`POST /rest/v1/{coll}/_explain` from Rust: done (2026-11-24).** The route is selectable as `explain`; its oracle is `conformance/http/reads/cases/explain.json` (39 cases: stated callers, roles, filters, counts, context lookups given and resolved, refusals); `canopy_policy::access_report_document` (moved from `canopy-engine`) writes the report for both the route and realtime `o.explain`. Replays 167 of 167 reads on MongoDB 8 and 9.
 3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
-4. **`conformance/errors.json`**, the single source of `CanopyError` codes for both languages.
+4. **`conformance/errors.json`: done (2026-11-24).** Written by hand as the one source of the codes (name, status, title, slug, TypeScript class, hint, docs page); `packages/protocol/test/conformance-errors.test.ts`, `packages/rest/test/conformance-errors.test.ts`, `crates/canopy-protocol/tests/errors.rs` and `crates/canopy-http/tests/errors.rs` fail on any drift. Checked rather than generated, so the universal `@canopy/protocol` (vendored by Canopy.js) keeps its hand written module.
 5. **Numeric id deferral in atomic batches** (Open Issues).
 6. **D2 (writes)**, including `explainDenials`, which only concerns writes; then D3 to D7.
 
@@ -29,7 +29,7 @@ Ordered as the work should proceed:
 2. **Tracing spans on Rust routes:** done (OTLP/HTTP from `canopy-gateway/src/telemetry.rs`); fan out spans of the realtime engine remain.
 3. **`POST /rest/v1/{coll}/_explain` from Rust:** done, selectable as `explain`.
 4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
-5. **`conformance/errors.json`:** generate canonical error definitions driving TypeScript classes and Rust enums.
+5. **`conformance/errors.json`:** done; both languages are checked against it.
 6. **Numeric ID deferral in atomic batches:** extend batch read back deferral to numeric types across BSON representations.
 
 ### Stage D2: Transactional Writes in Rust

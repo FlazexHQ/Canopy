@@ -52,7 +52,7 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
     2. OpenTelemetry tracing spans on Rust routes: done (`canopy-gateway/src/telemetry.rs`, OTLP/HTTP protobuf, `telemetry.tracing`).
     3. `POST /rest/v1/{collection}/_explain` from Rust: done, selectable as `explain`, replaying `conformance/http/reads/cases/explain.json`.
     4. Gate numbers of record: execute D0 and D1 benchmarks on Linux reference hardware and a same region MongoDB Atlas cluster.
-    5. `conformance/errors.json`: extract canonical error definitions driving TypeScript classes and Rust enums.
+    5. `conformance/errors.json`: done, the hand written source both languages are checked against.
     6. Numeric ID deferral in atomic batches: extend batch read back deferral to numeric types across BSON representations.
 - **Existing Conformance and Oracle Files:**
   - `conformance/http/find/`: 227 cases covering pages, filters, sort, pagination, fields, count, limits, encoding, conditional requests, dls, and errors.
