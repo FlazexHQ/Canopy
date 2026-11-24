@@ -29,26 +29,31 @@ by [`workloads/d1/find.ts`](../../workloads/d1/find.ts) (`bun --filter @canopy/b
 
 ## Linux runs on GitHub Actions
 
-Run 45128153402 of the full benchmark workflow (`suite: d1`, commit `4d2cc93`): Ubuntu 22.04 runners with 4
+Run 45304193596 of the full benchmark workflow (`suite: d1`, 2026-11-24, commit `642cf55`): Ubuntu 22.04 runners with 4
 vCPUs, MongoDB in Docker on the same runner, the same harness and settings as below, with `find`, `count`,
-`distinct` and `aggregate` selected and verified JWTs remembered by the gateway (at most 60 seconds, expiry and
-revocations checked on every request). The MongoDB 8 job ran on an Intel Xeon Platinum 8573C and the MongoDB 9
-job on an AMD EPYC 9V45, so compare the ratios, not the two columns' times. Rust over TypeScript in requests per
-server CPU second (CPU per request in brackets, TypeScript then Rust):
+`distinct`, `aggregate` and `query` selected and verified JWTs remembered by the gateway (at most 60 seconds, expiry and
+revocations checked on every request). The MongoDB 8 job ran on an AMD EPYC 9V74 and the MongoDB 9 job on an AMD
+EPYC 9V45, so compare the ratios, not the two columns' times. Rust over TypeScript in requests per server CPU
+second (CPU per request in brackets, TypeScript then Rust):
 
 | Scenario                  |       Node 26, MongoDB 8 |           Bun, MongoDB 8 |       Node 26, MongoDB 9 |           Bun, MongoDB 9 |
 | ------------------------- | -----------------------: | -----------------------: | -----------------------: | -----------------------: |
-| page of 20, owner policy  | **3.70** (1.19, 0.32 ms) | **3.41** (1.08, 0.32 ms) | **4.09** (0.65, 0.16 ms) | **3.95** (0.60, 0.15 ms) |
-| page of 100, owner policy | **3.39** (2.23, 0.66 ms) | **3.05** (1.96, 0.64 ms) | **3.74** (1.33, 0.36 ms) | **3.93** (1.35, 0.34 ms) |
-| filtered page of 20       | **3.21** (0.93, 0.29 ms) | **2.13** (0.61, 0.28 ms) | **3.31** (0.49, 0.15 ms) | **2.80** (0.37, 0.13 ms) |
-| count, owner policy       | **2.95** (0.69, 0.23 ms) | **2.20** (0.49, 0.22 ms) | **3.49** (0.39, 0.11 ms) | **2.53** (0.25, 0.10 ms) |
-| filtered count            | **2.85** (0.69, 0.24 ms) | **1.92** (0.46, 0.24 ms) | **3.22** (0.37, 0.12 ms) | **2.15** (0.24, 0.11 ms) |
-| distinct statuses         | **3.03** (0.59, 0.20 ms) | **1.97** (0.35, 0.18 ms) | **3.44** (0.32, 0.09 ms) | **2.71** (0.22, 0.08 ms) |
-| aggregate by status       | **2.44** (0.76, 0.31 ms) | **1.81** (0.54, 0.30 ms) | **2.98** (0.43, 0.14 ms) | **2.19** (0.33, 0.15 ms) |
+| page of 20, owner policy  | **3.39** (0.95, 0.28 ms) | **2.99** (0.83, 0.28 ms) | **4.04** (0.63, 0.15 ms) | **3.76** (0.57, 0.15 ms) |
+| page of 100, owner policy | **3.39** (1.89, 0.56 ms) | **2.87** (1.58, 0.55 ms) | **3.74** (1.29, 0.34 ms) | **3.82** (1.31, 0.34 ms) |
+| filtered page of 20       | **2.98** (0.73, 0.25 ms) | **2.19** (0.53, 0.24 ms) | **3.24** (0.45, 0.14 ms) | **2.56** (0.33, 0.13 ms) |
+| query page of 20          | **2.87** (0.73, 0.25 ms) | **2.28** (0.56, 0.24 ms) | **3.27** (0.48, 0.15 ms) | **2.68** (0.35, 0.13 ms) |
+| count, owner policy       | **2.94** (0.57, 0.19 ms) | **2.10** (0.40, 0.19 ms) | **3.47** (0.36, 0.10 ms) | **2.28** (0.23, 0.10 ms) |
+| filtered count            | **2.78** (0.57, 0.20 ms) | **1.91** (0.38, 0.20 ms) | **3.13** (0.38, 0.12 ms) | **2.12** (0.23, 0.11 ms) |
+| distinct statuses         | **2.77** (0.51, 0.18 ms) | **2.00** (0.34, 0.17 ms) | **3.36** (0.32, 0.10 ms) | **2.51** (0.19, 0.08 ms) |
+| aggregate by status       | **2.83** (0.67, 0.23 ms) | **1.92** (0.44, 0.23 ms) | **2.98** (0.41, 0.14 ms) | **2.01** (0.27, 0.13 ms) |
 
-**Gate status on Linux: 28 of 28 pass**, with no errors on either target. On a page of 20, Rust serves 2,900 to
-9,200 requests per second at a p50 of 3.3 to 10 ms, against 1,100 to 2,300 at 13 to 27 ms for TypeScript. The
-earlier run 45117084705 (commit `504e5fe`, `find` alone) passed its 12 measurements too, from 2.42 to 3.92.
+**Gate status on Linux: 32 of 32 pass**, with no errors on either target. On a page of 20, Rust serves 3,400 to
+9,200 requests per second at a p50 of 3.3 to 8.5 ms, against 1,400 to 2,500 at 11.9 to 21.2 ms for TypeScript.
+On the query page of 20 scenario, Rust serves 3,750 to 10,340 requests per second at a p50 of 3.0 to 7.8 ms,
+against 1,800 to 3,760 at 7.6 to 16.5 ms for TypeScript, reaching 2.28 to 3.27 times the TypeScript requests
+per server CPU second. The earlier run 45128153402 (commit `4d2cc93`, 7 scenarios) passed its 28 measurements
+too, from 1.81 to 4.09. The earlier run 45117084705 (commit `504e5fe`, `find` alone) passed its 12
+measurements, from 2.42 to 3.92.
 
 ## Local runs
 

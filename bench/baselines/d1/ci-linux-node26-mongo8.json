@@ -1,10 +1,10 @@
 {
   "format": "canopy-d1-find/1",
-  "measuredAt": "2026-11-23T07:07:42.180Z",
+  "measuredAt": "2026-11-24T01:25:16.790Z",
   "runtime": "node v26.13.1",
   "os": "linux",
   "cpu": {
-    "model": "INTEL(R) XEON(R) PLATINUM 8573C",
+    "model": "AMD EPYC 9V74 80-Core Processor",
     "count": 4
   },
   "mongodb": "8.0.34",
@@ -23,170 +23,194 @@
     {
       "scenario": "page of 20, owner policy",
       "typescript": {
-        "requests": 9004,
+        "requests": 11408,
         "errors": 0,
-        "perSecond": 1117,
-        "serverCpuSeconds": 10.71,
-        "requestsPerCpuSecond": 841,
-        "cpuMillisPerRequest": 1.189,
-        "p50": 26.99,
-        "p99": 53.11
+        "perSecond": 1416,
+        "serverCpuSeconds": 10.79,
+        "requestsPerCpuSecond": 1057,
+        "cpuMillisPerRequest": 0.946,
+        "p50": 21.21,
+        "p99": 41.77
       },
       "rust": {
-        "requests": 23558,
+        "requests": 27892,
         "errors": 0,
-        "perSecond": 2937,
-        "serverCpuSeconds": 7.58,
-        "requestsPerCpuSecond": 3108,
-        "cpuMillisPerRequest": 0.322,
-        "p50": 9.99,
-        "p99": 25.24
+        "perSecond": 3478,
+        "serverCpuSeconds": 7.78,
+        "requestsPerCpuSecond": 3585,
+        "cpuMillisPerRequest": 0.279,
+        "p50": 8.46,
+        "p99": 20.69
       },
-      "rustOverTypescriptPerCpu": 3.6967765132822823
+      "rustOverTypescriptPerCpu": 3.390876649949343
     },
     {
       "scenario": "page of 100, owner policy",
       "typescript": {
-        "requests": 4434,
+        "requests": 5430,
         "errors": 0,
-        "perSecond": 545,
-        "serverCpuSeconds": 9.91,
-        "requestsPerCpuSecond": 447,
-        "cpuMillisPerRequest": 2.235,
-        "p50": 56.01,
-        "p99": 106.51
+        "perSecond": 667,
+        "serverCpuSeconds": 10.26,
+        "requestsPerCpuSecond": 529,
+        "cpuMillisPerRequest": 1.89,
+        "p50": 45.12,
+        "p99": 84.02
       },
       "rust": {
-        "requests": 13311,
+        "requests": 16825,
         "errors": 0,
-        "perSecond": 1656,
-        "serverCpuSeconds": 8.78,
-        "requestsPerCpuSecond": 1516,
-        "cpuMillisPerRequest": 0.66,
-        "p50": 18.08,
-        "p99": 41.43
+        "perSecond": 2093,
+        "serverCpuSeconds": 9.39,
+        "requestsPerCpuSecond": 1792,
+        "cpuMillisPerRequest": 0.558,
+        "p50": 14.21,
+        "p99": 30.46
       },
-      "rustOverTypescriptPerCpu": 3.3883957881888045
+      "rustOverTypescriptPerCpu": 3.385610647273754
     },
     {
       "scenario": "filtered page of 20",
       "typescript": {
-        "requests": 12457,
+        "requests": 15064,
         "errors": 0,
-        "perSecond": 1551,
-        "serverCpuSeconds": 11.52,
-        "requestsPerCpuSecond": 1081,
-        "cpuMillisPerRequest": 0.925,
-        "p50": 19.28,
-        "p99": 44.99
+        "perSecond": 1874,
+        "serverCpuSeconds": 11.07,
+        "requestsPerCpuSecond": 1361,
+        "cpuMillisPerRequest": 0.735,
+        "p50": 16.14,
+        "p99": 32.22
       },
       "rust": {
-        "requests": 29209,
+        "requests": 34290,
         "errors": 0,
-        "perSecond": 3644,
-        "serverCpuSeconds": 8.42,
-        "requestsPerCpuSecond": 3469,
-        "cpuMillisPerRequest": 0.288,
-        "p50": 8.13,
-        "p99": 19.78
+        "perSecond": 4279,
+        "serverCpuSeconds": 8.45,
+        "requestsPerCpuSecond": 4058,
+        "cpuMillisPerRequest": 0.246,
+        "p50": 6.91,
+        "p99": 16.45
       },
-      "rustOverTypescriptPerCpu": 3.208068344177605
+      "rustOverTypescriptPerCpu": 2.982071760095781
+    },
+    {
+      "scenario": "query page of 20",
+      "typescript": {
+        "requests": 14609,
+        "errors": 0,
+        "perSecond": 1817,
+        "serverCpuSeconds": 10.62,
+        "requestsPerCpuSecond": 1376,
+        "cpuMillisPerRequest": 0.727,
+        "p50": 16.52,
+        "p99": 37.82
+      },
+      "rust": {
+        "requests": 30111,
+        "errors": 0,
+        "perSecond": 3754,
+        "serverCpuSeconds": 7.63,
+        "requestsPerCpuSecond": 3946,
+        "cpuMillisPerRequest": 0.253,
+        "p50": 7.79,
+        "p99": 18.83
+      },
+      "rustOverTypescriptPerCpu": 2.868829041003916
     },
     {
       "scenario": "count, owner policy",
       "typescript": {
-        "requests": 13875,
+        "requests": 17277,
         "errors": 0,
-        "perSecond": 1727,
-        "serverCpuSeconds": 9.56,
-        "requestsPerCpuSecond": 1451,
-        "cpuMillisPerRequest": 0.689,
-        "p50": 17.4,
-        "p99": 33.88
+        "perSecond": 2151,
+        "serverCpuSeconds": 9.86,
+        "requestsPerCpuSecond": 1752,
+        "cpuMillisPerRequest": 0.571,
+        "p50": 13.94,
+        "p99": 27.45
       },
       "rust": {
-        "requests": 22713,
+        "requests": 28809,
         "errors": 0,
-        "perSecond": 2833,
-        "serverCpuSeconds": 5.3,
-        "requestsPerCpuSecond": 4285,
-        "cpuMillisPerRequest": 0.233,
-        "p50": 10.4,
-        "p99": 24.08
+        "perSecond": 3593,
+        "serverCpuSeconds": 5.6,
+        "requestsPerCpuSecond": 5144,
+        "cpuMillisPerRequest": 0.194,
+        "p50": 8.18,
+        "p99": 19.28
       },
-      "rustOverTypescriptPerCpu": 2.9527286078531367
+      "rustOverTypescriptPerCpu": 2.9359505618534962
     },
     {
       "scenario": "filtered count",
       "typescript": {
-        "requests": 13708,
+        "requests": 17322,
         "errors": 0,
-        "perSecond": 1706,
-        "serverCpuSeconds": 9.51,
-        "requestsPerCpuSecond": 1441,
-        "cpuMillisPerRequest": 0.694,
-        "p50": 17.73,
-        "p99": 33.41
+        "perSecond": 2159,
+        "serverCpuSeconds": 9.9,
+        "requestsPerCpuSecond": 1750,
+        "cpuMillisPerRequest": 0.572,
+        "p50": 13.9,
+        "p99": 28.3
       },
       "rust": {
-        "requests": 22448,
+        "requests": 28498,
         "errors": 0,
-        "perSecond": 2794,
-        "serverCpuSeconds": 5.46,
-        "requestsPerCpuSecond": 4111,
-        "cpuMillisPerRequest": 0.243,
-        "p50": 10.57,
-        "p99": 24.42
+        "perSecond": 3552,
+        "serverCpuSeconds": 5.85,
+        "requestsPerCpuSecond": 4871,
+        "cpuMillisPerRequest": 0.205,
+        "p50": 8.25,
+        "p99": 19.63
       },
-      "rustOverTypescriptPerCpu": 2.8522752415369865
+      "rustOverTypescriptPerCpu": 2.7841695309655132
     },
     {
       "scenario": "distinct statuses",
       "typescript": {
-        "requests": 17940,
+        "requests": 20599,
         "errors": 0,
-        "perSecond": 2235,
-        "serverCpuSeconds": 10.62,
-        "requestsPerCpuSecond": 1689,
-        "cpuMillisPerRequest": 0.592,
-        "p50": 13.04,
-        "p99": 31.83
+        "perSecond": 2567,
+        "serverCpuSeconds": 10.42,
+        "requestsPerCpuSecond": 1977,
+        "cpuMillisPerRequest": 0.506,
+        "p50": 11.68,
+        "p99": 22.95
       },
       "rust": {
-        "requests": 31875,
+        "requests": 35438,
         "errors": 0,
-        "perSecond": 3979,
-        "serverCpuSeconds": 6.23,
-        "requestsPerCpuSecond": 5116,
-        "cpuMillisPerRequest": 0.195,
-        "p50": 7.08,
-        "p99": 19.62
+        "perSecond": 4424,
+        "serverCpuSeconds": 6.47,
+        "requestsPerCpuSecond": 5477,
+        "cpuMillisPerRequest": 0.183,
+        "p50": 6.53,
+        "p99": 16.6
       },
-      "rustOverTypescriptPerCpu": 3.0287555629519476
+      "rustOverTypescriptPerCpu": 2.77068085941958
     },
     {
       "scenario": "aggregate by status",
       "typescript": {
-        "requests": 10812,
+        "requests": 13784,
         "errors": 0,
-        "perSecond": 1346,
-        "serverCpuSeconds": 8.18,
-        "requestsPerCpuSecond": 1322,
-        "cpuMillisPerRequest": 0.757,
-        "p50": 22.74,
-        "p99": 41.05
+        "perSecond": 1716,
+        "serverCpuSeconds": 9.19,
+        "requestsPerCpuSecond": 1500,
+        "cpuMillisPerRequest": 0.667,
+        "p50": 17.34,
+        "p99": 39.15
       },
       "rust": {
-        "requests": 15340,
+        "requests": 21086,
         "errors": 0,
-        "perSecond": 1909,
-        "serverCpuSeconds": 4.76,
-        "requestsPerCpuSecond": 3223,
-        "cpuMillisPerRequest": 0.31,
-        "p50": 15.68,
-        "p99": 32.92
+        "perSecond": 2628,
+        "serverCpuSeconds": 4.96,
+        "requestsPerCpuSecond": 4251,
+        "cpuMillisPerRequest": 0.235,
+        "p50": 11.37,
+        "p99": 24.3
       },
-      "rustOverTypescriptPerCpu": 2.438179489331804
+      "rustOverTypescriptPerCpu": 2.834345395783798
     }
   ]
 }
