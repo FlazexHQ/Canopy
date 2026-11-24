@@ -9,6 +9,9 @@
 #[path = "../../canopy-http/tests/common/mod.rs"]
 mod common;
 
+#[path = "../../canopy-graphql/tests/graphql_replay/mod.rs"]
+mod graphql_replay;
+
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -181,6 +184,9 @@ fn json_text(json: &Json) -> String {
 
 /// The launcher document of a gateway that reads `database` with the policies, keys and tokens of the fixture.
 fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &str) -> String {
+    let body_limit = fixture
+        .get("maxBodyBytes")
+        .map_or_else(String::new, |limit| format!(r#","maxBodyBytes":{}"#, json_text(limit)));
     let auth = get(fixture, "auth");
     let policies = get(fixture, "policies");
     let limits = get(fixture, "readLimits");
@@ -193,7 +199,7 @@ fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &st
 "policies":{{"stored":{stored},"contexts":{contexts}}},
 "realtime":{{"checkpoints":"off","drainWindowMs":100}},
 "rateLimits":false,
-"rest":{{"defaultLimit":{default},"maxLimit":{max},"maxSkip":{skip},"idTypes":{id_types}}},
+"rest":{{"defaultLimit":{default},"maxLimit":{max},"maxSkip":{skip},"idTypes":{id_types}{body_limit}}},
 "proxy":{{"url":"http://127.0.0.1:{upstream}"}},
 "log":{{"level":"error"}}{extra}}}"#,
         uri = json_text(&Json::String(uri.to_owned())),
@@ -834,7 +840,7 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
         assert_eq!(code, Some(1), "{routes}");
         assert!(
             message.contains(
-                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not"
+                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not"
             ),
             "{routes}: {message}"
         );
@@ -851,4 +857,64 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
     );
     assert_eq!(code, Some(1));
     assert!(message.contains("rest: false disables"), "{message}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn selected_graphql_replays_the_typescript_oracle_through_the_gateway() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("graphql").join("fixture.json"));
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopy_gateway_graphql");
+    let meta = format!("{database}_meta");
+    let (port, seen) = upstream().await;
+    let limits = get(&fixture, "limits");
+    let extra = format!(
+        r#","graphql":{{"path":{},"maxDepth":{},"maxAliases":{},"maxComplexity":{},"maxBatch":{},"introspection":{},"persisted":{},"collections":{}}}"#,
+        json_text(get(&fixture, "basePath")),
+        json_text(get(limits, "maxDepth")),
+        json_text(get(limits, "maxAliases")),
+        json_text(get(limits, "maxComplexity")),
+        json_text(get(&fixture, "maxBatch")),
+        json_text(get(&fixture, "introspection")),
+        json_text(get(&fixture, "persisted")),
+        json_text(get(&fixture, "relations")),
+    );
+    let config = launcher(&fixture, &uri, &database, port, &extra);
+    {
+        let gateway = Gateway::start(config.clone(), None).await;
+        let response = gateway.send(&canopy_http::Request::new("GET", text(&fixture, "basePath"))).await;
+        assert_eq!(response.header("x-upstream"), Some("yes"));
+    }
+    {
+        let cors = format!(r#"{extra},"cors":{{"origins":"*"}}"#);
+        let gateway = Gateway::start(launcher(&fixture, &uri, &database, port, &cors), Some("graphql")).await;
+        let request = canopy_http::Request::new("OPTIONS", text(&fixture, "basePath"))
+            .with_header("origin", "https://example.test")
+            .with_header("access-control-request-method", "POST");
+        let response = gateway.send(&request).await;
+        assert_eq!(response.status, 204);
+        assert_eq!(response.header("access-control-allow-origin"), Some("https://example.test"));
+        let response = gateway.send(&canopy_http::Request::new("POST", "/rest/v1/todos")).await;
+        assert_eq!(response.header("x-upstream"), Some("yes"));
+    }
+    assert_eq!(
+        seen.lock().expect("the upstream log").drain(..).collect::<Vec<_>>(),
+        [
+            ("GET".to_owned(), text(&fixture, "basePath").to_owned()),
+            ("POST".to_owned(), "/rest/v1/todos".to_owned())
+        ],
+    );
+    graphql_replay::replay(
+        &client,
+        &database,
+        &meta,
+        &fixture,
+        async || Gateway::start(config.clone(), Some("graphql")).await,
+        async |gateway: &Gateway, request| Some(gateway.send(request).await),
+    )
+    .await;
+    assert!(seen.lock().expect("the upstream log").is_empty());
 }

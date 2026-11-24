@@ -204,6 +204,9 @@ version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
  "canopy-protocol",
+ "indexmap",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -240,6 +243,7 @@ dependencies = [
  "canopy-config",
  "canopy-data",
  "canopy-engine",
+ "canopy-graphql",
  "canopy-http",
  "canopy-matcher",
  "canopy-mongo",
@@ -259,6 +263,7 @@ dependencies = [
  "ring",
  "rustls",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
@@ -268,7 +273,9 @@ dependencies = [
  "apollo-compiler",
  "canopy-auth",
  "canopy-data",
+ "canopy-engine",
  "canopy-http",
+ "canopy-matcher",
  "canopy-mongo",
  "canopy-policy",
  "canopy-protocol",
@@ -376,6 +383,27 @@ dependencies = [
  "ring",
  "tokio",
  "tokio-tungstenite",
+]
+
+[[package]]
+name = "canopy-storage"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "canopy-auth",
+ "canopy-data",
+ "canopy-http",
+ "canopy-mongo",
+ "canopy-policy",
+ "canopy-protocol",
+ "futures-util",
+ "reqwest",
+ "ring",
+ "rustls",
+ "time",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -1212,6 +1240,8 @@ checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
 dependencies = [
  "equivalent",
  "hashbrown 0.17.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

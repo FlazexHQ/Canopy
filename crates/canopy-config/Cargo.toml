@@ -11,5 +11,9 @@ repository.workspace = true
 base64 = "0.22"
 canopy-protocol = { path = "../canopy-protocol" }
 
+indexmap = { version = "2", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
 [lints]
 workspace = true

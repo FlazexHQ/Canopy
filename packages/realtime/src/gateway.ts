@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process"
 import type { JsonWebKey } from "node:crypto"
 import { existsSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ResolvedConfig } from "@canopy/config"
@@ -83,10 +84,41 @@ export interface GatewayOverrides {
   /** The public key of Studio's view tokens as a JWK, so the gateway accepts them. */
   readonly viewTokenKey?: JsonWebKey
   /**
-   * The Data API routes the gateway serves itself (`find`, `count`, `distinct`, `aggregate`, `query`, `explain`, `writes`), by name. Without it the gateway reads
+   * The HTTP routes the gateway serves itself, including `graphql`. Without it the gateway reads
    * `CANOPY_DATA_PLANE_ROUTES`, and without that it serves none and passes every request on to the server.
    */
   readonly dataPlaneRoutes?: readonly string[]
+  /** Resolved GraphQL operations, when supplied by the caller. */
+  readonly graphqlPersisted?: {
+    readonly operations: Readonly<Record<string, string>>
+    readonly only: boolean
+  }
+}
+
+/** Reads a persisted operations file: a JSON object mapping the hex SHA-256 of each document to it. */
+export async function readPersistedGraphqlOperations(input: {
+  readonly file: string
+  readonly only: boolean
+}): Promise<NonNullable<GatewayOverrides["graphqlPersisted"]>> {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(await readFile(input.file, "utf8"))
+  } catch (error: unknown) {
+    throw new TypeError(`The persisted operations file ${input.file} cannot be read as JSON`, {
+      cause: error,
+    })
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw new TypeError(`The persisted operations file ${input.file} must hold an object`)
+  const operations: Record<string, string> = {}
+  for (const [hash, document] of Object.entries(parsed)) {
+    if (!/^[0-9a-f]{64}$/.test(hash) || typeof document !== "string")
+      throw new TypeError(
+        `The persisted operations file ${input.file} must map SHA-256 hex hashes to documents`,
+      )
+    operations[hash] = document
+  }
+  return { operations, only: input.only }
 }
 
 /**
@@ -107,6 +139,8 @@ export function gatewayConfig(
       "built in auth runs in the canopy server; point the gateway at its JWKS with external() instead",
     )
   const limits = config.rateLimits
+  const graphql = config.graphql
+  const { graphqlPersisted } = overrides
   const mutationsUrl = overrides.mutationsUrl ?? env["CANOPY_GATEWAY_MUTATIONS_URL"]
   return {
     mongodb: {
@@ -203,6 +237,26 @@ export function gatewayConfig(
             mutationTtlSeconds: Math.round(config.rest.mutationTtlMs / 1000),
             explainDenials: config.environment === "development",
           },
+    graphql:
+      graphql === false
+        ? false
+        : {
+            path: "/graphql/v1",
+            maxDepth: graphql.maxDepth,
+            maxComplexity: graphql.maxComplexity,
+            maxAliases: graphql.maxAliases,
+            maxBatch: graphql.maxBatch,
+            introspection: graphql.introspection,
+            ...(graphqlPersisted === undefined ? {} : { persisted: graphqlPersisted }),
+            collections: Object.fromEntries(
+              Object.entries(config.collections)
+                .filter(
+                  ([, collection]) =>
+                    collection.typeName !== undefined || collection.relations !== undefined,
+                )
+                .map(([name, { typeName, relations }]) => [name, { typeName, relations }]),
+            ),
+          },
     ...(overrides.dataPlaneRoutes === undefined
       ? {}
       : { dataPlane: { routes: overrides.dataPlaneRoutes } }),
@@ -263,11 +317,19 @@ export async function startGateway(
     )
   const source = "dir" in config.policies ? directoryPolicies(config.policies.dir) : undefined
   const initial = source === undefined ? undefined : storedPolicies(await source.load())
+  const persisted = config.graphql === false ? undefined : config.graphql.persisted
+  const graphqlPersisted =
+    overrides.graphqlPersisted ??
+    (persisted === undefined ? undefined : await readPersistedGraphqlOperations(persisted))
+  const document = gatewayConfig(config, initial, process.env, {
+    ...overrides,
+    ...(graphqlPersisted === undefined ? {} : { graphqlPersisted }),
+  })
   const child: ChildProcess = spawn(binary, ["--config", "-"], {
     stdio: ["pipe", "pipe", "inherit"],
     windowsHide: true,
   })
-  child.stdin?.write(`${JSON.stringify(gatewayConfig(config, initial, process.env, overrides))}\n`)
+  child.stdin?.write(`${JSON.stringify(document)}\n`)
   const stopWatching =
     source?.watch !== undefined && "dir" in config.policies && config.policies.watch !== false
       ? source.watch(

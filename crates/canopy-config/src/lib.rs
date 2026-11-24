@@ -1,6 +1,9 @@
 //! Resolved data plane configuration from the launcher JSON document.
 
+mod graphql;
 mod trusted_proxy;
+
+pub use graphql::{CollectionSettings, GraphqlSettings, Introspection, PersistedSettings, RelationSettings};
 
 pub use trusted_proxy::TrustedProxy;
 
@@ -94,12 +97,14 @@ pub enum DataPlaneRoute {
     /// The writes: `POST`, `PATCH` and `DELETE /rest/v1/{collection}`, `PATCH`, `PUT` and `DELETE
     /// /rest/v1/{collection}/{id}` and `POST /rest/v1/_batch`, with `OPTIONS` and `405` on their paths.
     Writes,
+    /// `GET` and `POST /graphql/v1`, with `OPTIONS` and `405` on that path.
+    Graphql,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 8] =
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"];
+    pub const NAMES: [&'static str; 9] =
+        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes", "graphql"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -112,6 +117,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Explain => "explain",
             DataPlaneRoute::Document => "document",
             DataPlaneRoute::Writes => "writes",
+            DataPlaneRoute::Graphql => "graphql",
         }
     }
 
@@ -125,6 +131,7 @@ impl DataPlaneRoute {
             "explain" => Ok(DataPlaneRoute::Explain),
             "document" => Ok(DataPlaneRoute::Document),
             "writes" => Ok(DataPlaneRoute::Writes),
+            "graphql" => Ok(DataPlaneRoute::Graphql),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
                 Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
@@ -256,6 +263,8 @@ pub struct GatewayConfig {
     pub data_plane_routes: Vec<DataPlaneRoute>,
     /// Page sizes and the body limit of the Data API.
     pub rest_limits: RestLimits,
+    /// The GraphQL HTTP settings when GraphQL is enabled.
+    pub graphql: Option<GraphqlSettings>,
     /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
     /// `rest.search` lists them.
     pub search_collections: Vec<String>,
@@ -643,12 +652,13 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             return Err(format!("realtime.coalesceMs must be between 0 and {MAX_COALESCE_MS}, not {value}"));
         }
     };
-    let data_plane_routes = data_plane_routes(
-        &doc,
-        fallback.data_plane_routes,
-        !matches!(get(&doc, &["rest"]), Some(Json::Bool(false))),
-    )?;
+    let rest_enabled = !matches!(doc.get("rest"), Some(Json::Bool(false)));
+    let data_plane_routes = data_plane_routes(&doc, fallback.data_plane_routes, rest_enabled)?;
     let rest_limits = rest_limits(&doc)?;
+    let graphql = if rest_enabled { graphql::settings(doc.get("graphql"))? } else { None };
+    if graphql.is_none() && data_plane_routes.contains(&DataPlaneRoute::Graphql) {
+        return Err("dataPlane.routes selects graphql, which graphql: false disables".to_owned());
+    }
     let writes = write_settings(&doc)?;
     let tracing = match get(&doc, &["telemetry", "tracing"]) {
         Some(Json::Bool(tracing)) => *tracing,
@@ -706,6 +716,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         proxy_url: text(&doc, &["proxy", "url"]).or(fallback.proxy_url),
         data_plane_routes,
         rest_limits,
+        graphql,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
         tracing,
         writes,

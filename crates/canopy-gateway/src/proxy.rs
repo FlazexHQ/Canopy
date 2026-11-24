@@ -106,7 +106,7 @@ fn strip_hop_by_hop(headers: &mut HeaderMap, keep_upgrade: bool) {
     }
 }
 
-fn is_upgrade(headers: &HeaderMap) -> bool {
+pub(crate) fn is_upgrade(headers: &HeaderMap) -> bool {
     headers.contains_key(UPGRADE)
         && headers
             .get_all(CONNECTION)

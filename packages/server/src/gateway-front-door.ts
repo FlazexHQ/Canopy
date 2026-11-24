@@ -119,7 +119,7 @@ export interface GatewayFrontDoor {
 
 /**
  * Starts Canopy on loopback and puts the native gateway on the configured public port.
- * The gateway proxies HTTP to Canopy and serves realtime for clients and GraphQL subscriptions.
+ * The gateway serves realtime and the selected HTTP routes, and proxies other requests to Canopy.
  * When `serves` filters proxied paths, gateway mutation and signing key requests use a separate loopback listener.
  */
 export async function startGatewayFrontDoor(

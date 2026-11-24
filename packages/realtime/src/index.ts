@@ -8,6 +8,7 @@ export {
   type GatewayOverrides,
   gatewayConfig,
   type RunningGateway,
+  readPersistedGraphqlOperations,
   runGateway,
   startGateway,
   storedPolicies,

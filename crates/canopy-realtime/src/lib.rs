@@ -5,7 +5,7 @@ mod http;
 mod ingest;
 mod server;
 
-pub use core::{EngineOptions, EngineSender};
+pub use core::{Deliver, EngineOptions, EngineSender, LocalConnection, LocalFrame};
 pub use http::{Body, Cors, full};
 pub use ingest::{FullDocument, Ingest};
 pub use server::{HttpRoutes, Running, Server, TransportOptions};

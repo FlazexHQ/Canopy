@@ -9,17 +9,24 @@ use canopy_auth::{Authenticator, BucketSpec, RateLimitOptions, RateLimits};
 
 use crate::request_log::{Logged, RequestLog};
 use crate::telemetry::Telemetry;
-use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
+use canopy_config::{Cors, DataPlaneRoute, GatewayConfig, GraphqlSettings, Introspection};
 use canopy_data::writes::{IdType, WriteEvent, WritePath};
 use canopy_data::{Policies, ReadLimits, ReadPath};
 use canopy_engine::{MutationOutcome, MutationRequest};
+use canopy_graphql::build::{CollectionConfig, RelationConfig};
+use canopy_graphql::endpoint::{
+    Answer, EVENT_STREAM_PING, EVENT_STREAM_PING_INTERVAL, EventStream, Graphql, GraphqlOptions,
+    IntrospectionMode, PersistedOperations,
+};
+use canopy_graphql::limits::OperationLimits;
+use canopy_graphql::live::{LiveFrame, LiveQueries, Realtime, RealtimeConnection};
 use canopy_http::{Rest, RestOptions, Served};
 use canopy_mongo::mongodb::Client;
 use canopy_policy::{PolicyEngine, PolicySet};
 use canopy_protocol::CanopyError;
-use canopy_realtime::{Body, EngineSender, full};
-use http_body_util::{BodyExt, LengthLimitError, Limited};
-use hyper::body::{Bytes, Incoming};
+use canopy_realtime::{Body, EngineSender, LocalConnection, LocalFrame, full};
+use http_body_util::{BodyExt, LengthLimitError, Limited, StreamBody};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use opentelemetry::context::FutureExt;
@@ -91,11 +98,91 @@ fn audit_entry(
     canopy_mongo::to_bson(&entry)
 }
 
+fn graphql_options(
+    settings: &GraphqlSettings,
+    cors: Option<canopy_http::Cors>,
+    max_body_bytes: u64,
+) -> GraphqlOptions {
+    let collections = settings
+        .collections
+        .iter()
+        .map(|(name, collection)| {
+            let relations = collection
+                .relations
+                .iter()
+                .map(|(field, relation)| {
+                    (
+                        field.clone(),
+                        RelationConfig {
+                            to: relation.to.clone(),
+                            local: relation.local.clone(),
+                            foreign: relation.foreign.clone(),
+                            many: relation.many,
+                        },
+                    )
+                })
+                .collect();
+            (name.clone(), CollectionConfig { type_name: collection.type_name.clone(), relations })
+        })
+        .collect();
+    GraphqlOptions {
+        path: settings.path.clone(),
+        limits: OperationLimits {
+            max_depth: settings.max_depth,
+            max_complexity: settings.max_complexity,
+            max_aliases: settings.max_aliases,
+        },
+        max_batch: settings.max_batch,
+        max_body_bytes,
+        introspection: match settings.introspection {
+            Introspection::Always => IntrospectionMode::Always,
+            Introspection::Authenticated => IntrospectionMode::Authenticated,
+            Introspection::Never => IntrospectionMode::Never,
+        },
+        persisted: settings.persisted.as_ref().map(|persisted| PersistedOperations {
+            operations: persisted.operations.clone(),
+            only: persisted.only,
+        }),
+        collections,
+        cors,
+        ..GraphqlOptions::default()
+    }
+}
+
+/// The session engine of this process, reached by GraphQL subscriptions through in-process connections.
+struct EngineRealtime(EngineSender);
+
+struct EngineConnection(LocalConnection);
+
+impl RealtimeConnection for EngineConnection {
+    fn send(&self, text: String) -> bool {
+        self.0.send(text)
+    }
+}
+
+impl Realtime for EngineRealtime {
+    fn connect(
+        &self,
+        address: Option<String>,
+        frames: tokio::sync::mpsc::UnboundedSender<LiveFrame>,
+    ) -> Result<Box<dyn RealtimeConnection>, CanopyError> {
+        let deliver = Box::new(move |frame: LocalFrame| {
+            let _ = frames.send(match frame {
+                LocalFrame::Text(text) => LiveFrame::Text(text),
+                LocalFrame::Close { code, reason } => LiveFrame::Closed { code, reason },
+            });
+        });
+        Ok(Box::new(EngineConnection(self.0.connect(address, deliver)?)))
+    }
+}
+
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
-    rest: Rest,
+    rest: Arc<Rest>,
+    graphql: Option<Graphql>,
     serves_writes: bool,
-    rate_limited: Arc<AtomicU64>,
+    rate_limited: AtomicU64,
+    graphql_rate_limited: AtomicU64,
     request_log: Option<Arc<RequestLog>>,
     telemetry: Option<Telemetry>,
 }
@@ -110,6 +197,7 @@ impl DataPlane {
         policies: Policies,
         request_log: Option<Arc<RequestLog>>,
         telemetry: Option<Telemetry>,
+        realtime: Option<EngineSender>,
     ) -> Result<DataPlane, String> {
         let limits = ReadLimits {
             default_limit: config.rest_limits.default_limit,
@@ -117,7 +205,9 @@ impl DataPlane {
             max_skip: config.rest_limits.max_skip,
             ..ReadLimits::default()
         };
-        let writes = routes_select(config, DataPlaneRoute::Writes)
+        let serves_writes = routes_select(config, DataPlaneRoute::Writes);
+        let graphql = config.graphql.as_ref().filter(|_| routes_select(config, DataPlaneRoute::Graphql));
+        let writes = (serves_writes || graphql.is_some())
             .then(|| write_path(config, client.clone(), policies.clone()))
             .transpose()?;
         let reads = ReadPath::new(client, &config.database, policies, limits)
@@ -135,8 +225,10 @@ impl DataPlane {
             query: routes.contains(&DataPlaneRoute::Query),
             explain: routes.contains(&DataPlaneRoute::Explain),
             document: routes.contains(&DataPlaneRoute::Document),
-            writes: writes.is_some(),
+            writes: serves_writes,
         };
+        let graphql = graphql
+            .map(|settings| graphql_options(settings, cors.clone(), config.rest_limits.max_body_bytes));
         let options = RestOptions {
             cors,
             served,
@@ -147,7 +239,6 @@ impl DataPlane {
         if let Some(writes) = writes {
             rest = rest.with_writes(Arc::new(writes), id_types(config));
         }
-        let rate_limited = Arc::new(AtomicU64::new(0));
         if let Some(rates) = config.request_rates {
             let limits = RateLimits::new(RateLimitOptions {
                 requests: BucketSpec { per_second: rates.requests.0, burst: rates.requests.1 },
@@ -158,32 +249,61 @@ impl DataPlane {
                 exempt_service: rates.exempt_service,
                 ..RateLimitOptions::default()
             });
-            let counter = Arc::clone(&rate_limited);
-            let count: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
-                counter.fetch_add(1, Ordering::Relaxed);
-            });
-            rest = rest.with_rate_limits(Arc::new(limits), Some(count));
+            rest = rest.with_rate_limits(Arc::new(limits), None);
         }
-        Ok(DataPlane { rest, serves_writes: served.writes, rate_limited, request_log, telemetry })
+        let rest = Arc::new(rest);
+        Ok(DataPlane {
+            graphql: graphql.map(|options| {
+                let graphql = Graphql::new(Arc::clone(&rest), options);
+                match realtime {
+                    Some(engine) => {
+                        graphql.with_live(Arc::new(LiveQueries::new(Arc::new(EngineRealtime(engine)))))
+                    }
+                    None => graphql,
+                }
+            }),
+            rest,
+            serves_writes,
+            rate_limited: AtomicU64::new(0),
+            graphql_rate_limited: AtomicU64::new(0),
+            request_log,
+            telemetry,
+        })
+    }
+
+    /// The GraphQL endpoint, when the gateway serves it.
+    pub(crate) fn graphql(&self) -> Option<&Graphql> {
+        self.graphql.as_ref()
     }
 
     /// The routes, for realtime mutations when the writes are served here.
     pub(crate) fn writes(&self) -> Option<&Rest> {
-        self.serves_writes.then_some(&self.rest)
+        self.serves_writes.then_some(self.rest.as_ref())
     }
 
     /// The Prometheus lines of the routes: the requests the rate limits refused.
     pub(crate) fn metrics(&self) -> String {
-        format!(
+        let mut metrics = format!(
             "# HELP canopy_http_rate_limited_total REST and GraphQL requests refused by the rate limits\n# TYPE canopy_http_rate_limited_total counter\ncanopy_http_rate_limited_total{{surface=\"rest\"}} {}\n",
             self.rate_limited.load(Ordering::Relaxed)
-        )
+        );
+        if self.graphql.is_some() {
+            use std::fmt::Write as _;
+            let _ = writeln!(
+                metrics,
+                "canopy_http_rate_limited_total{{surface=\"graphql\"}} {}",
+                self.graphql_rate_limited.load(Ordering::Relaxed)
+            );
+        }
+        metrics
     }
 
     /// Whether the routes answer this request. A request that is not owned goes to the upstream server untouched.
     pub(crate) fn owns<B>(&self, request: &Request<B>) -> bool {
         let target = request.uri().path_and_query().map_or("", |target| target.as_str());
         self.rest.owns(request.method().as_str(), target)
+            || (!crate::proxy::is_upgrade(request.headers())
+                && self.graphql.as_ref().is_some_and(|graphql| graphql.owns(target)))
     }
 
     /// Answers a request [`DataPlane::owns`] from the client at `address` (the socket peer is `peer`). The body
@@ -198,6 +318,11 @@ impl DataPlane {
         let started = std::time::Instant::now();
         let (parts, body) = request.into_parts();
         let target = parts.uri.path_and_query().map_or("", |target| target.as_str());
+        let graphql = self.graphql.as_ref().filter(|graphql| {
+            graphql.owns(target)
+                && !crate::proxy::is_upgrade(&parts.headers)
+                && !self.rest.owns(parts.method.as_str(), target)
+        });
         let mut plain = canopy_http::Request::new(parts.method.as_str(), target);
         plain.client_address = Some(address.clone());
         for (name, value) in &parts.headers {
@@ -219,31 +344,101 @@ impl DataPlane {
             .telemetry
             .as_ref()
             .map(|telemetry| telemetry.server(&plain.method, parts.uri.path(), &plain.headers));
+        let serve = async {
+            match graphql {
+                Some(graphql) => graphql.serve_answer(&plain).await,
+                None => self.rest.serve(&plain).await.map(Answer::Response),
+            }
+        };
         let answered = match &span {
-            Some(context) => self.rest.serve(&plain).with_context(context.clone()).await,
-            None => self.rest.serve(&plain).await,
+            Some(context) => serve.with_context(context.clone()).await,
+            None => serve.await,
+        };
+        let status = |answer: &Answer| match answer {
+            Answer::Response(response) => response.status,
+            Answer::Events(events) => events.status,
         };
         if let Some(context) = &span {
-            Telemetry::finish(context, answered.as_ref().map_or(500, |response| response.status));
+            Telemetry::finish(context, answered.as_ref().map_or(500, status));
         }
-        let response = match answered {
-            Some(response) => response,
+        let answer = match answered {
+            Some(answer) => answer,
             None => return full(StatusCode::INTERNAL_SERVER_ERROR, Bytes::from_static(b"Internal error")),
         };
+        if let Answer::Response(response) = &answer
+            && response.status == 429
+            && response.header("retry-after").is_some()
+        {
+            let counter = if graphql.is_some() { &self.graphql_rate_limited } else { &self.rate_limited };
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(log) = &self.request_log
             && let Some(path) = canopy_http::request_path(&plain.target)
         {
+            let request_id = match &answer {
+                Answer::Response(response) => response.header("x-request-id"),
+                Answer::Events(events) => events
+                    .headers
+                    .iter()
+                    .find(|(name, _)| name == "x-request-id")
+                    .map(|(_, value)| value.as_str()),
+            };
             log.record(&Logged {
                 method: &plain.method,
                 path: &path,
-                status: response.status,
+                status: status(&answer),
                 started,
                 ip: peer,
-                request_id: response.header("x-request-id"),
+                request_id,
             });
         }
-        response_of(response)
+        match answer {
+            Answer::Response(response) => response_of(response),
+            Answer::Events(events) => events_of(events),
+        }
     }
+}
+
+/// Streams server-sent events: the chunks are produced by a task, so a ping never interrupts a result being
+/// written, and the task ends with the stream when the client goes away.
+fn events_of(mut events: EventStream) -> Response<Body> {
+    let status = StatusCode::from_u16(events.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let headers = std::mem::take(&mut events.headers);
+    let (chunks, receiver) = tokio::sync::mpsc::channel::<String>(16);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                chunk = events.next_chunk() => match chunk {
+                    Some(chunk) => {
+                        if chunks.send(chunk).await.is_err() {
+                            return;
+                        }
+                    }
+                    None => return,
+                },
+                () = chunks.closed() => return,
+            }
+        }
+    });
+    let start = tokio::time::Instant::now() + EVENT_STREAM_PING_INTERVAL;
+    let ping = tokio::time::interval_at(start, EVENT_STREAM_PING_INTERVAL);
+    let body = futures_util::stream::unfold((receiver, ping), |(mut receiver, mut ping)| async move {
+        let chunk = tokio::select! {
+            chunk = receiver.recv() => chunk?,
+            _ = ping.tick() => EVENT_STREAM_PING.to_owned(),
+        };
+        Some((Ok::<_, hyper::Error>(Frame::data(Bytes::from(chunk))), (receiver, ping)))
+    });
+    let mut response = Response::new(StreamBody::new(body).boxed_unsync());
+    *response.status_mut() = status;
+    for (name, value) in headers {
+        if let (Ok(name), Ok(value)) =
+            (HeaderName::from_bytes(name.as_bytes()), HeaderValue::from_str(&value))
+        {
+            response.headers_mut().append(name, value);
+        }
+    }
+    response
 }
 
 fn response_of(plain: canopy_http::Response) -> Response<Body> {

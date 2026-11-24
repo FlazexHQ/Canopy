@@ -10,10 +10,13 @@ repository.workspace = true
 [dependencies]
 apollo-compiler = "=1.33.1"
 canopy-data = { path = "../canopy-data" }
+canopy-engine = { path = "../canopy-engine" }
 canopy-http = { path = "../canopy-http" }
+canopy-matcher = { path = "../canopy-matcher" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 serde_json_bytes = { version = "0.2", features = ["preserve_order"] }
+tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 
 [dev-dependencies]
 canopy-auth = { path = "../canopy-auth" }

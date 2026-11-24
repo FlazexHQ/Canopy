@@ -16,13 +16,14 @@ canopy-auth = { path = "../canopy-auth" }
 canopy-config = { path = "../canopy-config" }
 canopy-data = { path = "../canopy-data" }
 canopy-engine = { path = "../canopy-engine" }
+canopy-graphql = { path = "../canopy-graphql" }
 canopy-http = { path = "../canopy-http" }
 canopy-matcher = { path = "../canopy-matcher" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-realtime = { path = "../canopy-realtime" }
-futures-util = { version = "0.3", default-features = false, features = ["std"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = "0.1"
 hyper = { version = "1", features = ["client", "http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
@@ -33,6 +34,7 @@ ring = "0.17"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "net", "io-util", "io-std", "signal"] }
+tokio-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
 [dev-dependencies]
 opentelemetry-proto = { version = "0.33", default-features = false, features = ["gen-tonic-messages", "trace"] }

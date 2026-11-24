@@ -54,8 +54,35 @@
     "mutationTtlSeconds": 86400,
     "explainDenials": true
   },
+  "graphql": {
+    "path": "/graphql/v1",
+    "maxDepth": 4,
+    "maxComplexity": 500,
+    "maxAliases": 12,
+    "maxBatch": 3,
+    "introspection": "authenticated",
+    "collections": {
+      "articles": {
+        "typeName": "Story",
+        "relations": {
+          "notes": {
+            "to": "notes",
+            "local": "_id",
+            "foreign": "articleId",
+            "many": true
+          }
+        }
+      }
+    },
+    "persisted": {
+      "operations": {
+        "9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b": "{ todosCount }"
+      },
+      "only": true
+    }
+  },
   "dataPlane": {
-    "routes": ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
+    "routes": ["find", "count", "distinct", "aggregate", "query", "explain", "writes", "graphql"]
   },
   "log": {
     "level": "info"

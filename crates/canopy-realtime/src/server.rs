@@ -5,7 +5,7 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use canopy_engine::{ConnId, Engine, MutationOutcome, MutationRequest};
@@ -69,7 +69,6 @@ pub trait HttpRoutes {
 
 struct Shared {
     engine: EngineSender,
-    next_conn: AtomicU64,
     max_frame_bytes: usize,
     websocket: bool,
     http: Option<Arc<HttpTransport>>,
@@ -89,8 +88,7 @@ impl Server {
     pub fn new(options: TransportOptions) -> Self {
         let (engine_tx, commands) = std::sync::mpsc::channel();
         let shared = Arc::new(Shared {
-            engine: EngineSender(engine_tx),
-            next_conn: AtomicU64::new(1),
+            engine: EngineSender::new(engine_tx),
             max_frame_bytes: options.max_frame_bytes,
             websocket: options.websocket,
             http: options
@@ -370,7 +368,7 @@ async fn route<R: HttpRoutes>(
                 engine: &shared.engine,
                 address: routes.client_address(request.headers(), &peer),
                 shard,
-                next_conn: &shared.next_conn,
+                next_conn: &shared.engine.next_conn,
                 register: &register,
             };
             return Ok(http.handle(request, origin).await);
@@ -546,7 +544,7 @@ impl Outbox {
 }
 
 async fn connection(mut socket: Socket, shared: Arc<Shared>, registry: Registry, peer: String, shard: usize) {
-    let conn = shared.next_conn.fetch_add(1, Ordering::Relaxed);
+    let conn = shared.engine.next_conn.fetch_add(1, Ordering::Relaxed);
     let queue = Rc::new(Queue::default());
     registry.borrow_mut().insert(conn, Sink::Socket(Rc::clone(&queue)));
     if shared.engine.send(Command::Open { conn, address: peer, shard }).is_err() {

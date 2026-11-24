@@ -36,9 +36,27 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "telemetry",
             "rest",
             "audit",
+            "graphql",
             "dataPlane",
             "viewTokens"
         ]
+    );
+    let Some(Json::Array(graphql)) = at(root, &["graphql", "oneOf"]) else {
+        return Err("Missing GraphQL schema options".to_owned());
+    };
+    let settings = graphql.get(1).ok_or("Missing GraphQL settings schema")?;
+    assert_eq!(
+        fields(settings.get("properties").ok_or("Missing GraphQL settings fields")?),
+        [
+            "path",
+            "maxDepth",
+            "maxComplexity",
+            "maxAliases",
+            "maxBatch",
+            "introspection",
+            "persisted",
+            "collections"
+        ],
     );
     for (path, expected) in [
         (&["mongodb", "properties"][..], &["uri", "database", "metaDatabase"][..]),
@@ -281,11 +299,19 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
             r#""dataPlane":{"routes":"batch"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Find",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not Find",
+        ),
+        (
+            r#""dataPlane":{"routes":["graphql"]},"graphql":false"#,
+            "dataPlane.routes selects graphql, which graphql: false disables",
+        ),
+        (
+            r#""graphql":{"persisted":{"operations":{"invalid":"{ todosCount }"}}}"#,
+            "graphql.persisted.operations must map SHA-256 hex hashes to documents",
         ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
@@ -338,13 +364,13 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     assert_eq!(
         unknown.err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not batch"
         )
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Query"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not Query"
         )
     );
     for route in [
@@ -356,12 +382,13 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         DataPlaneRoute::Explain,
         DataPlaneRoute::Document,
         DataPlaneRoute::Writes,
+        DataPlaneRoute::Graphql,
     ] {
         assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
     }
     assert_eq!(
         DataPlaneRoute::NAMES,
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"]
+        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes", "graphql"]
     );
     Ok(())
 }
@@ -418,7 +445,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
         (
             &["$defs", "dataPlaneRoute", "enum"],
-            r#"["find","count","distinct","aggregate","query","explain","document","writes"]"#,
+            r#"["find","count","distinct","aggregate","query","explain","document","writes","graphql"]"#,
         ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),

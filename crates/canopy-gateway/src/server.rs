@@ -8,6 +8,7 @@ use hyper::{HeaderMap, Request, Response, StatusCode};
 
 use crate::client_address;
 use crate::data_plane::DataPlane;
+use crate::graphql_ws;
 use crate::proxy::{Pool, Upstream, forward};
 
 pub(crate) struct Routes {
@@ -35,6 +36,12 @@ impl HttpRoutes for ShardRoutes {
     }
 
     async fn fallback(&self, request: Request<Incoming>, peer: &str) -> Response<Body> {
+        if let Some(graphql) = self.routes.data_plane.as_ref().and_then(DataPlane::graphql)
+            && graphql_ws::wants(graphql, &request)
+        {
+            let address = self.client_address(request.headers(), peer);
+            return graphql_ws::upgrade(Arc::clone(&self.routes), request, address);
+        }
         if let Some(data_plane) = &self.routes.data_plane
             && data_plane.owns(&request)
         {

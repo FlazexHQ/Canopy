@@ -7,6 +7,7 @@ mod client_address;
 mod config;
 mod data_plane;
 mod forward;
+mod graphql_ws;
 mod log;
 mod proxy;
 mod request_log;
@@ -266,7 +267,15 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     };
     let data_plane = data_policies
         .map(|policies| {
-            DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log, telemetry.clone())
+            DataPlane::new(
+                &config,
+                client.clone(),
+                auth.clone(),
+                policies,
+                request_log,
+                telemetry.clone(),
+                Some(engine_tx.clone()),
+            )
         })
         .transpose()?;
     let routes = Arc::new(Routes {

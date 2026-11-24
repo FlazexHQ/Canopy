@@ -157,6 +157,10 @@ export interface GatewayOverrides {
     readonly auth?: GatewayAuth;
     readonly viewTokenKey?: JsonWebKey;
     readonly dataPlaneRoutes?: readonly string[];
+    readonly graphqlPersisted?: {
+        readonly operations: Readonly<Record<string, string>>;
+        readonly only: boolean;
+    };
 }
 
 class Gauge {
@@ -619,6 +623,8 @@ function mutationRequest(message: MutMessage): MutationRequest
 const noCheckpoints: CheckpointStore
 
 function normalize(raw: Record<string, unknown>): NormalizedEvent | ControlEvent | undefined
+
+function readPersistedGraphqlOperations(input: { readonly file: string; readonly only: boolean; }): Promise<NonNullable<GatewayOverrides["graphqlPersisted"]>>
 
 function readinessCheck(options: ReadinessOptions): () => Promise<Readiness>
 

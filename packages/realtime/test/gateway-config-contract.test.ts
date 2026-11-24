@@ -64,12 +64,42 @@ const cases: readonly Fixture[] = [
     name: "data-plane",
     input: {
       rest: { defaultLimit: 25, maxLimit: 250, maxBodyBytes: 4096 },
-      collections: { articles: { search: true }, notes: {}, counters: { idType: "number" } },
+      graphql: {
+        maxDepth: 4,
+        maxComplexity: 500,
+        maxAliases: 12,
+        maxBatch: 3,
+        introspection: "authenticated",
+      },
+      collections: {
+        articles: {
+          search: true,
+          typeName: "Story",
+          relations: { notes: { to: "notes", local: "_id", foreign: "articleId", many: true } },
+        },
+        notes: {},
+        counters: { idType: "number" },
+      },
       telemetry: { tracing: true },
       audit: { dataWrites: true },
     },
     overrides: {
-      dataPlaneRoutes: ["find", "count", "distinct", "aggregate", "query", "explain", "writes"],
+      dataPlaneRoutes: [
+        "find",
+        "count",
+        "distinct",
+        "aggregate",
+        "query",
+        "explain",
+        "writes",
+        "graphql",
+      ],
+      graphqlPersisted: {
+        only: true,
+        operations: {
+          "9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b": "{ todosCount }",
+        },
+      },
     },
   },
   { name: "rest-disabled", input: { rest: false } },

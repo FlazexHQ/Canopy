@@ -94,6 +94,7 @@
       "version": "0.0.0",
       "devDependencies": {
         "@canopy/auth": "workspace:*",
+        "@canopy/graphql": "workspace:*",
         "@canopy/matcher": "workspace:*",
         "@canopy/native": "workspace:*",
         "@canopy/node-http": "workspace:*",

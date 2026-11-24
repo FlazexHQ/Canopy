@@ -22,11 +22,13 @@
     "d0": "node --conditions=@canopy/source workloads/d0/run.ts",
     "d1": "node --conditions=@canopy/source workloads/d1/find.ts",
     "d2": "node --conditions=@canopy/source workloads/d2/writes.ts",
+    "d3": "node --conditions=@canopy/source workloads/d3/graphql.ts",
     "test": "vitest run",
     "wire": "node --conditions=@canopy/source workloads/wire/s13-wire.ts"
   },
   "devDependencies": {
     "@canopy/auth": "workspace:*",
+    "@canopy/graphql": "workspace:*",
     "@canopy/matcher": "workspace:*",
     "@canopy/native": "workspace:*",
     "@canopy/node-http": "workspace:*",

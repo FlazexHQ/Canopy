@@ -1,7 +1,7 @@
 //! Cross language launcher fixtures.
 
 use canopy_config::{Cors, DataPlaneRoute, FullDocument, RequestRates, RestLimits, WriteSettings};
-use canopy_config::{Fallbacks, Policies, TrustedProxy, parse, resolve};
+use canopy_config::{Fallbacks, GraphqlSettings, Introspection, Policies, TrustedProxy, parse, resolve};
 use canopy_protocol::json::parse_json;
 
 #[test]
@@ -36,6 +36,7 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert_eq!(config.log_level, "info");
     assert!(config.data_plane_routes.is_empty());
     assert_eq!(config.rest_limits, RestLimits::default());
+    assert_eq!(config.graphql, Some(GraphqlSettings::default()));
     assert_eq!(config.rest_limits.max_body_bytes, 1_048_576);
     assert!(config.search_collections.is_empty());
     Ok(())
@@ -54,7 +55,8 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
             DataPlaneRoute::Aggregate,
             DataPlaneRoute::Query,
             DataPlaneRoute::Explain,
-            DataPlaneRoute::Writes
+            DataPlaneRoute::Writes,
+            DataPlaneRoute::Graphql,
         ]
     );
     assert_eq!(
@@ -63,6 +65,27 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
     );
     assert_eq!(config.search_collections, ["articles"]);
     assert!(config.tracing);
+    let graphql = config.graphql.as_ref().ok_or("Expected GraphQL settings")?;
+    assert_eq!(graphql.path, "/graphql/v1");
+    assert_eq!((graphql.max_depth, graphql.max_aliases, graphql.max_batch), (4, 12, 3));
+    assert!((graphql.max_complexity - 500.0).abs() < f64::EPSILON);
+    assert_eq!(graphql.introspection, Introspection::Authenticated);
+    let articles = graphql.collections.get("articles").ok_or("Expected articles settings")?;
+    assert_eq!(articles.type_name.as_deref(), Some("Story"));
+    let notes = articles.relations.get("notes").ok_or("Expected notes relation")?;
+    assert_eq!(
+        (&*notes.to, &*notes.local, notes.foreign.as_deref(), notes.many),
+        ("notes", "_id", Some("articleId"), true)
+    );
+    let persisted = graphql.persisted.as_ref().ok_or("Expected persisted operations")?;
+    assert!(persisted.only);
+    assert_eq!(
+        persisted
+            .operations
+            .get("9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b")
+            .map(String::as_str),
+        Some("{ todosCount }")
+    );
     assert_eq!(
         config.writes,
         WriteSettings {

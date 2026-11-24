@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -21,6 +21,7 @@ use crate::LogLevel;
 /// Something that happened, for the engine thread.
 pub(crate) enum Command {
     Open { conn: ConnId, address: String, shard: usize },
+    OpenLocal { conn: ConnId, address: Option<String>, deliver: Deliver },
     Message { conn: ConnId, text: String },
     Closed { conn: ConnId },
     Slow { conn: ConnId },
@@ -40,13 +41,49 @@ pub(crate) enum Command {
     Drain(u64),
 }
 
+/// Receives the frames of an in-process connection, on the engine thread: it must not block.
+pub type Deliver = Box<dyn Fn(LocalFrame) + Send>;
+
+/// What the engine writes to an in-process connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalFrame {
+    /// A `canopy.v1` text frame.
+    Text(String),
+    /// The engine closed the connection with this close code and reason. Nothing follows.
+    Close {
+        /// The WebSocket close code the engine chose.
+        code: u16,
+        /// The close reason.
+        reason: String,
+    },
+}
+
 /// Sends policy, authentication and lifecycle updates to the session engine.
 #[derive(Clone)]
-pub struct EngineSender(pub(crate) Sender<Command>);
+pub struct EngineSender {
+    commands: Sender<Command>,
+    pub(crate) next_conn: Arc<AtomicU64>,
+}
 
 impl EngineSender {
+    pub(crate) fn new(commands: Sender<Command>) -> EngineSender {
+        EngineSender { commands, next_conn: Arc::new(AtomicU64::new(1)) }
+    }
+
     pub(crate) fn send(&self, command: Command) -> Result<(), ()> {
-        self.0.send(command).map_err(|_| ())
+        self.commands.send(command).map_err(|_| ())
+    }
+
+    /// Opens a connection to the engine inside this process, as a WebSocket client would open one: the caller
+    /// sends `canopy.v1` client frames with [`LocalConnection::send`] and the engine's frames arrive through
+    /// `deliver`, one by one and never batched. The connection authenticates with its own `hello`, so DLS
+    /// applies to it exactly as to a socket. `address` is the client address counted by the anonymous
+    /// connection limit. Dropping the connection closes it. Fails when the engine has stopped.
+    pub fn connect(&self, address: Option<String>, deliver: Deliver) -> Result<LocalConnection, CanopyError> {
+        let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
+        self.send(Command::OpenLocal { conn, address, deliver })
+            .map_err(|()| CanopyError::new(ErrorCode::Unavailable, "The realtime engine has stopped"))?;
+        Ok(LocalConnection { conn, engine: self.clone() })
     }
 
     /// Closes sessions authenticated with any of the revoked key IDs.
@@ -67,6 +104,25 @@ impl EngineSender {
     /// Replaces the engine's compiled policy set.
     pub fn set_policies(&self, set: PolicySet) {
         let _ = self.send(Command::Policies(Box::new(set)));
+    }
+}
+
+/// A connection to the engine inside this process, made by [`EngineSender::connect`].
+pub struct LocalConnection {
+    conn: ConnId,
+    engine: EngineSender,
+}
+
+impl LocalConnection {
+    /// Hands a client frame to the engine. Returns false when the engine has stopped.
+    pub fn send(&self, text: String) -> bool {
+        self.engine.send(Command::Message { conn: self.conn, text }).is_ok()
+    }
+}
+
+impl Drop for LocalConnection {
+    fn drop(&mut self) {
+        let _ = self.engine.send(Command::Closed { conn: self.conn });
     }
 }
 
@@ -117,6 +173,7 @@ pub(crate) fn now_ms() -> u64 {
 struct State {
     conn_shard: HashMap<ConnId, usize>,
     conn_address: HashMap<ConnId, String>,
+    local: HashMap<ConnId, Deliver>,
     anonymous: HashMap<ConnId, String>,
     per_address: HashMap<String, usize>,
     outgoing: Vec<Vec<ShardMessage>>,
@@ -133,6 +190,7 @@ where
     let mut state = State {
         conn_shard: HashMap::new(),
         conn_address: HashMap::new(),
+        local: HashMap::new(),
         anonymous: HashMap::new(),
         per_address: HashMap::new(),
         outgoing: (0..router.shards.len()).map(|_| Vec::new()).collect(),
@@ -189,9 +247,17 @@ where
             state.conn_address.insert(conn, address.clone());
             engine.open(conn, Some(address), now);
         }
+        Command::OpenLocal { conn, address, deliver } => {
+            state.local.insert(conn, deliver);
+            if let Some(address) = &address {
+                state.conn_address.insert(conn, address.clone());
+            }
+            engine.open(conn, address, now);
+        }
         Command::Message { conn, text } => engine.message(conn, &text, now),
         Command::Closed { conn } => {
             release_anonymous(state, conn);
+            state.local.remove(&conn);
             state.conn_shard.remove(&conn);
             state.conn_address.remove(&conn);
             engine.closed(conn, now);
@@ -294,6 +360,18 @@ fn release_anonymous(state: &mut State, conn: ConnId) {
 }
 
 fn to_shard(state: &mut State, conn: ConnId, message: ShardMessage) {
+    if let Some(deliver) = state.local.get(&conn) {
+        match message {
+            ShardMessage::Frame { frame, .. } => deliver(LocalFrame::Text(frame.text())),
+            ShardMessage::Text { text, .. } => deliver(LocalFrame::Text(text)),
+            ShardMessage::Session { .. } => {}
+            ShardMessage::Close { code, reason, .. } => {
+                deliver(LocalFrame::Close { code, reason });
+                state.local.remove(&conn);
+            }
+        }
+        return;
+    }
     if let Some(shard) = state.conn_shard.get(&conn)
         && let Some(queue) = state.outgoing.get_mut(*shard)
     {
