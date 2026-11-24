@@ -10,20 +10,20 @@ import { toCanonical } from "@canopy/protocol"
 import type { Logger } from "./logger.ts"
 import { directoryPolicies } from "./policy-source.ts"
 
-const BINARY = process.platform === "win32" ? "canopy-gateway.exe" : "canopy-gateway"
+const BINARY = process.platform === "win32" ? "canopyd.exe" : "canopyd"
 
 /**
- * Finds the `canopy-gateway` executable: `CANOPY_GATEWAY_BIN`, else a release or debug build of the Cargo
- * workspace this package lives in, else one beside the running executable (the single file `canopy` binaries
- * ship it there), else one on `PATH`. Returns `undefined` when there is none.
+ * Finds the `canopyd` executable via `CANOPYD_BIN` or the legacy `CANOPY_GATEWAY_BIN`.
+ * Otherwise checks for a release or debug Cargo build, a binary beside the running executable,
+ * then a binary on `PATH`. Returns `undefined` when there is none.
  */
 export function findGatewayBinary(
   env: NodeJS.ProcessEnv = process.env,
   execPath: string = process.execPath,
   from: string = dirname(fileURLToPath(import.meta.url)),
 ): string | undefined {
-  const configured = env["CANOPY_GATEWAY_BIN"]
-  if (configured !== undefined && configured !== "") return resolve(configured)
+  const configured = env["CANOPYD_BIN"] || env["CANOPY_GATEWAY_BIN"]
+  if (configured) return resolve(configured)
   let dir = from
   for (let depth = 0; depth < 6; depth += 1) {
     for (const profile of ["release", "debug"]) {
@@ -350,7 +350,7 @@ export async function startGateway(
   const binary = findGatewayBinary()
   if (binary === undefined)
     throw new TypeError(
-      "CANOPY_REALTIME_SERVER=gateway needs the canopy-gateway executable: set CANOPY_GATEWAY_BIN or build it with cargo build --release -p canopy-gateway",
+      "CANOPY_REALTIME_SERVER=gateway needs the canopyd executable: set CANOPYD_BIN or build it with cargo build --release -p canopyd",
     )
   const source = "dir" in config.policies ? directoryPolicies(config.policies.dir) : undefined
   const initial = source === undefined ? undefined : storedPolicies(await source.load())
@@ -402,7 +402,7 @@ export async function startGateway(
       done(code ?? 1)
     })
     child.on("error", (error) => {
-      logger.error({ err: error }, "canopy-gateway could not start")
+      logger.error({ err: error }, "canopyd could not start")
       reported(undefined)
       done(1)
     })

@@ -55,7 +55,7 @@ affinity: {}
 split:
   enabled: false
   data:
-    image: canopy-gateway:latest
+    image: canopyd:latest
   control:
     replicaCount: 1
   studio:

@@ -115,7 +115,7 @@ function startGateway(document: unknown): { child: ChildProcess; base: Promise<s
       if (match?.[1] !== undefined) resolve(`http://127.0.0.1:${match[1]}`)
     })
     child.once("error", reject)
-    child.once("exit", (code) => reject(new Error(`canopy-gateway exited with ${code}`)))
+    child.once("exit", (code) => reject(new Error(`canopyd exited with ${code}`)))
     child.stdin.on("error", reject)
   })
   child.stdin.write(`${JSON.stringify(document)}\n`)

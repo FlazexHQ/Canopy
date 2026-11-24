@@ -1,11 +1,11 @@
-# canopy-gateway
+# canopyd
 
 Canopy's native realtime server, written in Rust. It speaks wire protocol `canopy.v1` exactly like the
 `canopy-realtime` sidecar, so every SDK and binding works against it unchanged.
 
 The Rust `canopy-realtime` library runs the WebSocket, SSE and long polling transports, the session engine
 and change stream ingestion. The `canopy-config` crate parses the resolved configuration and defines its
-[JSON Schema](../canopy-config/schema/config.schema.json). The `canopy-gateway` binary reads the CLI arguments,
+[JSON Schema](../canopy-config/schema/config.schema.json). The `canopyd` binary reads the CLI arguments,
 configuration input and environment variables. It also handles client address resolution, logging, the reverse
 proxy and mutation forwarding to the TypeScript server.
 
@@ -33,20 +33,20 @@ proxy and mutation forwarding to the TypeScript server.
 
 ## Running it
 
-Download `canopy-gateway-<target>` from a [Native release builds workflow run](https://github.com/FlazexHQ/Canopy/actions/workflows/native-release.yml).
+Download `canopyd-<target>` from a [Native release builds workflow run](https://github.com/FlazexHQ/Canopy/actions/workflows/native-release.yml).
 Each artifact contains a ZIP archive for Windows or a tar.gz archive for Linux and macOS, with a SHA256 checksum
-for the archive. Point `CANOPY_GATEWAY_BIN` at the extracted executable to run it through the sidecar.
+for the archive. Point `CANOPYD_BIN` at the extracted executable to run it through the sidecar.
 
 Through the sidecar, which resolves the configuration file and the policies (TypeScript policy files included)
 and starts the gateway with them:
 
 ```sh
-cargo build --release -p canopy-gateway
+cargo build --release -p canopyd
 CANOPY_REALTIME_SERVER=gateway canopy-realtime --config canopy.config.ts
 ```
 
 For a source build, the sidecar can also find the executable in the repository's `target/` folder.
-The `canopy-realtime` image already includes the executable and sets `CANOPY_GATEWAY_BIN`. Set
+The `canopy-realtime` image already includes the executable and sets `CANOPYD_BIN`. Set
 `CANOPY_REALTIME_SERVER=gateway` to use it.
 
 Standalone, with the variables of `canopy-realtime` (`MONGODB_URI`, `CANOPY_DB`, `CANOPY_META_DB`,
@@ -54,16 +54,16 @@ Standalone, with the variables of `canopy-realtime` (`MONGODB_URI`, `CANOPY_DB`,
 policies stored in the meta database:
 
 ```sh
-canopy-gateway
+canopyd
 ```
 
 The standalone container image uses policies from the meta database. A published GitHub release builds
-`ghcr.io/flazexhq/canopy-gateway:<tag>` for Linux x64 and arm64. To build the image locally, run
-`docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway .` from the repository root.
+`ghcr.io/flazexhq/canopyd:<tag>` for Linux x64 and arm64. To build the image locally, run
+`docker build -f deploy/docker/canopyd.Dockerfile -t canopyd .` from the repository root.
 The image listens on port 8080 for realtime and 9464 for metrics. To change the metrics bind address in
 standalone mode, mount a JSON configuration and set `server.metricsHost`.
 
-Or with a JSON configuration: `canopy-gateway --config file.json`, or `--config -` to read it from the first line
+Or with a JSON configuration: `canopyd --config file.json`, or `--config -` to read it from the first line
 of standard input. In that mode later lines may replace the policies (`{"t":"policies","stored":[…]}`), and
 closing standard input drains the server and stops it.
 

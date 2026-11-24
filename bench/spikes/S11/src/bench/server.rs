@@ -106,7 +106,7 @@ impl Server {
             other => return Err(format!("unknown server {other}").into()),
         };
         let label = match launch.kind {
-            "gateway" => "canopy-gateway through canopy-realtime".to_owned(),
+            "gateway" => "canopyd through canopy-realtime".to_owned(),
             "rust" => format!("rust gateway, read buffer {}, workers {}", launch.read_buffer, launch.workers.map_or("all".to_owned(), |w| w.to_string())) + &launch.shards.map_or(String::new(), |n| format!(", {n} shards")),
             kind => format!("{kind} sidecar, engine {}", launch.engine),
         };
@@ -135,10 +135,10 @@ impl Server {
                 .processes()
                 .iter()
                 .find(|(_, process)| {
-                    process.parent() == Some(parent) && process.name().to_string_lossy().starts_with("canopy-gateway")
+                    process.parent() == Some(parent) && process.name().to_string_lossy().starts_with("canopyd")
                 })
                 .map(|(pid, _)| pid.as_u32());
-            server.pid = child.ok_or("the canopy-gateway process was not found")?;
+            server.pid = child.ok_or("the canopyd process was not found")?;
         }
         Ok(server)
     }

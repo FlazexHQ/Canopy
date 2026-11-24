@@ -2,8 +2,8 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 const env = process.env
-if (!env["CANOPY_TEST_MONGODB_URI"] || !env["CANOPY_GATEWAY_BIN"]) {
-  throw new Error("Set CANOPY_TEST_MONGODB_URI and CANOPY_GATEWAY_BIN")
+if (!env["CANOPY_TEST_MONGODB_URI"] || !(env["CANOPYD_BIN"] || env["CANOPY_GATEWAY_BIN"])) {
+  throw new Error("Set CANOPY_TEST_MONGODB_URI and CANOPYD_BIN")
 }
 
 const root = fileURLToPath(new URL("../../../", import.meta.url))

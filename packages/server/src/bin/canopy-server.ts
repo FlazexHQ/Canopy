@@ -130,7 +130,7 @@ async function main(): Promise<void> {
   let stopping = false
   void gateway?.exited.then((code) => {
     if (stopping) return
-    logger.error({ code }, "canopy-gateway stopped, so the server stops too")
+    logger.error({ code }, "canopyd stopped, so the server stops too")
     process.exit(1)
   })
   const shutdown = (signal: string): void => {

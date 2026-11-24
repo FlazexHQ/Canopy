@@ -145,7 +145,7 @@ function addonFor(target: string): string | undefined {
 function gatewayFor(target: string, exe: string): string | undefined {
   const triple = PLATFORMS[target]?.triple
   const cargo = resolve(ROOT, process.env["CARGO_TARGET_DIR"] ?? "target")
-  const name = `canopy-gateway${exe}`
+  const name = `canopyd${exe}`
   if (triple !== undefined) {
     const file = join(cargo, triple, "release", name)
     if (existsSync(file)) return file
@@ -220,7 +220,7 @@ function main(): void {
       const triple = PLATFORMS[platform]?.triple
       const flag = triple === undefined || platform === hostTarget() ? "" : ` --target ${triple}`
       usage(
-        `No canopy-gateway executable is built for ${platform}. Run cargo build --release -p canopy-gateway${flag}`,
+        `No canopyd executable is built for ${platform}. Run cargo build --release -p canopyd${flag}`,
       )
     }
     const dir = includeGateway && targets.length > 1 ? join(out, platform) : out

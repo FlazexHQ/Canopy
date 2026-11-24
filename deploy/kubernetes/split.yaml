@@ -214,7 +214,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: data
-          image: "canopy-gateway:latest"
+          image: "canopyd:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

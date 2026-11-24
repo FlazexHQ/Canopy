@@ -199,7 +199,7 @@ const gatewayBuilt = findGatewayBinary() !== undefined
 const servers: ("ts" | "gateway")[] = gatewayBuilt ? ["ts", "gateway"] : ["ts"]
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-describe.skipIf(gatewayBuilt || MONGODB_URI === undefined)("canopy-gateway", () => {
+describe.skipIf(gatewayBuilt || MONGODB_URI === undefined)("canopyd", () => {
   it.skip("is not built, so the conformance suite runs on the TypeScript engine only", () => {})
 })
 

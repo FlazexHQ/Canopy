@@ -224,11 +224,11 @@ suite("DLS is the same through REST, GraphQL, realtime and the MongoDB wire endp
     const [port, boundWirePort] = await Promise.race([
       Promise.all([gateway.listening, gateway.wireListening]),
       delay(60_000, undefined, { ref: false }).then(() => {
-        throw new Error("canopy-gateway did not report its listening ports")
+        throw new Error("canopyd did not report its listening ports")
       }),
     ])
     if (port === undefined || boundWirePort === undefined)
-      throw new Error("canopy-gateway exited before both listeners started")
+      throw new Error("canopyd exited before both listeners started")
     gatewayBase = `http://127.0.0.1:${port}`
     wirePort = boundWirePort
   }, 120_000)

@@ -1,4 +1,4 @@
-//! `canopy-gateway`, Canopy's native realtime server. It speaks `canopy.v1` like the `canopy-realtime` sidecar,
+//! `canopyd`, Canopy's native realtime server. It speaks `canopy.v1` like the `canopy-realtime` sidecar,
 //! so every SDK works against it unchanged: one change stream read as raw BSON, the `canopy-engine` routing
 //! with the same policies, and writes forwarded to the TypeScript write path so `check` rules, transactions and
 //! idempotency keep one implementation.
@@ -43,7 +43,7 @@ use crate::log::Log;
 use crate::server::{Routes, ShardRoutes};
 use crate::telemetry::Telemetry;
 
-const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -] [--probe]
+const USAGE: &str = "Usage: canopyd [--config <file> | --config -] [--probe]
 
 Runs Canopy's native realtime server. With --config -, the first line of standard input is the configuration as
 JSON (the canopy launcher writes it), the bound port is reported on standard output as {\"t\":\"listening\",
@@ -121,7 +121,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(message) => {
-            let text = format!("canopy-gateway: {message}\n\n{USAGE}");
+            let text = format!("canopyd: {message}\n\n{USAGE}");
             let _ = std::io::Write::write_all(&mut std::io::stderr(), text.as_bytes());
             return ExitCode::from(2);
         }
@@ -129,7 +129,7 @@ fn main() -> ExitCode {
     let config = match config::resolve(text.as_deref()) {
         Ok(config) => config,
         Err(message) => {
-            let text = format!("canopy-gateway: {message}\n");
+            let text = format!("canopyd: {message}\n");
             let _ = std::io::Write::write_all(&mut std::io::stderr(), text.as_bytes());
             return ExitCode::from(1);
         }
@@ -147,7 +147,7 @@ fn main() -> ExitCode {
     match runtime.block_on(start(config, log, control)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
-            log.error("canopy-gateway failed", &[("err", &message)]);
+            log.error("canopyd failed", &[("err", &message)]);
             ExitCode::from(1)
         }
     }
@@ -186,7 +186,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
-    options.app_name = Some("canopy-gateway".to_owned());
+    options.app_name = Some("canopyd".to_owned());
     if options.max_pool_size.is_none() {
         options.max_pool_size = Some(DEFAULT_MAX_POOL_SIZE);
     }
@@ -450,7 +450,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         let _ = std::io::Write::flush(&mut std::io::stdout());
     }
     log.info(
-        "canopy-gateway listening",
+        "canopyd listening",
         &[("port", &port), ("database", &config.database), ("shards", &config.shards.to_string())],
     );
     if let Some(port) = wire_port {

@@ -188,7 +188,7 @@ it.each([
     stdout: new PassThrough(),
   })
   spawn.mockReturnValueOnce(child)
-  vi.stubEnv("CANOPY_GATEWAY_BIN", "fixture-gateway")
+  vi.stubEnv("CANOPYD_BIN", "fixture-gateway")
   try {
     const gateway = await startGateway(resolved({}), silentLogger, { host: "127.0.0.1" })
     expect(JSON.parse(String(child.stdin.read()))).toMatchObject({ server: { host: "127.0.0.1" } })

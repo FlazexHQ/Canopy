@@ -341,7 +341,7 @@ export interface RealtimeInput {
   readonly echoTimeout?: Value<number | string>
   /**
    * Which server answers realtime: `ts`, the engine inside the TypeScript process, or `gateway`, the native
-   * `canopy-gateway` executable. With `gateway`, `canopy-server` runs the gateway on the public port, where it
+   * `canopyd` executable. With `gateway`, `canopy-server` runs the gateway on the public port, where it
    * serves realtime and passes every other request to the TypeScript server on loopback.
    * @default "ts"
    */

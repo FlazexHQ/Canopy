@@ -1,5 +1,5 @@
 [package]
-name = "canopy-gateway"
+name = "canopyd"
 description = "Canopy's native realtime server: canopy.v1 over WebSockets on Tokio and Hyper, one change stream read as raw BSON, the canopy-engine routing and writes forwarded to the TypeScript write path."
 version.workspace = true
 edition.workspace = true
@@ -8,7 +8,7 @@ publish.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "canopy-gateway"
+name = "canopyd"
 path = "src/main.rs"
 
 [dependencies]

@@ -145,7 +145,7 @@ jobs:
           bun --filter @canopy/native build:native
           bun --filter @canopy/wasm build:native
       - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Save the Cargo registry and build output
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -356,7 +356,7 @@ jobs:
         name: Build the native gateway
         run: |
           rustup toolchain install
-          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked -p canopyd
       - if: matrix.runtime == 'bun'
         name: The standalone executables run without node_modules
         shell: bash
@@ -523,7 +523,7 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
       - uses: ./.github/actions/canopy-js
       - name: Build the standalone gateway image
-        run: docker build -f deploy/docker/canopy-gateway.Dockerfile -t canopy-gateway:ci .
+        run: docker build -f deploy/docker/canopyd.Dockerfile -t canopyd:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
       - name: Build the canopy and Studio images and start the stack of separate services
@@ -545,7 +545,7 @@ jobs:
       - name: Smoke test the split stack with the control plane stopped
         env:
           CANOPY_IMAGE: canopy:ci
-          CANOPY_GATEWAY_IMAGE: canopy-gateway:ci
+          CANOPY_GATEWAY_IMAGE: canopyd:ci
           CANOPY_STUDIO_IMAGE: canopy-studio:ci
           CANOPY_PORT: "28080"
           CANOPY_MONGO_PORT: "37017"
@@ -566,7 +566,7 @@ jobs:
           docker run -d --read-only --name gateway --network canopy_default \
             -p 127.0.0.1:18082:8080 -p 127.0.0.1:19464:9464 \
             -e MONGODB_URI="mongodb://database:27017/?replicaSet=rs0" -e CANOPY_DB=app \
-            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopy-gateway:ci
+            -e CANOPY_NODE_ID=gateway -e CANOPY_PUBLISHABLE_KEYS=pk_dev canopyd:ci
 
           check_ready() {
             for ((attempt = 0; attempt < 60; attempt++)); do
@@ -584,7 +584,7 @@ jobs:
       - name: Build the standalone executables
         run: |
           rustup toolchain install
-          cargo build --release --locked -p canopy-gateway
+          cargo build --release --locked -p canopyd
           bun deploy/binary/build.ts --target linux-x64 --require-gateway --out "$RUNNER_TEMP/binaries"
       - name: The executables run without node_modules
         working-directory: ${{ runner.temp }}

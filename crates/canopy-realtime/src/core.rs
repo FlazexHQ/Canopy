@@ -242,7 +242,7 @@ where
             last_metrics = now;
             let mut text = engine.metrics().render();
             text.push_str(&format!(
-                "# HELP canopy_gateway_sessions Sessions, connected or waiting for a resume\n# TYPE canopy_gateway_sessions gauge\ncanopy_gateway_sessions {}\n# HELP canopy_gateway_change_stream_open Whether the change stream is open\n# TYPE canopy_gateway_change_stream_open gauge\ncanopy_gateway_change_stream_open {}\n",
+                "# HELP canopyd_sessions Sessions, connected or waiting for a resume\n# TYPE canopyd_sessions gauge\ncanopyd_sessions {}\n# HELP canopyd_change_stream_open Whether the change stream is open\n# TYPE canopyd_change_stream_open gauge\ncanopyd_change_stream_open {}\n",
                 engine.session_count(),
                 u8::from(router.options.stream_open.load(Ordering::Acquire)),
             ));

@@ -59,7 +59,7 @@ whenever tracing is.
 
 ### The native gateway
 
-When the native gateway runs (`CANOPY_REALTIME_SERVER=gateway`, or `canopy-gateway` on its own), it records the
+When the native gateway runs (`CANOPY_REALTIME_SERVER=gateway`, or `canopyd` on its own), it records the
 same request, MongoDB command and policy load spans for the requests it answers itself, with no package to
 install: turn it on with the same `telemetry.tracing` (or `CANOPY_TRACING=true`). It exports them over OTLP/HTTP
 with protobuf, configured by the standard variables: `OTEL_EXPORTER_OTLP_ENDPOINT` (or

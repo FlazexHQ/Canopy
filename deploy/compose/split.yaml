@@ -43,10 +43,10 @@ services:
       service: database
 
   data:
-    image: ${CANOPY_GATEWAY_IMAGE:-canopy-gateway:dev}
+    image: ${CANOPY_GATEWAY_IMAGE:-canopyd:dev}
     build:
       context: ../..
-      dockerfile: deploy/docker/canopy-gateway.Dockerfile
+      dockerfile: deploy/docker/canopyd.Dockerfile
     restart: unless-stopped
     depends_on:
       database:
@@ -64,7 +64,7 @@ services:
       - storage-data:/app/storage
     stop_grace_period: 40s
     healthcheck:
-      test: ["CMD", "/usr/local/bin/canopy-gateway", "--probe"]
+      test: ["CMD", "/usr/local/bin/canopyd", "--probe"]
       interval: 5s
       timeout: 5s
       retries: 24

@@ -124,7 +124,7 @@ async function closedLoop(
 async function main(): Promise<void> {
   const gatewayBinary = findGatewayBinary(process.env)
   if (gatewayBinary === undefined)
-    throw new Error("Build the gateway first: cargo build --release -p canopy-gateway")
+    throw new Error("Build the gateway first: cargo build --release -p canopyd")
   const database = `canopy_d3_${process.pid}`
   const metaDatabase = `${database}_meta`
   const mongo = new MongoClient(URI)

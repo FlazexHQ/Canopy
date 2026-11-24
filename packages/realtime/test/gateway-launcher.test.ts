@@ -5,7 +5,7 @@ import { resolveConfig } from "@canopy/config"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { findGatewayBinary, gatewayConfig } from "../src/gateway.ts"
 
-const BINARY = process.platform === "win32" ? "canopy-gateway.exe" : "canopy-gateway"
+const BINARY = process.platform === "win32" ? "canopyd.exe" : "canopyd"
 const URI = "mongodb://localhost:27017/?replicaSet=rs0"
 
 function resolved(input: Record<string, unknown>) {
@@ -20,7 +20,7 @@ describe("findGatewayBinary", () => {
   let empty: string
 
   beforeAll(async () => {
-    dir = await mkdtemp(join(tmpdir(), "canopy-gateway-find-"))
+    dir = await mkdtemp(join(tmpdir(), "canopyd-find-"))
     empty = join(dir, "empty")
     await mkdir(empty)
     for (const folder of ["beside", "path", join("repo", "target", "release")])
@@ -33,12 +33,19 @@ describe("findGatewayBinary", () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  it("prefers CANOPY_GATEWAY_BIN, then a Cargo build, then the executable's folder, then PATH", () => {
+  it("prefers CANOPYD_BIN, then a Cargo build, then the executable's folder, then PATH", () => {
     const exec = join(dir, "beside", "canopy")
     const path = [join(dir, "missing"), join(dir, "path")].join(delimiter)
-    expect(findGatewayBinary({ CANOPY_GATEWAY_BIN: "x/gw", PATH: path }, exec, empty)).toBe(
-      join(process.cwd(), "x", "gw"),
-    )
+    expect(
+      findGatewayBinary(
+        { CANOPYD_BIN: "x/gw", CANOPY_GATEWAY_BIN: "legacy/gw", PATH: path },
+        exec,
+        empty,
+      ),
+    ).toBe(join(process.cwd(), "x", "gw"))
+    expect(
+      findGatewayBinary({ CANOPYD_BIN: "", CANOPY_GATEWAY_BIN: "legacy/gw" }, exec, empty),
+    ).toBe(join(process.cwd(), "legacy", "gw"))
     expect(findGatewayBinary({ PATH: path }, exec, join(dir, "repo", "packages"))).toBe(
       join(dir, "repo", "target", "release", BINARY),
     )

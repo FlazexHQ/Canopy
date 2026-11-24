@@ -4,7 +4,7 @@
 //! membership and path, merge boxes that send a document once per connection, resume buffers, resync when gap
 //! free delivery cannot be promised, and echo before ack for writes forwarded to the write path.
 //!
-//! The engine is single threaded and deterministic: the transport (`canopy-gateway`) owns the sockets, the
+//! The engine is single threaded and deterministic: the transport (`canopyd`) owns the sockets, the
 //! MongoDB driver and the clock, and calls [`Engine`] with what happened and the current time.
 
 mod auth;

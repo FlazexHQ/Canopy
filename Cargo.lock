@@ -242,42 +242,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "canopy-gateway"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "canopy-auth",
- "canopy-config",
- "canopy-data",
- "canopy-engine",
- "canopy-graphql",
- "canopy-http",
- "canopy-matcher",
- "canopy-mongo",
- "canopy-policy",
- "canopy-protocol",
- "canopy-realtime",
- "canopy-storage",
- "canopy-wire",
- "futures-util",
- "http-body-util",
- "hyper",
- "hyper-util",
- "mongodb",
- "opentelemetry",
- "opentelemetry-otlp",
- "opentelemetry-proto",
- "opentelemetry_sdk",
- "prost",
- "reqwest",
- "ring",
- "rustls",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite",
-]
-
-[[package]]
 name = "canopy-graphql"
 version = "0.0.0"
 dependencies = [
@@ -450,6 +414,42 @@ dependencies = [
  "stringprep",
  "subtle",
  "tokio",
+]
+
+[[package]]
+name = "canopyd"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "canopy-auth",
+ "canopy-config",
+ "canopy-data",
+ "canopy-engine",
+ "canopy-graphql",
+ "canopy-http",
+ "canopy-matcher",
+ "canopy-mongo",
+ "canopy-policy",
+ "canopy-protocol",
+ "canopy-realtime",
+ "canopy-storage",
+ "canopy-wire",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "mongodb",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
+ "prost",
+ "reqwest",
+ "ring",
+ "rustls",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
 ]
 
 [[package]]

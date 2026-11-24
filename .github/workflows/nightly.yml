@@ -71,7 +71,7 @@ jobs:
         run: bun --filter @canopy/native build:native
       - if: matrix.suite == 'simulation' || matrix.suite == 'chaos'
         name: Build the native gateway for realtime tests
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Save the Cargo registry and build output
         if: matrix.suite != 'writes' && steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -97,7 +97,7 @@ jobs:
           CANOPY_TEST_ENGINE: wasm
           CANOPY_DIFF_RUNS: "500"
       - if: matrix.suite == 'simulation'
-        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopy-gateway)
+        name: Realtime simulation (10k seeds, on the TypeScript engine and on canopyd)
         run: bun --bun vitest run --project realtime -t "seeded simulation"
         env:
           CANOPY_SIM_SEEDS: "10000"

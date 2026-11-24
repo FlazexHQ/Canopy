@@ -36,7 +36,7 @@ use opentelemetry_proto::tonic::trace::v1::Span;
 use opentelemetry_proto::tonic::trace::v1::span::SpanKind;
 use prost::Message as _;
 
-const GATEWAY: &str = env!("CARGO_BIN_EXE_canopy-gateway");
+const GATEWAY: &str = env!("CARGO_BIN_EXE_canopyd");
 
 const WIRE_SECRET: &str = "fixture-wire-service-key";
 
@@ -726,7 +726,7 @@ async fn the_selected_find_route_answers_every_recorded_request_through_the_gate
     };
     let fixture = fixture();
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_find_rs");
+    let database = common::scratch_name("canopyd_find_rs");
     seed(&client.database(&database), &fixture).await;
     let (port, seen) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -784,7 +784,7 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     };
     let fixture = fixture();
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_reads_rs");
+    let database = common::scratch_name("canopyd_reads_rs");
     seed(&client.database(&database), &fixture).await;
     let (port, seen) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -826,7 +826,7 @@ async fn the_writes_route_answers_every_recorded_write_through_the_gateway() {
     };
     let fixture = common::read_json(&common::directory_of("writes").join("fixture.json"));
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_writes_rs");
+    let database = common::scratch_name("canopyd_writes_rs");
     let meta = format!("{database}_meta");
     let (port, seen) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -878,7 +878,7 @@ async fn the_requests_the_routes_answer_are_sampled_into_the_request_log() {
     let service = common::get_as(&fixture, "service", "/");
     let mut logged = Vec::new();
     for rate in [1.0, 0.0] {
-        let database = common::scratch_name("canopy_gateway_log_rs");
+        let database = common::scratch_name("canopyd_log_rs");
         seed(&client.database(&database), &fixture).await;
         let meta = client.database(&format!("{database}_meta"));
         meta.collection::<Document>("settings")
@@ -1014,7 +1014,7 @@ async fn traces_continue_the_callers_trace_and_name_only_routes_and_commands() {
     };
     let fixture = fixture();
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_traces_rs");
+    let database = common::scratch_name("canopyd_traces_rs");
     seed(&client.database(&database), &fixture).await;
     let (upstream_port, seen) = upstream().await;
     let (collector_port, exported) = collector().await;
@@ -1212,7 +1212,7 @@ async fn policies_sent_while_running_apply_to_the_next_find() {
     };
     let fixture = fixture();
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_policies_rs");
+    let database = common::scratch_name("canopyd_policies_rs");
     seed(&client.database(&database), &fixture).await;
     let (port, _) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -1330,7 +1330,7 @@ async fn selected_graphql_replays_the_typescript_oracle_through_the_gateway() {
     };
     let fixture = common::read_json(&common::directory_of("graphql").join("fixture.json"));
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_graphql");
+    let database = common::scratch_name("canopyd_graphql");
     let meta = format!("{database}_meta");
     let (port, seen) = upstream().await;
     let limits = get(&fixture, "limits");
@@ -1440,7 +1440,7 @@ async fn image_rendering_is_forwarded_when_storage_is_selected() {
     };
     let fixture = common::read_json(&common::directory_of("storage").join("fixture.json"));
     let (port, seen) = upstream().await;
-    let database = common::scratch_name("canopy_gateway_storage_forward");
+    let database = common::scratch_name("canopyd_storage_forward");
     let folder = std::env::temp_dir().join(&database);
     let render = "/storage/v1/render/image/public/avatars/photo.png?width=64";
     {
@@ -1463,7 +1463,7 @@ async fn every_data_route_keeps_serving_while_the_control_plane_is_down() {
     };
     let fixture = common::read_json(&common::directory_of("writes").join("fixture.json"));
     let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
-    let database = common::scratch_name("canopy_gateway_control_down");
+    let database = common::scratch_name("canopyd_control_down");
     let meta = format!("{database}_meta");
     let dead = {
         let probe = std::net::TcpListener::bind("127.0.0.1:0").expect("a probe port");

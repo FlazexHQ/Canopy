@@ -60,7 +60,7 @@ canopy-matcher -p canopy-query -p canopy-policy`), without Node or MongoDB. The 
 
 - **Rust.** The Rust data plane replays `http/find` against its own `find` route
   (`crates/canopy-http/tests/find_conformance.rs`) and through a running gateway
-  (`crates/canopy-gateway/tests/data_plane.rs`). `crates/canopy-data/tests/cursor.rs` replays `cursor/`.
+  (`crates/canopyd/tests/data_plane.rs`). `crates/canopy-data/tests/cursor.rs` replays `cursor/`.
 
 ## http/find
 
@@ -278,7 +278,7 @@ Two descriptions use JSON escapes for punctuation, with identical decoded names.
 [Case decisions](wire/unified/cases.json) classify every fixture. The runner checks refusals
 by wire error code and confirms that the underlying collection is unchanged.
 
-Build with `cargo build -j 2 -p canopy-gateway` and set `CANOPY_GATEWAY_BIN` to the resulting
+Build with `cargo build -j 2 -p canopyd` and set `CANOPYD_BIN` to the resulting
 binary. Set `CANOPY_TEST_MONGODB_URI` to a test replica set. Run the server Vitest project
 with the `wire-unified.test.ts` filter to exercise the Node driver over SCRAM-SHA-256.
 The wire endpoint accepts a nonnegative `maxTimeMS` on writes. Transaction timing uses

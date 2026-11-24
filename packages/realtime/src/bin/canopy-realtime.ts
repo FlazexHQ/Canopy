@@ -19,7 +19,7 @@ import { attach, type BunServerLike, bunHandlers, toNodeHandler } from "../trans
  * (`--config <file>`, or `canopy.config.ts` / `canopy/canopy.config.ts` found from the working directory)
  * and the well known variables: `MONGODB_URI`, `CANOPY_DB`, `CANOPY_POLICIES`, `CANOPY_JWT_*`,
  * `CANOPY_PUBLISHABLE_KEYS`, `PORT`, `METRICS_PORT` and the others of the configuration reference. With
- * `CANOPY_REALTIME_SERVER=gateway` it resolves the same configuration and runs the native `canopy-gateway`
+ * `CANOPY_REALTIME_SERVER=gateway` it resolves the same configuration and runs the native `canopyd`
  * instead of the TypeScript engine.
  */
 

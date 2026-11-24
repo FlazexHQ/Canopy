@@ -90,7 +90,7 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `echoTimeout`  | `CANOPY_ECHO_TIMEOUT`           | `2s`                                |
 | `server`       | `CANOPY_REALTIME_SERVER`        | `ts`                                |
 
-`server: "gateway"` serves realtime from the native `canopy-gateway` executable instead of the engine inside the
+`server: "gateway"` serves realtime from the native `canopyd` executable instead of the engine inside the
 TypeScript process. `canopy-realtime` then runs the gateway with the same configuration. `canopy-server` and
 `canopy dev` run it on the public port, where it answers `/realtime/v1` (WebSocket, SSE and long polling)
 and passes every other request to the TypeScript server, which listens on loopback only and trusts the
@@ -98,8 +98,8 @@ gateway's `X-Forwarded-For`.
 Socket writes go to the server's REST write path, and their acknowledgements still wait for their change
 events. Built in auth works: the gateway verifies tokens with the server's own JWKS. GraphQL subscriptions
 follow their live queries through the gateway over loopback. The `canopy-server` metrics port also carries
-the gateway's metrics, scraped every second. The executable comes from `CANOPY_GATEWAY_BIN`, the container
-images, or a Cargo build of the repository.
+the gateway's metrics, scraped every second. The launcher checks `CANOPYD_BIN`, the legacy
+`CANOPY_GATEWAY_BIN`, Cargo release and debug builds, the directory beside the running executable, and `PATH`.
 
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in
 Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct`,

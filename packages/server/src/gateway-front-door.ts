@@ -155,7 +155,7 @@ export async function startGatewayFrontDoor(
     const port = await running.listening
     signal?.throwIfAborted()
     if (port === undefined)
-      throw new Error(`canopy-gateway exited with code ${await running.exited} before it listened`)
+      throw new Error(`canopyd exited with code ${await running.exited} before it listened`)
     gatewayUrl = `http://127.0.0.1:${port}`
     const scrape = scrapeMetrics(metricsPort, config.server.metricsToken)
     void running.exited.then(scrape.stop)

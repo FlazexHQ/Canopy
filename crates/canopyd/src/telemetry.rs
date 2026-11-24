@@ -38,7 +38,7 @@ fn check_protocol(traces: Option<&str>, generic: Option<&str>) -> Result<(), Str
     match traces.or(generic).map(str::trim) {
         None | Some("" | "http/protobuf") => Ok(()),
         Some(other) => Err(format!(
-            "canopy-gateway exports traces over OTLP/HTTP with protobuf: OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf, not {other}"
+            "canopyd exports traces over OTLP/HTTP with protobuf: OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf, not {other}"
         )),
     }
 }
@@ -302,7 +302,7 @@ mod tests {
             assert_eq!(
                 check_protocol(traces, generic),
                 Err(format!(
-                    "canopy-gateway exports traces over OTLP/HTTP with protobuf: OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf, not {refused}"
+                    "canopyd exports traces over OTLP/HTTP with protobuf: OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf, not {refused}"
                 ))
             );
         }

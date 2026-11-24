@@ -217,7 +217,7 @@ jobs:
         run: rustup toolchain install
       - run: bun install --frozen-lockfile
       - name: Build the gateway
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Start the MongoDB replica set
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
@@ -225,8 +225,8 @@ jobs:
       - name: The reads in Rust against the TypeScript routes on Node v26 and Bun
         run: |
           mkdir -p bench-results
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d1-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d1/find.ts
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d1-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d1/find.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d1-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d1/find.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d1-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d1/find.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |
@@ -260,7 +260,7 @@ jobs:
         run: rustup toolchain install
       - run: bun install --frozen-lockfile
       - name: Build the gateway
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Start the MongoDB replica set
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
@@ -268,8 +268,8 @@ jobs:
       - name: The writes in Rust against the TypeScript routes on Node v26 and Bun
         run: |
           mkdir -p bench-results
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d2-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d2/writes.ts
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d2-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d2/writes.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d2-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d2/writes.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d2-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d2/writes.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |
@@ -303,7 +303,7 @@ jobs:
         run: rustup toolchain install
       - run: bun install --frozen-lockfile
       - name: Build the gateway
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Start the MongoDB replica set
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
@@ -311,8 +311,8 @@ jobs:
       - name: GraphQL in Rust against the TypeScript routes on Node v26 and Bun
         run: |
           mkdir -p bench-results
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d3-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d3/graphql.ts
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d3-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d3/graphql.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d3-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d3/graphql.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d3-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d3/graphql.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |
@@ -346,7 +346,7 @@ jobs:
         run: rustup toolchain install
       - run: bun install --frozen-lockfile
       - name: Build the gateway
-        run: cargo build --release --locked -p canopy-gateway
+        run: cargo build --release --locked -p canopyd
       - name: Start the MongoDB replica set
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
@@ -354,8 +354,8 @@ jobs:
       - name: Storage in Rust against the TypeScript routes on Node v26 and Bun
         run: |
           mkdir -p bench-results
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d4-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d4/storage.ts
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d4-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d4/storage.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d4-node26-mongo${{ matrix.mongo }}.json" node --conditions=@canopy/source bench/workloads/d4/storage.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/d4-bun-mongo${{ matrix.mongo }}.json" bun --conditions=@canopy/source bench/workloads/d4/storage.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |
@@ -389,7 +389,7 @@ jobs:
         run: rustup toolchain install
       - run: bun install --frozen-lockfile
       - name: Build the gateway
-        run: cargo build -j 2 --release --locked -p canopy-gateway
+        run: cargo build -j 2 --release --locked -p canopyd
       - name: Start the MongoDB replica set
         run: docker compose -f deploy/compose/dev.yaml up -d --wait
         env:
@@ -405,8 +405,8 @@ jobs:
       - name: MongoDB wire against Rust REST and direct MongoDB on Node v26 and Bun
         run: |
           mkdir -p bench-results
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/ci-linux-node26-mongo${{ steps.mongo.outputs.major }}.json" node --conditions=@canopy/source bench/workloads/d5/wire.ts
-          CANOPY_GATEWAY_BIN="$GITHUB_WORKSPACE/target/release/canopy-gateway" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/ci-linux-bun-mongo${{ steps.mongo.outputs.major }}.json" bun --conditions=@canopy/source bench/workloads/d5/wire.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/ci-linux-node26-mongo${{ steps.mongo.outputs.major }}.json" node --conditions=@canopy/source bench/workloads/d5/wire.ts
+          CANOPYD_BIN="$GITHUB_WORKSPACE/target/release/canopyd" CANOPY_BENCH_OUT="$GITHUB_WORKSPACE/bench-results/ci-linux-bun-mongo${{ steps.mongo.outputs.major }}.json" bun --conditions=@canopy/source bench/workloads/d5/wire.ts
       - name: Record machine and MongoDB metadata
         if: always()
         run: |

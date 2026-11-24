@@ -131,7 +131,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
         const match = /\{"t":"listening","port":(\d+)\}/.exec(pending)
         if (match?.[1] !== undefined) resolve(Number(match[1]))
       })
-      child.once("exit", (code) => reject(new Error(`canopy-gateway exited with ${code}`)))
+      child.once("exit", (code) => reject(new Error(`canopyd exited with ${code}`)))
     })
     return { base: `http://127.0.0.1:${port}`, child }
   }

@@ -280,7 +280,7 @@ async function main(): Promise<void> {
   const rounds = setting("ROUNDS", 2)
   const concurrentUploads = setting("MEMORY_UPLOADS", 8)
   const binary = findGatewayBinary(process.env)
-  if (binary === undefined) throw new Error("Build canopy-gateway before running D4")
+  if (binary === undefined) throw new Error("Build canopyd before running D4")
   const database = `canopy_d4_${process.pid}`
   const metaDatabase = `${database}_meta`
   await using mongo = new MongoClient(uri)

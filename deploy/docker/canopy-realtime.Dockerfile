@@ -16,9 +16,9 @@ COPY packages/wasm/Cargo.toml ./packages/wasm/
 COPY packages/wasm/src ./packages/wasm/src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     target="$(rustc -vV | sed -n 's/^host: //p')" \
-    && RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked -p canopy-gateway --target "$target" \
-    && install -m 755 "target/$target/release/canopy-gateway" /src/canopy-gateway \
-    && headers="$(readelf -l -d /src/canopy-gateway)" \
+    && RUSTFLAGS="-C target-feature=+crt-static" cargo build --release --locked -p canopyd --target "$target" \
+    && install -m 755 "target/$target/release/canopyd" /src/canopyd \
+    && headers="$(readelf -l -d /src/canopyd)" \
     && ! printf '%s\n' "$headers" | grep -E 'INTERP|NEEDED'
 
 FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS build
@@ -40,13 +40,13 @@ FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7
 WORKDIR /app
 COPY --from=build /src/node_modules ./node_modules
 COPY --from=build /src/packages ./packages
-COPY --from=gateway-build /src/canopy-gateway /usr/local/bin/canopy-gateway
+COPY --from=gateway-build /src/canopyd /usr/local/bin/canopyd
 ENV NODE_ENV=production \
     PORT=8080 \
     METRICS_PORT=9464 \
     METRICS_HOST=0.0.0.0 \
     CANOPY_POLICIES=/app/policies \
-    CANOPY_GATEWAY_BIN=/usr/local/bin/canopy-gateway
+    CANOPYD_BIN=/usr/local/bin/canopyd
 USER 65532:65532
 EXPOSE 8080 9464
 ENTRYPOINT ["bun", "packages/realtime/dist/bin/canopy-realtime.js"]
