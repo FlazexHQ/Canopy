@@ -1,0 +1,115 @@
+{
+  "format": "canopy-d4-storage/1",
+  "measuredAt": "2026-11-24T13:48:23.714Z",
+  "runtime": "bun 1.4.4",
+  "os": "linux",
+  "cpu": {
+    "model": "AMD EPYC 9V45 96-Core Processor",
+    "count": 4
+  },
+  "mongodb": "9.0.8",
+  "config": {
+    "seconds": 28,
+    "concurrency": 8,
+    "rounds": 2,
+    "maxUploadsPerWindow": 2048,
+    "concurrentUploads": 8,
+    "uploadBytes": 16777216
+  },
+  "gate": {
+    "requires": null,
+    "measure": "Storage requests per server CPU second, MiB per second and peak upload RSS"
+  },
+  "scenarios": [
+    {
+      "scenario": "upload 1 MiB",
+      "typescript": {
+        "requests": 4096,
+        "errors": 0,
+        "perSecond": 189,
+        "mibPerSecond": 188.98341069090878,
+        "serverCpuSeconds": 11.52,
+        "requestsPerCpuSecond": 355.55555555555554,
+        "cpuMillisPerRequest": 2.8125,
+        "p50": 41.233092000002216,
+        "p99": 67.55405299999984
+      },
+      "rust": {
+        "requests": 4096,
+        "errors": 0,
+        "perSecond": 187,
+        "mibPerSecond": 186.99994185644044,
+        "serverCpuSeconds": 21.09,
+        "requestsPerCpuSecond": 194.21526789947842,
+        "cpuMillisPerRequest": 5.14892578125,
+        "p50": 42.66233699999793,
+        "p99": 65.66407400000026
+      },
+      "rustOverTypescriptPerCpu": 0.5462304409672831
+    },
+    {
+      "scenario": "download 1 MiB",
+      "typescript": {
+        "requests": 48413,
+        "errors": 0,
+        "perSecond": 1729,
+        "mibPerSecond": 1728.7846960444376,
+        "serverCpuSeconds": 39.14,
+        "requestsPerCpuSecond": 1236.9187531936639,
+        "cpuMillisPerRequest": 0.808460537458947,
+        "p50": 4.401018000004115,
+        "p99": 10.855006999998295
+      },
+      "rust": {
+        "requests": 98206,
+        "errors": 0,
+        "perSecond": 3507,
+        "mibPerSecond": 3506.9193097426896,
+        "serverCpuSeconds": 44.239999999999995,
+        "requestsPerCpuSecond": 2219.846292947559,
+        "cpuMillisPerRequest": 0.45048164063295515,
+        "p50": 2.0491479999982403,
+        "p99": 6.549559999999474
+      },
+      "rustOverTypescriptPerCpu": 1.7946581270726345
+    },
+    {
+      "scenario": "download range 64 KiB",
+      "typescript": {
+        "requests": 160967,
+        "errors": 0,
+        "perSecond": 5748,
+        "mibPerSecond": 359.2606143236416,
+        "serverCpuSeconds": 33.47,
+        "requestsPerCpuSecond": 4809.291903196893,
+        "cpuMillisPerRequest": 0.20793081811799935,
+        "p50": 1.2687389999919105,
+        "p99": 3.725323999999091
+      },
+      "rust": {
+        "requests": 267550,
+        "errors": 0,
+        "perSecond": 9555,
+        "mibPerSecond": 597.1817990992074,
+        "serverCpuSeconds": 38.239999999999995,
+        "requestsPerCpuSecond": 6996.600418410043,
+        "cpuMillisPerRequest": 0.1429265557839656,
+        "p50": 0.7770159999927273,
+        "p99": 2.0268119999964256
+      },
+      "rustOverTypescriptPerCpu": 1.4548088490447366
+    }
+  ],
+  "memory": {
+    "typescript": {
+      "baselineRssBytes": 104325120,
+      "peakRssBytes": 374812672,
+      "peakIncreaseBytesPerUpload": 33810944
+    },
+    "rust": {
+      "baselineRssBytes": 19144704,
+      "peakRssBytes": 372776960,
+      "peakIncreaseBytesPerUpload": 44204032
+    }
+  }
+}

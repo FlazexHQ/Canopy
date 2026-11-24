@@ -117,26 +117,23 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Nested queries execute in a single round trip without internal resolver request loops, batching relation levels with `$in` (verified in `tests/batching.rs`).
 
 ### Stage D4: File Storage
-- **Status:** In progress (storage oracle recorded and verified across runtimes, `canopy-storage` local backend and HTTP handler implemented with all 55 oracle cases replaying byte for byte; S3 backend being written, gateway routing, image transforms, and D4 gate benchmark remain).
+- **Status:** In progress (storage oracle recorded and verified across runtimes, `canopy-storage` local backend and HTTP handler implemented with all 55 oracle cases replaying byte for byte; the S3 backend and the gateway `storage` route done, with the gateway replaying all 55 cases; D4 throughput and memory gate measured on GitHub Actions run 45405749630; image transforms and upload buffering remain).
 - **Completed Work Items:**
   1. Storage oracle recorded: `conformance/http/storage/` (`fixture.json` and `cases/`: uploads 13, downloads 4, ranges 8, public 2, signed 4, lists 2, deletes 4, resumable 2, policies 7, errors 6, cors 3; 55 cases, 125 requests), recorded by `packages/storage/test/conformance/record.ts`, `bun run vectors:http-storage` (with `--check`) through `packages/testing/scripts/http-storage-vectors.ts`, checked by `packages/storage/test/conformance-storage.test.ts`, documented in `conformance/README.md`. Identical on Bun and Node 26 against MongoDB 8.0.34 and 9.0.8. TypeScript behaviors preserved as recorded: unsupported methods answer 404 (not 405), and an upload response echoes metadata fields that field rules hide from the same caller in a listing.
   2. Crate `canopy-storage` core: `tokens` (`UrlSigner`, `SignedGrant`: HKDF SHA 256 key from master key, base64url JSON plus HMAC, byte identical to TypeScript `UrlSigner`, checked by `crates/canopy-storage/tests/tokens.rs` with tokens signed by TypeScript), `paths` (`is_bucket_name`, `check_path`, `media_type`, `check_type`), `backend` (the `StorageBackend` trait with streaming `get`), `storage` (`Storage`: metadata documents in `storage_objects`, written in a transaction under `storage.objects` policies with dry run before content is stored, uploads, stat, open, public and signed opens, sign, remove, list, resumable uploads in `storage_uploads`, sweep). Supporting primitives added in `canopy-http`: `read_body`, `segments_of`, `Rest::limit_anonymous`, and a public `Cors::allowed`.
   3. Local backend: `crates/canopy-storage` `local` (`LocalBackend`, atomic writes through tmp, streamed ranges, multipart parts, sweep; 12 tests in `tests/local_backend.rs`).
   4. HTTP handler and conformance replay: `http` (`StorageHandler`, `StorageAnswer::{Response, File}` streaming file bodies; routes object, list, sign, signed, public, upload, uploads; `render/...` image transforms are not owned and stay on TypeScript until the image stack is decided), and `tests/http_conformance.rs` replaying all 55 cases byte for byte, with the `storage_objects` state, on MongoDB 8.0.34 and 9.0.8.
+  5. D4 throughput and memory gate measured: GitHub Actions run 45405749630 characterized transfer throughput and memory across Node 26 and Bun with MongoDB 8.0.34 and 9.0.8 (`bench/baselines/d4/README.md`). Full downloads deliver 1.53 to 3.30 times TypeScript requests per server CPU second and 1.54 to 2.03 times transfer throughput (up to 3506.92 MiB/s in Rust). Ranged downloads in release mode reach 1.47 to 1.66 times higher transfer throughput in MiB/s (134.52 to 597.18 MiB/s in Rust vs 87.99 to 359.26 MiB/s in TypeScript), confirming Rust is faster on the wall clock and resolving debug smoke run concerns. Peak resident memory during 8 concurrent 16 MiB uploads remains lower in Rust across all four environments (353.18 to 377.39 MiB vs 364.75 to 432.38 MiB in TypeScript). Uploads reach 0.52 to 1.02 times TypeScript requests per CPU second with 178.79 to 222.33 MiB/s throughput.
 - **Remaining Work Items:**
-  1. The S3 backend (being written in `crates/canopy-storage/src/s3.rs` and `tests/s3_backend.rs`).
-  2. The gateway `storage` route with its configuration (buckets, backend local, s3 or r2, signing master key, limits) and launcher support.
-  3. A gateway replay of the storage oracle through the gateway binary.
-  4. Image transforms (needs a decision: pure Rust covers PNG and JPEG and AVIF encoding through ravif, but lossy WebP encoding and AVIF decoding need C libraries).
-  5. The D4 gate on GitHub Actions: transfer throughput and memory per upload, kept lean.
+  1. Image transforms (needs a decision: pure Rust covers PNG and JPEG and AVIF encoding through ravif, but lossy WebP encoding and AVIF decoding need C libraries), and uploads without whole body copies: the gateway copies a collected upload into a `Vec`, and the handler clones it again, so 8 concurrent 16 MiB uploads add about 42 MiB per upload against 32 to 37 MiB in TypeScript, and 1 MiB uploads reach only 0.52 to 1.02 times TypeScript requests per CPU second.
 - **Conformance and Oracle Deliverables:**
   - `conformance/http/storage/`: 55 cases (125 requests) across uploads 13, downloads 4, ranges 8, public 2, signed 4, lists 2, deletes 4, resumable 2, policies 7, errors 6, cors 3.
   - Storage policy test suite green.
-- **Gate Criteria:**
+- **Gate Criteria and Evidence:**
   - Full compatibility with existing object URLs and metadata.
   - Storage policy test suite green.
   - Replay of `conformance/http/storage/` passes byte for byte on MongoDB 8 and 9.
-  - Transfer throughput and memory consumption per upload characterized and verified on GitHub Actions.
+  - Transfer throughput and memory consumption per upload characterized and verified on GitHub Actions run 45405749630 (`bench/baselines/d4/README.md`).
 
 ### Stage D5: MongoDB Wire Protocol Endpoint
 - **Status:** Planned (parallel with D3 and D4 after D2).
@@ -148,6 +145,7 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   5. Bind server cursors to authenticated caller identity.
   6. Map change stream commands to subscriptions in `canopy-engine`.
   7. Route writes through the D2 transactional write path.
+- **Read cursor behavior:** Wire `find` continues through the Data API keyset cursor, with `skip` applied to the first page and the driver's `limit` applied across the cursor. Each continuation uses a fresh Data API snapshot. Aggregation has no continuation in the Data API, so the wire endpoint returns an error if the aggregation exceeds its document or BSON byte budget.
 - **Conformance and Oracle Deliverables:**
   - Official MongoDB driver unified spec tests passing with Node.js, Python, Go, and Java drivers.
   - Wire protocol query denial attack corpus passing with 0 bypasses.
