@@ -1076,7 +1076,7 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
         assert_eq!(code, Some(1), "{routes}");
         assert!(
             message.contains(
-                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not"
+                "dataPlane.routes may list all, find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not"
             ),
             "{routes}: {message}"
         );
