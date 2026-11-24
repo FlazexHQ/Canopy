@@ -21,6 +21,9 @@ targets = [
 [advisories]
 version = 2
 yanked = "deny"
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "paste is a compile time macro of rav1e, the AVIF encoder of image transforms; it is archived, not vulnerable, and ships no runtime code" },
+]
 
 [licenses]
 version = 2

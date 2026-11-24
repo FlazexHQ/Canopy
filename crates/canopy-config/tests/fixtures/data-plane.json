@@ -120,6 +120,11 @@
         "allowedTypes": ["text/plain"]
       }
     },
+    "images": {
+      "enabled": true,
+      "maxDimension": 2500,
+      "maxSourceSize": 26214400
+    },
     "backend": {
       "kind": "s3",
       "endpoint": "https://s3.example.test",
