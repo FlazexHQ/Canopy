@@ -4,13 +4,21 @@ This document records completed tasks, open issues, and planned work for the Rus
 
 ## Checkpoint (2026-11-24): where to continue
 
-**State.** Stages D1 and D2 are done; Stage D3 (GraphQL) is in progress. All read routes (`find`, `count`, `distinct`, `aggregate`, `query`, `explain`, `document`) and all write routes (`writes`: insert, insertMany, update, replace, delete, bulk update and delete, `_batch` atomic and not) are served in Rust behind `CANOPY_DATA_PLANE_ROUTES`. The D1 and D2 throughput gates pass on Linux CI across all scenarios (`bench/baselines/d1/README.md`, `bench/baselines/d2/README.md`), with the reads and writes oracles byte identical on MongoDB 8 and 9, cross version idempotency and DLS property tests passing, and OpenTelemetry tracing spans in place.
+**State.** Stages D1 and D2 are done; Stage D3 (GraphQL) is substantially implemented with schema inference, executor, HTTP endpoint, batching, and conformance replay complete. All read routes (`find`, `count`, `distinct`, `aggregate`, `query`, `explain`, `document`), all write routes (`writes`: insert, insertMany, update, replace, delete, bulk update and delete, `_batch` atomic and not), and the GraphQL endpoint (`/graphql/v1`) are implemented in Rust. The D1 and D2 throughput gates pass on Linux CI across all scenarios (`bench/baselines/d1/README.md`, `bench/baselines/d2/README.md`), with the reads, writes, and GraphQL oracles matching TypeScript on MongoDB 8 and 9. Subscriptions over `graphql-ws` and the D3 gate benchmark remain to conclude Stage D3.
 
-**Done (2026-11-24): S15 GraphQL library selection, GraphQL HTTP oracle, and collection schema model in `canopy-data`.**
+**Done (2026-11-24): Stage D3 GraphQL schema inference, executor, HTTP endpoint, and conformance replay.**
 - **Spike S15 library selection (commit `b2371dd`):** `docs/spikes/S15-rust-graphql.md` and prototype `bench/spikes/S15/`. Decision: build `canopy-graphql` on `apollo-compiler` 1.x (parsing, validation, introspection, schema built as SDL from policies and collections) with a custom Canopy executor over `canopy_data`; one read or write per root field, one batched `$in` read per relation level; limits checked on the parsed document; persisted queries by SHA-256; subscriptions from the realtime engine over `graphql-ws`. Consequence for the oracle `conformance/http/graphql/`: data, `extensions.code`, paths, and locations are compared exactly; parse and validation error messages are compared only by kind (since `graphql-js` message texts are not reproduced); Canopy's own messages (limits, policy refusals, internal errors) are compared byte for byte.
 - **GraphQL HTTP oracle recorded (commit `16d0d3c`):** `conformance/http/graphql/` containing 51 cases (53 requests) in six files (`queries.json` 6, `policies.json` 12, `mutations.json` 11, `limits.json` 8, `transport.json` 8, `errors.json` 6), recorded by `packages/graphql/test/conformance/record.ts` via `bun run vectors:http-graphql` (`--check`), checked by `packages/graphql/test/conformance-graphql.test.ts`. Bun and Node differ only in the malformed JSON parser message (substituted `<json-parser-message>`) and the 413 content type (`alternateContentTypes`).
 - **Collection schema shape model in `canopy-data` (commit `aa92ddc`):** added `canopy_data::schema` (`Shape`, `Field`, `ObjectShape`, `ScalarType`, `union`, `restrict_shape`, `CollectionSchema`, `SchemaSource`), mirroring `@canopy/schema` and providing field rule restriction so the Rust GraphQL schema can be generated from the fields a role may read and write.
-- **In progress (not committed):** a Codex agent is porting schema inference, `fromJsonSchema`, the schema loader and cache, and `ReadPath::collections` into `canopy-data` with a `conformance/schema/` oracle; the orchestrator is writing `crates/canopy-graphql` (names derivation, generated schema model and SDL, executor over `canopy_data`).
+- **Collection schema inference and loader in `canopy-data` (commit `ffbb504`):** added `infer_schema` over sampled BSON documents, `from_json_schema` for `$jsonSchema` validators and configured JSON Schemas, `load_schema` in priority order with `SchemaCache`, and `ReadPath::collections` reporting caller granted operations. Validated against 68 recorded cases in `conformance/schema/schema.json` replayed by `crates/canopy-data/tests/schema_vectors.rs` and `tests/schema_source.rs`.
+- **Crate `canopy-graphql` and executor (commit `d4de299`):** created `crates/canopy-graphql` on `apollo-compiler` 1.x. Derives names, types, and schema SDL matching TypeScript `buildSchema`. Executes validated operations via custom Canopy executor: root fields run as single `canopy_data` reads or writes, relation levels execute as batched `$in` queries, scalar leaves written with Canopy custom scalars (Date, Timestamp, ObjectId, Decimal128, Long, Regex), and operation limits (`OperationLimits`) enforced on parsed documents.
+- **GraphQL HTTP endpoint (`crates/canopy-graphql/src/endpoint.rs`):** implements `/graphql/v1` serving GET and POST requests, batched operations (`max_batch`), persisted operations via SHA-256 allowlist, operation limits enforcement before execution, CORS, token bucket rate limits, and custom role-scoped introspection adapter (`introspection.rs`) ensuring unexposed types and collections are excluded from unauthorized callers.
+- **Conformance and verification:**
+  - `conformance/http/graphql/` replays all 51 cases (53 requests) passing in `crates/canopy-graphql/tests/conformance.rs` on MongoDB 8.0.34 and 9.0.8.
+  - Introspection schema vectors in `conformance/graphql/schema.json` replay and pass via `crates/canopy-graphql/tests/schema_vectors.rs`.
+  - Relation level batching verified in `crates/canopy-graphql/tests/batching.rs`.
+  - All 15 unit tests in `canopy-graphql` pass.
+- **Wiring in `canopy-http`:** added `Rest::caller_of` and `Rest::write_path` in `crates/canopy-http/src/routes.rs` to allow the GraphQL endpoint to resolve callers and dispatch writes.
 
 **Done (2026-11-24): D2 (writes) in Rust.** Stage D2 is complete with the following evidence:
 - **Oracle conformance:** `conformance/http/writes/` (100 cases across 7 groups: insert, update, replace, delete, bulk, batch, idempotency) replays byte for byte (cluster times aside), documents and idempotency records included, on MongoDB 8.0.34 and 9.0.8 in `crates/canopy-http/tests/writes_conformance.rs` and through the gateway binary in `crates/canopy-gateway/tests/data_plane.rs`.
@@ -34,7 +42,7 @@ This document records completed tasks, open issues, and planned work for the Rus
   - The gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
 
 **Remaining, in order:**
-1. **D3 GraphQL (in progress):** finish `canopy-data` schema inference and loader, `canopy-graphql` schema generation, executor, subscriptions over `graphql-ws`, and replay `conformance/http/graphql/`.
+1. **D3 GraphQL (in progress):** wire subscriptions to `canopy-engine` over `graphql-ws`, and measure the D3 throughput gate on reference hardware.
 2. **D1 gate runs of record on reference hardware and Atlas:** execute formal benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster (the CI runs are the evidence so far).
 3. **D4 Storage:** implement `canopy-storage` for file storage policies on `storage.objects` with GridFS and S3 backends, signed URLs and resumable uploads.
 4. **D5 Wire endpoint:** implement `canopy-wire` with `OP_MSG` listener, driver authentication, command allowlist and streaming subscriptions.
@@ -69,14 +77,16 @@ Ordered as the work should proceed:
 9. **D2 throughput gate:** done; 28 of 28 pass on Linux CI run 45335688043 (1.56 to 2.97 times TypeScript, `bench/baselines/d2/README.md`).
 
 ### Stage D3: GraphQL Schema and Execution
-- **Status:** In progress.
+- **Status:** In progress (schema inference, executor, HTTP endpoint, batching, and conformance replay complete; subscriptions over `graphql-ws` remain).
 1. **Spike S15 library selection:** done (`b2371dd`); selected `apollo-compiler` 1.x with Canopy executor over `canopy_data`.
 2. **Record GraphQL HTTP oracle:** done (`16d0d3c`); `conformance/http/graphql/` (51 cases, 53 requests across 6 files).
 3. **Collection schema shape model in `canopy-data`:** done (`aa92ddc`); `canopy_data::schema` shape model.
-4. **Schema inference and loader in `canopy-data`:** in progress (Codex agent); porting schema inference, `fromJsonSchema`, schema loader and cache, `ReadPath::collections`, with `conformance/schema/` oracle.
-5. **Crate `canopy-graphql`:** in progress (orchestrator); names, generated schema model, SDL generation, and executor over `canopy_data`.
-6. **Subscriptions:** wire GraphQL subscriptions to `canopy-engine` over `graphql-ws`.
-7. **Verification and replay:** replay `conformance/http/graphql/` and verify existing GraphQL suite passes unchanged.
+4. **Schema inference and loader in `canopy-data`:** done (`ffbb504`); schema inference, `from_json_schema`, schema loader and cache (`SchemaCache`), `ReadPath::collections`, with `conformance/schema/schema.json` oracle (68 cases).
+5. **Crate `canopy-graphql`:** done (`d4de299`); names derivation, generated schema model and SDL, executor over `canopy_data`, operation limits, filters translation, Canopy scalars.
+6. **GraphQL HTTP endpoint:** done; `crates/canopy-graphql/src/endpoint.rs` mounts `/graphql/v1` for GET and POST, batching, persisted operations by SHA-256 allowlist, operation limits, CORS, rate limits, and custom role-scoped introspection (`introspection.rs`).
+7. **Verification and replay:** done; `conformance/http/graphql/` (51 cases) replays in `tests/conformance.rs` on MongoDB 8 and 9, `conformance/graphql/schema.json` replays in `tests/schema_vectors.rs`, and relation batching verified in `tests/batching.rs`.
+8. **Subscriptions:** wire GraphQL subscriptions to `canopy-engine` over `graphql-ws`.
+9. **D3 performance gate:** measure nested queries and throughput on reference hardware.
 
 ### Stage D4: File Storage
 1. **Crate `canopy-storage`:** implement storage policies on `storage.objects`.
@@ -397,12 +407,20 @@ Workflow from here (user, 2026-11-23): the orchestrator writes all the code; Gem
 - **Request log:** the gateway samples the requests its routes answer into `request_log` of the meta database (`crates/canopy-gateway/src/request_log.rs`), with the fields, order, number types, length cuts and sampling rule of the TypeScript `RequestLog` (server errors always kept when the rate is above 0); the rate is `requestLogSampleRate` of the `settings` document (0.01 when unset), read at startup and every ten seconds. The path is the parsed path (no query, dot segments resolved, `canopy_http::request_path`) and the address the socket peer. A gateway test checks the entries at rate 1 and none at rate 0 on MongoDB 8 and 9.
 - **`explainDenials`** only affects writes, so it moves to D2.
 
-### Orchestrator and Codex, 2026-11-24: Stage D3 in progress (S15 library decision, GraphQL HTTP oracle, and collection schema model)
+### Orchestrator and Codex, 2026-11-24: Stage D3 GraphQL executor, schema inference, HTTP endpoint, and conformance replay
 
 - **Spike S15 library selection (commit `b2371dd`):** evaluated `graphql-js`, `async-graphql`, and `apollo-compiler` 1.x. S15 prototype in `bench/spikes/S15/` and report in `docs/spikes/S15-rust-graphql.md`. Neither library reproduces `graphql-js` message text on invalid queries. `async-graphql` executes dynamic schema queries via per field resolvers (341 µs for 100 documents with 3 fields), while `apollo-compiler` parses and validates in 13 µs. Decided to build `canopy-graphql` on `apollo-compiler` 1.x with a custom Canopy executor over `canopy_data`: root fields map to single reads or writes, relation levels execute batched `$in` reads, operation limits checked on parsed document, persisted queries by SHA-256, subscriptions fed from `canopy-engine` over `graphql-ws`.
 - **GraphQL HTTP oracle recorded (commit `16d0d3c`):** `conformance/http/graphql/` containing 51 cases (53 requests) in six files (`queries.json` 6, `policies.json` 12, `mutations.json` 11, `limits.json` 8, `transport.json` 8, `errors.json` 6), recorded by `packages/graphql/test/conformance/record.ts` via `bun run vectors:http-graphql` (`--check`), checked by `packages/graphql/test/conformance-graphql.test.ts`. Bun and Node differ only in the malformed JSON parser message (substituted `<json-parser-message>`) and the 413 content type (`alternateContentTypes`). The oracle compares parse and validation error messages only by kind; data, `extensions.code`, paths, and locations are compared exactly; Canopy's own messages are compared byte for byte.
 - **Collection schema shape model in `canopy-data` (commit `aa92ddc`):** added `canopy_data::schema` (`Shape`, `Field`, `ObjectShape`, `ScalarType`, `union`, `restrict_shape`, `CollectionSchema`, `SchemaSource`), establishing the Shape model for collection schemas and role based field restrictions for GraphQL schema generation.
-- **In progress (not committed):** a Codex agent is porting schema inference, `fromJsonSchema`, schema loader and cache, and `ReadPath::collections` into `canopy-data` with a `conformance/schema/` oracle. The orchestrator is writing `crates/canopy-graphql` (names, generated schema model and SDL, executor).
+- **Collection schema inference and loader in `canopy-data` (commit `ffbb504`):** added `infer_schema` over sampled BSON documents, `from_json_schema` for `$jsonSchema` validators and configured JSON Schemas, `load_schema` in priority order with `SchemaCache`, and `ReadPath::collections` reporting caller granted operations. Validated against 68 recorded schema cases in `conformance/schema/schema.json` replayed by `crates/canopy-data/tests/schema_vectors.rs` and `tests/schema_source.rs`.
+- **Crate `canopy-graphql` and executor (commit `d4de299`):** created `crates/canopy-graphql` on `apollo-compiler` 1.x. Derives names, types, and schema SDL matching TypeScript `buildSchema`. Executes validated operations via custom Canopy executor: root fields run as single `canopy_data` reads or writes, relation levels execute as batched `$in` queries, scalar leaves written with Canopy custom scalars (Date, Timestamp, ObjectId, Decimal128, Long, Regex), and operation limits (`OperationLimits`) enforced on parsed documents.
+- **GraphQL HTTP endpoint (`crates/canopy-graphql/src/endpoint.rs`):** implements `/graphql/v1` serving GET and POST requests, batched operations (`max_batch`), persisted operations via SHA-256 allowlist, operation limits enforcement before execution, CORS, token bucket rate limits, and custom role-scoped introspection adapter (`introspection.rs`) ensuring unexposed types and collections are excluded from unauthorized callers. Wired in `canopy-http` via `Rest::caller_of` and `Rest::write_path`.
+- **Verification and conformance:**
+  - `conformance/http/graphql/` replays all 51 cases (53 requests) passing in `crates/canopy-graphql/tests/conformance.rs` on MongoDB 8.0.34 and 9.0.8.
+  - Introspection schema vectors in `conformance/graphql/schema.json` replay and pass via `crates/canopy-graphql/tests/schema_vectors.rs`.
+  - Relation level batching verified in `crates/canopy-graphql/tests/batching.rs`.
+  - All 15 unit tests in `canopy-graphql` pass.
+- **Remaining to complete Stage D3:** wiring GraphQL subscriptions to `canopy-engine` over `graphql-ws`, and measuring the D3 performance gate on reference hardware.
 
 ## Known Gaps
 
@@ -418,4 +436,4 @@ Workflow from here (user, 2026-11-23): the orchestrator writes all the code; Gem
 
 ## Next Planned Tasks
 
-See the checkpoint at the top of this file: complete Stage D3 GraphQL (in progress: finish schema inference, loader, cache and `ReadPath::collections` in `canopy-data`, `canopy-graphql` schema generation, executor, subscriptions over `graphql-ws`, and replay `conformance/http/graphql/`), followed by D1 reference hardware and Atlas gate runs of record, D4 Storage, D5 Wire endpoint, D6 Control plane split, and D7 Defaults.
+See the checkpoint at the top of this file: complete Stage D3 GraphQL (wire subscriptions over `graphql-ws` and measure D3 gate), followed by D1 reference hardware and Atlas gate runs of record, D4 Storage, D5 Wire endpoint, D6 Control plane split, and D7 Defaults.

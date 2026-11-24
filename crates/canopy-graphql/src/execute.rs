@@ -1076,14 +1076,8 @@ fn introspect(
         variables.iter().map(|(key, value)| (key.as_str().into(), to_bytes_json(value))).collect();
     let coerced = apollo_compiler::request::coerce_variable_values(schema, operation, &raw)
         .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
-    let response = apollo_compiler::introspection::partial_execute(
-        schema,
-        &schema.implementers_map(),
-        document,
-        operation,
-        &coerced,
-    )
-    .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
+    let response = crate::introspection::partial_execute(schema, document, operation, &coerced)
+        .map_err(|error| GraphqlError::coded(error.message().to_string(), INVALID_QUERY))?;
     Ok(response
         .data
         .map(|data| {

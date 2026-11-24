@@ -16,6 +16,10 @@ canopy-protocol = { path = "../canopy-protocol" }
 serde_json_bytes = { version = "0.2", features = ["preserve_order"] }
 
 [dev-dependencies]
+canopy-auth = { path = "../canopy-auth" }
+canopy-mongo = { path = "../canopy-mongo" }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 
 [lints]

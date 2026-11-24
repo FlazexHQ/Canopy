@@ -266,10 +266,14 @@ name = "canopy-graphql"
 version = "0.0.0"
 dependencies = [
  "apollo-compiler",
+ "canopy-auth",
  "canopy-data",
  "canopy-http",
+ "canopy-mongo",
  "canopy-policy",
  "canopy-protocol",
+ "reqwest",
+ "rustls",
  "serde_json_bytes",
  "tokio",
 ]

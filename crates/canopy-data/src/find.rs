@@ -109,6 +109,11 @@ impl ReadPath {
         self
     }
 
+    /// The app database the read path reads.
+    pub fn database(&self) -> &Database {
+        &self.db
+    }
+
     /// The read limits in force.
     pub fn limits(&self) -> &ReadLimits {
         &self.limits

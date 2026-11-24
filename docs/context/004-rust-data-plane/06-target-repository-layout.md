@@ -20,7 +20,7 @@ canopy/
 │   ├── canopy-data/             Read execution of find, caller contexts, keyset cursors, raw BSON pages (Stage D1 task 10, Done; write execution in D2)
 │   ├── canopy-storage/          Storage policies, GridFS and S3 backends, signed URLs (New, Stage D4)
 │   ├── canopy-http/             REST find route over plain request/response, auth, content negotiation, Problem Details (Stage D1 task 10, Done)
-│   ├── canopy-graphql/          GraphQL schema and execution (Stage D3, in progress)
+│   ├── canopy-graphql/          GraphQL schema, execution, and HTTP endpoint (Stage D3, implemented; subscriptions remain)
 │   ├── canopy-realtime/         WebSocket, SSE, and long polling transports, change stream ingestion (Extracted from gateway, Stage D1, Done)
 │   ├── canopy-wire/             MongoDB wire protocol listener (New, Stage D5)
 │   ├── canopy-port/             Shared boundary layer for Node-API and WebAssembly
@@ -43,6 +43,8 @@ canopy/
 │   ├── query/                   Query test vectors (moved from crates/canopy-query/tests/vectors)
 │   ├── policy/                  Policy compilation test vectors (moved from crates/canopy-policy/tests/vectors)
 │   ├── errors.json              The canonical source for all CanopyError codes
+│   ├── schema/                  Collection schema inference and conversion vectors (schema.json)
+│   ├── graphql/                 GraphQL introspection schema vectors (schema.json)
 │   └── http/                    REST and GraphQL request/response pairs for gates D1 through D3 (find, reads, writes, and graphql recorded)
 ├── bench/                       Unified benchmark harnesses and baselines (@canopy/bench workspace package, completed in D0)
 │   ├── workloads/               Workloads: matcher/, realtime/, rest/, wire/

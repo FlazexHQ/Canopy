@@ -335,6 +335,18 @@ impl Rest {
 
     /// The caller of a request: its credentials verified and the context lookups the policies of `collections`
     /// need resolved (every collection when `None`).
+    /// The caller of a request: its API key and token verified, its context lookups resolved for every
+    /// collection, a view token refused, and the request rate limits applied (a `CANOPY_RATE_LIMITED` error
+    /// when the caller or its address is over its budget).
+    pub async fn caller_of(&self, request: &Request) -> Result<Caller, CanopyError> {
+        self.caller(request, None).await
+    }
+
+    /// The write path, when writes are served.
+    pub fn write_path(&self) -> Option<&Arc<WritePath>> {
+        self.writes.as_ref()
+    }
+
     pub(crate) async fn caller(
         &self,
         request: &Request,
