@@ -11,7 +11,7 @@ export interface Step {
 }
 
 /** One case: requests sent one after the other on a freshly seeded database, and what to observe after. */
-export interface WriteSpec {
+interface WriteSpec {
   readonly id: string
   readonly title: string
   readonly steps: readonly Step[]

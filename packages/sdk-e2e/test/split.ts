@@ -4,7 +4,7 @@ import type { MongoClient } from "mongodb"
 
 export const splitUrl = process.env["CANOPY_SPLIT_E2E_URL"]
 export const splitDatabase = process.env["CANOPY_DB"] ?? "app"
-export const splitMetaDatabase = process.env["CANOPY_META_DB"] ?? "canopy"
+const splitMetaDatabase = process.env["CANOPY_META_DB"] ?? "canopy"
 
 export const splitIssuer = "https://todo-react.example/dev-issuer"
 export const splitAudience = "https://todo-react.example/api"
