@@ -69,6 +69,8 @@ export interface GatewayAuth {
 
 /** What a server that runs the gateway in front of itself changes in the gateway's configuration. */
 export interface GatewayOverrides {
+  /** The address the HTTP listener binds. */
+  readonly host?: string
   /** The port the gateway listens on. Defaults to `server.port`. */
   readonly port?: number
   /** The gateway's metrics port, `0` for none. Defaults to `server.metricsPort`. */
@@ -161,6 +163,7 @@ export function gatewayConfig(
       metaDatabase: config.mongodb.metaDatabase,
     },
     server: {
+      ...(overrides.host === undefined ? {} : { host: overrides.host }),
       port: overrides.port ?? config.server.port,
       metricsPort: overrides.metricsPort ?? config.server.metricsPort,
       metricsHost: overrides.metricsHost ?? config.server.metricsHost,
@@ -292,11 +295,15 @@ export function gatewayConfig(
   }
 }
 
-function listeningPort(line: string): number | undefined {
+function listeningPorts(line: string): { port: number; wirePort?: number } | undefined {
   if (!line.startsWith('{"t":"listening"')) return undefined
   try {
-    const parsed = JSON.parse(line) as { t?: unknown; port?: unknown }
-    return parsed.t === "listening" && typeof parsed.port === "number" ? parsed.port : undefined
+    const parsed = JSON.parse(line) as { t?: unknown; port?: unknown; wirePort?: unknown }
+    if (parsed.t !== "listening" || typeof parsed.port !== "number") return undefined
+    return {
+      port: parsed.port,
+      ...(typeof parsed.wirePort === "number" ? { wirePort: parsed.wirePort } : {}),
+    }
   } catch {
     return undefined
   }
@@ -308,6 +315,8 @@ export interface RunningGateway {
   readonly exited: Promise<number>
   /** Resolves with the port the gateway listens on, or with `undefined` when it exits first. */
   readonly listening: Promise<number | undefined>
+  /** Resolves with the MongoDB wire port when enabled, or with `undefined` if absent or the gateway exits first. */
+  readonly wireListening: Promise<number | undefined>
   /** Drains the gateway and stops it, by closing its standard input. */
   stop(): void
 }
@@ -366,8 +375,9 @@ export async function startGateway(
             logger.error({ err: error }, "policy reload rejected, keeping the previous policies"),
         )
       : undefined
-  let reported: (port: number | undefined) => void = () => {}
-  const listening = new Promise<number | undefined>((resolve) => {
+  type Ports = ReturnType<typeof listeningPorts>
+  let reported: (ports: Ports) => void = () => {}
+  const listening = new Promise<Ports>((resolve) => {
     reported = resolve
   })
   let pending = ""
@@ -378,9 +388,9 @@ export async function startGateway(
       const line = pending.slice(0, end).replace(/\r$/, "")
       pending = pending.slice(end + 1)
       end = pending.indexOf("\n")
-      const port = listeningPort(line)
-      if (port === undefined) process.stdout.write(`${line}\n`)
-      else reported(port)
+      const ports = listeningPorts(line)
+      if (ports === undefined) process.stdout.write(`${line}\n`)
+      else reported(ports)
     }
   })
   const exited = new Promise<number>((done) => {
@@ -397,7 +407,8 @@ export async function startGateway(
   })
   return {
     exited,
-    listening,
+    listening: listening.then((ports) => ports?.port),
+    wireListening: listening.then((ports) => ports?.wirePort),
     stop() {
       stopWatching?.()
       child.stdin?.end()

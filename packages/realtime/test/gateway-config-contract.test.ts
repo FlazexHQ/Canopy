@@ -1,7 +1,13 @@
+import { EventEmitter } from "node:events"
 import { readFileSync } from "node:fs"
+import { PassThrough } from "node:stream"
 import { resolveConfig } from "@canopy/config"
-import { expect, it } from "vitest"
-import { type GatewayOverrides, gatewayConfig } from "../src/gateway.ts"
+import { expect, it, vi } from "vitest"
+import { type GatewayOverrides, gatewayConfig, startGateway } from "../src/gateway.ts"
+import { silentLogger } from "../src/logger.ts"
+
+const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }))
+vi.mock("node:child_process", () => ({ spawn }))
 
 function resolved(input: Record<string, unknown>) {
   return resolveConfig(
@@ -171,3 +177,30 @@ it.each(cases)(
     expect(JSON.parse(JSON.stringify(emitted))).toEqual(JSON.parse(readFileSync(fixture, "utf8")))
   },
 )
+
+it.each([
+  { frame: '{"t":"listening","wirePort":37018,"port":8000}\r\n', ports: [8000, 37018] },
+  { frame: '{"t":"listening","port":8000}\n', ports: [8000, undefined] },
+  { frame: undefined, ports: [undefined, undefined] },
+])("reports listening ports $ports", async ({ frame, ports }) => {
+  const child = Object.assign(new EventEmitter(), {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+  })
+  spawn.mockReturnValueOnce(child)
+  vi.stubEnv("CANOPY_GATEWAY_BIN", "fixture-gateway")
+  try {
+    const gateway = await startGateway(resolved({}), silentLogger, { host: "127.0.0.1" })
+    expect(JSON.parse(String(child.stdin.read()))).toMatchObject({ server: { host: "127.0.0.1" } })
+    if (frame !== undefined) {
+      child.stdout.write(frame.slice(0, 23))
+      child.stdout.write(frame.slice(23))
+    }
+    child.emit("exit", frame === undefined ? 1 : 0)
+    await expect(Promise.all([gateway.listening, gateway.wireListening])).resolves.toEqual(ports)
+  } finally {
+    child.stdin.destroy()
+    child.stdout.destroy()
+    vi.unstubAllEnvs()
+  }
+})

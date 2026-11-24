@@ -1,12 +1,25 @@
-import { type ChildProcess, spawn } from "node:child_process"
 import { createServer, type Server } from "node:http"
-import { type AddressInfo, createServer as createNetServer } from "node:net"
-import { allow, auth, collection, createPolicySet, restrict } from "@canopy/policy"
-import { findGatewayBinary, storedPolicies } from "@canopy/realtime"
+import type { AddressInfo } from "node:net"
+import { setTimeout as delay } from "node:timers/promises"
+import {
+  allow,
+  auth,
+  collection,
+  createPolicySet,
+  restrict,
+  type StoredCollectionPolicies,
+  toStored,
+} from "@canopy/policy"
+import {
+  findGatewayBinary,
+  type RunningGateway,
+  silentLogger,
+  startGateway,
+} from "@canopy/realtime"
 import { DIFF_RUNS, MONGODB_URI, TEST_ENV } from "@canopy/testing"
 import fc from "fast-check"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
-import { type Db, MongoClient } from "mongodb"
+import { type Db, type Document, type Filter, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import WebSocket from "ws"
 import { bypassCorpus, bypassRequests } from "../../query/test/bypass-corpus.ts"
@@ -15,19 +28,9 @@ import { type Canopy, createCanopy, defineConfig } from "../src/index.ts"
 const ISSUER = "https://idp.equivalence.test/"
 const AUDIENCE = "https://api.equivalence.test"
 const KEY = "pk_equivalence"
+const SERVICE_KEY = "canopy_sk_equivalence_fixture"
 const RUNS = Math.max(10, Math.round(DIFF_RUNS / 10))
 const GATEWAY = findGatewayBinary()
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const probe = createNetServer()
-    probe.once("error", reject)
-    probe.listen(0, "127.0.0.1", () => {
-      const address = probe.address()
-      probe.close(() => resolve(typeof address === "object" && address !== null ? address.port : 0))
-    })
-  })
-}
 
 /**
  * One policy set exercising permissive and restrictive policies, a role scoped policy, an anon policy,
@@ -47,8 +50,9 @@ const items = collection("items", {
       .update("authenticated")
       .where({ ownerId: auth("sub") })
       .check({ level: { $lte: 4 } }),
+    allow.delete("authenticated").where({ ownerId: auth("sub") }),
   ],
-  fields: { read: { default: { omit: ["secret"] } } },
+  fields: { read: { default: { omit: ["secret"] } }, write: { default: { omit: ["locked"] } } },
 })
 
 interface Item {
@@ -57,12 +61,14 @@ interface Item {
   status: string
   level: number
   secret: string
+  locked?: string
 }
 
 interface Caller {
   readonly name: string
   readonly sub?: string
   readonly roles?: readonly string[]
+  readonly service?: boolean
 }
 
 const CALLERS: readonly Caller[] = [
@@ -71,6 +77,7 @@ const CALLERS: readonly Caller[] = [
   { name: "u2 reviewer", sub: "u2", roles: ["reviewer"] },
   { name: "u3 reviewer", sub: "u3", roles: ["reviewer"] },
 ]
+const SERVICE: Caller = { name: "service", service: true }
 
 const FILTERS: readonly Record<string, unknown>[] = [
   {},
@@ -122,7 +129,7 @@ type Outcome = "applied" | `refused ${string}` | "no match"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
-suite("DLS is the same through REST, GraphQL, realtime and the native gateway", () => {
+suite("DLS is the same through REST, GraphQL, realtime and the MongoDB wire endpoint", () => {
   const dbName = `canopy_equiv_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   const metaName = `${dbName}_meta`
   let mongo: MongoClient
@@ -130,8 +137,9 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
   let canopy: Canopy
   let server: Server
   let base: string
-  let gateway: ChildProcess | undefined
+  let gateway: RunningGateway | undefined
   let gatewayBase: string | undefined
+  let wirePort: number | undefined
   let rustChecks = 0
   let rustWrites = 0
   let sign: (caller: Caller) => Promise<string | undefined>
@@ -185,7 +193,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
           audience: AUDIENCE,
           rolesClaim: "roles",
         },
-        keys: { publishable: [KEY] },
+        keys: { publishable: [KEY], secret: [SERVICE_KEY] },
         realtime: { checkpoints: "off", drainWindow: "1s" },
         rateLimits: false,
       }),
@@ -200,56 +208,38 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
     if (GATEWAY === undefined) return
-    const port = await freePort()
-    const child = spawn(GATEWAY, ["--config", "-"], {
-      stdio: ["pipe", "ignore", "pipe"],
-      env: {
-        ...process.env,
-        CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query,explain,writes",
-      },
+    await mongo
+      .db(metaName)
+      .collection<StoredCollectionPolicies>("policies")
+      .insertOne(toStored(items, { version: 1 }))
+    gateway = await startGateway(canopy.config, silentLogger, {
+      host: "127.0.0.1",
+      port: 0,
+      metricsPort: 0,
+      wire: { port: 0, host: "127.0.0.1" },
+      dataPlaneRoutes: ["find", "count", "distinct", "aggregate", "query", "explain", "writes"],
+      mutationsUrl: `${base}/rest/v1`,
+      proxyUrl: base,
     })
-    gateway = child
-    let log = ""
-    child.stderr?.on("data", (chunk: Buffer) => {
-      log += chunk.toString()
-    })
-    child.stdin?.write(
-      `${JSON.stringify({
-        mongodb: { uri: MONGODB_URI, database: dbName, metaDatabase: metaName },
-        server: { host: "127.0.0.1", port, metricsPort: 0 },
-        auth: { issuer: ISSUER, audience: AUDIENCE, jwks: { keys: [jwk] }, rolesClaim: "roles" },
-        keys: { publishable: [KEY], secret: [] },
-        policies: storedPolicies(createPolicySet([items])),
-        realtime: { checkpoints: "off", drainWindowMs: 100 },
-        rateLimits: false,
-        mutations: { url: `${base}/rest/v1` },
-        proxy: { url: base },
-        log: { level: "error" },
-      })}\n`,
-    )
-    const started = Date.now()
-    for (;;) {
-      if (child.exitCode !== null) throw new Error(`canopy-gateway exited:\n${log}`)
-      const ready = await fetch(`http://127.0.0.1:${port}/readyz`).then(
-        (response) => response.ok,
-        () => false,
-      )
-      if (ready) break
-      if (Date.now() - started > 60_000) throw new Error(`canopy-gateway is not ready:\n${log}`)
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
+    const [port, boundWirePort] = await Promise.race([
+      Promise.all([gateway.listening, gateway.wireListening]),
+      delay(60_000, undefined, { ref: false }).then(() => {
+        throw new Error("canopy-gateway did not report its listening ports")
+      }),
+    ])
+    if (port === undefined || boundWirePort === undefined)
+      throw new Error("canopy-gateway exited before both listeners started")
     gatewayBase = `http://127.0.0.1:${port}`
+    wirePort = boundWirePort
   }, 120_000)
 
   afterAll(async () => {
-    if (gateway !== undefined && gateway.exitCode === null) {
-      const exited = new Promise((resolve) => gateway?.once("exit", resolve))
-      gateway.stdin?.end()
-      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))])
-      if (gateway.exitCode === null) gateway.kill()
+    if (gateway !== undefined) {
+      gateway.stop()
+      await gateway.exited
     }
     await canopy?.close()
-    await new Promise<void>((resolve) => server?.close(() => resolve()))
+    if (server !== undefined) await new Promise<void>((resolve) => server.close(() => resolve()))
     await db?.dropDatabase()
     await mongo?.db(metaName).dropDatabase()
     await mongo?.close()
@@ -258,7 +248,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
   const headers = async (caller: Caller): Promise<Record<string, string>> => {
     const token = await sign(caller)
     return {
-      apikey: KEY,
+      apikey: caller.service === true ? SERVICE_KEY : KEY,
       "content-type": "application/json",
       ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
     }
@@ -300,7 +290,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     }
   }
 
-  const documentsOf = (page: Answer): Record<string, unknown>[] => {
+  const documentsOf = (page: Pick<Answer, "body">): Record<string, unknown>[] => {
     const data = (page.body as { data?: unknown }).data
     return Array.isArray(data) ? (data as Record<string, unknown>[]) : []
   }
@@ -748,6 +738,250 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     return expected
   }
 
+  const wireTest = GATEWAY === undefined ? it.skip : it
+
+  const wireClient = async (caller: Caller) => {
+    if (wirePort === undefined) throw new Error("MongoDB wire listener is unavailable")
+    const accessToken = await sign(caller)
+    return new MongoClient(`mongodb://127.0.0.1:${wirePort}/${dbName}`, {
+      retryWrites: false,
+      serverSelectionTimeoutMS: 5_000,
+      monitorCommands: true,
+      ...(caller.service === true
+        ? {
+            authSource: "admin",
+            authMechanism: "SCRAM-SHA-256",
+            auth: { username: "service", password: SERVICE_KEY },
+          }
+        : accessToken === undefined
+          ? {}
+          : {
+              authMechanism: "MONGODB-OIDC",
+              authMechanismProperties: { OIDC_CALLBACK: async () => ({ accessToken }) },
+            }),
+    })
+  }
+
+  const mongoReadPolicy = (caller: Caller): Filter<Item> => {
+    if (caller.service === true) return {}
+    if (caller.sub === undefined) return { status: "open", level: 0 }
+    const owned = { ownerId: caller.sub }
+    return {
+      status: { $ne: "archived" },
+      ...(caller.roles?.includes("reviewer") === true
+        ? { $or: [owned, { status: { $in: ["open", "closed"] }, level: { $lte: 3 } }] }
+        : owned),
+    }
+  }
+
+  wireTest.each([...CALLERS.slice(1), SERVICE])(
+    "wire reads match REST and MongoDB for $name",
+    async (caller) => {
+      const coll = db.collection<Item>("items")
+      await coll.deleteMany({})
+      await coll.insertMany(corpusDocs)
+      await using client = await wireClient(caller)
+      const database = client.db(dbName)
+      const wire = database.collection<Item>("items")
+      let continuations = 0
+      client.on("commandStarted", ({ commandName }) => {
+        if (commandName === "getMore") continuations += 1
+      })
+      const policy = mongoReadPolicy(caller)
+      for (const filter of FILTERS) {
+        const label = `${caller.name} ${JSON.stringify(filter)}`
+        const effective = { $and: [policy, filter] }
+        const projection = caller.service === true ? {} : { secret: 0 }
+        const expected = byId(await coll.find(effective, { projection }).toArray())
+        const find = await bothAnswers(caller, { filter: JSON.stringify(filter), limit: "100" })
+        expect(find.status, `REST find ${label}`).toBe(200)
+        const restDocs = byId(documentsOf(find))
+        expect(restDocs, `REST find ${label}`).toEqual(expected)
+        const previous = continuations
+        expect(
+          byId(await wire.find(filter, { batchSize: 2 }).toArray()),
+          `wire find ${label}`,
+        ).toEqual(restDocs)
+        if (expected.length > 2)
+          expect(continuations, `wire getMore ${label}`).toBeGreaterThan(previous)
+
+        const count = await bothActions(caller, "_count", { filter })
+        expect(count.status, `REST count ${label}`).toBe(200)
+        const expectedCount = await coll.countDocuments(effective)
+        expect(count.body["data"], `REST count ${label}`).toMatchObject({ count: expectedCount })
+        expect(await wire.countDocuments(filter), `wire countDocuments ${label}`).toBe(
+          expectedCount,
+        )
+        const rawCount: unknown = await database.command({ count: "items", query: filter })
+        expect(rawCount, `wire count ${label}`).toMatchObject({ n: expectedCount })
+
+        const distinct = await bothActions(caller, "_distinct", { field: "_id", filter })
+        expect(distinct.status, `REST distinct ${label}`).toBe(200)
+        const expectedIds = (await coll.distinct("_id", effective)).sort()
+        expect((distinct.body["data"] as string[]).sort(), `REST distinct ${label}`).toEqual(
+          expectedIds,
+        )
+        expect((await wire.distinct("_id", filter)).sort(), `wire distinct ${label}`).toEqual(
+          expectedIds,
+        )
+
+        const pipeline = [{ $match: filter }]
+        const aggregate = await bothActions(caller, "_aggregate", { pipeline })
+        expect(aggregate.status, `REST aggregate ${label}`).toBe(200)
+        const scopedPipeline = [
+          { $match: effective },
+          ...(caller.service === true ? [] : [{ $project: projection }]),
+        ]
+        const expectedAggregate = byId(await coll.aggregate(scopedPipeline).toArray())
+        expect(byId(documentsOf(aggregate)), `REST aggregate ${label}`).toEqual(expectedAggregate)
+        expect(byId(await wire.aggregate(pipeline).toArray()), `wire aggregate ${label}`).toEqual(
+          expectedAggregate,
+        )
+      }
+    },
+  )
+
+  wireTest(
+    "wire requires authentication for reads available to anonymous REST callers",
+    async () => {
+      const coll = db.collection<Item>("items")
+      await coll.deleteMany({})
+      await coll.insertMany(corpusDocs)
+      const anon: Caller = { name: "anon" }
+      expect(await restRead(anon, {})).toHaveLength(3)
+      await using client = await wireClient(anon)
+      const database = client.db(dbName)
+      const wire = database.collection<Item>("items")
+      await expect(wire.find({}).toArray()).rejects.toMatchObject({ code: 13 })
+      await expect(wire.countDocuments({})).rejects.toMatchObject({ code: 13 })
+      await expect(database.command({ count: "items" })).rejects.toMatchObject({ code: 13 })
+      await expect(wire.distinct("_id")).rejects.toMatchObject({ code: 13 })
+      await expect(wire.aggregate([{ $match: {} }]).toArray()).rejects.toMatchObject({ code: 13 })
+    },
+  )
+
+  const ownItem = { ownerId: "u1", status: "open", level: 1, secret: "s1" }
+  const foreignItem = { ...ownItem, ownerId: "u2" }
+  type ItemBody = Omit<Item, "_id">
+  type WriteCase = {
+    name: string
+    before: ItemBody | null
+    after: ItemBody | null
+    rest: string
+    wire: number | "denied"
+  } & (
+    | { method: "POST"; input: ItemBody }
+    | { method: "PATCH"; input: Partial<ItemBody> }
+    | { method: "DELETE" }
+  )
+  const writeCases: readonly WriteCase[] = [
+    {
+      name: "allow an insert",
+      method: "POST",
+      before: null,
+      input: ownItem,
+      after: ownItem,
+      rest: "ok",
+      wire: 1,
+    },
+    {
+      name: "deny an insert by check",
+      method: "POST",
+      before: null,
+      input: foreignItem,
+      after: null,
+      rest: "error CANOPY_POLICY_VIOLATION",
+      wire: "denied",
+    },
+    {
+      name: "deny an insert by field rule",
+      method: "POST",
+      before: null,
+      input: { ...ownItem, locked: "locked" },
+      after: null,
+      rest: "error CANOPY_POLICY_VIOLATION",
+      wire: "denied",
+    },
+    {
+      name: "allow an update",
+      method: "PATCH",
+      before: ownItem,
+      input: { level: 2 },
+      after: { ...ownItem, level: 2 },
+      rest: "ok",
+      wire: 1,
+    },
+    {
+      name: "deny an update by check",
+      method: "PATCH",
+      before: ownItem,
+      input: { level: 5 },
+      after: ownItem,
+      rest: "error CANOPY_POLICY_VIOLATION",
+      wire: "denied",
+    },
+    {
+      name: "deny an update by field rule",
+      method: "PATCH",
+      before: ownItem,
+      input: { locked: "locked" },
+      after: ownItem,
+      rest: "error CANOPY_POLICY_VIOLATION",
+      wire: "denied",
+    },
+    {
+      name: "exclude another owner's document from an update",
+      method: "PATCH",
+      before: foreignItem,
+      input: { level: 2 },
+      after: foreignItem,
+      rest: "error CANOPY_NOT_FOUND",
+      wire: 0,
+    },
+    { name: "allow a delete", method: "DELETE", before: ownItem, after: null, rest: "ok", wire: 1 },
+    {
+      name: "exclude another owner's document from a delete",
+      method: "DELETE",
+      before: foreignItem,
+      after: foreignItem,
+      rest: "error CANOPY_NOT_FOUND",
+      wire: 0,
+    },
+  ]
+
+  wireTest.each(writeCases)("wire and REST $name for u1", async (test) => {
+    const caller: Caller = { name: "u1", sub: "u1", roles: [] }
+    const coll = db.collection<Item>("items")
+    await coll.deleteMany({})
+    const ids = { rest: "rest-write", wire: "wire-write" }
+    const before = test.before
+    if (before !== null)
+      await coll.insertMany(Object.values(ids).map((_id) => ({ _id, ...before })))
+    const path = test.method === "POST" ? "items" : `items/${ids.rest}`
+    const body =
+      test.method === "POST"
+        ? { _id: ids.rest, ...test.input }
+        : test.method === "PATCH"
+          ? { $set: test.input }
+          : undefined
+    expect(await restWrite(caller, "rest", test.method, path, body)).toBe(test.rest)
+    await using client = await wireClient(caller)
+    const wire = client.db(dbName).collection<Item>("items")
+    const wireWrite = async () => {
+      if (test.method === "POST") {
+        return (await wire.insertOne({ _id: ids.wire, ...test.input })).acknowledged ? 1 : 0
+      }
+      if (test.method === "PATCH")
+        return (await wire.updateOne({ _id: ids.wire }, { $set: test.input })).matchedCount
+      return (await wire.deleteOne({ _id: ids.wire })).deletedCount
+    }
+    if (test.wire === "denied") await expect(wireWrite()).rejects.toMatchObject({ code: 13 })
+    else await expect(wireWrite()).resolves.toBe(test.wire)
+    const after = test.after
+    const expected = after === null ? [] : Object.values(ids).map((_id) => ({ _id, ...after }))
+    expect(byId(await coll.find({}).toArray())).toEqual(byId(expected))
+  })
+
   /** Pipelines that try to reach hidden fields or documents the caller may not read. */
   const LEAKS: readonly (readonly [string, unknown[]])[] = [
     ["a projection of the hidden field", [{ $project: { leak: "$secret" } }]],
@@ -856,4 +1090,199 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       `read actions: ${filters.length} filters and ${LEAKS.length} pipelines, ${CALLERS.length} callers, ${checked} reads${gatewayBase === undefined ? "" : " through REST and the Rust routes"}, ${answered} answered, nothing hidden shown\n`,
     )
   }, 300_000)
+
+  /** What a wire command answered, or the error the driver raised for it. */
+  const settle = async <T>(
+    run: () => Promise<T>,
+  ): Promise<{ ok: true; value: T; text: string } | { ok: false; text: string }> => {
+    try {
+      const value = await run()
+      return { ok: true, value, text: JSON.stringify(value) ?? "" }
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        text: error instanceof Error ? `${error.name} ${error.message}` : String(error),
+      }
+    }
+  }
+
+  wireTest(
+    "the bypass and denial corpora admit nothing a policy denies over the wire, and the wire answers as REST does",
+    async () => {
+      const coll = db.collection<Item>("items")
+      await coll.deleteMany({})
+      const docs = corpusDocs.map((doc) => ({ ...doc, secret: `hidden-${doc._id}` }))
+      await coll.insertMany(docs)
+      const ids = docs.map((doc) => doc._id)
+      const filters = [
+        ...FILTERS.map((filter) => [`the filter ${JSON.stringify(filter)}`, filter] as const),
+        ...bypassCorpus.map(([name, payload]) => [name, fitted(payload)] as const),
+        ["a filter on the hidden field", { secret: "hidden-b-u1-open-0" }] as const,
+        [
+          "the hidden field inside $or",
+          { $or: [{ level: 0 }, { secret: "hidden-b-u1-open-0" }] },
+        ] as const,
+        [
+          "the hidden field as an oracle in $in",
+          { secret: { $in: ["hidden-b-u1-open-0", "hidden-b-u2-open-0"] } },
+        ] as const,
+        [
+          "the hidden field in $expr",
+          { $expr: { $eq: ["$secret", "hidden-b-u1-open-0"] } },
+        ] as const,
+      ]
+      let checked = 0
+      let answered = 0
+      let refused = 0
+      for (const caller of CALLERS.slice(1)) {
+        const readable = readableBy(caller, docs)
+        const leaks = (name: string, text: string) => {
+          expect(
+            text,
+            `${name}: a hidden value reached ${caller.name} over the wire`,
+          ).not.toContain("hidden-")
+          for (const id of ids)
+            if (!readable.has(id))
+              expect(text, `${name}: ${id} reached ${caller.name} over the wire`).not.toContain(
+                `"${id}"`,
+              )
+        }
+        await using client = await wireClient(caller)
+        const database = client.db(dbName)
+        const wire = database.collection<Item>("items")
+        for (const [name, filter] of filters) {
+          const label = `${name} for ${caller.name}`
+          const rest = await bothActions(caller, "_query", {
+            filter,
+            sort: { _id: 1 },
+            limit: 1000,
+          })
+          const found = await settle(() =>
+            wire
+              .find(filter as Filter<Item>, { batchSize: 2 })
+              .sort({ _id: 1 })
+              .toArray(),
+          )
+          leaks(name, found.text)
+          expect(
+            found.ok,
+            `${label}: the wire refuses exactly when REST does (REST ${rest.status})`,
+          ).toBe(rest.status === 200)
+          if (found.ok) {
+            for (const doc of found.value)
+              expect(
+                readable.has(String(doc._id)),
+                `${label}: find showed ${String(doc._id)}`,
+              ).toBe(true)
+            expect(
+              found.value.map((doc) => doc._id),
+              `${label}: find`,
+            ).toEqual((rest.body["data"] as { _id: string }[]).map((doc) => doc._id))
+            answered += 1
+          } else refused += 1
+
+          const counted = await settle(() => database.command({ count: "items", query: filter }))
+          leaks(name, counted.text)
+          if (counted.ok) {
+            const n = (counted.value as { n: number }).n
+            expect(n, `${label}: count`).toBeLessThanOrEqual(readable.size)
+            if (found.ok) expect(n, `${label}: count agrees with find`).toBe(found.value.length)
+          }
+          const distinct = await settle(() => wire.distinct("_id", filter as Filter<Item>))
+          leaks(name, distinct.text)
+          if (distinct.ok)
+            for (const id of distinct.value)
+              expect(readable.has(String(id)), `${label}: distinct showed ${String(id)}`).toBe(true)
+          const aggregated = await settle(() => wire.aggregate([{ $match: filter }]).toArray())
+          leaks(name, aggregated.text)
+          if (aggregated.ok)
+            for (const doc of aggregated.value)
+              expect(
+                readable.has(String(doc["_id"])),
+                `${label}: aggregate showed ${String(doc["_id"])}`,
+              ).toBe(true)
+          checked += 4
+        }
+        for (const [name, pipeline] of LEAKS) {
+          const aggregated = await settle(() => wire.aggregate(pipeline as Document[]).toArray())
+          leaks(name, aggregated.text)
+          checked += 1
+        }
+        const shaped: readonly (readonly [string, () => Promise<unknown>])[] = [
+          ["a sort by the hidden field", () => wire.find({}).sort({ secret: 1 }).toArray()],
+          [
+            "a descending sort by the hidden field",
+            () => wire.find({}).sort({ secret: -1, _id: 1 }).toArray(),
+          ],
+          [
+            "a projection of the hidden field",
+            () => wire.find({}, { projection: { secret: 1 } }).toArray(),
+          ],
+          [
+            "a projection of the hidden field next to a readable one",
+            () => wire.find({}, { projection: { level: 1, secret: 1 } }).toArray(),
+          ],
+          [
+            "an exclusion that leaves the hidden field in",
+            () => wire.find({}, { projection: { level: 0 } }).toArray(),
+          ],
+          [
+            "a computed projection of the hidden field",
+            () => wire.find({}, { projection: { s: "$secret" } }).toArray(),
+          ],
+          ["distinct of the hidden field", () => wire.distinct("secret")],
+          [
+            "a find and modify sorted by the hidden field",
+            () => wire.findOneAndUpdate({}, { $set: { level: 1 } }, { sort: { secret: 1 } }),
+          ],
+          [
+            "a find and modify projecting the hidden field",
+            () =>
+              wire.findOneAndUpdate(
+                { _id: [...readable][0] ?? "none" },
+                { $set: { status: "open" } },
+                { projection: { secret: 1 } },
+              ),
+          ],
+        ]
+        for (const [name, run] of shaped) {
+          leaks(name, (await settle(run)).text)
+          checked += 1
+        }
+        for (const id of ids) {
+          const hidden = `hidden-${id}`
+          const updated = await settle(() =>
+            wire.updateMany({ secret: hidden }, { $set: { level: 9 } }),
+          )
+          leaks(`an update filtered on the hidden value of ${id}`, updated.text)
+          if (updated.ok)
+            expect(
+              updated.value.matchedCount,
+              `${caller.name}: an update matched on the hidden value of ${id}`,
+            ).toBe(0)
+          const removed = await settle(() => wire.deleteMany({ secret: hidden }))
+          if (removed.ok)
+            expect(
+              removed.value.deletedCount,
+              `${caller.name}: a delete matched on the hidden value of ${id}`,
+            ).toBe(0)
+          checked += 2
+        }
+        expect(
+          await coll.countDocuments({}),
+          `${caller.name}: the hidden value oracles changed nothing`,
+        ).toBe(docs.length)
+        expect(await coll.countDocuments({ level: 9 })).toBe(0)
+      }
+      expect(
+        answered,
+        "the ordinary filters answer over the wire for every caller",
+      ).toBeGreaterThanOrEqual(FILTERS.length * (CALLERS.length - 1))
+      expect(refused, "the corpus has filters the wire refuses").toBeGreaterThan(0)
+      process.stdout.write(
+        `wire corpora: ${filters.length} filters, ${LEAKS.length} pipelines, ${CALLERS.length - 1} callers, ${checked} commands, ${answered} answered as REST did, ${refused} refused as REST did, nothing hidden shown\n`,
+      )
+    },
+    300_000,
+  )
 })

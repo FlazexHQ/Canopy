@@ -149,6 +149,7 @@ export interface GatewayAuth {
 }
 
 export interface GatewayOverrides {
+    readonly host?: string;
     readonly port?: number;
     readonly metricsPort?: number;
     readonly metricsHost?: string;
@@ -553,6 +554,7 @@ export interface RealtimeStats {
 export interface RunningGateway {
     readonly exited: Promise<number>;
     readonly listening: Promise<number | undefined>;
+    readonly wireListening: Promise<number | undefined>;
     stop(): void;
 }
 
