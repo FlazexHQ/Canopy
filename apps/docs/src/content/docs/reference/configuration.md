@@ -102,8 +102,8 @@ the gateway's metrics, scraped every second. The executable comes from `CANOPY_G
 images, or a Cargo build of the repository.
 
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in
-Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct` and
-`aggregate` (`POST /rest/v1/{collection}/_count`, `_distinct` and `_aggregate`), for example
+Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct`,
+`aggregate` and `query` (`POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate` and `_query`), for example
 `CANOPY_DATA_PLANE_ROUTES=find,count`. Every other request goes to the TypeScript server as before. Unknown route
 names stop the gateway at startup. The Rust routes apply `rateLimits.requests` and
 `rateLimits.failedAuthentications` as the server does, counted by the gateway on its own, so a caller has one

@@ -46,7 +46,13 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
     let config = parse(fixture)?;
     assert_eq!(
         config.data_plane_routes,
-        [DataPlaneRoute::Find, DataPlaneRoute::Count, DataPlaneRoute::Distinct, DataPlaneRoute::Aggregate]
+        [
+            DataPlaneRoute::Find,
+            DataPlaneRoute::Count,
+            DataPlaneRoute::Distinct,
+            DataPlaneRoute::Aggregate,
+            DataPlaneRoute::Query
+        ]
     );
     assert_eq!(
         config.rest_limits,

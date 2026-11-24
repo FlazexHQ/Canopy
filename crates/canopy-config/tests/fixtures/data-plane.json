@@ -53,6 +53,6 @@
     "level": "info"
   },
   "dataPlane": {
-    "routes": ["find", "count", "distinct", "aggregate"]
+    "routes": ["find", "count", "distinct", "aggregate", "query"]
   }
 }

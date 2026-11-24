@@ -202,7 +202,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     const port = await freePort()
     const child = spawn(GATEWAY, ["--config", "-"], {
       stdio: ["pipe", "ignore", "pipe"],
-      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate" },
+      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query" },
     })
     gateway = child
     let log = ""
@@ -803,7 +803,17 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
         })
         leaks(name, aggregate.text)
         if (aggregate.status === 200) answered += 1
-        checked += 3
+        const query = await bothActions(caller, "_query", { filter, sort: { _id: 1 }, limit: 1000 })
+        leaks(name, query.text)
+        if (query.status === 200) {
+          for (const document of query.body["data"] as { _id: string }[])
+            expect(
+              readable.has(document._id),
+              `${name}: _query showed ${document._id} to ${caller.name}`,
+            ).toBe(true)
+          answered += 1
+        }
+        checked += 4
       }
       for (const [name, pipeline] of LEAKS) {
         const aggregate = await bothActions(caller, "_aggregate", { pipeline })
@@ -811,6 +821,8 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
         if (aggregate.status === 200) answered += 1
         checked += 1
       }
+      const projected = await bothActions(caller, "_query", { fields: { secret: 1, _id: 1 } })
+      leaks("_query projecting the hidden field", projected.text)
       const hidden = await bothActions(caller, "_distinct", { field: "secret" })
       expect(hidden.status, `${caller.name} may not list the hidden field`).toBe(400)
       leaks("distinct of the hidden field", hidden.text)
@@ -818,7 +830,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     expect(
       answered,
       "the ordinary filters answer for every caller, so the checks above read something",
-    ).toBeGreaterThanOrEqual(FILTERS.length * CALLERS.length * 3)
+    ).toBeGreaterThanOrEqual(FILTERS.length * CALLERS.length * 4)
     if (gatewayBase !== undefined) expect(rustChecks).toBeGreaterThanOrEqual(checked)
     process.stdout.write(
       `read actions: ${filters.length} filters and ${LEAKS.length} pipelines, ${CALLERS.length} callers, ${checked} reads${gatewayBase === undefined ? "" : " through REST and the Rust routes"}, ${answered} answered, nothing hidden shown\n`,

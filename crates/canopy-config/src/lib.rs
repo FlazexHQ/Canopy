@@ -83,11 +83,14 @@ pub enum DataPlaneRoute {
     Distinct,
     /// `POST /rest/v1/{collection}/_aggregate`, with `OPTIONS` and `405` on that path.
     Aggregate,
+    /// `POST /rest/v1/{collection}/_query`, a find with its parameters in a body, with `OPTIONS` and `405` on
+    /// that path.
+    Query,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 4] = ["find", "count", "distinct", "aggregate"];
+    pub const NAMES: [&'static str; 5] = ["find", "count", "distinct", "aggregate", "query"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -96,6 +99,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Count => "count",
             DataPlaneRoute::Distinct => "distinct",
             DataPlaneRoute::Aggregate => "aggregate",
+            DataPlaneRoute::Query => "query",
         }
     }
 
@@ -105,6 +109,7 @@ impl DataPlaneRoute {
             "count" => Ok(DataPlaneRoute::Count),
             "distinct" => Ok(DataPlaneRoute::Distinct),
             "aggregate" => Ok(DataPlaneRoute::Aggregate),
+            "query" => Ok(DataPlaneRoute::Query),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
                 Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))

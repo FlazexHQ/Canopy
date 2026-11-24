@@ -12,9 +12,9 @@ import { percentile } from "../rest/harness.ts"
 import { type Order, OWNERS, STATUSES, seedTo } from "../rest/scenarios.ts"
 
 /**
- * The D1 gate of plan 004 for the reads: the same `find`, `_count`, `_distinct` and `_aggregate` requests on
+ * The D1 gate of plan 004 for the reads: the same `find`, `_query`, `_count`, `_distinct` and `_aggregate` requests on
  * `/rest/v1/orders`, with real JWTs, sent over HTTP to the TypeScript REST handler (its own process) and to the
- * gateway with `CANOPY_DATA_PLANE_ROUTES=find,count,distinct,aggregate`, which answers them in Rust. For each target and scenario it reports throughput, p50 and p99, and the
+ * gateway with `CANOPY_DATA_PLANE_ROUTES=find,count,distinct,aggregate,query`, which answers them in Rust. For each target and scenario it reports throughput, p50 and p99, and the
  * requests per CPU second of the server process alone (read from the operating system the same way for both,
  * so the load generator and MongoDB are left out). The gate asks for at least 1.5 times the TypeScript
  * requests per CPU second on simple reads. The answers of both targets are compared before measuring.
@@ -108,6 +108,15 @@ const SCENARIOS: readonly Scenario[] = [
     name: "filtered page of 20",
     target: (owner) =>
       `/rest/v1/orders?status=eq.${STATUSES[owner % STATUSES.length]}&sort=-createdAt&limit=20`,
+  },
+  {
+    name: "query page of 20",
+    target: () => "/rest/v1/orders/_query",
+    body: (owner) => ({
+      filter: { status: STATUSES[owner % STATUSES.length] },
+      sort: { createdAt: -1 },
+      limit: 20,
+    }),
   },
   { name: "count, owner policy", target: () => "/rest/v1/orders/_count", body: () => ({}) },
   {
@@ -248,7 +257,7 @@ async function main(): Promise<void> {
 
     const gateway = spawn(gatewayBinary, ["--config", "-"], {
       stdio: ["pipe", "pipe", "inherit"],
-      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate" },
+      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query" },
     })
     children.push(gateway)
     gateway.stdin?.write(

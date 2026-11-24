@@ -53,6 +53,7 @@ impl DataPlane {
             count: routes.contains(&DataPlaneRoute::Count),
             distinct: routes.contains(&DataPlaneRoute::Distinct),
             aggregate: routes.contains(&DataPlaneRoute::Aggregate),
+            query: routes.contains(&DataPlaneRoute::Query),
         };
         let options = RestOptions {
             cors,

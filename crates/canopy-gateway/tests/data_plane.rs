@@ -303,7 +303,8 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     let (port, seen) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
     let gateway =
-        Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("count,distinct,aggregate")).await;
+        Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("count,distinct,aggregate,query"))
+            .await;
     let mut failures = Vec::new();
     let mut total = 0;
     for (file, json) in case_files_of("reads") {
@@ -324,16 +325,7 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     let find = gateway.send(&common::get_as(&fixture, "service", "/rest/v1/todos")).await;
     client.database(&database).drop().await.expect("the scratch database drops");
     assert!(total >= 70, "{total} cases");
-    assert!(
-        failures.is_empty(),
-        "{} of {total} cases differ:
-{}",
-        failures.len(),
-        failures.join(
-            "
-"
-        )
-    );
+    assert!(failures.is_empty(), "{} of {total} cases differ:\n{}", failures.len(), failures.join("\n"));
     assert_eq!(find.header("x-upstream"), Some("yes"), "find is not selected, so the upstream answers it");
     assert_eq!(*seen.lock().unwrap(), [("GET".to_owned(), "/rest/v1/todos".to_owned())]);
 }
@@ -582,11 +574,11 @@ fn refused(config: &str, routes: Option<&str>) -> (Option<i32>, String) {
 #[test]
 fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
     let document = r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"server":{"port":0,"metricsPort":0}}"#;
-    for routes in ["query", "find,explain", "FIND", "find;count"] {
+    for routes in ["explain", "find,insert", "QUERY", "find;count"] {
         let (code, message) = refused(document, Some(routes));
         assert_eq!(code, Some(1), "{routes}");
         assert!(
-            message.contains("dataPlane.routes may list find, count, distinct and aggregate, not"),
+            message.contains("dataPlane.routes may list find, count, distinct, aggregate and query, not"),
             "{routes}: {message}"
         );
     }
