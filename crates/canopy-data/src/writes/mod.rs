@@ -12,17 +12,20 @@ mod request;
 mod scope;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use canopy_engine::Ct;
 use canopy_mongo::mongodb::bson::{self, doc};
+use canopy_mongo::mongodb::error::PartialBulkWriteResult;
 use canopy_mongo::mongodb::error::{
     ErrorKind, TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT, WriteFailure,
 };
-use canopy_mongo::mongodb::options::{ReadConcern, ReadPreference, SelectionCriteria, WriteConcern};
+use canopy_mongo::mongodb::options::{
+    ReadConcern, ReadPreference, SelectionCriteria, WriteConcern, WriteModel,
+};
 use canopy_mongo::mongodb::{Client, ClientSession, Database};
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, Operation, PolicyEngine, RequestContext, Role};
@@ -35,7 +38,7 @@ use crate::caller::Caller;
 use crate::errors::{from_driver_error, internal};
 use crate::find::validate_collection_name;
 use crate::policies::Policies;
-use crate::writes::plan::{Plan, plan_write};
+use crate::writes::plan::{Grouped, Plan, plan_write};
 use crate::writes::scope::{DriverError, Scope, Session, carried, custom, value_of};
 
 pub use plan::{Outcome, WriteLimits};
@@ -127,6 +130,7 @@ pub struct WritePath {
     explain_denials: bool,
     observer: Option<Observer>,
     indexes: Arc<AtomicBool>,
+    bulk_support: Arc<AtomicU8>,
     collations: Arc<std::sync::Mutex<std::collections::HashMap<String, (Instant, bool)>>>,
 }
 
@@ -168,6 +172,7 @@ impl WritePath {
             explain_denials: false,
             observer: None,
             indexes: Arc::new(AtomicBool::new(false)),
+            bulk_support: Arc::new(AtomicU8::new(0)),
             collations: Arc::default(),
         })
     }
@@ -375,18 +380,340 @@ impl WritePath {
     /// Runs the operations of a batch that is not atomic one after the other, each as if it were sent alone:
     /// its own mutation ID, its own transaction or fast path, and its own result or error, which never stops
     /// the operations after it.
+    ///
+    /// Consecutive single document writes are sent together as one ordered client `bulkWrite` instead (MongoDB
+    /// 8.0 or later), with their checks evaluated in one aggregation and their read backs in one `find` per
+    /// collection around it. Only writes that cannot be told apart from running alone join a group: no mutation
+    /// ID, no transaction, pairwise different documents. A write MongoDB refuses is sent again alone, so its error
+    /// is the one it always had, and the writes after it form the next group. The writes of a group share the
+    /// cluster time of their command, which is at or after the time of each of them.
     pub async fn execute_each(
         &self,
         caller: &Caller,
         items: &[BatchItem],
         skip_documents: bool,
     ) -> Vec<Result<WriteResult, CanopyError>> {
-        let mut out = Vec::with_capacity(items.len());
-        for item in items {
-            let options = WriteOptions { mutation_id: item.mutation_id.clone(), skip_documents };
-            out.push(self.execute(caller, &item.request, &options).await);
+        let engine = self.policies.current();
+        let mut results: Vec<Option<Result<WriteResult, CanopyError>>> = items.iter().map(|_| None).collect();
+        let grouping = self.client_bulk_write().await;
+        let mut next = 0;
+        while next < items.len() {
+            let members =
+                if grouping { self.form_group(caller, &engine, items, next).await } else { Vec::new() };
+            if members.len() < 2 {
+                results[next] = Some(self.execute_item(caller, &items[next], skip_documents).await);
+                next += 1;
+                continue;
+            }
+            next += self.execute_group(caller, items, members, skip_documents, &mut results).await;
         }
-        out
+        results
+            .into_iter()
+            .map(|result| {
+                result.unwrap_or_else(|| {
+                    Err(CanopyError::new(ErrorCode::Internal, "The batch operation has no outcome"))
+                })
+            })
+            .collect()
+    }
+
+    async fn execute_item(
+        &self,
+        caller: &Caller,
+        item: &BatchItem,
+        skip_documents: bool,
+    ) -> Result<WriteResult, CanopyError> {
+        let options = WriteOptions { mutation_id: item.mutation_id.clone(), skip_documents };
+        self.execute(caller, &item.request, &options).await
+    }
+
+    /// Whether the deployment runs MongoDB 8.0 or later (wire version 25), whose `bulkWrite` command writes to
+    /// several namespaces. Read once from `hello`; a failed read means no, and is read again next time.
+    async fn client_bulk_write(&self) -> bool {
+        match self.bulk_support.load(Ordering::Acquire) {
+            1 => return true,
+            2 => return false,
+            _ => {}
+        }
+        let Ok(hello) = self.client.database("admin").run_command(doc! { "hello": 1 }).await else {
+            return false;
+        };
+        let wire = hello
+            .get_i32("maxWireVersion")
+            .map(i64::from)
+            .or_else(|_| hello.get_i64("maxWireVersion"))
+            .unwrap_or(0);
+        let supported = wire >= BULK_WRITE_WIRE_VERSION;
+        self.bulk_support.store(if supported { 1 } else { 2 }, Ordering::Release);
+        supported
+    }
+
+    /// The operations from `start` that can be sent together: consecutive, planned without error, without a
+    /// mutation ID, groupable, and on documents no earlier one of the group may touch.
+    async fn form_group(
+        &self,
+        caller: &Caller,
+        engine: &Arc<PolicyEngine>,
+        items: &[BatchItem],
+        start: usize,
+    ) -> Vec<Member> {
+        let mut members = Vec::new();
+        let mut taken = GroupIds::default();
+        let mut bytes = 0;
+        for (index, item) in items.iter().enumerate().skip(start) {
+            if item.mutation_id.is_some() {
+                break;
+            }
+            let Ok(plan) = self.plan(engine, &caller.context, &item.request) else { break };
+            let Some(group) = plan.grouped() else { break };
+            let size = group.precheck.as_ref().map_or(0, |(_, doc)| {
+                canopy_protocol::bson::encode_document(doc).map_or(usize::MAX, |bytes| bytes.len())
+            });
+            if bytes + size > GROUP_PRECHECK_BYTES {
+                break;
+            }
+            let collated = if group.ids.iter().any(|id| matches!(id, Value::String(_))) {
+                self.collated(item.request.collection()).await
+            } else {
+                false
+            };
+            if !taken.admit(item.request.collection(), &group.ids, collated) {
+                break;
+            }
+            bytes += size;
+            members.push(Member { index, plan, group });
+        }
+        members
+    }
+
+    /// Runs a group and fills the result of each member. Returns how many operations are settled: all of them,
+    /// or up to the write MongoDB refused, after which the operations have not been tried yet.
+    async fn execute_group(
+        &self,
+        caller: &Caller,
+        items: &[BatchItem],
+        members: Vec<Member>,
+        skip_documents: bool,
+        results: &mut [Option<Result<WriteResult, CanopyError>>],
+    ) -> usize {
+        let service = caller.context.roles.contains(Role::SERVICE);
+        let read = !skip_documents;
+        let first = members[0].index;
+        let mut refused: std::collections::HashMap<usize, CanopyError> = std::collections::HashMap::new();
+        let mut declined: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut checked: std::collections::HashMap<usize, Option<Vec<scope::Returned>>> =
+            std::collections::HashMap::new();
+        let mut units: Vec<(String, Operation, Vec<usize>)> = Vec::new();
+        for (position, member) in members.iter().enumerate() {
+            let Some((op, _)) = &member.group.precheck else { continue };
+            let name = member.plan.scope.name.clone();
+            match units.iter_mut().find(|(unit, unit_op, _)| *unit == name && unit_op == op) {
+                Some((_, _, positions)) => positions.push(position),
+                None => units.push((name, *op, vec![position])),
+            }
+        }
+        for (_, op, positions) in &units {
+            let lead = &members[positions[0]];
+            let Some(check) = lead.plan.precheck_check() else { continue };
+            let docs: Vec<Document> = positions
+                .iter()
+                .filter_map(|&position| members[position].group.precheck.as_ref().map(|(_, doc)| doc.clone()))
+                .collect();
+            let outcome = if *check == Compiled::Deny {
+                Ok((
+                    docs.iter().map(|doc| scope::key(doc.get("_id").unwrap_or(&Value::Null))).collect(),
+                    Vec::new(),
+                ))
+            } else {
+                lead.plan.scope.check_before(&docs, check, read).await
+            };
+            let (failed, found) = match outcome {
+                Ok(outcome) => outcome,
+                Err(error)
+                    if matches!(error.kind.as_ref(), ErrorKind::Command(_)) && carried(&error).is_none() =>
+                {
+                    for member in &members {
+                        results[member.index] =
+                            Some(self.execute_item(caller, &items[member.index], skip_documents).await);
+                    }
+                    return members.len();
+                }
+                Err(error) => {
+                    let failure = write_error(&error, service);
+                    for member in &members {
+                        results[member.index] = Some(Err(failure.clone()));
+                    }
+                    return members.len();
+                }
+            };
+            for &position in positions {
+                let member = &members[position];
+                let Some((_, doc)) = &member.group.precheck else { continue };
+                let id = scope::key(doc.get("_id").unwrap_or(&Value::Null));
+                if failed.contains(&id) {
+                    if *op == Operation::Insert {
+                        refused.insert(member.index, member.plan.scope.violation(Operation::Insert));
+                    } else {
+                        declined.insert(member.index);
+                    }
+                } else {
+                    let documents = member.plan.scope.readable_of(std::slice::from_ref(doc), &found, read);
+                    checked.insert(member.index, documents.unwrap_or(None));
+                }
+            }
+        }
+        let cut = members.iter().position(|member| declined.contains(&member.index));
+        let head = &members[..cut.unwrap_or(members.len())];
+        let live: Vec<&Member> = head.iter().filter(|member| !refused.contains_key(&member.index)).collect();
+        let mut settled = head.len();
+        let mut session = match self.client.start_session().causal_consistency(true).await {
+            Ok(session) => session,
+            Err(error) => {
+                let failure = from_driver_error(&error, service);
+                for member in &members {
+                    results[member.index] = Some(Err(failure.clone()));
+                }
+                return members.len();
+            }
+        };
+        let mut verbose = None;
+        let mut failure = None;
+        if !live.is_empty() {
+            let models: Vec<WriteModel> = live.iter().map(|member| member.group.model.clone()).collect();
+            match self
+                .client
+                .bulk_write(models)
+                .ordered(true)
+                .write_concern(WriteConcern::majority())
+                .verbose_results()
+                .session(&mut session)
+                .await
+            {
+                Ok(result) => verbose = Some(result),
+                Err(error) => failure = Some(error),
+            }
+        }
+        if failure.as_ref().is_some_and(unsupported_bulk_write) {
+            self.bulk_support.store(2, Ordering::Release);
+            for member in &members {
+                results[member.index] =
+                    Some(self.execute_item(caller, &items[member.index], skip_documents).await);
+            }
+            return members.len();
+        }
+        let ct = session.operation_time().map(|time| Ct::from_parts(time.time, time.increment));
+        let bulk = failure.as_ref().and_then(|error| match error.kind.as_ref() {
+            ErrorKind::BulkWrite(bulk) => Some(bulk),
+            _ => None,
+        });
+        let partial = verbose.as_ref().or_else(|| match bulk.and_then(|bulk| bulk.partial_result.as_ref()) {
+            Some(PartialBulkWriteResult::Verbose(result)) => Some(result),
+            _ => None,
+        });
+        let failed_at = bulk.and_then(|bulk| bulk.write_errors.keys().min().copied());
+        let concern = bulk
+            .filter(|bulk| !bulk.write_concern_errors.is_empty())
+            .map(|_| failure.as_ref().map_or_else(internal, |error| from_driver_error(error, service)));
+        let mut finishing = Session::none();
+        finishing.defer = true;
+        let mut outcomes: Vec<(usize, Outcome)> = Vec::new();
+        let mut queued: Vec<(usize, Value)> = Vec::new();
+        for (position, member) in live.iter().enumerate() {
+            if failed_at.is_some_and(|at| position >= at) {
+                break;
+            }
+            let written = partial.and_then(|result| match &member.group.model {
+                WriteModel::InsertOne(_) => result.insert_results.contains_key(&position).then_some((0, 0)),
+                _ => result
+                    .update_results
+                    .get(&position)
+                    .map(|update| (update.matched_count, update.modified_count)),
+            });
+            if let (Some(_), Some(concern)) = (written, &concern) {
+                results[member.index] = Some(Err(concern.clone()));
+                continue;
+            }
+            let (Some((matched, modified)), Some(_)) = (written, ct) else {
+                results[member.index] = Some(Err(match &failure {
+                    None => CanopyError::new(ErrorCode::Internal, "The bulk write has no result"),
+                    Some(error) => from_driver_error(error, service),
+                }));
+                continue;
+            };
+            let before = finishing.queued.len();
+            match member
+                .plan
+                .finish_grouped(&mut finishing, matched, modified, checked.remove(&member.index), read)
+                .await
+            {
+                Ok(outcome) => {
+                    queued.extend(finishing.queued[before..].iter().map(|id| (member.index, id.clone())));
+                    outcomes.push((member.index, outcome));
+                }
+                Err(error) => results[member.index] = Some(Err(write_error(&error, service))),
+            }
+        }
+        let mut names: Vec<&str> = Vec::new();
+        for (index, _) in &queued {
+            let name = members
+                .iter()
+                .find(|member| member.index == *index)
+                .map_or("", |member| member.plan.scope.name.as_str());
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        for name in names {
+            let waiting: Vec<&(usize, Value)> = queued
+                .iter()
+                .filter(|(index, _)| {
+                    members.iter().any(|member| member.index == *index && member.plan.scope.name == name)
+                })
+                .collect();
+            let Some(scope) =
+                members.iter().find(|member| member.index == waiting[0].0).map(|member| &member.plan.scope)
+            else {
+                continue;
+            };
+            let ids: Vec<Value> = waiting.iter().map(|(_, id)| id.clone()).collect();
+            match scope.read_many(&mut Session::none(), &ids).await {
+                Ok(documents) => {
+                    for ((index, _), document) in waiting.iter().zip(documents) {
+                        if let Some((_, outcome)) = outcomes.iter_mut().find(|(member, _)| member == index) {
+                            outcome.documents = Some(vec![document]);
+                        }
+                    }
+                }
+                Err(error) => {
+                    let failure = write_error(&error, service);
+                    for (index, _) in &waiting {
+                        outcomes.retain(|(member, _)| member != index);
+                        results[*index] = Some(Err(failure.clone()));
+                    }
+                }
+            }
+        }
+        if let Some(ct) = ct {
+            for (index, outcome) in outcomes {
+                self.report(caller, &items[index].request, &outcome, ct, None);
+                results[index] = Some(Ok(WriteResult { outcome, ct, replayed: false }));
+            }
+        }
+        let alone = failed_at
+            .and_then(|at| live.get(at).map(|member| member.index))
+            .or_else(|| cut.map(|cut| members[cut].index));
+        if let Some(index) = alone {
+            results[index] = Some(self.execute_item(caller, &items[index], skip_documents).await);
+            settled = index - first + 1;
+        }
+        for member in &members {
+            if let Some(error) = refused.remove(&member.index)
+                && member.index - first < settled
+            {
+                results[member.index] = Some(Err(error));
+            }
+        }
+        settled
     }
 
     /// Creates the TTL index of the idempotency records once.
@@ -775,6 +1102,61 @@ fn operation_time(session: &ClientSession) -> Result<Ct, CanopyError> {
         .operation_time()
         .ok_or_else(|| CanopyError::new(ErrorCode::Internal, "The commit has no cluster time"))?;
     Ok(Ct::from_parts(time.time, time.increment))
+}
+
+/// The wire version of MongoDB 8.0, the first with a `bulkWrite` command across namespaces.
+const BULK_WRITE_WIRE_VERSION: i64 = 25;
+
+/// The most document bytes a group of writes checks in one `$documents` aggregation.
+const GROUP_PRECHECK_BYTES: usize = 4 * 1024 * 1024;
+
+/// The server errors that say the deployment has no client `bulkWrite` command, so nothing was written.
+const UNSUPPORTED_COMMAND: [i32; 2] = [59, 115];
+
+fn unsupported_bulk_write(error: &DriverError) -> bool {
+    matches!(error.kind.as_ref(), ErrorKind::Command(command) if UNSUPPORTED_COMMAND.contains(&command.code))
+}
+
+/// An operation of a group of writes sent together: where it is in the batch, its plan, and how it joins.
+struct Member {
+    index: usize,
+    plan: Plan,
+    group: Grouped,
+}
+
+/// The `_id`s the writes of a group name, per collection. A write joins only when no write of the group may be
+/// on the same document: its read back and precondition run after the whole group. An `_id` without a key,
+/// which could be any document, rules out every other write on its collection.
+#[derive(Default)]
+struct GroupIds {
+    taken: std::collections::HashMap<String, (std::collections::HashSet<String>, bool, usize)>,
+}
+
+impl GroupIds {
+    fn admit(&mut self, collection: &str, ids: &[Value], collated: bool) -> bool {
+        let entry = self.taken.entry(collection.to_owned()).or_default();
+        if entry.1 {
+            return false;
+        }
+        let keys: Vec<Option<String>> = ids
+            .iter()
+            .map(|id| if collated && matches!(id, Value::String(_)) { None } else { scope::id_key(id) })
+            .collect();
+        if keys.iter().any(Option::is_none) {
+            if entry.2 > 0 {
+                return false;
+            }
+            entry.1 = true;
+        } else {
+            let known: Vec<String> = keys.into_iter().flatten().collect();
+            if known.iter().any(|key| entry.0.contains(key)) {
+                return false;
+            }
+            entry.0.extend(known);
+        }
+        entry.2 += 1;
+        true
+    }
 }
 
 /// The `_id`s a request names, `None` when it names documents by a filter. Absent `_id`s are generated.

@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use canopy_data::writes::{WriteOp, WriteOptions, WritePath, WriteRequest};
+use canopy_data::writes::{BatchItem, WriteOp, WriteOptions, WritePath, WriteRequest};
 use canopy_data::{Caller, Policies};
 use canopy_mongo::mongodb::bson::doc;
 use canopy_mongo::mongodb::event::EventHandler;
@@ -67,9 +67,10 @@ async fn fixture(test: &str) -> Option<Fixture> {
     let mut options = ClientOptions::parse(&uri).await.expect("a connection string");
     options.command_event_handler = Some(EventHandler::callback(move |event| {
         if let CommandEvent::Started(started) = event
-            && (started.db == watched || started.command_name == "commitTransaction")
-            && ["find", "aggregate", "insert", "update", "delete", "commitTransaction"]
-                .contains(&started.command_name.as_str())
+            && ((started.db == watched || started.command_name == "commitTransaction")
+                && ["find", "aggregate", "insert", "update", "delete", "commitTransaction"]
+                    .contains(&started.command_name.as_str())
+                || started.command_name == "bulkWrite")
         {
             seen.lock().unwrap().push(started.command_name);
         }
@@ -115,6 +116,17 @@ impl Fixture {
             })
             .collect();
         (documents, names)
+    }
+
+    async fn each(
+        &self,
+        items: Vec<BatchItem>,
+    ) -> (Vec<Result<canopy_data::writes::WriteResult, canopy_protocol::CanopyError>>, Vec<String>) {
+        self.quiet().await;
+        self.names.lock().unwrap().clear();
+        let results = self.writes.execute_each(&alice(), &items, false).await;
+        self.quiet().await;
+        (results, std::mem::take(&mut *self.names.lock().unwrap()))
     }
 
     async fn drop(self) {
@@ -204,6 +216,60 @@ async fn documents_a_later_operation_may_touch_read_back_at_once() {
             Some(r#"{"_id":{"$numberInt":"1"},"t":"long","u":{"$numberInt":"1"}}"#.to_owned()),
             Some(r#"{"_id":{"$numberInt":"2"},"t":"double","u":{"$numberInt":"2"}}"#.to_owned()),
         ]
+    );
+    fixture.drop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_batch_that_is_not_atomic_sends_its_writes_together() {
+    let Some(fixture) = fixture("grouped").await else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set");
+        return;
+    };
+    let owned = fixture.db.collection::<canopy_mongo::mongodb::bson::Document>("owned");
+    owned
+        .insert_many(["a", "b", "c", "d"].map(|id| doc! { "_id": id, "ownerId": "alice", "n": 0 }))
+        .await
+        .expect("seeded");
+    let item = |request: WriteRequest| BatchItem { request, mutation_id: None };
+    let ids = ["a", "b", "c", "d"];
+    let (results, names) = fixture
+        .each(
+            ids.iter()
+                .map(|id| item(update("owned", Value::String((*id).to_owned()), r#"{"$set":{"n":1}}"#)))
+                .collect(),
+        )
+        .await;
+    assert_eq!(names, ["bulkWrite", "find"]);
+    for (result, id) in results.iter().zip(ids) {
+        let result = result.as_ref().expect("written");
+        assert_eq!((result.outcome.matched, result.outcome.modified), (1, 1));
+        let doc = result.outcome.documents.as_ref().and_then(|docs| docs[0].clone()).expect("a document");
+        assert_eq!(
+            canonical_string(&Value::Document(doc)).expect("EJSON"),
+            format!(r#"{{"_id":"{id}","ownerId":"alice","n":{{"$numberInt":"1"}}}}"#)
+        );
+    }
+    let duplicate =
+        WriteRequest::new(WriteOp::Insert, "owned").with("doc", value(r#"{"_id":"a","ownerId":"alice"}"#));
+    let (results, names) = fixture
+        .each(vec![
+            item(duplicate),
+            item(update("owned", value(r#""b""#), r#"{"$set":{"n":2}}"#)),
+            item(update("owned", value(r#""c""#), r#"{"$set":{"n":2}}"#)),
+        ])
+        .await;
+    assert_eq!(
+        names,
+        ["aggregate", "bulkWrite", "aggregate", "insert", "bulkWrite", "find"],
+        "the refused insert runs again alone, and the writes after it form the next group"
+    );
+    assert_eq!(
+        results[0].as_ref().err().map(canopy_protocol::CanopyError::code),
+        Some(canopy_protocol::ErrorCode::DuplicateKey)
+    );
+    assert!(
+        results[1..].iter().all(|result| result.as_ref().is_ok_and(|result| result.outcome.modified == 1))
     );
     fixture.drop().await;
 }

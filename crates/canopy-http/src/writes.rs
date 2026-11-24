@@ -81,6 +81,7 @@ fn encode_uri_component(text: &str) -> String {
 fn js_number(value: &Value) -> Option<String> {
     match value {
         Value::Int32(n) => Some(n.to_string()),
+        Value::Double(n) if *n == 0.0 => Some("0".to_owned()),
         Value::Double(n) => stringify(&Value::Double(*n)).ok(),
         _ => None,
     }
@@ -629,4 +630,166 @@ fn batch_request(
         return Err(fail("id is required".to_owned()));
     }
     Ok((request, mid))
+}
+
+#[cfg(test)]
+mod tests {
+    use canopy_protocol::{Binary, DbPointer, JavaScript, Regex};
+
+    use super::*;
+
+    fn parsed(text: &str) -> Value {
+        parse(text, DecodeOptions::default()).unwrap()
+    }
+
+    #[test]
+    fn uri_component_matches_javascript_escaping() {
+        for (input, expected) in [
+            ("note123", "note123"),
+            (
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()",
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()",
+            ),
+            (" ", "%20"),
+            ("/", "%2F"),
+            ("?", "%3F"),
+            ("#", "%23"),
+            ("&", "%26"),
+            ("+", "%2B"),
+            ("%", "%25"),
+            ("\"", "%22"),
+            ("{", "%7B"),
+            ("}", "%7D"),
+            (":", "%3A"),
+            (",", "%2C"),
+            ("é", "%C3%A9"),
+            ("😀", "%F0%9F%98%80"),
+        ] {
+            assert_eq!(encode_uri_component(input), expected, "input {input:?}");
+        }
+    }
+
+    #[test]
+    fn numeric_ids_use_javascript_number_text() {
+        for (input, expected) in [
+            (Value::Int32(42), "42"),
+            (Value::Int32(i32::MIN), "-2147483648"),
+            (Value::Double(3.0), "3"),
+            (Value::Double(2.5), "2.5"),
+            (Value::Double(-0.0), "0"),
+            (Value::Double(-1e21), "-1e+21"),
+        ] {
+            assert_eq!(js_number(&input).as_deref(), Some(expected), "input {input:?}");
+        }
+    }
+
+    #[test]
+    fn only_int32_and_double_are_javascript_numbers() {
+        for input in [
+            Value::String("3".to_owned()),
+            Value::Document(Document::new()),
+            Value::Array(vec![Value::Int32(3)]),
+            Value::Binary(Box::new(Binary { subtype: 0, bytes: vec![3] })),
+            Value::Undefined,
+            Value::ObjectId([0; 12]),
+            Value::Bool(true),
+            Value::DateTime(3),
+            Value::Null,
+            Value::Regex(Box::new(Regex::new("3", ""))),
+            Value::DbPointer(Box::new(DbPointer { namespace: "app.notes".to_owned(), id: [0; 12] })),
+            Value::JavaScript(Box::new(JavaScript { code: "3".to_owned(), scope: None })),
+            Value::Symbol("3".to_owned()),
+            Value::Timestamp { t: 3, i: 0 },
+            Value::Int64(3),
+            Value::Decimal128("3".to_owned()),
+            Value::MinKey,
+            Value::MaxKey,
+        ] {
+            assert_eq!(js_number(&input), None, "input {input:?}");
+        }
+    }
+
+    #[test]
+    fn batch_validation_reports_the_message_and_operation_index() {
+        for (input, index, bulk, message) in [
+            ("[]", 0, false, "must be a document"),
+            (
+                r#"{"op":"rename","c":"notes"}"#,
+                0,
+                false,
+                "op must be one of insert, insertMany, update, replace, delete, updateMany, deleteMany",
+            ),
+            (r#"{"op":"insert","c":"notes","doc":{},"id":1}"#, 1, false, "unknown field id"),
+            (r#"{"op":"insert","c":1,"doc":{}}"#, 2, false, "c must be a collection name"),
+            (r#"{"op":"insert","c":"notes","doc":{},"mid":1}"#, 3, false, "mid must be a string"),
+            (
+                r#"{"op":"replace","c":"notes","id":1,"doc":{},"upsert":"true"}"#,
+                4,
+                false,
+                "upsert must be a boolean",
+            ),
+            (
+                r#"{"op":"updateMany","c":"notes","filter":{"done":false},"update":{"$set":{"done":true}}}"#,
+                5,
+                false,
+                "writes to many documents need the header Prefer: bulk=true",
+            ),
+            (r#"{"op":"deleteMany","c":"notes","filter":{}}"#, 6, true, "a bulk write needs a filter"),
+            (r#"{"op":"update","c":"notes","update":{"$set":{"done":true}}}"#, 0, false, "id is required"),
+        ] {
+            let error = batch_request(&parsed(input), index, bulk).unwrap_err();
+            assert_eq!(error.message(), format!("Operation {index}: {message}"));
+            assert_eq!(error.details(), Some(format!("{{\"index\":{index}}}").as_str()));
+        }
+    }
+
+    #[test]
+    fn batch_insert_keeps_the_document_without_a_mutation_id() {
+        let input = parsed(r#"{"op":"insert","c":"notes","doc":{"done":false}}"#);
+        let (request, mid) = batch_request(&input, 0, false).unwrap();
+
+        assert_eq!(request.op(), WriteOp::Insert);
+        assert_eq!(request.collection(), "notes");
+        assert_eq!(request.get("doc"), Some(&parsed(r#"{"done":false}"#)));
+        assert_eq!(mid, None);
+    }
+
+    #[test]
+    fn batch_replace_puts_where_before_upsert_and_returns_the_mutation_id() {
+        let input = parsed(
+            r#"{"op":"replace","c":"notes","id":"draft","doc":{"done":true},"upsert":false,"where":{"done":false},"mid":"m1"}"#,
+        );
+        let (request, mid) = batch_request(&input, 0, false).unwrap();
+
+        assert_eq!(request.op(), WriteOp::Replace);
+        assert_eq!(request.collection(), "notes");
+        assert_eq!(request.get("id"), Some(&parsed(r#""draft""#)));
+        assert_eq!(request.get("doc"), Some(&parsed(r#"{"done":true}"#)));
+        assert_eq!(request.get("where"), Some(&parsed(r#"{"done":false}"#)));
+        assert_eq!(request.get("upsert"), Some(&Value::Bool(false)));
+        assert_eq!(
+            request.object().keys().collect::<Vec<_>>(),
+            ["op", "collection", "id", "doc", "where", "upsert"]
+        );
+        assert_eq!(mid.as_deref(), Some("m1"));
+    }
+
+    #[test]
+    fn batch_update_many_appends_bulk_after_the_filter_and_update() {
+        let input = parsed(
+            r#"{"op":"updateMany","c":"tasks","update":{"$set":{"done":true}},"filter":{"done":false},"mid":"m2"}"#,
+        );
+        let (request, mid) = batch_request(&input, 0, true).unwrap();
+
+        assert_eq!(request.op(), WriteOp::UpdateMany);
+        assert_eq!(request.collection(), "tasks");
+        assert_eq!(request.get("filter"), Some(&parsed(r#"{"done":false}"#)));
+        assert_eq!(request.get("update"), Some(&parsed(r#"{"$set":{"done":true}}"#)));
+        assert_eq!(request.get("bulk"), Some(&Value::Bool(true)));
+        assert_eq!(
+            request.object().keys().collect::<Vec<_>>(),
+            ["op", "collection", "filter", "update", "bulk"]
+        );
+        assert_eq!(mid.as_deref(), Some("m2"));
+    }
 }

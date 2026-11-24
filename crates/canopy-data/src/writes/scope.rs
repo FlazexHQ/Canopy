@@ -64,7 +64,7 @@ pub(crate) fn value_of(raw: &bson::RawDocument) -> Result<Document, CanopyError>
     decode_document(raw.as_bytes())
 }
 
-fn key(value: &Value) -> String {
+pub(crate) fn key(value: &Value) -> String {
     canonical_string(value).unwrap_or_default()
 }
 

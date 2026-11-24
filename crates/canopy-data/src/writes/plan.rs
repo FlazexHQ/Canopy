@@ -2,7 +2,11 @@
 //! when it is one atomic single document operation whose `check` cannot fail.
 
 use canopy_engine::Ct;
+use canopy_mongo::mongodb::Namespace;
 use canopy_mongo::mongodb::bson::{self, oid::ObjectId};
+use canopy_mongo::mongodb::options::{
+    InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
+};
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, FieldAccess, Operation, and, check_implied, project_readable, to_projection};
 use canopy_protocol::bson::encode_document;
@@ -115,6 +119,8 @@ pub(crate) enum Step {
         insert_check: Option<Compiled>,
         /// The replacement as MongoDB stores it, `_id` first, when its check may be evaluated before the write.
         prechecked: Option<Document>,
+        /// `update_check` as the check a changed document is verified against.
+        check_of_replace: Option<Compiled>,
     },
     DeleteById {
         id: Value,
@@ -364,6 +370,7 @@ fn plan_replace(query: &QueryLimits, scope: Scope, request: &WriteRequest) -> Re
         visible,
         conditional: condition != Compiled::All,
         replacement: to_bson(&replacement)?,
+        check_of_replace: Some(update_check.clone()),
         update_check,
         insert_check,
         prechecked,
@@ -410,7 +417,115 @@ fn fast_time(session: &Session<'_>) -> Result<Option<Ct>, DriverError> {
     Ok(Some(Ct::from_parts(time.time, time.increment)))
 }
 
+/// A single document write that can be one model of an ordered client `bulkWrite` next to others, with its
+/// check evaluated before the command and its read back after it.
+pub(crate) struct Grouped {
+    /// The model of the write.
+    pub(crate) model: WriteModel,
+    /// The `_id`s of the documents the write names.
+    pub(crate) ids: Vec<Value>,
+    /// The document to check before the write, as it will be stored, when MongoDB must evaluate a check: the
+    /// operation whose check applies, and the document.
+    pub(crate) precheck: Option<(Operation, Document)>,
+}
+
 impl Plan {
+    /// The write as a member of a grouped `bulkWrite`, where it is exactly what [`Plan::run`] does on its own:
+    /// a single insert checked before the write, an update by `_id` whose check cannot fail, or a replacement
+    /// without upsert whose check cannot fail or is a filter of constants.
+    pub(crate) fn grouped(&self) -> Option<Grouped> {
+        let scope = &self.scope;
+        let namespace = Namespace { db: scope.db.name().to_owned(), coll: scope.name.clone() };
+        match &self.step {
+            Step::Insert { documents, values, ids, precheck: true, .. } if documents.len() == 1 => {
+                Some(Grouped {
+                    model: InsertOneModel::builder()
+                        .namespace(namespace)
+                        .document(documents[0].clone())
+                        .build()
+                        .into(),
+                    ids: ids.clone(),
+                    precheck: Some((Operation::Insert, values[0].clone())),
+                })
+            }
+            Step::UpdateById { id, filter, update, .. } if self.fast => Some(Grouped {
+                model: UpdateOneModel::builder()
+                    .namespace(namespace)
+                    .filter(filter.clone())
+                    .update(UpdateModifications::Document(update.clone()))
+                    .build()
+                    .into(),
+                ids: vec![id.clone()],
+                precheck: None,
+            }),
+            Step::Replace {
+                id, filter, replacement, update_check, insert_check: None, prechecked, ..
+            } if *update_check == Compiled::All || prechecked.is_some() => Some(Grouped {
+                model: ReplaceOneModel::builder()
+                    .namespace(namespace)
+                    .filter(filter.clone())
+                    .replacement(replacement.clone())
+                    .build()
+                    .into(),
+                ids: vec![id.clone()],
+                precheck: prechecked.clone().map(|stored| (Operation::Update, stored)),
+            }),
+            _ => None,
+        }
+    }
+
+    /// The check a grouped write's precheck evaluates.
+    pub(crate) fn precheck_check(&self) -> Option<&Compiled> {
+        match &self.step {
+            Step::Insert { check, .. } => Some(check),
+            Step::Replace { update_check, .. } => Some(update_check),
+            _ => None,
+        }
+    }
+
+    /// The outcome of a grouped write once the `bulkWrite` reported `matched` and `modified` for it. `checked`
+    /// holds the readable documents of its precheck, when it had one. A read back is queued on `session`.
+    pub(crate) async fn finish_grouped(
+        &self,
+        session: &mut Session<'_>,
+        matched: u64,
+        modified: u64,
+        checked: Option<Option<Vec<Returned>>>,
+        read: bool,
+    ) -> Result<Outcome, DriverError> {
+        let scope = &self.scope;
+        match &self.step {
+            Step::Insert { ids, .. } => Ok(Outcome::inserted(ids.clone(), checked.unwrap_or(None))),
+            Step::UpdateById { id, visible, conditional, check, .. }
+            | Step::Replace { id, visible, conditional, update_check: _, check_of_replace: check, .. } => {
+                if matched == 0 {
+                    if *conditional {
+                        scope.assert_no_conflict(session, visible).await?;
+                    }
+                    return Ok(Outcome::default());
+                }
+                let changed = modified > 0;
+                let documents = match checked {
+                    Some(documents) => documents,
+                    None => {
+                        let check = if changed { check.as_ref() } else { None };
+                        scope
+                            .verify(session, std::slice::from_ref(id), check, Operation::Update, read)
+                            .await?
+                    }
+                };
+                Ok(Outcome {
+                    matched,
+                    modified,
+                    changed_ids: if changed { vec![id.clone()] } else { Vec::new() },
+                    documents,
+                    ..Outcome::default()
+                })
+            }
+            _ => Err(custom(internal())),
+        }
+    }
+
     /// Runs a replacement without a transaction when it can: MongoDB evaluates the check on the replacement as
     /// it will be stored before anything is written, and the write is then one `replaceOne`. A check that fails
     /// is not an error yet (the target may be missing or invisible, or the write identical), so `None` is
