@@ -1,6 +1,6 @@
 # Add after split.yaml to enable built in auth for local development. The external URL supplies the issuer
-# and audience. The gateway fetches signing keys over the internal network and watches MongoDB revocations.
-# For production, supply your own control config and gateway config with HTTPS and email verification.
+# and audience. The gateway reads public signing keys and watches revocations in MongoDB.
+# For production, configure public HTTPS and require email verification.
 
 services:
   control:
@@ -27,7 +27,7 @@ configs:
         "auth": {
           "issuer": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}/auth/v1",
           "audience": "${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}",
-          "jwksUrl": "http://control:8080/.well-known/jwks.json",
+          "builtinJwks": true,
           "algorithms": ["EdDSA"],
           "rolesClaim": "roles",
           "checkRevocations": true

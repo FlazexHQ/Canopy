@@ -329,6 +329,111 @@ fn a_refetched_jwks_forgets_every_remembered_token() {
 }
 
 #[test]
+fn builtin_keys_follow_rotation_and_revocation() -> Result<(), Box<dyn std::error::Error>> {
+    use mongodb::event::{EventHandler, command::CommandEvent};
+
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return Ok(()) };
+    run(async {
+        let finds = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut options = mongodb::options::ClientOptions::parse(uri).await?;
+        let observed = Arc::clone(&finds);
+        options.command_event_handler = Some(EventHandler::callback(move |event| {
+            if let CommandEvent::Started(event) = event
+                && event.command.get_str("find").ok() == Some("signing_keys")
+            {
+                observed.lock().unwrap().push(event.command);
+            }
+        }));
+        let mongo = mongodb::Client::with_options(options)?;
+        let db = mongo.database(&format!("canopy_auth_test_{}", mongodb::bson::oid::ObjectId::new()));
+        let keys = db.collection::<BsonDocument>("signing_keys");
+        let now = DateTime::now();
+        let expires = DateTime::from_millis(now.timestamp_millis() + 60_000);
+        let stored = |kid: &str, pair: &Ed25519KeyPair| {
+            let x = URL_SAFE_NO_PAD.encode(pair.public_key().as_ref());
+            doc! {
+                "_id": kid,
+                "publicKey": format!(r#"{{"kty":"OKP","crv":"Ed25519","x":"{x}"}}"#),
+                "privateKey": "must not leave MongoDB",
+                "alg": "EdDSA",
+                "expiresAt": expires
+            }
+        };
+        let auth = Authenticator::new_with_builtin_jwks(
+            JwtConfig {
+                issuers: vec![ISSUER.to_owned()],
+                audiences: vec!["api".to_owned()],
+                jwks: None,
+                jwks_url: None,
+                algorithms: vec!["EdDSA".to_owned()],
+                roles_claim: None,
+                allow_service_role: false,
+                clock_tolerance_s: 0,
+            },
+            None,
+            vec![],
+            client(),
+            &db,
+            60_000,
+        )?;
+        let jwt = jwt_of(&auth);
+        let token_for = |key: &Ed25519KeyPair, kid: &str, issuer: &str, audience: &str| {
+            sign(
+                key,
+                &format!(r#"{{"alg":"EdDSA","kid":"{kid}"}}"#),
+                &format!(r#"{{"sub":"u1","iss":"{issuer}","aud":"{audience}","exp":{}}}"#, exp(600.0)),
+            )
+        };
+        let first = pair();
+        let second = second_pair();
+        let old = token_for(&first, "k1", ISSUER, "api");
+        let new = token_for(&second, "k2", ISSUER, "api");
+        let age_cache = async |age| jwt.keys.lock().await.1 = Instant::now().checked_sub(age);
+        keys.insert_one(stored("k1", &first)).await?;
+        assert_eq!(auth.authenticate_access_token(&old).await?.subject, "u1");
+        for invalid in [
+            token_for(&first, "k1", "https://other.example/", "api"),
+            token_for(&first, "k1", ISSUER, "other"),
+            token_for(&second, "k1", ISSUER, "api"),
+        ] {
+            assert_eq!(
+                auth.authenticate_access_token(&invalid).await.unwrap_err().code(),
+                ErrorCode::Unauthorized
+            );
+        }
+        keys.insert_one(stored("k2", &second)).await?;
+        age_cache(BUILTIN_REFETCH_COOLDOWN).await;
+        assert_eq!(auth.authenticate_access_token(&new).await?.subject, "u1");
+        assert!(auth.authenticate_access_token(&old).await.is_ok());
+        keys.update_one(doc! { "_id": "k1" }, doc! { "$set": { "revokedAt": now } }).await?;
+        age_cache(BUILTIN_KEY_AGE).await;
+        assert_eq!(auth.authenticate_access_token(&old).await.unwrap_err().code(), ErrorCode::Unauthorized);
+        assert!(auth.authenticate_access_token(&new).await.is_ok());
+        keys.delete_one(doc! { "_id": "k2" }).await?;
+        age_cache(BUILTIN_KEY_AGE).await;
+        assert_eq!(auth.authenticate_access_token(&new).await.unwrap_err().code(), ErrorCode::Unauthorized);
+        let forged = token_for(&first, "unknown", ISSUER, "api");
+        age_cache(BUILTIN_REFETCH_COOLDOWN).await;
+        let before = finds.lock().unwrap().len();
+        for _ in 0..2 {
+            assert_eq!(
+                auth.authenticate_access_token(&forged).await.unwrap_err().code(),
+                ErrorCode::Unauthorized
+            );
+        }
+        {
+            let finds = finds.lock().unwrap();
+            assert_eq!(finds.len(), before + 1);
+            for find in &*finds {
+                assert_eq!(find.get_document("projection")?, &doc! { "_id": 1, "publicKey": 1, "alg": 1 });
+            }
+        }
+        db.drop().await?;
+        Ok(())
+    })
+}
+
+#[test]
 fn the_remembered_tokens_stay_within_their_bound() {
     let auth = authenticator(&[], false);
     let jwt = jwt_of(&auth);

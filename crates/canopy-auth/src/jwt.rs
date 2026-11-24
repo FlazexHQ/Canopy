@@ -5,9 +5,15 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use canopy_engine::Principal;
+use canopy_mongo::mongodb::{
+    Collection, Database,
+    bson::{DateTime, Document as BsonDocument, doc},
+    options::{ReadPreference, SelectionCriteria},
+};
 use canopy_policy::{Role, Roles};
 use canopy_protocol::json::{Json, parse_json};
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
+use futures_util::TryStreamExt as _;
 use ring::signature;
 use tokio::sync::Mutex;
 
@@ -19,6 +25,8 @@ const DEFAULT_ALGORITHMS: [&str; 7] = ["EdDSA", "ES256", "ES384", "RS256", "RS38
 const FORBIDDEN_ALGORITHMS: [&str; 4] = ["none", "HS256", "HS384", "HS512"];
 const REFETCH_COOLDOWN: Duration = Duration::from_secs(30);
 const MAX_KEY_AGE: Duration = Duration::from_secs(600);
+const BUILTIN_KEY_AGE: Duration = Duration::from_secs(5);
+const BUILTIN_REFETCH_COOLDOWN: Duration = Duration::from_secs(1);
 const VERIFIED_FOR_S: f64 = 60.0;
 const MAX_VERIFIED: usize = 4096;
 
@@ -169,7 +177,47 @@ struct Jwt {
     algorithms: Vec<String>,
     keys: Mutex<(Vec<Key>, Option<Instant>)>,
     client: Option<reqwest::Client>,
+    builtin: Option<BuiltinKeys>,
     verified: std::sync::Mutex<HashMap<String, Verified>>,
+}
+
+struct BuiltinKeys {
+    collection: Collection<BsonDocument>,
+    grace_ms: i64,
+}
+
+impl BuiltinKeys {
+    async fn load(&self) -> Option<Vec<Key>> {
+        let cutoff = DateTime::from_millis(DateTime::now().timestamp_millis().saturating_sub(self.grace_ms));
+        let keys: Vec<BsonDocument> = self
+            .collection
+            .find(doc! { "revokedAt": { "$exists": false }, "expiresAt": { "$gt": cutoff } })
+            .projection(doc! { "_id": 1, "publicKey": 1, "alg": 1 })
+            .selection_criteria(SelectionCriteria::ReadPreference(ReadPreference::Primary))
+            .await
+            .ok()?
+            .try_collect()
+            .await
+            .ok()?;
+        Some(
+            keys.iter()
+                .filter_map(|document| {
+                    let alg = document.get_str("alg").ok()?;
+                    let jwk = parse_json(document.get_str("publicKey").ok()?).ok()?;
+                    let mut key = parse_key(&jwk)?;
+                    if !matches!(
+                        (&key.material, alg),
+                        (Material::Ed25519(_), "EdDSA") | (Material::P256(_), "ES256")
+                    ) {
+                        return None;
+                    }
+                    key.kid = Some(document.get_str("_id").ok()?.to_owned());
+                    key.alg = Some(alg.to_owned());
+                    Some(key)
+                })
+                .collect(),
+        )
+    }
 }
 
 /// Resolved JWT verification settings.
@@ -215,6 +263,35 @@ impl Authenticator {
         secret: Vec<String>,
         client: reqwest::Client,
     ) -> Result<Authenticator, String> {
+        Self::with_source(config, publishable, secret, client, None)
+    }
+
+    /// Uses the control plane's public signing keys in MongoDB.
+    pub fn new_with_builtin_jwks(
+        config: JwtConfig,
+        publishable: Option<Vec<String>>,
+        secret: Vec<String>,
+        client: reqwest::Client,
+        auth_db: &Database,
+        grace_ms: i64,
+    ) -> Result<Authenticator, String> {
+        if config.issuers.is_empty() || config.audiences.is_empty() {
+            return Err("Built in JWKS requires an issuer and audience".to_owned());
+        }
+        if config.jwks.is_some() || config.jwks_url.is_some() || grace_ms < 0 {
+            return Err("Invalid built in JWKS settings".to_owned());
+        }
+        let builtin = BuiltinKeys { collection: auth_db.collection("signing_keys"), grace_ms };
+        Self::with_source(Some(config), publishable, secret, client, Some(builtin))
+    }
+
+    fn with_source(
+        config: Option<JwtConfig>,
+        publishable: Option<Vec<String>>,
+        secret: Vec<String>,
+        client: reqwest::Client,
+        builtin: Option<BuiltinKeys>,
+    ) -> Result<Authenticator, String> {
         let jwt = match config {
             None => None,
             Some(config) => {
@@ -240,6 +317,7 @@ impl Authenticator {
                     algorithms,
                     keys: Mutex::new((keys, None)),
                     client: remote.then_some(client),
+                    builtin,
                     verified: std::sync::Mutex::default(),
                 }))
             }
@@ -302,6 +380,21 @@ impl Authenticator {
 }
 
 impl Jwt {
+    async fn builtin_key(&self, source: &BuiltinKeys, kid: &str) -> Option<Key> {
+        let mut guard = self.keys.lock().await;
+        let age = guard.1.map(|at| at.elapsed());
+        let known = guard.0.iter().any(|key| key.kid.as_deref() == Some(kid));
+        if age.is_none_or(|age| age >= BUILTIN_KEY_AGE || (!known && age >= BUILTIN_REFETCH_COOLDOWN)) {
+            guard.0 = tokio::time::timeout(Duration::from_secs(2), source.load())
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            guard.1 = Some(Instant::now());
+        }
+        guard.0.iter().find(|key| key.kid.as_deref() == Some(kid)).cloned()
+    }
+
     async fn keys(&self, refresh: bool) -> Vec<Key> {
         let mut guard = self.keys.lock().await;
         let Some(client) = &self.client else { return guard.0.clone() };
@@ -346,6 +439,9 @@ impl Jwt {
         revocations: Option<&Revocations>,
         now: f64,
     ) -> Result<Principal, CanopyError> {
+        if self.builtin.is_some() {
+            return self.check(token, revocations, now).await.map(|(principal, _)| principal);
+        }
         let tolerance = self.config.clock_tolerance_s as f64;
         let remembered = self
             .verified_tokens()
@@ -401,17 +497,12 @@ impl Jwt {
         }
         let kid = text(&header_json, "kid");
         let message = format!("{header}.{payload}");
-        let mut verified = false;
-        for refresh in [false, true] {
-            let keys = self.keys(refresh).await;
-            verified = keys
-                .iter()
-                .filter(|key| kid.is_none() || key.kid.as_deref() == kid)
-                .any(|key| verify(key, alg, message.as_bytes(), &signature_bytes));
-            if verified || self.client.is_none() {
-                break;
-            }
-        }
+        let verified = if let Some(source) = &self.builtin {
+            let key = self.builtin_key(source, kid.ok_or_else(invalid)?).await.ok_or_else(invalid)?;
+            verify(&key, alg, message.as_bytes(), &signature_bytes)
+        } else {
+            self.verify_jwks(kid, alg, message.as_bytes(), &signature_bytes).await
+        };
         if !verified {
             return Err(invalid());
         }
@@ -498,6 +589,23 @@ impl Jwt {
             read_only: false,
         };
         Ok((principal, exp))
+    }
+
+    async fn verify_jwks(&self, kid: Option<&str>, alg: &str, message: &[u8], signature: &[u8]) -> bool {
+        for refresh in [false, true] {
+            let keys = self.keys(refresh).await;
+            if keys
+                .iter()
+                .filter(|key| kid.is_none() || key.kid.as_deref() == kid)
+                .any(|key| verify(key, alg, message, signature))
+            {
+                return true;
+            }
+            if self.client.is_none() {
+                break;
+            }
+        }
+        false
     }
 }
 

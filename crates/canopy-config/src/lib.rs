@@ -18,6 +18,8 @@ use canopy_protocol::json::{Json, parse_json};
 /// Resolved JWT verification settings.
 #[derive(Debug, Clone)]
 pub struct JwtConfig {
+    /// Retirement grace in milliseconds when using the built in auth signing keys in MongoDB.
+    pub builtin_jwks_grace_ms: Option<i64>,
     /// Accepted issuer claims.
     pub issuers: Vec<String>,
     /// Accepted audience claims. An empty list disables audience checking.
@@ -540,6 +542,10 @@ pub struct Fallbacks {
     pub jwt_audience: Option<Vec<String>>,
     /// URL of the JWT verification keys.
     pub jwt_jwks_url: Option<String>,
+    /// Read the built in auth public keys from MongoDB.
+    pub jwt_builtin_jwks: bool,
+    /// Retirement grace for built in auth signing keys.
+    pub jwt_builtin_jwks_grace_seconds: Option<f64>,
     /// Accepted JWT signature algorithms.
     pub jwt_algorithms: Option<Vec<String>>,
     /// Name of the JWT roles claim.
@@ -616,9 +622,20 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
     }
     let port = number(&doc, &["server", "port"]).or(fallback.port).unwrap_or(8080.0);
     let metrics_port = number(&doc, &["server", "metricsPort"]).or(fallback.metrics_port).unwrap_or(9464.0);
+    let grace_ms = |seconds: Option<f64>| {
+        let seconds = seconds.unwrap_or(2_592_000.0);
+        if !(0.0..=f64::from(u32::MAX)).contains(&seconds) || seconds.fract() != 0.0 {
+            return Err("Built in JWKS grace must be a nonnegative whole number of seconds".to_owned());
+        }
+        i64::try_from(whole(seconds) * 1000).map_err(|error| error.to_string())
+    };
     let auth = match get(&doc, &["auth"]) {
         Some(Json::Null) => None,
         Some(auth @ Json::Object(_)) => Some(JwtConfig {
+            builtin_jwks_grace_ms: flag(auth, &["builtinJwks"])
+                .unwrap_or(false)
+                .then(|| grace_ms(number(auth, &["builtinJwksGraceSeconds"])))
+                .transpose()?,
             issuers: strings(auth, &["issuer"]).unwrap_or_default(),
             audiences: strings(auth, &["audience"]).unwrap_or_default(),
             jwks: get(auth, &["jwks"]).filter(|jwks| !matches!(jwks, Json::Null)).cloned(),
@@ -629,6 +646,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             clock_tolerance_s: number(auth, &["clockToleranceSeconds"]).map_or(60, whole),
         }),
         _ => fallback.jwt_issuer.map(|issuer| JwtConfig {
+            builtin_jwks_grace_ms: None,
             issuers: vec![issuer],
             audiences: fallback.jwt_audience.unwrap_or_default(),
             jwks: None,
@@ -639,11 +657,24 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             clock_tolerance_s: 60,
         }),
     };
+    let mut auth = auth;
+    if get(&doc, &["auth"]).is_none() && fallback.jwt_builtin_jwks {
+        let settings = auth.as_mut().ok_or("Built in JWKS requires an issuer and audience")?;
+        settings.builtin_jwks_grace_ms = Some(grace_ms(fallback.jwt_builtin_jwks_grace_seconds)?);
+    }
+    let builtin_jwks = auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some());
     if let Some(auth) = &auth {
         if auth.issuers.is_empty() {
             return Err("auth.issuer is required".to_owned());
         }
-        if auth.jwks.is_none() && auth.jwks_url.is_none() {
+        if builtin_jwks {
+            if auth.audiences.is_empty() {
+                return Err("Built in JWKS requires an issuer and audience".to_owned());
+            }
+            if auth.jwks.is_some() || auth.jwks_url.is_some() {
+                return Err("Built in JWKS cannot be combined with jwksUrl or jwks".to_owned());
+            }
+        } else if auth.jwks.is_none() && auth.jwks_url.is_none() {
             return Err("JWT auth needs jwksUrl or jwks".to_owned());
         }
     }
@@ -759,7 +790,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
             .iter()
             .filter_map(|rule| TrustedProxy::parse(rule))
             .collect(),
-        check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(false),
+        check_revocations: flag(&doc, &["auth", "checkRevocations"]).unwrap_or(builtin_jwks),
         view_key: get(&doc, &["viewTokens", "jwk"]).map(view_key).transpose()?,
         node_id: text(&doc, &["server", "nodeId"]).or(fallback.node_id).unwrap_or_else(|| "n1".to_owned()),
         shards: number(&doc, &["server", "shards"])
@@ -844,6 +875,42 @@ mod tests {
         assert_eq!(config.mutations_url.as_deref(), Some("http://127.0.0.1:8080/rest/v1"));
         assert!(config.websocket && config.http_fallback);
         assert_eq!(config.cors, None);
+    }
+
+    #[test]
+    fn built_in_jwks_requires_issuer_and_audience_and_excludes_other_sources() -> Result<(), String> {
+        let issuer = "https://project.example/auth/v1";
+        let audience = "https://project.example";
+        let json =
+            |auth: &str| format!(r#"{{"mongodb":{{"uri":"mongodb://h","database":"app"}},"auth":{auth}}}"#);
+        let config = parse(&json(&format!(
+            r#"{{"issuer":"{issuer}","audience":"{audience}","builtinJwks":true,"builtinJwksGraceSeconds":120}}"#
+        )))?;
+        assert!(config.check_revocations);
+        assert_eq!(config.auth.and_then(|auth| auth.builtin_jwks_grace_ms), Some(120_000));
+        for invalid in [
+            r#"{"issuer":"i","builtinJwks":true}"#,
+            r#"{"audience":"a","builtinJwks":true}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"jwks":{"keys":[]}}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"jwksUrl":"https://example.com/jwks"}"#,
+            r#"{"issuer":"i","audience":"a","builtinJwks":true,"builtinJwksGraceSeconds":-1}"#,
+        ] {
+            assert!(parse(&json(invalid)).is_err(), "{invalid}");
+        }
+        let config = resolve(
+            None,
+            Fallbacks {
+                mongodb_uri: Some("mongodb://h".to_owned()),
+                database: Some("app".to_owned()),
+                jwt_issuer: Some(issuer.to_owned()),
+                jwt_audience: Some(vec![audience.to_owned()]),
+                jwt_builtin_jwks: true,
+                ..Fallbacks::default()
+            },
+        )?;
+        assert!(config.check_revocations);
+        assert_eq!(config.auth.and_then(|auth| auth.builtin_jwks_grace_ms), Some(2_592_000_000));
+        Ok(())
     }
 
     #[test]

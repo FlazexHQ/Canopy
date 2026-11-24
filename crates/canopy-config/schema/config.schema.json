@@ -64,16 +64,44 @@
             "description": "Any value other than null is passed to the verifier as inline JWKS."
           },
           "jwksUrl": { "$ref": "#/$defs/string" },
+          "builtinJwks": {
+            "$ref": "#/$defs/boolean",
+            "default": false,
+            "description": "Read public signing keys from canopy_auth.signing_keys in MongoDB."
+          },
+          "builtinJwksGraceSeconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295,
+            "default": 2592000,
+            "description": "Match the retirement grace of built in auth on the control plane."
+          },
           "algorithms": { "$ref": "#/$defs/strings", "default": [] },
           "rolesClaim": { "$ref": "#/$defs/string" },
           "allowServiceRoleFromJwt": { "$ref": "#/$defs/boolean", "default": false },
           "clockToleranceSeconds": { "$ref": "#/$defs/whole", "default": 60 },
-          "checkRevocations": { "$ref": "#/$defs/boolean", "default": false }
+          "checkRevocations": {
+            "$ref": "#/$defs/boolean",
+            "description": "Defaults to true with builtinJwks and false otherwise."
+          }
         },
-        "anyOf": [
-          { "required": ["jwks"], "properties": { "jwks": { "not": { "type": "null" } } } },
-          { "required": ["jwksUrl"], "properties": { "jwksUrl": { "type": "string" } } }
-        ]
+        "if": { "required": ["builtinJwks"], "properties": { "builtinJwks": { "const": true } } },
+        "then": {
+          "required": ["audience"],
+          "properties": {
+            "audience": {
+              "anyOf": [{ "type": "string" }, { "type": "array", "contains": { "type": "string" } }]
+            },
+            "jwks": { "type": "null" },
+            "jwksUrl": { "not": { "type": "string" } }
+          }
+        },
+        "else": {
+          "anyOf": [
+            { "required": ["jwks"], "properties": { "jwks": { "not": { "type": "null" } } } },
+            { "required": ["jwksUrl"], "properties": { "jwksUrl": { "type": "string" } } }
+          ]
+        }
       }
     },
     "keys": {

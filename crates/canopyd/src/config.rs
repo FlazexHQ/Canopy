@@ -64,6 +64,10 @@ pub(crate) fn resolve(json: Option<&str>) -> Result<GatewayConfig, String> {
         jwt_issuer: env("CANOPY_JWT_ISSUER"),
         jwt_audience: list("CANOPY_JWT_AUDIENCE"),
         jwt_jwks_url: env("CANOPY_JWT_JWKS_URL"),
+        jwt_builtin_jwks: env("CANOPY_JWT_BUILTIN_JWKS").as_deref() == Some("true"),
+        jwt_builtin_jwks_grace_seconds: env("CANOPY_JWT_BUILTIN_JWKS_GRACE_SECONDS")
+            .map(|value| value.parse().map_err(|_| "Invalid CANOPY_JWT_BUILTIN_JWKS_GRACE_SECONDS"))
+            .transpose()?,
         jwt_algorithms: list("CANOPY_JWT_ALGORITHMS"),
         jwt_roles_claim: env("CANOPY_JWT_ROLES_CLAIM"),
         policies: env("CANOPY_POLICIES"),

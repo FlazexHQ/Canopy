@@ -5,7 +5,7 @@
 # Configure gateway.json for storage. Mount settings containing credentials from a Secret.
 # For built in auth, give control a config with auth.kind=builtin and an HTTPS CANOPY_PUBLIC_URL.
 # In gateway.json configure auth.issuer as that URL plus /auth/v1, auth.audience as the URL,
-# auth.jwksUrl as http://canopy-control:8080/.well-known/jwks.json, auth.algorithms as ["EdDSA"],
+# auth.builtinJwks as true, auth.algorithms as ["EdDSA"],
 # auth.rolesClaim as roles and auth.checkRevocations as true. Use the same CANOPY_META_DB on both planes.
 # Image transforms at /storage/v1/render return 501. Release manifests can also be rendered with Helm.
 ---

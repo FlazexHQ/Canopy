@@ -228,12 +228,25 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     let engine_tx = realtime.engine_sender();
     let policy_updates = PolicyUpdates::new(engine_tx.clone(), data_policies.clone());
     let http = reqwest::Client::builder().build().map_err(|error| error.to_string())?;
-    let mut auth = Authenticator::new(
-        config.auth.as_ref().map(config::jwt),
-        config.publishable.clone(),
-        config.secret.clone(),
-        http.clone(),
-    )?;
+    let mut auth = if let Some(settings) = &config.auth
+        && let Some(grace_ms) = settings.builtin_jwks_grace_ms
+    {
+        Authenticator::new_with_builtin_jwks(
+            config::jwt(settings),
+            config.publishable.clone(),
+            config.secret.clone(),
+            http.clone(),
+            &client.database("canopy_auth"),
+            grace_ms,
+        )?
+    } else {
+        Authenticator::new(
+            config.auth.as_ref().map(config::jwt),
+            config.publishable.clone(),
+            config.secret.clone(),
+            http.clone(),
+        )?
+    };
     let api_keys = Arc::new(ApiKeys::new(&meta));
     let (key_watcher, tx) = (Arc::clone(&api_keys), engine_tx.clone());
     let key_watch = tokio::spawn(async move {

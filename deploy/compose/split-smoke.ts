@@ -66,7 +66,10 @@ async function writeAndRead(ownerId: string, headers: Record<string, string>): P
   )
   const read = await request(`/rest/v1/notes/${id}`, 200, { headers })
   const json: unknown = await read.json()
-  assert(hasDocument(json, id), "read response omitted the inserted note")
+  assert(
+    json && typeof json === "object" && "data" in json && hasDocument(json.data, id),
+    "read response omitted the inserted note",
+  )
 }
 
 async function signIn(): Promise<{ sub: string; headers: Record<string, string> }> {
@@ -144,7 +147,11 @@ try {
     "admin response omitted the edge error code",
   )
   await writeAndRead("service", { apikey: key })
-  if (user) await writeAndRead(user.sub, user.headers)
+  if (user) {
+    await request("/.well-known/jwks.json", 503)
+    await Bun.sleep(5_100)
+    await writeAndRead(user.sub, user.headers)
+  }
   const ws = new URL("/realtime/v1", base)
   ws.protocol = base.protocol === "https:" ? "wss:" : "ws:"
   await run([
