@@ -37,6 +37,7 @@
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
     "fast-check": "catalog:",
+    "mongodb": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

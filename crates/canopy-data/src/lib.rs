@@ -28,7 +28,7 @@ pub use cursor::{
     sort_document,
 };
 pub use errors::from_driver_error;
-pub use find::{FindRequest, ReadPath, validate_collection_name};
+pub use find::{CollectionInfo, FindRequest, ReadPath, validate_collection_name};
 pub use limits::ReadLimits;
 pub use page::{CountMode, Encoding, FindPage};
 pub use policies::Policies;

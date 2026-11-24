@@ -17,7 +17,7 @@ canopy-query = { path = "../canopy-query" }
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 ring = "0.17"
-tokio = { version = "1", features = ["sync", "time"] }
+tokio = { version = "1", features = ["rt", "sync", "time"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

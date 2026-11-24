@@ -5,7 +5,7 @@ use canopy_engine::Principal;
 use canopy_matcher::compile_projection;
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_policy::{
-    Compiled, FieldAccess, Role, TEXT_SEARCH_DENIED, and, denied_paths, denies_text_search,
+    Compiled, FieldAccess, Operation, Role, TEXT_SEARCH_DENIED, and, denied_paths, denies_text_search,
     intersect_projection, project_readable,
 };
 use canopy_protocol::{CanopyError, DocRef, Document, ErrorCode, RawDocument, Value};
@@ -17,12 +17,13 @@ use crate::cursor::{
     CursorKey, cursor_keys, cursor_query_hash, decode_cursor, encode_cursor, keyset_filter, position_of,
     sort_document,
 };
-use crate::errors::internal;
+use crate::errors::{from_driver_error, internal};
 use crate::fail;
 use crate::limits::ReadLimits;
 use crate::page::{CountMode, FindPage};
 use crate::policies::Policies;
 use crate::reads::DocumentResult;
+use crate::schema::js_cmp;
 use crate::snapshot::{PageRead, read_page};
 
 /// A find request, after the transport parsed its parameters. Values are already typed.
@@ -45,6 +46,17 @@ pub struct FindRequest {
     pub after: Option<String>,
     /// Also count every matching document.
     pub count: Option<CountMode>,
+}
+
+/// A collection and the operations the caller can perform on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CollectionInfo {
+    /// The collection name.
+    pub name: String,
+    /// The operations granted to the caller, in canonical order.
+    pub operations: Vec<Operation>,
+    /// Whether realtime subscriptions are enabled.
+    pub realtime: bool,
 }
 
 /// Rejects names MongoDB would refuse or that address system collections.
@@ -110,6 +122,38 @@ impl ReadPath {
     /// The context lookups, whose cached results can be cleared.
     pub fn contexts(&self) -> &ContextResolver {
         &self.contexts
+    }
+
+    /// Lists collections with at least one grant for the caller.
+    pub async fn collections(&self, caller: &Caller) -> Result<Vec<CollectionInfo>, CanopyError> {
+        let engine = self.policies.current();
+        let ctx = &caller.context;
+        let mut names: Vec<_> = engine
+            .set()
+            .collections()
+            .iter()
+            .filter(|def| engine.is_exposed(&def.collection))
+            .map(|def| def.collection.clone())
+            .collect();
+        if ctx.roles.contains(Role::SERVICE) {
+            let listed =
+                self.db.list_collection_names().await.map_err(|error| from_driver_error(&error, true))?;
+            names.extend(listed.into_iter().filter(|name| !name.starts_with("system.")));
+        }
+        names.sort_unstable_by(|a, b| js_cmp(a, b));
+        names.dedup();
+        Ok(names
+            .into_iter()
+            .filter_map(|name| {
+                let operations: Vec<_> =
+                    Operation::ALL.into_iter().filter(|op| engine.has_grant(&name, *op, ctx)).collect();
+                (!operations.is_empty()).then(|| CollectionInfo {
+                    realtime: engine.is_realtime(&name),
+                    name,
+                    operations,
+                })
+            })
+            .collect())
     }
 
     /// The caller of a request from its verified principal. The context lookups (`$ctx`) the policies of
