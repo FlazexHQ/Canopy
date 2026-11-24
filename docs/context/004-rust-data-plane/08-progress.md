@@ -10,7 +10,7 @@ This document records completed tasks, open issues, and planned work for the Rus
 
 **Remaining, in order:**
 1. **Tracing spans on the Rust routes:** waits on the user's decision about OpenTelemetry crates (with an OTLP exporter from the `OTEL_*` variables) in the gateway.
-2. **`POST /rest/v1/{coll}/_explain` from Rust**, answering the same trace (`packages/rest/src/explain-route.ts`, `canopy_policy::explain_access`).
+2. **`POST /rest/v1/{coll}/_explain` from Rust: done (2026-11-24).** The route is selectable as `explain`; its oracle is `conformance/http/reads/cases/explain.json` (39 cases: stated callers, roles, filters, counts, context lookups given and resolved, refusals); `canopy_policy::access_report_document` (moved from `canopy-engine`) writes the report for both the route and realtime `o.explain`. Replays 167 of 167 reads on MongoDB 8 and 9.
 3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
 4. **`conformance/errors.json`**, the single source of `CanopyError` codes for both languages.
 5. **Numeric id deferral in atomic batches** (Open Issues).
@@ -27,7 +27,7 @@ Ordered as the work should proceed:
 ### Stage D1: Complete REST Reads in Rust
 1. **`_query` route integration:** done (`a30e8fc`).
 2. **Tracing spans on Rust routes:** implement request spans in `canopy-gateway` using the agreed OpenTelemetry crates, continuing `traceparent` headers with low cardinality route names.
-3. **`POST /rest/v1/{coll}/_explain` from Rust:** port `packages/rest/src/explain-route.ts` using `canopy_policy::explain_access`, restricted strictly to `service` callers.
+3. **`POST /rest/v1/{coll}/_explain` from Rust:** done, selectable as `explain`.
 4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
 5. **`conformance/errors.json`:** generate canonical error definitions driving TypeScript classes and Rust enums.
 6. **Numeric ID deferral in atomic batches:** extend batch read back deferral to numeric types across BSON representations.

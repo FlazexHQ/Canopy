@@ -51,7 +51,8 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
             DataPlaneRoute::Count,
             DataPlaneRoute::Distinct,
             DataPlaneRoute::Aggregate,
-            DataPlaneRoute::Query
+            DataPlaneRoute::Query,
+            DataPlaneRoute::Explain
         ]
     );
     assert_eq!(

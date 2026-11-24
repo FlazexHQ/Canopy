@@ -14,10 +14,11 @@ use common::{
     text,
 };
 
-const ALL: Served = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+const ALL: Served =
+    Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
 
 #[test]
-fn the_recorded_cases_are_unique_and_cover_the_three_routes() {
+fn the_recorded_cases_are_unique_and_cover_every_route() {
     let mut ids = Vec::new();
     let mut routes = Vec::new();
     for (file, json) in case_files_of("reads") {
@@ -28,14 +29,14 @@ fn the_recorded_cases_are_unique_and_cover_the_three_routes() {
             assert!(!ids.contains(&id), "{id} is recorded twice");
             ids.push(id);
             let target = text(get(case, "request"), "target");
-            for route in ["_count", "_distinct", "_aggregate"] {
+            for route in ["_count", "_distinct", "_aggregate", "_query", "_explain"] {
                 if target.ends_with(route) && !routes.contains(&route) {
                     routes.push(route);
                 }
             }
         }
     }
-    assert_eq!(routes.len(), 3, "every route has cases");
+    assert_eq!(routes.len(), 5, "every route has cases");
     assert!(ids.len() >= 70, "{} cases", ids.len());
 }
 

@@ -202,7 +202,10 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     const port = await freePort()
     const child = spawn(GATEWAY, ["--config", "-"], {
       stdio: ["pipe", "ignore", "pipe"],
-      env: { ...process.env, CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query" },
+      env: {
+        ...process.env,
+        CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query,explain",
+      },
     })
     gateway = child
     let log = ""

@@ -13,7 +13,8 @@ use canopy_mongo::mongodb::Client;
 use canopy_protocol::json::{Json, parse_json};
 use common::{authenticator, engine, fixture, mongodb_uri, read_limits, seed};
 
-const ALL: Served = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+const ALL: Served =
+    Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
 
 fn rest(client: Client, database: &str, limits: ReadLimits, max_body_bytes: u64) -> Rest {
     let fixture = fixture();

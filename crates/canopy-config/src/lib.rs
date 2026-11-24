@@ -86,11 +86,14 @@ pub enum DataPlaneRoute {
     /// `POST /rest/v1/{collection}/_query`, a find with its parameters in a body, with `OPTIONS` and `405` on
     /// that path.
     Query,
+    /// `POST /rest/v1/{collection}/_explain`, how DLS decides an operation for a stated caller, with `OPTIONS`
+    /// and `405` on that path.
+    Explain,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 5] = ["find", "count", "distinct", "aggregate", "query"];
+    pub const NAMES: [&'static str; 6] = ["find", "count", "distinct", "aggregate", "query", "explain"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -100,6 +103,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Distinct => "distinct",
             DataPlaneRoute::Aggregate => "aggregate",
             DataPlaneRoute::Query => "query",
+            DataPlaneRoute::Explain => "explain",
         }
     }
 
@@ -110,6 +114,7 @@ impl DataPlaneRoute {
             "distinct" => Ok(DataPlaneRoute::Distinct),
             "aggregate" => Ok(DataPlaneRoute::Aggregate),
             "query" => Ok(DataPlaneRoute::Query),
+            "explain" => Ok(DataPlaneRoute::Explain),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
                 Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))

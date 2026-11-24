@@ -6,7 +6,7 @@ import { READ_GROUPS } from "../../rest/test/conformance/reads/cases.ts"
 
 /**
  * Records the request and response pairs of the Data API read routes for the Rust data plane:
- * `conformance/http/find` for `find`, and `conformance/http/reads` for `_count`, `_distinct` and `_aggregate`.
+ * `conformance/http/find` for `find`, and `conformance/http/reads` for `_query`, `_count`, `_distinct`, `_aggregate` and `_explain`.
  * The TypeScript REST handler is built from the committed fixture, every case is served against a scratch
  * database on a MongoDB replica set, and the fixture and one file per group of cases are written in each
  * folder. With `--check` nothing is written and the exit code is 1 when a file would change. `--dir` is the

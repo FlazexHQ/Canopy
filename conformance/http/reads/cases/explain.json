@@ -1,0 +1,980 @@
+{
+  "group": "explain",
+  "description": "POST /{coll}/_explain: how DLS decides an operation for a stated caller, for service callers only, and the refusals of the route",
+  "cases": [
+    {
+      "id": "explain-anon",
+      "title": "Without claims the caller is anon",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-anon"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-anon"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, read, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-claims",
+      "title": "The owner policy with the stated claims",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-claims"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-claims"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"alice\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles authenticated\"}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"ownerId\":\"alice\"},\"text\":\"todos, read, roles [authenticated]\\n  permissive  \\\"read own\\\"  matches   {\\\"ownerId\\\":\\\"alice\\\"}\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: allowed\\nEffective filter: {\\\"ownerId\\\":\\\"alice\\\"}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-claims-null",
+      "title": "null claims stand for anon",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-claims-null"
+        },
+        "body": "{\"claims\":null,\"op\":\"read\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-claims-null"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, read, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-roles",
+      "title": "A custom role adds its policies",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-roles"
+        },
+        "body": "{\"claims\":{\"sub\":\"carol\"},\"roles\":[\"admin\"]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-roles"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"admin\",\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"admin\",\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"carol\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{}}],\"result\":{\"kind\":\"all\"}},\"effective\":{\"kind\":\"all\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\"]},\"immutable\":[],\"effectiveFilter\":{},\"text\":\"todos, read, roles [admin, authenticated]\\n  permissive  \\\"read own\\\"         matches   {\\\"ownerId\\\":\\\"carol\\\"}\\n  permissive  \\\"admins read all\\\"  matches   {}\\n  restrictive (none)\\nResult: allowed\\nEffective filter: {}\\nFields hidden: internalNotes\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-service-role",
+      "title": "The service role bypasses DLS",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-service-role"
+        },
+        "body": "{\"roles\":[\"service\",\"admin\"]}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-service-role"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"service\"],\"bypass\":true,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"service\"],\"bypass\":true,\"exposed\":true,\"policies\":[],\"result\":{\"kind\":\"all\"}},\"effective\":{\"kind\":\"all\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{},\"text\":\"todos, read, roles [service]\\nResult: service bypasses DLS: every document and field\\nEffective filter: {}\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-filter",
+      "title": "The caller's filter joins the effective filter",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-filter"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"filter\":{\"status\":\"active\",\"priority\":{\"$gte\":2}}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-filter"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"alice\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles authenticated\"}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"$and\":[{\"status\":\"active\",\"priority\":{\"$gte\":2}},{\"ownerId\":\"alice\"}]}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"$and\":[{\"status\":\"active\",\"priority\":{\"$gte\":2}},{\"ownerId\":\"alice\"}]},\"text\":\"todos, read, roles [authenticated]\\n  permissive  \\\"read own\\\"  matches   {\\\"ownerId\\\":\\\"alice\\\"}\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: allowed\\nEffective filter: {\\\"$and\\\":[{\\\"status\\\":\\\"active\\\",\\\"priority\\\":{\\\"$gte\\\":2}},{\\\"ownerId\\\":\\\"alice\\\"}]}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-ejson-filter",
+      "title": "EJSON values in the filter",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-ejson-filter"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"filter\":{\"createdAt\":{\"$gte\":{\"$date\":\"2026-01-02T00:00:00Z\"}}},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-ejson-filter"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"alice\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles authenticated\"}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"$and\":[{\"createdAt\":{\"$gte\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}}},{\"ownerId\":\"alice\"}]}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"$and\":[{\"createdAt\":{\"$gte\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}}},{\"ownerId\":\"alice\"}]},\"text\":\"todos, read, roles [authenticated]\\n  permissive  \\\"read own\\\"  matches   {\\\"ownerId\\\":\\\"alice\\\"}\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: allowed\\nEffective filter: {\\\"$and\\\":[{\\\"createdAt\\\":{\\\"$gte\\\":{\\\"$date\\\":\\\"2026-01-02T00:00:00.000Z\\\"}}},{\\\"ownerId\\\":\\\"alice\\\"}]}\\nFields hidden: internalNotes, meta.score\",\"count\":7}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-count",
+      "title": "count counts what the effective filter matches",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-count"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-count"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"alice\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles authenticated\"}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"ownerId\":\"alice\"},\"text\":\"todos, read, roles [authenticated]\\n  permissive  \\\"read own\\\"  matches   {\\\"ownerId\\\":\\\"alice\\\"}\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: allowed\\nEffective filter: {\\\"ownerId\\\":\\\"alice\\\"}\\nFields hidden: internalNotes, meta.score\",\"count\":8}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-count-false",
+      "title": "count false counts nothing",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-count-false"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":false}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-count-false"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ownerId\":\"alice\"}},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles authenticated\"}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"ownerId\":\"alice\"}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"ownerId\":\"alice\"},\"text\":\"todos, read, roles [authenticated]\\n  permissive  \\\"read own\\\"  matches   {\\\"ownerId\\\":\\\"alice\\\"}\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: allowed\\nEffective filter: {\\\"ownerId\\\":\\\"alice\\\"}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-insert",
+      "title": "An insert is not counted",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/sealed/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-insert"
+        },
+        "body": "{\"op\":\"insert\",\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-insert"
+        },
+        "body": "{\"data\":{\"collection\":\"sealed\",\"op\":\"insert\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"sealed\",\"op\":\"insert\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"insert only\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{}}],\"result\":{\"kind\":\"all\"}},\"check\":{\"collection\":\"sealed\",\"op\":\"insert\",\"clause\":\"check\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"insert only\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"ok\":true}}],\"result\":{\"kind\":\"filter\",\"filter\":{\"ok\":true}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"ok\":true}},\"readable\":{\"kind\":\"all\"},\"writable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"ok\":true},\"text\":\"sealed, insert, roles [authenticated]\\ncheck:\\n  permissive  \\\"insert only\\\"  matches   {\\\"ok\\\":true}\\n  restrictive (none)\\nResult: allowed\\nEffective filter: {\\\"ok\\\":true}\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-update",
+      "title": "An operation without a policy denies",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-update"
+        },
+        "body": "{\"op\":\"update\",\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-update"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"update\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"update\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover update\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover update\"}],\"result\":{\"kind\":\"deny\"}},\"check\":{\"collection\":\"todos\",\"op\":\"update\",\"clause\":\"check\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover update\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover update\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"writable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, update, roles [authenticated]\\nusing:\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover update for these roles)\\ncheck:\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover update for these roles)\\nResult: no permissive policy grants update to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\",\"count\":0}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-delete",
+      "title": "delete with no claims",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-delete"
+        },
+        "body": "{\"op\":\"delete\"}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-delete"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"delete\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"delete\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover delete\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover delete\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, delete, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover delete for these roles)\\nResult: no permissive policy grants delete to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-restrictive",
+      "title": "A restrictive policy narrows the permissive one",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/staff/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-restrictive"
+        },
+        "body": "{\"claims\":{\"sub\":\"bob\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-restrictive"
+        },
+        "body": "{\"data\":{\"collection\":\"staff\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"staff\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"staff read\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{}},{\"name\":\"hide archived\",\"kind\":\"restrictive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"archived\":{\"$ne\":true}}}],\"result\":{\"kind\":\"filter\",\"filter\":{\"archived\":{\"$ne\":true}}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"archived\":{\"$ne\":true}}},\"readable\":{\"kind\":\"omit\",\"paths\":[\"salary\"]},\"immutable\":[],\"effectiveFilter\":{\"archived\":{\"$ne\":true}},\"text\":\"staff, read, roles [authenticated]\\n  permissive  \\\"staff read\\\"     matches   {}\\n  restrictive \\\"hide archived\\\"  matches   {\\\"archived\\\":{\\\"$ne\\\":true}}\\nResult: allowed\\nEffective filter: {\\\"archived\\\":{\\\"$ne\\\":true}}\\nFields hidden: salary\",\"count\":5}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-ctx-given",
+      "title": "Stated context values are used as given",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-ctx-given"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"ctx\":{\"projectIds\":[{\"$oid\":\"6f4000000000000000000002\"}]},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-ctx-given"
+        },
+        "body": "{\"data\":{\"collection\":\"tasks\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"tasks\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read project tasks\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000002\"}]}}}],\"result\":{\"kind\":\"filter\",\"filter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000002\"}]}}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000002\"}]}}},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000002\"}]}},\"text\":\"tasks, read, roles [authenticated]\\n  permissive  \\\"read project tasks\\\"  matches   {\\\"projectId\\\":{\\\"$in\\\":[{\\\"$oid\\\":\\\"6f4000000000000000000002\\\"}]}}\\n  restrictive (none)\\nResult: allowed\\nEffective filter: {\\\"projectId\\\":{\\\"$in\\\":[{\\\"$oid\\\":\\\"6f4000000000000000000002\\\"}]}}\",\"count\":2}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-ctx-resolved",
+      "title": "Context values are looked up when none are stated",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-ctx-resolved"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-ctx-resolved"
+        },
+        "body": "{\"data\":{\"collection\":\"tasks\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"tasks\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read project tasks\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000001\"},{\"$oid\":\"6f4000000000000000000002\"}]}}}],\"result\":{\"kind\":\"filter\",\"filter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000001\"},{\"$oid\":\"6f4000000000000000000002\"}]}}}},\"effective\":{\"kind\":\"filter\",\"filter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000001\"},{\"$oid\":\"6f4000000000000000000002\"}]}}},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"projectId\":{\"$in\":[{\"$oid\":\"6f4000000000000000000001\"},{\"$oid\":\"6f4000000000000000000002\"}]}},\"text\":\"tasks, read, roles [authenticated]\\n  permissive  \\\"read project tasks\\\"  matches   {\\\"projectId\\\":{\\\"$in\\\":[{\\\"$oid\\\":\\\"6f4000000000000000000001\\\"},{\\\"$oid\\\":\\\"6f4000000000000000000002\\\"}]}}\\n  restrictive (none)\\nResult: allowed\\nEffective filter: {\\\"projectId\\\":{\\\"$in\\\":[{\\\"$oid\\\":\\\"6f4000000000000000000001\\\"},{\\\"$oid\\\":\\\"6f4000000000000000000002\\\"}]}}\",\"count\":4}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-ctx-anon",
+      "title": "anon has no lookups to resolve",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-ctx-anon"
+        },
+        "body": "{\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-ctx-anon"
+        },
+        "body": "{\"data\":{\"collection\":\"tasks\",\"op\":\"read\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"tasks\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read project tasks\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"tasks, read, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\",\"count\":0}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-sealed",
+      "title": "A collection without a read policy",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/sealed/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-sealed"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-sealed"
+        },
+        "body": "{\"data\":{\"collection\":\"sealed\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"sealed\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"insert only\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"does not cover read\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"sealed, read, roles [authenticated]\\n  permissive  (none)\\n  restrictive (none)\\n  (1 policy does not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\",\"count\":0}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-hidden-collection",
+      "title": "A collection that is not exposed",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/hidden/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-hidden-collection"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-hidden-collection"
+        },
+        "body": "{\"data\":{\"collection\":\"hidden\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":false,\"granted\":false,\"using\":{\"collection\":\"hidden\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":false,\"policies\":[{\"name\":\"authenticated read\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{}}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"hidden, read, roles [authenticated]\\nResult: hidden is not exposed: denied for every role but service\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-unknown-collection",
+      "title": "A collection without policies",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/nothing/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-unknown-collection"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-unknown-collection"
+        },
+        "body": "{\"data\":{\"collection\":\"nothing\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":false,\"granted\":false,\"using\":{\"collection\":\"nothing\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":false,\"policies\":[],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"nothing, read, roles [authenticated]\\nResult: nothing is not exposed: denied for every role but service\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\",\"count\":0}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-bearer-secret",
+      "title": "A secret key as a bearer token",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service-bearer",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-bearer-secret"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-bearer-secret"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, read, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-canonical",
+      "title": "The canonical encoding",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/numbers/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "accept": "application/ejson",
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-canonical"
+        },
+        "body": "{\"claims\":{\"sub\":\"alice\"},\"count\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/ejson",
+          "x-request-id": "explain.explain-canonical"
+        },
+        "body": "{\"data\":{\"collection\":\"numbers\",\"op\":\"read\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"granted\":true,\"using\":{\"collection\":\"numbers\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"authenticated\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"public read\",\"kind\":\"permissive\",\"applies\":true,\"reason\":\"applies\",\"resolved\":{}}],\"result\":{\"kind\":\"all\"}},\"effective\":{\"kind\":\"all\"},\"readable\":{\"kind\":\"all\"},\"immutable\":[],\"effectiveFilter\":{},\"text\":\"numbers, read, roles [authenticated]\\n  permissive  \\\"public read\\\"  matches   {}\\n  restrictive (none)\\nResult: allowed\\nEffective filter: {}\",\"count\":{\"$numberInt\":\"18\"}}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-not-service",
+      "title": "Only service callers may ask",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-not-service"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-not-service"
+        },
+        "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"Explanations are only available with a secret key\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-not-service\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-carol",
+      "title": "Not even an admin token",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "carol",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-carol"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-carol"
+        },
+        "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"Explanations are only available with a secret key\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-carol\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-anon-key",
+      "title": "Nor the publishable key",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-anon-key"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 403,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-anon-key"
+        },
+        "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"Explanations are only available with a secret key\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-anon-key\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-expired",
+      "title": "An expired token",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "expired",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-expired"
+        },
+        "body": "{}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer error=\"invalid_token\", error_description=\"The token has expired\"",
+          "x-request-id": "explain.explain-expired"
+        },
+        "body": "{\"type\":\"urn:canopy:error:token-expired\",\"title\":\"Token expired\",\"status\":401,\"code\":\"CANOPY_TOKEN_EXPIRED\",\"detail\":\"The token has expired\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-expired\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-empty-body",
+      "title": "An empty body explains anon reads",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "explain.explain-empty-body"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "explain.explain-empty-body"
+        },
+        "body": "{\"data\":{\"collection\":\"todos\",\"op\":\"read\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"granted\":false,\"using\":{\"collection\":\"todos\",\"op\":\"read\",\"clause\":\"using\",\"roles\":[\"anon\"],\"bypass\":false,\"exposed\":true,\"policies\":[{\"name\":\"read own\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"},{\"name\":\"admins read all\",\"kind\":\"permissive\",\"applies\":false,\"reason\":\"not granted to roles anon\"}],\"result\":{\"kind\":\"deny\"}},\"effective\":{\"kind\":\"deny\"},\"readable\":{\"kind\":\"omit\",\"paths\":[\"internalNotes\",\"meta.score\"]},\"immutable\":[],\"effectiveFilter\":{\"_id\":{\"$in\":[]}},\"text\":\"todos, read, roles [anon]\\n  permissive  (none)\\n  restrictive (none)\\n  (2 policies do not cover read for these roles)\\nResult: no permissive policy grants read to these roles: denied\\nEffective filter: {\\\"_id\\\":{\\\"$in\\\":[]}}\\nFields hidden: internalNotes, meta.score\"}}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-body-not-document",
+      "title": "A body that is not a document",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-body-not-document"
+        },
+        "body": "[1]"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-body-not-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The explain body must be a document\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-body-not-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-malformed",
+      "title": "A body that is not JSON",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-malformed"
+        },
+        "body": "{"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-malformed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed JSON\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-malformed\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-unknown-field",
+      "title": "An unknown field",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-unknown-field"
+        },
+        "body": "{\"who\":\"alice\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-unknown-field"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown explain field who\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-unknown-field\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-bad-op",
+      "title": "An operation that does not exist",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-bad-op"
+        },
+        "body": "{\"op\":\"upsert\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-bad-op"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"op must be one of read, insert, update, delete\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-bad-op\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-op-not-string",
+      "title": "op must be a string",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-op-not-string"
+        },
+        "body": "{\"op\":1}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-op-not-string"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"op must be one of read, insert, update, delete\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-op-not-string\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-claims-not-document",
+      "title": "claims must be a document",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-claims-not-document"
+        },
+        "body": "{\"claims\":\"alice\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-claims-not-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"claims must be a document\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-claims-not-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-claims-array",
+      "title": "claims may not be a list",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-claims-array"
+        },
+        "body": "{\"claims\":[{\"sub\":\"alice\"}]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-claims-array"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"claims must be a document\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-claims-array\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-roles-not-list",
+      "title": "roles must be a list",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-roles-not-list"
+        },
+        "body": "{\"roles\":\"admin\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-roles-not-list"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"roles must be a list of role names\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-roles-not-list\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-roles-not-names",
+      "title": "roles must be names",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-roles-not-names"
+        },
+        "body": "{\"roles\":[\"admin\",1]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-roles-not-names"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"roles must be a list of role names\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-roles-not-names\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-filter-not-document",
+      "title": "filter must be a document",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-filter-not-document"
+        },
+        "body": "{\"filter\":[]}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-filter-not-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"filter must be a document\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-filter-not-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-ctx-not-document",
+      "title": "ctx must be a document",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/tasks/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-ctx-not-document"
+        },
+        "body": "{\"ctx\":\"p1\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-ctx-not-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"ctx must be a document\",\"instance\":\"/rest/v1/tasks/_explain\",\"requestId\":\"explain.explain-ctx-not-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-count-not-boolean",
+      "title": "count must be a boolean",
+      "request": {
+        "method": "POST",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "content-type": "application/json",
+          "x-request-id": "explain.explain-count-not-boolean"
+        },
+        "body": "{\"count\":\"yes\"}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-count-not-boolean"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"count must be a boolean\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-count-not-boolean\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "explain-get",
+      "title": "GET is not allowed on _explain",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/_explain",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "explain.explain-get"
+        }
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "POST",
+          "content-type": "application/problem+json",
+          "x-request-id": "explain.explain-get"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":405,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"GET is not allowed here\",\"instance\":\"/rest/v1/todos/_explain\",\"requestId\":\"explain.explain-get\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

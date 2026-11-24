@@ -897,5 +897,195 @@ const query: Group = {
   ],
 }
 
+const explain: Group = {
+  name: "explain",
+  description:
+    "POST /{coll}/_explain: how DLS decides an operation for a stated caller, for service callers only, and the refusals of the route",
+  specs: [
+    call("explain-anon", "Without claims the caller is anon", "service", "/todos/_explain", {}),
+    call(
+      "explain-claims",
+      "The owner policy with the stated claims",
+      "service",
+      "/todos/_explain",
+      {
+        claims: { sub: "alice" },
+      },
+    ),
+    call("explain-claims-null", "null claims stand for anon", "service", "/todos/_explain", {
+      claims: null,
+      op: "read",
+    }),
+    call("explain-roles", "A custom role adds its policies", "service", "/todos/_explain", {
+      claims: { sub: "carol" },
+      roles: ["admin"],
+    }),
+    call("explain-service-role", "The service role bypasses DLS", "service", "/todos/_explain", {
+      roles: ["service", "admin"],
+    }),
+    call(
+      "explain-filter",
+      "The caller's filter joins the effective filter",
+      "service",
+      "/todos/_explain",
+      { claims: { sub: "alice" }, filter: { status: "active", priority: { $gte: 2 } } },
+    ),
+    call("explain-ejson-filter", "EJSON values in the filter", "service", "/todos/_explain", {
+      claims: { sub: "alice" },
+      filter: { createdAt: { $gte: { $date: "2026-01-02T00:00:00Z" } } },
+      count: true,
+    }),
+    call(
+      "explain-count",
+      "count counts what the effective filter matches",
+      "service",
+      "/todos/_explain",
+      {
+        claims: { sub: "alice" },
+        count: true,
+      },
+    ),
+    call("explain-count-false", "count false counts nothing", "service", "/todos/_explain", {
+      claims: { sub: "alice" },
+      count: false,
+    }),
+    call("explain-insert", "An insert is not counted", "service", "/sealed/_explain", {
+      op: "insert",
+      claims: { sub: "alice" },
+      count: true,
+    }),
+    call("explain-update", "An operation without a policy denies", "service", "/todos/_explain", {
+      op: "update",
+      claims: { sub: "alice" },
+      count: true,
+    }),
+    call("explain-delete", "delete with no claims", "service", "/todos/_explain", { op: "delete" }),
+    call(
+      "explain-restrictive",
+      "A restrictive policy narrows the permissive one",
+      "service",
+      "/staff/_explain",
+      {
+        claims: { sub: "bob" },
+        count: true,
+      },
+    ),
+    call(
+      "explain-ctx-given",
+      "Stated context values are used as given",
+      "service",
+      "/tasks/_explain",
+      {
+        claims: { sub: "alice" },
+        ctx: { projectIds: [{ $oid: "6f4000000000000000000002" }] },
+        count: true,
+      },
+    ),
+    call(
+      "explain-ctx-resolved",
+      "Context values are looked up when none are stated",
+      "service",
+      "/tasks/_explain",
+      { claims: { sub: "alice" }, count: true },
+    ),
+    call("explain-ctx-anon", "anon has no lookups to resolve", "service", "/tasks/_explain", {
+      count: true,
+    }),
+    call("explain-sealed", "A collection without a read policy", "service", "/sealed/_explain", {
+      claims: { sub: "alice" },
+      count: true,
+    }),
+    call(
+      "explain-hidden-collection",
+      "A collection that is not exposed",
+      "service",
+      "/hidden/_explain",
+      {
+        claims: { sub: "alice" },
+      },
+    ),
+    call(
+      "explain-unknown-collection",
+      "A collection without policies",
+      "service",
+      "/nothing/_explain",
+      {
+        claims: { sub: "alice" },
+        count: true,
+      },
+    ),
+    call(
+      "explain-bearer-secret",
+      "A secret key as a bearer token",
+      "service-bearer",
+      "/todos/_explain",
+      {},
+    ),
+    call(
+      "explain-canonical",
+      "The canonical encoding",
+      "service",
+      "/numbers/_explain",
+      { claims: { sub: "alice" }, count: true },
+      { headers: { accept: "application/ejson" } },
+    ),
+    call("explain-not-service", "Only service callers may ask", "alice", "/todos/_explain", {}),
+    call("explain-carol", "Not even an admin token", "carol", "/todos/_explain", {}),
+    call("explain-anon-key", "Nor the publishable key", "anon", "/todos/_explain", {}),
+    call("explain-expired", "An expired token", "expired", "/todos/_explain", {}),
+    call(
+      "explain-empty-body",
+      "An empty body explains anon reads",
+      "service",
+      "/todos/_explain",
+      undefined,
+    ),
+    call(
+      "explain-body-not-document",
+      "A body that is not a document",
+      "service",
+      "/todos/_explain",
+      "[1]",
+      {
+        raw: true,
+      },
+    ),
+    call("explain-malformed", "A body that is not JSON", "service", "/todos/_explain", "{", {
+      raw: true,
+    }),
+    call("explain-unknown-field", "An unknown field", "service", "/todos/_explain", {
+      who: "alice",
+    }),
+    call("explain-bad-op", "An operation that does not exist", "service", "/todos/_explain", {
+      op: "upsert",
+    }),
+    call("explain-op-not-string", "op must be a string", "service", "/todos/_explain", { op: 1 }),
+    call("explain-claims-not-document", "claims must be a document", "service", "/todos/_explain", {
+      claims: "alice",
+    }),
+    call("explain-claims-array", "claims may not be a list", "service", "/todos/_explain", {
+      claims: [{ sub: "alice" }],
+    }),
+    call("explain-roles-not-list", "roles must be a list", "service", "/todos/_explain", {
+      roles: "admin",
+    }),
+    call("explain-roles-not-names", "roles must be names", "service", "/todos/_explain", {
+      roles: ["admin", 1],
+    }),
+    call("explain-filter-not-document", "filter must be a document", "service", "/todos/_explain", {
+      filter: [],
+    }),
+    call("explain-ctx-not-document", "ctx must be a document", "service", "/tasks/_explain", {
+      ctx: "p1",
+    }),
+    call("explain-count-not-boolean", "count must be a boolean", "service", "/todos/_explain", {
+      count: "yes",
+    }),
+    call("explain-get", "GET is not allowed on _explain", "service", "/todos/_explain", undefined, {
+      method: "GET",
+    }),
+  ],
+}
+
 /** The groups of the read routes besides `find`, recorded into `conformance/http/reads`. */
-export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate, query]
+export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate, query, explain]

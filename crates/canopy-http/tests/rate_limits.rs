@@ -23,7 +23,8 @@ async fn limited(requests: f64, failures: f64, exempt_service: bool) -> (Rest, A
     let client = Client::with_uri_str("mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200").await.unwrap();
     let fixture = fixture();
     let reads = ReadPath::new(client, "unreachable", Policies::new(engine(&fixture)), read_limits(&fixture));
-    let served = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+    let served =
+        Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
     let limits = RateLimits::new(RateLimitOptions {
         requests: BucketSpec { per_second: 0.001, burst: requests },
         failed_authentications: BucketSpec { per_second: 0.001, burst: failures },
@@ -126,7 +127,8 @@ async fn without_limits_nothing_is_counted() {
     let client = Client::with_uri_str("mongodb://127.0.0.1:1/?serverSelectionTimeoutMS=200").await.unwrap();
     let fixture = fixture();
     let reads = ReadPath::new(client, "unreachable", Policies::new(engine(&fixture)), read_limits(&fixture));
-    let served = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+    let served =
+        Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
     let rest = Rest::new(authenticator(&fixture), reads, RestOptions { served, ..RestOptions::default() });
     for _ in 0..50 {
         assert_eq!(send(&rest, "anon", "10.0.0.1").await.status, 400);

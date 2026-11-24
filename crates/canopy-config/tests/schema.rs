@@ -264,12 +264,12 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         ),
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
-            r#""dataPlane":{"routes":"explain"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate and query, not explain",
+            r#""dataPlane":{"routes":"batch"}"#,
+            "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate and query, not Find",
+            "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not Find",
         ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
@@ -318,14 +318,14 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         routes(&document(r#"["aggregate","count","find","distinct","count"]"#), Fallbacks::default())?,
         [DataPlaneRoute::Aggregate, DataPlaneRoute::Count, DataPlaneRoute::Find, DataPlaneRoute::Distinct]
     );
-    let unknown = routes(&format!("{{{uri}}}"), from_host(&["find", "explain"]));
+    let unknown = routes(&format!("{{{uri}}}"), from_host(&["find", "batch"]));
     assert_eq!(
         unknown.err().as_deref(),
-        Some("dataPlane.routes may list find, count, distinct, aggregate and query, not explain")
+        Some("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not batch")
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
-        Some("dataPlane.routes may list find, count, distinct, aggregate and query, not Query")
+        Some("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not Query")
     );
     for route in [
         DataPlaneRoute::Find,
@@ -333,10 +333,11 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         DataPlaneRoute::Distinct,
         DataPlaneRoute::Aggregate,
         DataPlaneRoute::Query,
+        DataPlaneRoute::Explain,
     ] {
         assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
     }
-    assert_eq!(DataPlaneRoute::NAMES, ["find", "count", "distinct", "aggregate", "query"]);
+    assert_eq!(DataPlaneRoute::NAMES, ["find", "count", "distinct", "aggregate", "query", "explain"]);
     Ok(())
 }
 
@@ -390,7 +391,10 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         ),
         (&["properties", "realtime", "properties", "coalesceMs", "then"], r#"{"minimum":0,"maximum":1000}"#),
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
-        (&["$defs", "dataPlaneRoute", "enum"], r#"["find","count","distinct","aggregate","query"]"#),
+        (
+            &["$defs", "dataPlaneRoute", "enum"],
+            r#"["find","count","distinct","aggregate","query","explain"]"#,
+        ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),
         (

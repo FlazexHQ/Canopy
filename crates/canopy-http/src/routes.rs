@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use canopy_auth::{Authenticator, RateLimits, rate_limit_error};
 use canopy_data::{Caller, CountMode, Encoding, FindRequest, ReadPath};
-use canopy_protocol::ejson::{DecodeOptions, parse};
+use canopy_policy::{
+    ExplainRequest, Operation, Role, access_report_document, explain_access, explain_context,
+};
+use canopy_protocol::ejson::{DecodeOptions, canonical_string, parse, stringify};
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 use canopy_query::js_property_order;
 use ring::digest::{Context, SHA256};
@@ -56,11 +59,13 @@ pub struct Served {
     pub aggregate: bool,
     /// `POST /{collection}/_query`, a find with its parameters in a body.
     pub query: bool,
+    /// `POST /{collection}/_explain`, how DLS decides an operation for a stated caller (service callers only).
+    pub explain: bool,
 }
 
 impl Default for Served {
     fn default() -> Served {
-        Served { find: true, count: false, distinct: false, aggregate: false, query: false }
+        Served { find: true, count: false, distinct: false, aggregate: false, query: false, explain: false }
     }
 }
 
@@ -110,6 +115,8 @@ enum Route {
     Aggregate,
     /// `POST /{collection}/_query`, served here.
     Query,
+    /// `POST /{collection}/_explain`, served here.
+    Explain,
     /// A route the TypeScript handler serves.
     Unserved,
 }
@@ -190,6 +197,7 @@ impl Rest {
                 "_distinct" => self.served.distinct,
                 "_aggregate" => self.served.aggregate,
                 "_query" => self.served.query,
+                "_explain" => self.served.explain,
                 _ => false,
             },
             _ => false,
@@ -265,6 +273,7 @@ impl Rest {
             Route::Distinct => self.distinct(request, collection).await.map(Some),
             Route::Aggregate => self.aggregate(request, collection).await.map(Some),
             Route::Query => self.query(request, collection).await.map(Some),
+            Route::Explain => self.explain(request, collection).await.map(Some),
         }
     }
 
@@ -400,6 +409,82 @@ impl Rest {
         )?;
         let page = self.reads.find(&caller, find_request(collection, params)).await?;
         Rest::json(request, |encoding| Ok(page.with_ct(&page.encode(encoding)?)))
+    }
+
+    /// Explains how DLS decides an operation for the caller stated in the body, with the policies and context
+    /// lookups of real requests. The report shows the policy structure and resolved claim values, so only
+    /// `service` callers may ask.
+    async fn explain(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, Some(&[collection])).await?;
+        if !caller.context.roles.contains(Role::SERVICE) {
+            return Err(CanopyError::named(
+                ErrorCode::Forbidden,
+                "ForbiddenError",
+                "Explanations are only available with a secret key",
+            ));
+        }
+        let input = match self.body(request)? {
+            None | Some(Value::Null) => Value::Document(Document::new()),
+            Some(input) => input,
+        };
+        let input = Rest::fields(&input, "explain", &["op", "claims", "roles", "filter", "ctx", "count"])?;
+        let op = match input.get("op") {
+            None => Some(Operation::Read),
+            Some(Value::String(name)) => Operation::parse(name),
+            Some(_) => None,
+        };
+        let Some(op) = op else {
+            let names = Operation::ALL.map(Operation::as_str).join(", ");
+            return Err(CanopyError::invalid_query(format!("op must be one of {names}")));
+        };
+        let claims = match input.get("claims") {
+            None | Some(Value::Null) => None,
+            Some(Value::Document(claims)) => Some(claims.clone()),
+            Some(_) => return Err(CanopyError::invalid_query("claims must be a document")),
+        };
+        let roles = match input.get("roles") {
+            None => Vec::new(),
+            Some(Value::Array(roles)) => roles
+                .iter()
+                .map(|role| role.as_str().map(str::to_owned))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| CanopyError::invalid_query("roles must be a list of role names"))?,
+            Some(_) => return Err(CanopyError::invalid_query("roles must be a list of role names")),
+        };
+        let document = |name: &str| match input.get(name) {
+            None => Ok(None),
+            Some(Value::Document(value)) => Ok(Some(value.clone())),
+            Some(_) => Err(CanopyError::invalid_query(format!("{name} must be a document"))),
+        };
+        let filter = document("filter")?;
+        let ctx = document("ctx")?;
+        let count = match input.get("count") {
+            None => false,
+            Some(Value::Bool(count)) => *count,
+            Some(_) => return Err(CanopyError::invalid_query("count must be a boolean")),
+        };
+        let engine = self.reads.policies().current();
+        let given = ctx.is_some();
+        let mut context = explain_context(claims, &roles, ctx, caller.context.now);
+        let lookups = engine.context_names(Some(&[collection]), &context.roles);
+        if !given && !lookups.is_empty() {
+            context.ctx =
+                Some(self.reads.contexts().resolve(engine.set().contexts(), &lookups, &context).await);
+        }
+        let explained = ExplainRequest { collection: collection.to_owned(), op, context, filter };
+        let report = explain_access(&engine, &explained)?;
+        let mut data = access_report_document(&report)?;
+        if count && op != Operation::Insert {
+            let effective = Value::Document(report.effective.to_filter());
+            let counted = self.reads.count(&caller, collection, Some(&effective), CountMode::Exact).await?;
+            #[allow(clippy::cast_precision_loss)]
+            data.insert("count", Value::from_js_number(counted.count as f64));
+        }
+        let body = Value::Document([("data".to_owned(), Value::Document(data))].into_iter().collect());
+        Rest::json(request, |encoding| match encoding {
+            Encoding::Canonical => canonical_string(&body),
+            _ => stringify(&body),
+        })
     }
 
     async fn aggregate(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
@@ -552,6 +637,7 @@ fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>,
                 Some("_distinct") if served.distinct => Some(Route::Distinct),
                 Some("_aggregate") if served.aggregate => Some(Route::Aggregate),
                 Some("_query") if served.query => Some(Route::Query),
+                Some("_explain") if served.explain => Some(Route::Explain),
                 _ => None,
             };
             (&["POST"], action.filter(|_| method == "POST"))
@@ -604,12 +690,14 @@ mod tests {
 
     #[test]
     fn the_read_actions_are_served_only_when_enabled() {
-        let all = Served { find: true, count: true, distinct: true, aggregate: true, query: true };
+        let all =
+            Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
         for (action, route) in [
             ("_count", Route::Count),
             ("_distinct", Route::Distinct),
             ("_aggregate", Route::Aggregate),
             ("_query", Route::Query),
+            ("_explain", Route::Explain),
         ] {
             assert_eq!(resolve(&segments(&["todos", action]), "POST", all), (Some(route), vec!["POST"]));
             assert_eq!(resolve(&segments(&["todos", action]), "GET", all), (None, vec!["POST"]));
@@ -618,7 +706,8 @@ mod tests {
                 Some(Route::Unserved)
             );
         }
-        assert_eq!(resolve(&segments(&["todos", "_explain"]), "POST", all).0, Some(Route::Unserved));
+        let reads_only = Served { explain: false, ..all };
+        assert_eq!(resolve(&segments(&["todos", "_explain"]), "POST", reads_only).0, Some(Route::Unserved));
     }
 
     #[test]

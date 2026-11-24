@@ -302,9 +302,11 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     seed(&client.database(&database), &fixture).await;
     let (port, seen) = upstream().await;
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let gateway =
-        Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("count,distinct,aggregate,query"))
-            .await;
+    let gateway = Gateway::start(
+        launcher(&fixture, &uri, &database, port, ""),
+        Some("count,distinct,aggregate,query,explain"),
+    )
+    .await;
     let mut failures = Vec::new();
     let mut total = 0;
     for (file, json) in case_files_of("reads") {
@@ -574,11 +576,11 @@ fn refused(config: &str, routes: Option<&str>) -> (Option<i32>, String) {
 #[test]
 fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
     let document = r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"server":{"port":0,"metricsPort":0}}"#;
-    for routes in ["explain", "find,insert", "QUERY", "find;count"] {
+    for routes in ["batch", "find,insert", "QUERY", "find;count"] {
         let (code, message) = refused(document, Some(routes));
         assert_eq!(code, Some(1), "{routes}");
         assert!(
-            message.contains("dataPlane.routes may list find, count, distinct, aggregate and query, not"),
+            message.contains("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not"),
             "{routes}: {message}"
         );
     }

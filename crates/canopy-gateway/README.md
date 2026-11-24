@@ -72,10 +72,11 @@ closing standard input drains the server and stops it.
 
 `CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes`, a name or a list of names) lists the Data API routes the
 gateway answers itself instead of passing them to the upstream server. It is empty by default, so every REST
-request goes to the upstream. `find` selects `GET /rest/v1/{collection}`, and `count`, `distinct`, `aggregate`
-and `query` select `POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate` and `_query` (a find with its
-parameters in the body), each with the `OPTIONS` and `405` answers of its path; every other path and method
-(writes, documents, `_explain`, `_batch`, `openapi.json`, GraphQL, storage) is passed on untouched. A name the
+request goes to the upstream. `find` selects `GET /rest/v1/{collection}`, and `count`, `distinct`, `aggregate`,
+`query` and `explain` select `POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` (a find
+with its parameters in the body) and `_explain` (for secret keys only), each with the `OPTIONS` and `405` answers
+of its path; every other path and method (writes, documents, `_batch`, `openapi.json`, GraphQL, storage) is
+passed on untouched. A name the
 gateway does not know stops it at startup, as does `rest: false` in the configuration with a route selected. The route reads with the gateway's own MongoDB
 client, with the keys, JWKS, revocations and policies the realtime sessions use (the policies are read again
 every time the policy watch opens, so a change made while it was down still applies), and it answers as the

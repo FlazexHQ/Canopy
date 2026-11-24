@@ -26,8 +26,8 @@ pub use engine::{
     PolicyVariableIssue, and, create_policy_set, deny_filter,
 };
 pub use explain::{
-    AccessReport, ExplainRequest, OnceVariableIssue, describe_issue, explain_access, explain_context,
-    format_access_report,
+    AccessReport, ExplainRequest, OnceVariableIssue, access_report_document, describe_issue, explain_access,
+    explain_context, format_access_report,
 };
 pub use fields::{
     FieldAccess, TEXT_SEARCH_DENIED, can_access, denied_paths, denies_text_search, document_paths,
