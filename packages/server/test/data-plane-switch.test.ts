@@ -290,6 +290,67 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
     }
   }, 60_000)
 
+  it("replays an idempotency key recorded by either write path from the other", async () => {
+    const writer = typescript({ metaDatabase: `${database}_meta` })
+    const writerBase = await listening(writer)
+    const rust = await start(launcher(writerBase, {}), "writes")
+    const send = (base: string, method: string, path: string, key: string, body: unknown) =>
+      fetch(`${base}/rest/v1/${path}`, {
+        method,
+        headers: {
+          ...fixture.callers["service"],
+          "content-type": "application/json",
+          "idempotency-key": key,
+        },
+        body: JSON.stringify(body),
+      })
+    const answer = async (response: Response) => ({
+      status: response.status,
+      servedBy: response.headers.get("x-served-by"),
+      body: (await response.json()) as { data?: unknown; replayed?: boolean; code?: string },
+    })
+    try {
+      const doc = { _id: "cross-1", title: "one" }
+      const first = await answer(await send(writerBase, "POST", "crossings", "cross-key-ts-1", doc))
+      expect(first).toMatchObject({
+        status: 201,
+        servedBy: "typescript",
+        body: { replayed: false },
+      })
+      const replayed = await answer(
+        await send(rust.base, "POST", "crossings", "cross-key-ts-1", doc),
+      )
+      expect(replayed).toMatchObject({ status: 201, servedBy: null, body: { replayed: true } })
+      expect(replayed.body.data).toEqual(first.body.data)
+
+      const update = { $set: { title: "two" } }
+      const written = await answer(
+        await send(rust.base, "PATCH", "crossings/cross-1", "cross-key-rs-1", update),
+      )
+      expect(written).toMatchObject({ status: 200, servedBy: null, body: { replayed: false } })
+      const back = await answer(
+        await send(writerBase, "PATCH", "crossings/cross-1", "cross-key-rs-1", update),
+      )
+      expect(back).toMatchObject({ status: 200, servedBy: "typescript", body: { replayed: true } })
+      expect(back.body.data).toEqual(written.body.data)
+
+      const reused = await answer(
+        await send(rust.base, "PATCH", "crossings/cross-1", "cross-key-ts-1", update),
+      )
+      expect(reused).toMatchObject({
+        status: 409,
+        servedBy: null,
+        body: { code: "CANOPY_CONFLICT" },
+      })
+      const stored = await mongo.db(database).collection("crossings").find({}).toArray()
+      expect(stored).toEqual([{ _id: "cross-1", title: "two" }])
+    } finally {
+      rust.child.stdin?.end()
+      await closing(writer)
+      await mongo.db(database).collection("crossings").drop()
+    }
+  }, 60_000)
+
   it("refuses over the request and failed authentication budgets exactly as the TypeScript handler does", async () => {
     const tight = {
       requests: { perSecond: 0.001, burst: 3 },

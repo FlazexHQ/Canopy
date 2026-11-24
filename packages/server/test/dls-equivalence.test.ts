@@ -133,6 +133,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
   let gateway: ChildProcess | undefined
   let gatewayBase: string | undefined
   let rustChecks = 0
+  let rustWrites = 0
   let sign: (caller: Caller) => Promise<string | undefined>
   let run = 0
   let gatewayChecks = 0
@@ -204,7 +205,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       stdio: ["pipe", "ignore", "pipe"],
       env: {
         ...process.env,
-        CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query,explain",
+        CANOPY_DATA_PLANE_ROUTES: "find,count,distinct,aggregate,query,explain,writes",
       },
     })
     gateway = child
@@ -452,10 +453,33 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
       },
       at,
     )
-  const vias = (): readonly ("rest" | "graphql" | "realtime" | "gateway")[] =>
+  const vias = (): readonly ("rest" | "graphql" | "realtime" | "gateway" | "rust")[] =>
     gatewayBase === undefined
       ? ["rest", "graphql", "realtime"]
-      : ["rest", "graphql", "realtime", "gateway"]
+      : ["rest", "graphql", "realtime", "gateway", "rust"]
+
+  /** A REST write sent to TypeScript, or with `rust` to the write routes of the gateway, which must answer it. */
+  const restWrite = async (
+    caller: Caller,
+    via: "rest" | "rust",
+    method: string,
+    path: string,
+    body: unknown,
+  ): Promise<string> => {
+    const response = await fetch(`${via === "rust" ? gatewayBase : base}/rest/v1/${path}`, {
+      method,
+      headers: await headers(caller),
+      body: JSON.stringify(body),
+    })
+    if (via === "rust") {
+      expect(
+        response.headers.get("x-served-by"),
+        `the gateway answered ${method} ${path}`,
+      ).toBeNull()
+      rustWrites += 1
+    }
+    return response.ok ? "ok" : `error ${((await response.json()) as { code?: string }).code}`
+  }
 
   const classify = async (
     id: string,
@@ -523,15 +547,8 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
           for (const via of vias()) {
             const doc = { _id: `r${run}i-${via}`, ...candidate }
             let result: string
-            if (via === "rest") {
-              const response = await fetch(`${base}/rest/v1/items`, {
-                method: "POST",
-                headers: await headers(caller),
-                body: JSON.stringify(doc),
-              })
-              result = response.ok
-                ? "ok"
-                : `error ${((await response.json()) as { code?: string }).code}`
+            if (via === "rest" || via === "rust") {
+              result = await restWrite(caller, via, "POST", "items", doc)
             } else if (via === "graphql") {
               const body = await graphql(
                 caller,
@@ -549,10 +566,14 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
           expect(inserted["realtime"], `realtime insert vs REST for ${caller.name}`).toBe(
             inserted["rest"],
           )
-          if (gatewayBase !== undefined)
+          if (gatewayBase !== undefined) {
             expect(inserted["gateway"], `gateway insert vs REST for ${caller.name}`).toBe(
               inserted["rest"],
             )
+            expect(inserted["rust"], `Rust insert vs REST for ${caller.name}`).toBe(
+              inserted["rest"],
+            )
+          }
           seen.inserts.add(inserted["rest"] ?? "no match")
 
           const target = docs[pick % Math.max(1, docs.length)]
@@ -563,15 +584,8 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
             const id = `${target._id}-${via}`
             await coll.insertOne({ ...target, _id: id })
             let result: string
-            if (via === "rest") {
-              const response = await fetch(`${base}/rest/v1/items/${id}`, {
-                method: "PATCH",
-                headers: await headers(caller),
-                body: JSON.stringify({ $set: { level } }),
-              })
-              result = response.ok
-                ? "ok"
-                : `error ${((await response.json()) as { code?: string }).code}`
+            if (via === "rest" || via === "rust") {
+              result = await restWrite(caller, via, "PATCH", `items/${id}`, { $set: { level } })
             } else if (via === "graphql") {
               const body = await graphql(
                 caller,
@@ -594,10 +608,12 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
           expect(updated["realtime"], `realtime update vs REST for ${caller.name}`).toBe(
             updated["rest"],
           )
-          if (gatewayBase !== undefined)
+          if (gatewayBase !== undefined) {
             expect(updated["gateway"], `gateway update vs REST for ${caller.name}`).toBe(
               updated["rest"],
             )
+            expect(updated["rust"], `Rust update vs REST for ${caller.name}`).toBe(updated["rest"])
+          }
           seen.updates.add(updated["rest"] ?? "no match")
         },
       ),
@@ -614,6 +630,7 @@ suite("DLS is the same through REST, GraphQL, realtime and the native gateway", 
     if (GATEWAY !== undefined) {
       expect(gatewayChecks).toBeGreaterThanOrEqual(RUNS)
       expect(rustChecks).toBeGreaterThanOrEqual(RUNS * 2)
+      expect(rustWrites).toBeGreaterThanOrEqual(RUNS)
     }
     expect([...seen.inserts]).toEqual(
       expect.arrayContaining(["applied", "refused CANOPY_POLICY_VIOLATION"]),
