@@ -127,6 +127,7 @@ pub struct WritePath {
     explain_denials: bool,
     observer: Option<Observer>,
     indexes: Arc<AtomicBool>,
+    collations: Arc<std::sync::Mutex<std::collections::HashMap<String, (Instant, bool)>>>,
 }
 
 /// Why a transaction stopped.
@@ -167,6 +168,7 @@ impl WritePath {
             explain_denials: false,
             observer: None,
             indexes: Arc::new(AtomicBool::new(false)),
+            collations: Arc::default(),
         })
     }
 
@@ -349,8 +351,10 @@ impl WritePath {
                 None => String::new(),
             },
         };
-        let (outcomes, ct, replayed) =
-            self.transact(caller, &key, &plans, options.mutation_id.as_deref(), read, true).await?;
+        let deferred = if read && requests.len() > 1 { self.deferrable(requests).await } else { Vec::new() };
+        let (outcomes, ct, replayed) = self
+            .transact_deferred(caller, &key, &plans, options.mutation_id.as_deref(), read, true, &deferred)
+            .await?;
         if !replayed {
             for (request, outcome) in requests.iter().zip(&outcomes) {
                 self.report(caller, request, outcome, ct, options.mutation_id.as_deref());
@@ -417,6 +421,68 @@ impl WritePath {
         Ok(())
     }
 
+    /// Whether the collection has a default collation, which makes two different strings one `_id`. Read at most
+    /// once a minute per collection; a failed lookup counts as a collation, so nothing is deferred on a guess.
+    async fn collated(&self, name: &str) -> bool {
+        if let Ok(known) = self.collations.lock()
+            && let Some((at, collated)) = known.get(name)
+            && at.elapsed() < Duration::from_secs(60)
+        {
+            return *collated;
+        }
+        let collated = match self.db.list_collections().filter(doc! { "name": name }).await {
+            Ok(mut cursor) => {
+                let mut found = false;
+                while let Some(Ok(spec)) = futures_util::StreamExt::next(&mut cursor).await {
+                    found |= spec.options.collation.is_some();
+                }
+                found
+            }
+            Err(_) => return true,
+        };
+        if let Ok(mut known) = self.collations.lock() {
+            known.insert(name.to_owned(), (Instant::now(), collated));
+        }
+        collated
+    }
+
+    /// Which operations of an atomic batch may have their read back queued until the end of the transaction:
+    /// the ones whose documents no later operation touches, so the document read at the end is the one the
+    /// operation left. A later operation that names documents by a filter, or by an `_id` that may be the same
+    /// document, rules it out; so does an `_id` without a key, and a string `_id` in a collection with a collation.
+    async fn deferrable(&self, requests: &[WriteRequest]) -> Vec<bool> {
+        let mut out = Vec::with_capacity(requests.len());
+        for (index, request) in requests.iter().enumerate() {
+            out.push(self.is_deferrable(index, requests, request).await);
+        }
+        out
+    }
+
+    async fn is_deferrable(&self, index: usize, requests: &[WriteRequest], request: &WriteRequest) -> bool {
+        let Some(own) = ids_of(request) else { return false };
+        if own.iter().any(|id| matches!(id, Value::String(_))) && self.collated(request.collection()).await {
+            return false;
+        }
+        let mut mine = std::collections::HashSet::new();
+        for id in &own {
+            let Some(key) = scope::id_key(id) else { return false };
+            mine.insert(key);
+        }
+        for later in &requests[index + 1..] {
+            if later.collection() != request.collection() {
+                continue;
+            }
+            let Some(theirs) = ids_of(later) else { return false };
+            for other in &theirs {
+                match scope::id_key(other) {
+                    Some(key) if !mine.contains(&key) => {}
+                    _ => return false,
+                }
+            }
+        }
+        true
+    }
+
     async fn transact(
         &self,
         caller: &Caller,
@@ -425,6 +491,20 @@ impl WritePath {
         mutation_id: Option<&str>,
         read: bool,
         batch: bool,
+    ) -> Result<(Vec<Outcome>, Ct, bool), CanopyError> {
+        self.transact_deferred(caller, key, plans, mutation_id, read, batch, &[]).await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn transact_deferred(
+        &self,
+        caller: &Caller,
+        key: &RecordKey,
+        plans: &[Plan],
+        mutation_id: Option<&str>,
+        read: bool,
+        batch: bool,
+        deferred: &[bool],
     ) -> Result<(Vec<Outcome>, Ct, bool), CanopyError> {
         let service = caller.context.roles.contains(Role::SERVICE);
         self.ensure_indexes(service).await?;
@@ -449,8 +529,9 @@ impl WritePath {
             if let Err(error) = started {
                 break Err(Stop::Failed(error));
             }
-            let attempt =
-                self.attempt(&mut session, caller, key, plans, mutation_id, read, &mut failed_at).await;
+            let attempt = self
+                .attempt(&mut session, caller, key, plans, mutation_id, read, deferred, &mut failed_at)
+                .await;
             match attempt {
                 Ok(outcomes) => match commit(&mut session, deadline).await {
                     Ok(()) => break Ok(outcomes),
@@ -506,15 +587,36 @@ impl WritePath {
         plans: &[Plan],
         mutation_id: Option<&str>,
         read: bool,
+        deferred: &[bool],
         failed_at: &mut Option<usize>,
     ) -> Result<Vec<Outcome>, Stop> {
         let mut outcomes = Vec::with_capacity(plans.len());
+        let mut queued: Vec<(usize, Value)> = Vec::new();
         for (index, plan) in plans.iter().enumerate() {
             *failed_at = Some(index);
             let mut transaction = Session::transaction(session);
+            transaction.defer = deferred.get(index).copied().unwrap_or(false);
             outcomes.push(plan.run(&mut transaction, read, &self.limits).await?);
+            queued.extend(transaction.queued.drain(..).map(|id| (index, id)));
         }
         *failed_at = None;
+        let mut collections: Vec<&str> = Vec::new();
+        for (index, _) in &queued {
+            let name = plans[*index].scope.name.as_str();
+            if !collections.contains(&name) {
+                collections.push(name);
+            }
+        }
+        for name in collections {
+            let members: Vec<&(usize, Value)> =
+                queued.iter().filter(|(index, _)| plans[*index].scope.name == name).collect();
+            let scope = &plans[members[0].0].scope;
+            let ids: Vec<Value> = members.iter().map(|(_, id)| id.clone()).collect();
+            let documents = scope.read_many(&mut Session::transaction(session), &ids).await?;
+            for ((index, _), document) in members.iter().zip(documents) {
+                outcomes[*index].documents = Some(vec![document]);
+            }
+        }
         if let Some(id) = mutation_id {
             let record = record_of(id, caller, key, &outcomes)?;
             let inserted = self
@@ -673,6 +775,25 @@ fn operation_time(session: &ClientSession) -> Result<Ct, CanopyError> {
         .operation_time()
         .ok_or_else(|| CanopyError::new(ErrorCode::Internal, "The commit has no cluster time"))?;
     Ok(Ct::from_parts(time.time, time.increment))
+}
+
+/// The `_id`s a request names, `None` when it names documents by a filter. Absent `_id`s are generated.
+fn ids_of(request: &WriteRequest) -> Option<Vec<Value>> {
+    let id_of = |doc: &Value| match doc {
+        Value::Document(doc) => doc.get("_id").filter(|id| !matches!(id, Value::Undefined)).cloned(),
+        _ => None,
+    };
+    match request.op() {
+        WriteOp::Insert => Some(request.get("doc").and_then(id_of).into_iter().collect()),
+        WriteOp::InsertMany => match request.get("docs") {
+            Some(Value::Array(docs)) => Some(docs.iter().filter_map(id_of).collect()),
+            _ => None,
+        },
+        WriteOp::Update | WriteOp::Replace | WriteOp::Delete => {
+            Some(vec![request.get("id").cloned().unwrap_or(Value::Undefined)])
+        }
+        _ => None,
+    }
 }
 
 /// Refuses a mutation ID that is not 8 to 128 URL safe characters.

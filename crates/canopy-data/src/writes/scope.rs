@@ -29,22 +29,26 @@ pub(crate) type DriverError = canopy_mongo::mongodb::error::Error;
 pub(crate) struct Session<'s> {
     pub(crate) inner: Option<&'s mut ClientSession>,
     pub(crate) transaction: bool,
+    /// Whether the read back of a single document that needs no check waits for the end of the batch.
+    pub(crate) defer: bool,
+    /// The `_id`s whose read back waits, filled by [`Scope::verify`] when `defer` is set.
+    pub(crate) queued: Vec<Value>,
 }
 
 impl<'s> Session<'s> {
     /// The session of a transaction.
     pub(crate) fn transaction(inner: &'s mut ClientSession) -> Session<'s> {
-        Session { inner: Some(inner), transaction: true }
+        Session { inner: Some(inner), transaction: true, defer: false, queued: Vec::new() }
     }
 
     /// A session outside a transaction.
     pub(crate) fn fast(inner: &'s mut ClientSession) -> Session<'s> {
-        Session { inner: Some(inner), transaction: false }
+        Session { inner: Some(inner), transaction: false, defer: false, queued: Vec::new() }
     }
 
     /// No session.
     pub(crate) fn none() -> Session<'static> {
-        Session { inner: None, transaction: false }
+        Session { inner: None, transaction: false, defer: false, queued: Vec::new() }
     }
 
     /// The session reads run in: the transaction's, or none.
@@ -62,6 +66,29 @@ pub(crate) fn value_of(raw: &bson::RawDocument) -> Result<Document, CanopyError>
 
 fn key(value: &Value) -> String {
     canonical_string(value).unwrap_or_default()
+}
+
+/// A key two `_id`s share only when MongoDB treats them as the same document, or `None` when this cannot be
+/// told: strings by their bytes (a collection with a collation is the caller's concern), ObjectIds, and Int32,
+/// Int64 and double numbers by value across their types (`NaN` equals `NaN`, `-0` equals `0`). Decimal128 and
+/// the other types have no key.
+pub(crate) fn id_key(id: &Value) -> Option<String> {
+    match id {
+        Value::String(text) => Some(format!("s{text}")),
+        Value::ObjectId(bytes) => {
+            Some(format!("o{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>()))
+        }
+        Value::Int32(number) => Some(format!("n{number}")),
+        Value::Int64(number) => Some(format!("n{number}")),
+        Value::Double(number) if number.is_nan() => Some("nNaN".to_owned()),
+        Value::Double(number) if number.is_infinite() => {
+            Some(if *number > 0.0 { "n+inf" } else { "n-inf" }.to_owned())
+        }
+        Value::Double(number) if *number == 0.0 => Some("n0".to_owned()),
+        Value::Double(number) if number.fract() == 0.0 => Some(format!("n{number:.0}")),
+        Value::Double(number) => Some(format!("d{number}")),
+        _ => None,
+    }
 }
 
 /// The `$in` of a list of ids.
@@ -255,6 +282,10 @@ impl Scope {
             if !read {
                 return Ok(None);
             }
+            if session.defer {
+                session.queued.push(ids[0].clone());
+                return Ok(Some(vec![None]));
+            }
             return Ok(Some(vec![self.read_one(session, &ids[0]).await?]));
         }
         if !read {
@@ -386,6 +417,54 @@ impl Scope {
             });
         }
         Ok(Some(out))
+    }
+
+    /// Reads several written documents back through `USING(read)` and the read field rules with one `find`, in
+    /// the order of `ids`. A document is matched by its `_id` key, numbers by value across BSON types. When the
+    /// `find` returns a document that matches no id, the ids without a match are read one at a time instead,
+    /// so a readable document is never reported as unreadable.
+    pub(crate) async fn read_many(
+        &self,
+        session: &mut Session<'_>,
+        ids: &[Value],
+    ) -> Result<Vec<Returned>, DriverError> {
+        let filter = single("_id", ids_in(ids));
+        let read =
+            self.engine.effective_read(&self.name, &filter, &self.ctx).map_err(|_| custom(internal()))?;
+        if read == Compiled::Deny {
+            return Ok(ids.iter().map(|_| None).collect());
+        }
+        let collection = self.raw();
+        let batch = u32::try_from(ids.len() + 1).unwrap_or(u32::MAX).max(2);
+        let mut find =
+            collection.find(self.filter(&read).map_err(custom)?).batch_size(batch).max_time(self.max_time);
+        if let Some(projection) = to_projection(&self.readable) {
+            find = find.projection(to_bson(&projection).map_err(custom)?);
+        }
+        let found = collect(find, session).await?;
+        let mut by_key = std::collections::HashMap::new();
+        for raw in &found {
+            let doc = value_of(raw).map_err(custom)?;
+            let id = doc.get("_id").cloned().unwrap_or(Value::Null);
+            by_key.insert(id_key(&id).unwrap_or_else(|| key(&id)), doc);
+        }
+        let mut out: Vec<Returned> = Vec::with_capacity(ids.len());
+        let mut missed = Vec::new();
+        for (index, id) in ids.iter().enumerate() {
+            match by_key.get(&id_key(id).unwrap_or_else(|| key(id))) {
+                Some(doc) => out.push(Some(project_readable(&self.readable, doc).map_err(custom)?)),
+                None => {
+                    missed.push(index);
+                    out.push(None);
+                }
+            }
+        }
+        if found.len() > ids.len() - missed.len() {
+            for index in missed {
+                out[index] = self.read_one(session, &ids[index]).await?;
+            }
+        }
+        Ok(out)
     }
 
     /// Reads one written document back through `USING(read)` and the read field rules, or `None` when the
