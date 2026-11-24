@@ -1395,3 +1395,79 @@ async fn image_rendering_is_forwarded_when_storage_is_selected() {
     let _ = std::fs::remove_dir_all(&folder);
     assert_eq!(*seen.lock().expect("the upstream log"), [("GET".to_owned(), render.to_owned())],);
 }
+
+/// The data plane serves every data route when the control plane behind it is down: `all` routes need no
+/// upstream for reads, writes or GraphQL, and only the paths the control plane owns fail.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_data_route_keeps_serving_while_the_control_plane_is_down() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("writes").join("fixture.json"));
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopy_gateway_control_down");
+    let meta = format!("{database}_meta");
+    let dead = {
+        let probe = std::net::TcpListener::bind("127.0.0.1:0").expect("a probe port");
+        probe.local_addr().expect("an address").port()
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let gateway = Gateway::start(launcher(&fixture, &uri, &database, dead, ""), Some("all")).await;
+    let json = |method: &str, target: &str, body: &str| {
+        let mut request =
+            common::get_as(&fixture, "service", target).with_header("content-type", "application/json");
+        request.method = method.to_owned();
+        request.body = canopy_http::Body::Bytes(body.as_bytes().to_vec());
+        request
+    };
+
+    let inserted = gateway
+        .send(&json(
+            "POST",
+            "/rest/v1/notes",
+            r#"{"_id":"control-down","title":"still served","ownerId":"u1"}"#,
+        ))
+        .await;
+    let updated = gateway.send(&json("PATCH", "/rest/v1/notes/control-down", r#"{"$set":{"title":"updated"}}"#)).await;
+    let read = gateway.send(&common::get_as(&fixture, "service", "/rest/v1/notes/control-down")).await;
+    let counted = gateway.send(&json("POST", "/rest/v1/notes/_count", "{}")).await;
+    let graphql = gateway.send(&json("POST", "/graphql/v1", r#"{"query":"{ __typename }"}"#)).await;
+    let session = gateway.send(&common::get_as(&fixture, "service", "/auth/v1/session")).await;
+    let admin = gateway.send(&common::get_as(&fixture, "service", "/admin/v1/settings")).await;
+    let stored = client
+        .database(&database)
+        .collection::<canopy_mongo::mongodb::bson::Document>("notes")
+        .find_one(canopy_mongo::mongodb::bson::doc! { "_id": "control-down" })
+        .await
+        .expect("read the written document");
+    client.database(&database).drop().await.expect("the scratch database drops");
+    client.database(&meta).drop().await.expect("the meta database drops");
+
+    for (name, response, status) in [
+        ("insert", &inserted, 201),
+        ("update", &updated, 200),
+        ("read", &read, 200),
+        ("count", &counted, 200),
+        ("graphql", &graphql, 200),
+    ] {
+        assert_eq!(response.status, status, "{name}: {}", String::from_utf8_lossy(&response.body));
+        assert!(response.header("x-upstream").is_none(), "{name} reached the upstream");
+    }
+    assert!(
+        String::from_utf8_lossy(&read.body).contains(r#""title":"updated""#),
+        "{}",
+        String::from_utf8_lossy(&read.body)
+    );
+    assert_eq!(
+        stored.and_then(|doc| doc.get_str("title").ok().map(str::to_owned)).as_deref(),
+        Some("updated")
+    );
+    for (name, response) in [("auth", &session), ("admin", &admin)] {
+        assert!(
+            response.status >= 500,
+            "{name} is owned by the control plane, so it fails while that is down: {}",
+            response.status
+        );
+    }
+}
