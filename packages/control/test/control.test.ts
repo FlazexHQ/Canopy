@@ -36,6 +36,13 @@ describeWithMongo("the control plane", (handle) => {
         { cwd: root, baseDir: root, command: "start", env: TEST_ENV },
       )
       await using control = await createControlPlane(config, { mongo: client, onSetupToken: false })
+      const { info } = await control.keys.create({
+        kind: "secret",
+        name: "wire client",
+        createdBy: "test",
+      })
+      const key = await control.keys.collection.findOne({ _id: info.id })
+      expect(key).toMatchObject({ kind: "secret", scram: { iterations: 15_000 } })
       const http = await listenCanopy(control, 0, "127.0.0.1")
       try {
         const base = `http://127.0.0.1:${http.port}`
