@@ -104,7 +104,7 @@ images, or a Cargo build of the repository.
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in
 Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct`,
 `aggregate`, `query` and `explain` (`POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` and
-`_explain`), and `writes` (every write route: inserts, updates, replacements, deletes, bulk writes and
+`_explain`), `document` (`GET /rest/v1/{collection}/{id}`), and `writes` (every write route: inserts, updates, replacements, deletes, bulk writes and
 `_batch`), for example
 `CANOPY_DATA_PLANE_ROUTES=find,count`. Every other request goes to the TypeScript server as before. Unknown route
 names stop the gateway at startup. The Rust routes apply `rateLimits.requests` and

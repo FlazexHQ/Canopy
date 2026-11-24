@@ -1,0 +1,603 @@
+{
+  "group": "document",
+  "description": "GET /{coll}/{id}: one document the caller may read, by its _id, with its field rules and a projection, and the refusals of the route",
+  "cases": [
+    {
+      "id": "document-own",
+      "title": "An owner reads an own document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-own"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-own"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"},\"tags\":[\"home\",\"urgent\"],\"meta\":{\"source\":\"web\"}},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "document-other-owner",
+      "title": "A document of another owner is not found",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000007",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-other-owner"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-other-owner"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/todos/6f1000000000000000000007\",\"requestId\":\"document.document-other-owner\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "document-missing",
+      "title": "A missing document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f10000000000000000000ff",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-missing"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-missing"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/todos/6f10000000000000000000ff\",\"requestId\":\"document.document-missing\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-admin",
+      "title": "A role that reads every document, with its own field rules",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000007",
+        "query": [],
+        "caller": "carol",
+        "headers": {
+          "x-request-id": "document.document-admin"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-admin"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000007\"},\"ownerId\":\"bob\",\"title\":\"todo 7\",\"status\":\"active\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-07T07:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-03-01T00:00:00.000Z\"},\"tags\":[\"work\"],\"meta\":{\"source\":\"web\",\"score\":4}},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-service",
+      "title": "service reads every field",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000002",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "x-request-id": "document.document-service"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-service"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"status\":\"done\",\"priority\":1,\"createdAt\":{\"$date\":\"2026-01-02T09:30:00.000Z\"},\"dueAt\":null,\"tags\":[\"work\"],\"meta\":{\"source\":\"api\",\"score\":2.5},\"internalNotes\":\"secret-2\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-anon",
+      "title": "A caller without a token",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001",
+        "query": [],
+        "caller": "anon",
+        "headers": {
+          "x-request-id": "document.document-anon"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-anon"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/todos/6f1000000000000000000001\",\"requestId\":\"document.document-anon\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-fields",
+      "title": "A projection",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001?fields=title,status",
+        "query": [
+          [
+            "fields",
+            "title,status"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-fields"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-fields"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\",\"status\":\"active\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-fields-exclusion",
+      "title": "An exclusion projection",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001?fields=-tags,-meta",
+        "query": [
+          [
+            "fields",
+            "-tags,-meta"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-fields-exclusion"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-fields-exclusion"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"status\":\"active\",\"priority\":2,\"createdAt\":{\"$date\":\"2026-01-01T08:00:00.000Z\"},\"dueAt\":{\"$date\":\"2026-02-01T00:00:00.000Z\"}},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "document-fields-hidden",
+      "title": "A projection of a hidden field shows nothing hidden",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001?fields=internalNotes,title",
+        "query": [
+          [
+            "fields",
+            "internalNotes,title"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-fields-hidden"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-fields-hidden"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f1000000000000000000001\"},\"title\":\"todo 1\"},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"internalNotes\":",
+          "secret-",
+          "\"score\":"
+        ]
+      }
+    },
+    {
+      "id": "document-unknown-parameter",
+      "title": "Only fields is taken",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001?limit=1",
+        "query": [
+          [
+            "limit",
+            "1"
+          ]
+        ],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-unknown-parameter"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-unknown-parameter"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown parameter limit\",\"instance\":\"/rest/v1/todos/6f1000000000000000000001\",\"requestId\":\"document.document-unknown-parameter\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-string-id",
+      "title": "A string _id",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/odd/o1",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-string-id"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-string-id"
+        },
+        "body": "{\"data\":{\"_id\":\"o1\",\"v\":{\"$regularExpression\":{\"pattern\":\"^a\",\"options\":\"i\"}},\"w\":1},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-number-as-text",
+      "title": "A number written as text is a string under auto",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff/1",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "x-request-id": "document.document-number-as-text"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-number-as-text"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/staff/1\",\"requestId\":\"document.document-number-as-text\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-ejson-id",
+      "title": "An EJSON _id reaches a number",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff/%7B%22%24numberInt%22%3A%221%22%7D",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "x-request-id": "document.document-ejson-id"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-request-id": "document.document-ejson-id"
+        },
+        "body": "{\"data\":{\"_id\":1,\"name\":\"Ada\",\"team\":\"core\",\"joined\":{\"$date\":\"2020-03-01T00:00:00.000Z\"}},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "document-restrictive",
+      "title": "A restrictive policy hides an archived document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/staff/%7B%22%24numberInt%22%3A%223%22%7D",
+        "query": [],
+        "caller": "bob",
+        "headers": {
+          "x-request-id": "document.document-restrictive"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-restrictive"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/staff/%7B%22%24numberInt%22%3A%223%22%7D\",\"requestId\":\"document.document-restrictive\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": [
+          "\"salary\":",
+          "\"Cy\"",
+          "\"Fay\""
+        ]
+      }
+    },
+    {
+      "id": "document-quoted-hex",
+      "title": "A quoted hex id is a string",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/%226f1000000000000000000001%22",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-quoted-hex"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-quoted-hex"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/todos/%226f1000000000000000000001%22\",\"requestId\":\"document.document-quoted-hex\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-bad-ejson",
+      "title": "An id that is not valid Extended JSON",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/%7Bnope",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-bad-ejson"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-bad-ejson"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The id is not valid Extended JSON\",\"instance\":\"/rest/v1/todos/%7Bnope\",\"requestId\":\"document.document-bad-ejson\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-ejson-document",
+      "title": "An id that is a document",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/%7B%22a%22%3A1%7D",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-ejson-document"
+        }
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-ejson-document"
+        },
+        "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"An EJSON id must be a single value such as {\\\"$oid\\\":\\\"…\\\"}\",\"instance\":\"/rest/v1/todos/%7B%22a%22%3A1%7D\",\"requestId\":\"document.document-ejson-document\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-canonical",
+      "title": "The canonical encoding",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/numbers/6f5000000000000000000001",
+        "query": [],
+        "caller": "service",
+        "headers": {
+          "accept": "application/ejson",
+          "x-request-id": "document.document-canonical"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/ejson",
+          "x-request-id": "document.document-canonical"
+        },
+        "body": "{\"data\":{\"_id\":{\"$oid\":\"6f5000000000000000000001\"},\"label\":\"int 2\",\"n\":{\"$numberInt\":\"2\"}},\"ct\":\"<ct>\"}",
+        "volatile": [
+          {
+            "rule": "cluster-time",
+            "body": "$.ct"
+          }
+        ],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-sealed",
+      "title": "A collection without a read policy",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/sealed/s1",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-sealed"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-sealed"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/sealed/s1\",\"requestId\":\"document.document-sealed\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-hidden-collection",
+      "title": "A collection that is not exposed",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/hidden/h1",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-hidden-collection"
+        }
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/problem+json",
+          "x-request-id": "document.document-hidden-collection"
+        },
+        "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden/h1\",\"requestId\":\"document.document-hidden-collection\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-expired",
+      "title": "An expired token",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/todos/6f1000000000000000000001",
+        "query": [],
+        "caller": "expired",
+        "headers": {
+          "x-request-id": "document.document-expired"
+        }
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "content-type": "application/problem+json",
+          "www-authenticate": "Bearer error=\"invalid_token\", error_description=\"The token has expired\"",
+          "x-request-id": "document.document-expired"
+        },
+        "body": "{\"type\":\"urn:canopy:error:token-expired\",\"title\":\"Token expired\",\"status\":401,\"code\":\"CANOPY_TOKEN_EXPIRED\",\"detail\":\"The token has expired\",\"instance\":\"/rest/v1/todos/6f1000000000000000000001\",\"requestId\":\"document.document-expired\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}",
+        "volatile": [],
+        "neverInBody": []
+      }
+    },
+    {
+      "id": "document-options",
+      "title": "OPTIONS lists the methods of a document",
+      "request": {
+        "method": "OPTIONS",
+        "target": "/rest/v1/todos/6f1000000000000000000001",
+        "query": [],
+        "caller": "alice",
+        "headers": {
+          "x-request-id": "document.document-options"
+        }
+      },
+      "response": {
+        "status": 204,
+        "headers": {
+          "allow": "GET, PATCH, PUT, DELETE, OPTIONS",
+          "x-request-id": "document.document-options"
+        },
+        "body": "",
+        "volatile": [],
+        "neverInBody": []
+      }
+    }
+  ]
+}

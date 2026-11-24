@@ -25,7 +25,7 @@ const fixture = await loadFixture(DIR)
 const files = await loadCaseFiles(DIR)
 const cases = files.flatMap((file) => file.cases)
 const readCases = (await loadCaseFiles(READS_DIR)).flatMap((file) => file.cases)
-const READ_ROUTES = "count,distinct,aggregate,query,explain"
+const READ_ROUTES = "count,distinct,aggregate,query,explain,document"
 
 /** The recorded cases the gateway leaves to the server: a path outside the REST base path and a bad escape. */
 const LEFT_TO_THE_SERVER = new Set(["outside-base-path", "bad-percent-encoding"])
@@ -226,7 +226,7 @@ suite("CANOPY_DATA_PLANE_ROUTES switches the find route between Rust and TypeScr
     expect(rust).toBe(0)
   }, 120_000)
 
-  it("answers every recorded count, distinct, aggregate, query and explain as recorded from Rust when those routes are selected", async () => {
+  it("answers every recorded count, distinct, aggregate, query, explain and document read as recorded from Rust when those routes are selected", async () => {
     expect(readCases.length).toBeGreaterThan(70)
     expect(await replay(() => readsSelected, true, readCases)).toBe(readCases.length)
     expect(await replay(() => unselected, false, readCases)).toBe(0)

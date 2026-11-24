@@ -281,11 +281,11 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
             r#""dataPlane":{"routes":"batch"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not batch",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not Find",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Find",
         ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
@@ -338,13 +338,13 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     assert_eq!(
         unknown.err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not batch"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not batch"
         )
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not Query"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not Query"
         )
     );
     for route in [
@@ -354,13 +354,14 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         DataPlaneRoute::Aggregate,
         DataPlaneRoute::Query,
         DataPlaneRoute::Explain,
+        DataPlaneRoute::Document,
         DataPlaneRoute::Writes,
     ] {
         assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
     }
     assert_eq!(
         DataPlaneRoute::NAMES,
-        ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
+        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"]
     );
     Ok(())
 }
@@ -417,7 +418,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
         (
             &["$defs", "dataPlaneRoute", "enum"],
-            r#"["find","count","distinct","aggregate","query","explain","writes"]"#,
+            r#"["find","count","distinct","aggregate","query","explain","document","writes"]"#,
         ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),

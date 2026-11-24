@@ -63,6 +63,8 @@ pub struct Served {
     pub query: bool,
     /// `POST /{collection}/_explain`, how DLS decides an operation for a stated caller (service callers only).
     pub explain: bool,
+    /// `GET /{collection}/{id}`, one document by its `_id`.
+    pub document: bool,
     /// The writes: `POST`, `PATCH` and `DELETE /{collection}`, `PATCH`, `PUT` and `DELETE
     /// /{collection}/{id}`, and `POST /_batch`. They need a write path ([`Rest::with_writes`]).
     pub writes: bool,
@@ -77,6 +79,7 @@ impl Default for Served {
             aggregate: false,
             query: false,
             explain: false,
+            document: false,
             writes: false,
         }
     }
@@ -130,6 +133,8 @@ enum Route {
     Query,
     /// `POST /{collection}/_explain`, served here.
     Explain,
+    /// `GET /{collection}/{id}`.
+    Document,
     /// `POST /{collection}`.
     Insert,
     /// `PATCH /{collection}` with `Prefer: bulk=true`.
@@ -240,7 +245,7 @@ impl Rest {
                 "_aggregate" => self.served.aggregate,
                 "_query" => self.served.query,
                 "_explain" => self.served.explain,
-                _ => writes,
+                _ => writes || self.served.document,
             },
             _ => false,
         }
@@ -317,6 +322,7 @@ impl Rest {
             Route::Aggregate => self.aggregate(request, collection).await.map(Some),
             Route::Query => self.query(request, collection).await.map(Some),
             Route::Explain => self.explain(request, collection).await.map(Some),
+            Route::Document => self.document(request, url, collection, &segments[1]).await.map(Some),
             Route::Insert => self.insert(request, collection).await.map(Some),
             Route::UpdateMany => self.update_many(request, collection).await.map(Some),
             Route::DeleteMany => self.delete_many(request, collection).await.map(Some),
@@ -719,6 +725,7 @@ fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>,
         2 => (
             &["GET", "PATCH", "PUT", "DELETE"],
             match method {
+                "GET" if served.document => Some(Route::Document),
                 "PATCH" if served.writes => Some(Route::Update),
                 "PUT" if served.writes => Some(Route::Replace),
                 "DELETE" if served.writes => Some(Route::Delete),
@@ -779,6 +786,7 @@ mod tests {
             aggregate: true,
             query: true,
             explain: true,
+            document: true,
             writes: false,
         };
         for (action, route) in [

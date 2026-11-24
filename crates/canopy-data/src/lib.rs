@@ -31,7 +31,7 @@ pub use find::{FindRequest, ReadPath, validate_collection_name};
 pub use limits::ReadLimits;
 pub use page::{CountMode, Encoding, FindPage};
 pub use policies::Policies;
-pub use reads::{AggregateResult, CountResult, DistinctResult};
+pub use reads::{AggregateResult, CountResult, DistinctResult, DocumentResult};
 
 use canopy_protocol::CanopyError;
 

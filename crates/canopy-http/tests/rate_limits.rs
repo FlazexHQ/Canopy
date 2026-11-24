@@ -30,6 +30,7 @@ async fn limited(requests: f64, failures: f64, exempt_service: bool) -> (Rest, A
         aggregate: true,
         query: true,
         explain: true,
+        document: true,
         writes: false,
     };
     let limits = RateLimits::new(RateLimitOptions {
@@ -141,6 +142,7 @@ async fn without_limits_nothing_is_counted() {
         aggregate: true,
         query: true,
         explain: true,
+        document: true,
         writes: false,
     };
     let rest = Rest::new(authenticator(&fixture), reads, RestOptions { served, ..RestOptions::default() });

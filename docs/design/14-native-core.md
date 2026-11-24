@@ -413,8 +413,8 @@ reports both. Details and the repository layout are in [plan 004](../plans/004-r
 Stage D1 routing. A gateway answers a Data API route itself only when it is selected by
 `CANOPY_DATA_PLANE_ROUTES` (or `dataPlane.routes` in the launcher document). The routes are `find`
 (`GET /rest/v1/{collection}`) and `count`, `distinct`, `aggregate`, `query` and `explain` (`POST
-/rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` and `_explain`, and from stage D2 `writes`
-for the write routes, with the request body limited by `rest.maxBodyBytes` and `$search` allowed on the
+/rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` and `_explain`, `document` for `GET
+/rest/v1/{collection}/{id}`, and from stage D2 `writes` for the write routes, with the request body limited by `rest.maxBodyBytes` and `$search` allowed on the
 collections of `rest.search`), each with the `OPTIONS` and `405` answers of its path. The setting is empty by default
 and a name the gateway does not know stops it at startup. Everything else, and every request while no route is
 selected, goes through the existing reverse proxy to the TypeScript server unchanged, so turning the route off

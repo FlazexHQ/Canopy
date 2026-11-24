@@ -1087,5 +1087,229 @@ const explain: Group = {
   ],
 }
 
+const document: Group = {
+  name: "document",
+  description:
+    "GET /{coll}/{id}: one document the caller may read, by its _id, with its field rules and a projection, and the refusals of the route",
+  specs: [
+    call(
+      "document-own",
+      "An owner reads an own document",
+      "alice",
+      "/todos/6f1000000000000000000001",
+      undefined,
+      {
+        method: "GET",
+        neverInBody: TODO_HIDDEN,
+      },
+    ),
+    call(
+      "document-other-owner",
+      "A document of another owner is not found",
+      "alice",
+      "/todos/6f1000000000000000000007",
+      undefined,
+      {
+        method: "GET",
+        neverInBody: TODO_HIDDEN,
+      },
+    ),
+    call(
+      "document-missing",
+      "A missing document",
+      "alice",
+      "/todos/6f10000000000000000000ff",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-admin",
+      "A role that reads every document, with its own field rules",
+      "carol",
+      "/todos/6f1000000000000000000007",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-service",
+      "service reads every field",
+      "service",
+      "/todos/6f1000000000000000000002",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-anon",
+      "A caller without a token",
+      "anon",
+      "/todos/6f1000000000000000000001",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-fields",
+      "A projection",
+      "alice",
+      "/todos/6f1000000000000000000001?fields=title,status",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-fields-exclusion",
+      "An exclusion projection",
+      "alice",
+      "/todos/6f1000000000000000000001?fields=-tags,-meta",
+      undefined,
+      {
+        method: "GET",
+        neverInBody: TODO_HIDDEN,
+      },
+    ),
+    call(
+      "document-fields-hidden",
+      "A projection of a hidden field shows nothing hidden",
+      "alice",
+      "/todos/6f1000000000000000000001?fields=internalNotes,title",
+      undefined,
+      {
+        method: "GET",
+        neverInBody: TODO_HIDDEN,
+      },
+    ),
+    call(
+      "document-unknown-parameter",
+      "Only fields is taken",
+      "alice",
+      "/todos/6f1000000000000000000001?limit=1",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call("document-string-id", "A string _id", "alice", "/odd/o1", undefined, { method: "GET" }),
+    call(
+      "document-number-as-text",
+      "A number written as text is a string under auto",
+      "bob",
+      "/staff/1",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-ejson-id",
+      "An EJSON _id reaches a number",
+      "bob",
+      `/staff/${encodeURIComponent('{"$numberInt":"1"}')}`,
+      undefined,
+      {
+        method: "GET",
+        neverInBody: STAFF_HIDDEN,
+      },
+    ),
+    call(
+      "document-restrictive",
+      "A restrictive policy hides an archived document",
+      "bob",
+      `/staff/${encodeURIComponent('{"$numberInt":"3"}')}`,
+      undefined,
+      {
+        method: "GET",
+        neverInBody: STAFF_HIDDEN,
+      },
+    ),
+    call(
+      "document-quoted-hex",
+      "A quoted hex id is a string",
+      "alice",
+      `/todos/${encodeURIComponent('"6f1000000000000000000001"')}`,
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-bad-ejson",
+      "An id that is not valid Extended JSON",
+      "alice",
+      `/todos/${encodeURIComponent("{nope")}`,
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-ejson-document",
+      "An id that is a document",
+      "alice",
+      `/todos/${encodeURIComponent('{"a":1}')}`,
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-canonical",
+      "The canonical encoding",
+      "service",
+      "/numbers/6f5000000000000000000001",
+      undefined,
+      {
+        method: "GET",
+        headers: { accept: "application/ejson" },
+      },
+    ),
+    call(
+      "document-sealed",
+      "A collection without a read policy",
+      "alice",
+      "/sealed/s1",
+      undefined,
+      { method: "GET" },
+    ),
+    call(
+      "document-hidden-collection",
+      "A collection that is not exposed",
+      "alice",
+      "/hidden/h1",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-expired",
+      "An expired token",
+      "expired",
+      "/todos/6f1000000000000000000001",
+      undefined,
+      {
+        method: "GET",
+      },
+    ),
+    call(
+      "document-options",
+      "OPTIONS lists the methods of a document",
+      "alice",
+      "/todos/6f1000000000000000000001",
+      undefined,
+      {
+        method: "OPTIONS",
+      },
+    ),
+  ],
+}
+
 /** The groups of the read routes besides `find`, recorded into `conformance/http/reads`. */
-export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate, query, explain]
+export const READ_GROUPS: readonly Group[] = [count, distinct, aggregate, query, explain, document]

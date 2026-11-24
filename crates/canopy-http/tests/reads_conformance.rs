@@ -21,6 +21,7 @@ const ALL: Served = Served {
     aggregate: true,
     query: true,
     explain: true,
+    document: true,
     writes: false,
 };
 
@@ -43,7 +44,8 @@ fn the_recorded_cases_are_unique_and_cover_every_route() {
             }
         }
     }
-    assert_eq!(routes.len(), 5, "every route has cases");
+    assert!(ids.iter().any(|id| id.starts_with("document-")), "the document route has cases");
+    assert_eq!(routes.len(), 5, "every action has cases");
     assert!(ids.len() >= 70, "{} cases", ids.len());
 }
 

@@ -241,7 +241,7 @@
           "then": { "$ref": "#/$defs/dataPlaneRoute" },
           "items": { "if": { "type": "string" }, "then": { "$ref": "#/$defs/dataPlaneRoute" } },
           "default": [],
-          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}; count, distinct, aggregate, query and explain are POST /rest/v1/{collection}/_count, _distinct, _aggregate, _query and _explain; writes are POST, PATCH and DELETE /rest/v1/{collection}, PATCH, PUT and DELETE /rest/v1/{collection}/{id} and POST /rest/v1/_batch; each with OPTIONS and 405 on its path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
+          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}; count, distinct, aggregate, query and explain are POST /rest/v1/{collection}/_count, _distinct, _aggregate, _query and _explain; document is GET /rest/v1/{collection}/{id}; writes are POST, PATCH and DELETE /rest/v1/{collection}, PATCH, PUT and DELETE /rest/v1/{collection}/{id} and POST /rest/v1/_batch; each with OPTIONS and 405 on its path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
         }
       }
     },
@@ -282,7 +282,7 @@
     },
     "transport": { "enum": ["websocket", "sse", "long-poll"] },
     "dataPlaneRoute": {
-      "enum": ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
+      "enum": ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"]
     }
   }
 }

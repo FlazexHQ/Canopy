@@ -134,6 +134,7 @@ impl DataPlane {
             aggregate: routes.contains(&DataPlaneRoute::Aggregate),
             query: routes.contains(&DataPlaneRoute::Query),
             explain: routes.contains(&DataPlaneRoute::Explain),
+            document: routes.contains(&DataPlaneRoute::Document),
             writes: writes.is_some(),
         };
         let options = RestOptions {

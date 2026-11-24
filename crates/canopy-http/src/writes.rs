@@ -179,6 +179,41 @@ impl Rest {
         self.writes.as_deref().ok_or_else(|| CanopyError::new(ErrorCode::Internal, "Internal error"))
     }
 
+    /// One document by its `_id`, with an optional `fields` projection.
+    pub(crate) async fn document(
+        &self,
+        request: &Request,
+        url: &url::Url,
+        collection: &str,
+        segment: &str,
+    ) -> Result<Response, CanopyError> {
+        let caller = self.caller(request, Some(&[collection])).await?;
+        let params: Vec<(String, String)> =
+            url.query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
+        Rest::allow_only(&params, &["fields"])?;
+        let fields = match params.iter().find(|(name, _)| name == "fields") {
+            None => None,
+            Some((_, text)) => {
+                let only = [("fields".to_owned(), text.clone())];
+                let limits = self.reads.limits();
+                crate::params::find_params_from_query(
+                    &only,
+                    crate::params::PageLimits { max_limit: limits.max_limit, max_skip: limits.max_skip },
+                    None,
+                )?
+                .fields
+            }
+        };
+        let id = self.id_of(collection, segment)?;
+        let Some(found) = self.reads.find_by_id(&caller, collection, &id, fields).await? else {
+            return Err(not_found());
+        };
+        let encoding = negotiate(request.header("accept").as_deref());
+        Ok(Response::new(200)
+            .with_header("content-type", content_type(encoding))
+            .with_body(found.encode(encoding)?))
+    }
+
     pub(crate) async fn insert(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
         let caller = self.caller(request, Some(&[collection])).await?;
         Rest::allow_only(&Rest::params(request), &[])?;

@@ -20,6 +20,7 @@ const ALL: Served = Served {
     aggregate: true,
     query: true,
     explain: true,
+    document: true,
     writes: false,
 };
 

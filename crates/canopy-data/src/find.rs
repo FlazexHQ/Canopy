@@ -22,6 +22,7 @@ use crate::fail;
 use crate::limits::ReadLimits;
 use crate::page::{CountMode, FindPage};
 use crate::policies::Policies;
+use crate::reads::DocumentResult;
 use crate::snapshot::{PageRead, read_page};
 
 /// A find request, after the transport parsed its parameters. Values are already typed.
@@ -227,6 +228,64 @@ impl ReadPath {
             });
         }
         Ok(FindPage::new(documents, limit, next, result.total, result.ct))
+    }
+
+    /// Reads one document by its `_id` through `USING(read)`, the read field rules and the caller's projection
+    /// (`fields`), in a snapshot. `None` when the caller cannot see a document with that `_id`.
+    pub async fn find_by_id(
+        &self,
+        caller: &Caller,
+        collection: &str,
+        id: &Value,
+        fields: Option<Value>,
+    ) -> Result<Option<DocumentResult>, CanopyError> {
+        crate::writes::validate_id(Some(id))?;
+        let engine = self.policies.current();
+        let ctx = &caller.context;
+        validate_collection_name(collection)?;
+        if !ctx.roles.contains(Role::SERVICE) && !engine.is_exposed(collection) {
+            return Err(CanopyError::new(ErrorCode::NotFound, format!("Unknown collection '{collection}'")));
+        }
+        let readable = engine.readable(collection, ctx);
+        let parsed = parse_query(
+            &QueryInput { filter: Some(Value::Document(Document::new())), sort: None, limit: None, fields },
+            &self.query_limits,
+        )?;
+        let denied = denied_paths(&readable, &parsed.paths);
+        if !denied.is_empty() {
+            return fail(format!("The query may not reference unreadable fields: {}", denied.join(", ")));
+        }
+        let mut by_id = Document::new();
+        let mut equals = Document::new();
+        equals.insert("$eq", id.clone());
+        by_id.insert("_id", Value::Document(equals));
+        let effective = engine.effective_read(collection, &by_id, ctx).map_err(|_| internal())?;
+        let user_projection = parsed.fields.as_ref().map(|fields| &fields.projection);
+        let pushdown = intersect_projection(user_projection, &readable);
+        let shape = user_projection
+            .map(|projection| compile_projection(&Value::Document(projection.clone())))
+            .transpose()?;
+        let filter = effective.to_filter();
+        let sort = Document::new();
+        let read = PageRead {
+            collection,
+            filter: &filter,
+            sort: &sort,
+            limit: 1,
+            skip: 0,
+            projection: pushdown.as_ref(),
+            max_time: Duration::from_millis(self.limits.max_time_ms),
+            count_filter: None,
+        };
+        let result = read_page(&self.client, &self.db, read, ctx.roles.contains(Role::SERVICE)).await?;
+        let Some(raw) = result.documents.first() else { return Ok(None) };
+        let stored = RawDocument::new(raw.as_bytes()).map_err(|_| internal())?.to_document();
+        let visible = project_readable(&readable, &stored)?;
+        let document = match &shape {
+            Some(shape) => shape.apply(DocRef::Owned(&visible)),
+            None => visible,
+        };
+        Ok(Some(DocumentResult { document, ct: result.ct }))
     }
 
     fn page_limit(&self, limit: Option<u32>) -> Result<u32, CanopyError> {

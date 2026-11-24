@@ -166,6 +166,7 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         aggregate: true,
         query: true,
         explain: true,
+        document: true,
         writes: false,
     };
     let rest = rest_with(RestOptions { served: all, ..RestOptions::default() }).await;
@@ -179,9 +180,14 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         assert_eq!((response.status, response.header("allow")), (405, Some("POST")));
         assert!(!rest.owns("POST", &format!("/rest/v1/todos/7/{action}")));
     }
-    for (method, target) in
-        [("POST", "/rest/v1/todos"), ("GET", "/rest/v1/todos/7"), ("POST", "/rest/v1/_batch")]
-    {
+    assert!(rest.owns("GET", "/rest/v1/todos/7"), "a document is read here");
+    assert!(rest.owns("OPTIONS", "/rest/v1/todos/7"));
+    for (method, target) in [
+        ("POST", "/rest/v1/todos"),
+        ("PATCH", "/rest/v1/todos/7"),
+        ("DELETE", "/rest/v1/todos/7"),
+        ("POST", "/rest/v1/_batch"),
+    ] {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's");
     }
 
@@ -192,6 +198,7 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         aggregate: false,
         query: false,
         explain: false,
+        document: false,
         writes: false,
     };
     let rest = rest_with(RestOptions { served: count_only, ..RestOptions::default() }).await;
@@ -207,6 +214,8 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         ("POST", "/rest/v1/todos/_query"),
         ("POST", "/rest/v1/todos/_explain"),
         ("OPTIONS", "/rest/v1/todos/_explain"),
+        ("GET", "/rest/v1/todos/7"),
+        ("OPTIONS", "/rest/v1/todos/7"),
     ] {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's when not enabled");
         assert!(rest.serve(&Request::new(method, target)).await.is_none(), "{method} {target}");

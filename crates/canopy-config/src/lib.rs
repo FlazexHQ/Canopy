@@ -89,6 +89,8 @@ pub enum DataPlaneRoute {
     /// `POST /rest/v1/{collection}/_explain`, how DLS decides an operation for a stated caller, with `OPTIONS`
     /// and `405` on that path.
     Explain,
+    /// `GET /rest/v1/{collection}/{id}`, one document by its `_id`, with `OPTIONS` and `405` on that path.
+    Document,
     /// The writes: `POST`, `PATCH` and `DELETE /rest/v1/{collection}`, `PATCH`, `PUT` and `DELETE
     /// /rest/v1/{collection}/{id}` and `POST /rest/v1/_batch`, with `OPTIONS` and `405` on their paths.
     Writes,
@@ -96,8 +98,8 @@ pub enum DataPlaneRoute {
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 7] =
-        ["find", "count", "distinct", "aggregate", "query", "explain", "writes"];
+    pub const NAMES: [&'static str; 8] =
+        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -108,6 +110,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Aggregate => "aggregate",
             DataPlaneRoute::Query => "query",
             DataPlaneRoute::Explain => "explain",
+            DataPlaneRoute::Document => "document",
             DataPlaneRoute::Writes => "writes",
         }
     }
@@ -120,6 +123,7 @@ impl DataPlaneRoute {
             "aggregate" => Ok(DataPlaneRoute::Aggregate),
             "query" => Ok(DataPlaneRoute::Query),
             "explain" => Ok(DataPlaneRoute::Explain),
+            "document" => Ok(DataPlaneRoute::Document),
             "writes" => Ok(DataPlaneRoute::Writes),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));

@@ -55,6 +55,28 @@ fn with_ct(mut out: String, ct: canopy_engine::Ct) -> String {
     out
 }
 
+/// One document a caller can read, found by its `_id`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DocumentResult {
+    /// The readable document, shaped by the caller's projection.
+    pub document: Document,
+    /// The cluster time the document was read at.
+    pub ct: canopy_engine::Ct,
+}
+
+impl DocumentResult {
+    /// The response body: `{ data: document, ct }` in the negotiated encoding.
+    pub fn encode(&self, encoding: Encoding) -> Result<String, CanopyError> {
+        let mut out = String::from("{\"data\":");
+        write_ejson(
+            &mut out,
+            ValueRef::Document(DocRef::Owned(&self.document)),
+            encoding == Encoding::Canonical,
+        )?;
+        Ok(with_ct(out, self.ct))
+    }
+}
+
 impl CountResult {
     /// The response body: `{ data: { count, exact }, ct }` in the negotiated encoding.
     pub fn encode(&self, encoding: Encoding) -> Result<String, CanopyError> {

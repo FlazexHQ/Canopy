@@ -321,7 +321,7 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     let _ = rustls::crypto::ring::default_provider().install_default();
     let gateway = Gateway::start(
         launcher(&fixture, &uri, &database, port, ""),
-        Some("count,distinct,aggregate,query,explain"),
+        Some("count,distinct,aggregate,query,explain,document"),
     )
     .await;
     let mut failures = Vec::new();
@@ -834,7 +834,7 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
         assert_eq!(code, Some(1), "{routes}");
         assert!(
             message.contains(
-                "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not"
+                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document and writes, not"
             ),
             "{routes}: {message}"
         );
