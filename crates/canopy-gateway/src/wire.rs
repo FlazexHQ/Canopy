@@ -8,6 +8,7 @@ use canopy_data::ReadPath;
 use canopy_data::writes::WritePath;
 use canopy_mongo::mongodb::bson::{Document, doc};
 use canopy_policy::Roles;
+use canopy_realtime::EngineSender;
 use canopy_wire::frame::{Header, WireError, encode_op_msg, encode_op_reply, parse_message};
 use canopy_wire::session::Session;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
@@ -52,6 +53,7 @@ struct Handler {
     limits: Option<Arc<RateLimits>>,
     reads: Arc<ReadPath>,
     writes: Arc<WritePath>,
+    realtime: EngineSender,
     metrics: Arc<Metrics>,
     tls: Option<TlsAcceptor>,
     idle: Duration,
@@ -83,6 +85,7 @@ impl Listener {
         limits: Option<Arc<RateLimits>>,
         reads: Arc<ReadPath>,
         writes: Arc<WritePath>,
+        realtime: EngineSender,
     ) -> Result<Self, String> {
         let tls = settings.tls.as_ref().map(tls_acceptor).transpose()?;
         let socket = TcpListener::bind((settings.host.as_str(), settings.port))
@@ -95,6 +98,7 @@ impl Listener {
                 limits,
                 reads,
                 writes,
+                realtime,
                 metrics: Arc::default(),
                 tls,
                 idle: Duration::from_millis(settings.idle_timeout_ms),
@@ -176,7 +180,8 @@ impl Handler {
     ) {
         let session = Session::new(self.auth.clone(), self.limits.clone(), peer, id)
             .with_read_path(Arc::clone(&self.reads))
-            .with_write_path(Arc::clone(&self.writes));
+            .with_write_path(Arc::clone(&self.writes))
+            .with_realtime(self.realtime.clone());
         if let Some(tls) = &self.tls {
             let stream = tokio::select! {
                 biased;

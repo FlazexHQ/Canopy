@@ -11,6 +11,7 @@ use canopy_protocol::{CanopyError, ErrorCode, Value};
 use ring::rand::{SecureRandom as _, SystemRandom};
 
 use crate::session::error;
+use crate::watch::{self, Watch};
 
 const IDLE: Duration = Duration::from_secs(600);
 const MAX_CURSORS: usize = 16;
@@ -18,7 +19,7 @@ const BUFFER_BYTES: usize = 32 * 1024 * 1024;
 const BATCH_BYTES: usize = 16 * 1024 * 1024;
 const DEFAULT_BATCH: usize = 101;
 
-type Result<T> = std::result::Result<T, Document>;
+pub(crate) type Result<T> = std::result::Result<T, Document>;
 
 struct Cursor {
     collection: String,
@@ -55,11 +56,17 @@ impl FindCursor {
 pub(crate) struct Reads {
     pub(crate) path: Arc<ReadPath>,
     cursors: HashMap<i64, Cursor>,
+    watches: HashMap<i64, Watch>,
+    realtime: Option<(canopy_realtime::EngineSender, String)>,
 }
 
 impl Reads {
     pub(crate) fn new(path: Arc<ReadPath>) -> Self {
-        Self { path, cursors: HashMap::new() }
+        Self { path, cursors: HashMap::new(), watches: HashMap::new(), realtime: None }
+    }
+
+    pub(crate) fn enable_watch(&mut self, engine: canopy_realtime::EngineSender, address: String) {
+        self.realtime = Some((engine, address));
     }
 
     pub(crate) fn accepts_database(&self, body: &Document) -> bool {
@@ -68,9 +75,11 @@ impl Reads {
 
     pub(crate) fn clear(&mut self) {
         self.cursors.clear();
+        self.watches.clear();
     }
 
     pub(crate) fn expire(&mut self) {
+        self.watches.retain(|_, cursor| cursor.touched.elapsed() < IDLE);
         let policy = self.path.policies().current();
         self.cursors
             .retain(|_, cursor| cursor.touched.elapsed() < IDLE && Arc::ptr_eq(&policy, &cursor.policy));
@@ -82,7 +91,8 @@ impl Reads {
     }
 
     async fn dispatch(&mut self, principal: &Principal, command: &str, body: &Document) -> Result<Document> {
-        if !self.accepts_database(body) {
+        let is_watch = command == "aggregate" && watch::starts_watch(body);
+        if !is_watch && !self.accepts_database(body) {
             return Err(unauthorized());
         }
         let allowed: &[&str] = match command {
@@ -104,14 +114,32 @@ impl Reads {
                 return Err(bad(format!("Unsupported {command} option '{key}'")));
             }
         }
-        if command == "aggregate"
-            && let Ok(stages) = body.get_array("pipeline")
-            && stages
-                .first()
-                .and_then(Bson::as_document)
-                .is_some_and(|stage| stage.contains_key("$changeStream"))
-        {
-            return Err(command_not_found("$changeStream"));
+        if is_watch {
+            let (engine, address) =
+                self.realtime.as_ref().ok_or_else(|| command_not_found("$changeStream"))?;
+            cursor_batch_size(body)?;
+            boolean(body, "allowDiskUse")?;
+            self.check_capacity()?;
+            let id = self.cursor_id()?;
+            let cursor = Watch::open(&self.path, engine, address, principal, body).await?;
+            let reply = cursor.reply(self.path.database().name(), id, "firstBatch", Vec::new());
+            self.watches.insert(id, cursor);
+            return Ok(reply);
+        }
+        if command == "getMore" {
+            let id = cursor_number(body.get("getMore"))?;
+            if let Some(cursor) = self.watches.get(&id) {
+                if cursor.collection != string(body, "collection")? {
+                    return Err(cursor_not_found());
+                }
+                let count = batch_size(body)?;
+                let wait = number(body, "maxTimeMS")?.unwrap_or(1000);
+                let mut cursor = self.watches.remove(&id).ok_or_else(cursor_not_found)?;
+                let documents = cursor.next(&self.path, count, wait).await?;
+                let reply = cursor.reply(self.path.database().name(), id, "nextBatch", documents);
+                self.watches.insert(id, cursor);
+                return Ok(reply);
+            }
         }
         let max_time = number(body, "maxTimeMS")?.unwrap_or(0);
         let max_time = if max_time == 0 {
@@ -275,9 +303,7 @@ impl Reads {
         let id = if single_batch || cursor.exhausted() {
             0
         } else {
-            if self.cursors.len() >= MAX_CURSORS {
-                return Err(cursor_capacity());
-            }
+            self.check_capacity()?;
             let id = self.cursor_id()?;
             self.store(id, cursor)?;
             id
@@ -294,13 +320,20 @@ impl Reads {
         Ok(())
     }
 
+    fn check_capacity(&self) -> Result<()> {
+        if self.cursors.len() + self.watches.len() >= MAX_CURSORS {
+            return Err(cursor_capacity());
+        }
+        Ok(())
+    }
+
     fn cursor_id(&self) -> Result<i64> {
         let rng = SystemRandom::new();
         loop {
             let mut bytes = [0; 8];
             rng.fill(&mut bytes).map_err(|_| internal())?;
             let id = i64::from_le_bytes(bytes) & i64::MAX;
-            if id != 0 && !self.cursors.contains_key(&id) {
+            if id != 0 && !self.cursors.contains_key(&id) && !self.watches.contains_key(&id) {
                 return Ok(id);
             }
         }
@@ -343,12 +376,15 @@ impl Reads {
         }
         let ids = ids.iter().map(|id| cursor_number(Some(id))).collect::<Result<Vec<_>>>()?;
         for id in &ids {
-            if !self.cursors.get(id).is_some_and(|cursor| cursor.collection == collection) {
+            if !self.cursors.get(id).is_some_and(|cursor| cursor.collection == collection)
+                && !self.watches.get(id).is_some_and(|cursor| cursor.collection == collection)
+            {
                 return Err(cursor_not_found());
             }
         }
         for id in &ids {
             self.cursors.remove(id);
+            self.watches.remove(id);
         }
         Ok(
             doc! { "cursorsKilled": ids, "cursorsNotFound": [], "cursorsAlive": [], "cursorsUnknown": [], "ok": 1.0 },
@@ -468,7 +504,7 @@ pub(crate) fn integer(value: &Bson) -> Option<i64> {
     }
 }
 
-fn number(body: &Document, key: &str) -> Result<Option<u64>> {
+pub(crate) fn number(body: &Document, key: &str) -> Result<Option<u64>> {
     body.get(key)
         .map(|value| {
             integer(value)
@@ -502,7 +538,7 @@ fn cursor_batch_size(body: &Document) -> Result<usize> {
     }
 }
 
-fn mapped(failure: CanopyError) -> Document {
+pub(crate) fn mapped(failure: CanopyError) -> Document {
     match failure.code() {
         ErrorCode::InvalidQuery => bad(failure.message()),
         ErrorCode::Unauthorized | ErrorCode::Forbidden | ErrorCode::NotFound | ErrorCode::PolicyViolation => {
@@ -514,11 +550,11 @@ fn mapped(failure: CanopyError) -> Document {
     }
 }
 
-fn bad(message: impl Into<String>) -> Document {
+pub(crate) fn bad(message: impl Into<String>) -> Document {
     error(2, "BadValue", message)
 }
 
-fn unauthorized() -> Document {
+pub(crate) fn unauthorized() -> Document {
     error(13, "Unauthorized", "Unauthorized")
 }
 

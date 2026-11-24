@@ -109,21 +109,23 @@ impl Ingest {
         loop {
             match self.open_stream(token.clone()).await {
                 Ok(mut stream) => {
-                    self.open.store(true, Ordering::Release);
                     if restarted {
                         let _ = self.engine.send(Command::Restart("history_lost".to_owned()));
-                        restarted = false;
                     }
+                    self.open.store(true, Ordering::Release);
                     let end = self.consume(&mut stream, &mut token, &log).await;
                     self.open.store(false, Ordering::Release);
                     match end {
-                        End::Reopen => {}
+                        End::Reopen => {
+                            restarted = token.is_none();
+                        }
                         End::HistoryLost => {
                             log(LogLevel::Error, "change stream history lost, restarting from now", &[]);
                             token = None;
                             restarted = true;
                         }
                         End::Failed(error) => {
+                            restarted = token.is_none();
                             log(
                                 LogLevel::Warn,
                                 "change stream failed, reopening",

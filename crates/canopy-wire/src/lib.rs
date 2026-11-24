@@ -6,6 +6,7 @@ pub mod session;
 mod auth;
 mod handshake;
 mod reads;
+mod watch;
 mod writes;
 
 pub use session::Session;

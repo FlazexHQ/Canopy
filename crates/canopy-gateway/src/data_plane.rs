@@ -181,6 +181,7 @@ impl Realtime for EngineRealtime {
     ) -> Result<Box<dyn RealtimeConnection>, CanopyError> {
         let deliver = Box::new(move |frame: LocalFrame| {
             let _ = frames.send(match frame {
+                LocalFrame::Watch(_) => return,
                 LocalFrame::Text(text) => LiveFrame::Text(text),
                 LocalFrame::Close { code, reason } => LiveFrame::Closed { code, reason },
             });

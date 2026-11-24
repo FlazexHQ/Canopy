@@ -387,6 +387,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
                     data_plane::rate_limits(&config),
                     reads,
                     Arc::new(writes),
+                    engine_tx.clone(),
                 )
                 .await?,
             )

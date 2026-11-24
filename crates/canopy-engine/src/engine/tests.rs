@@ -95,6 +95,7 @@ impl Harness {
                 Output::Mutate(request) => self.writes.push(*request),
                 Output::Contexts { id, reads } => self.contexts.push((id, reads)),
                 Output::Authenticate { .. } | Output::Session { .. } | Output::Collections(_) => {}
+                Output::Watch { .. } => panic!("A socket session received a local change stream event"),
             }
         }
     }

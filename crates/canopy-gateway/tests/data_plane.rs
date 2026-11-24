@@ -48,7 +48,7 @@ fn wire_config(uri: &str, database: &str, wire: &str, auth: &str) -> String {
             "auth":{auth},
             "keys":{{"secret":["{WIRE_SECRET}"]}},
             "policies":{{"stored":[
-                {{"_id":"notes","version":1,"exposed":true,"realtime":false,"policies":[
+                {{"_id":"notes","version":1,"exposed":true,"realtime":true,"fields":{{"read":{{"default":{{"omit":["secret"]}}}}}},"policies":[
                     {{"name":"own notes","kind":"permissive","ops":["read"],"roles":["authenticated"],
                     "using":"{{\"owner\":{{\"$auth\":\"sub\"}}}}"}}]}}
             ]}},
@@ -83,6 +83,16 @@ async fn wire_driver_reads(oidc: bool) {
     let Some(uri) = mongodb_uri() else { return };
     let database = format!("gateway_wire_{}_{}", std::process::id(), u8::from(oidc));
     let backing = Client::with_uri_str(&uri).await.expect("the backing client");
+    if oidc {
+        backing
+            .database(&database)
+            .run_command(doc! {
+                "create": "notes",
+                "changeStreamPreAndPostImages": { "enabled": true },
+            })
+            .await
+            .expect("enable event images for the watch fixture");
+    }
     backing
         .database(&database)
         .collection("notes")
@@ -109,6 +119,7 @@ async fn wire_driver_reads(oidc: bool) {
     };
     let mut options = ClientOptions::parse(target).await.expect("driver options");
     options.server_selection_timeout = Some(Duration::from_secs(5));
+    options.max_pool_size = Some(1);
     if oidc {
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
         let expires = DateTime::now().timestamp_millis() / 1000 + 120;
@@ -159,8 +170,167 @@ async fn wire_driver_reads(oidc: bool) {
         inserted.expect("the service key inserts through the wire");
         assert_eq!(stored, 1);
     }
+    if oidc {
+        wire_driver_watches(&db, &backing.database(&database), &base).await;
+    }
     drop(gateway);
     backing.database(&database).drop().await.expect("drop the fixture database");
+}
+
+async fn wire_driver_watches(
+    db: &canopy_mongo::mongodb::Database,
+    backing: &canopy_mongo::mongodb::Database,
+    base: &str,
+) {
+    use canopy_mongo::mongodb::{
+        bson::{Document, doc},
+        change_stream::event::OperationType,
+        error::{Error, ErrorKind},
+        options::FullDocumentType,
+    };
+
+    fn assert_code(error: Error, expected: i32) {
+        assert!(matches!(*error.kind, ErrorKind::Command(ref error) if error.code == expected), "{error:?}");
+    }
+
+    let collection = db.collection::<Document>("notes");
+    let source = backing.collection::<Document>("notes");
+    let mut stream = collection
+        .watch()
+        .full_document(FullDocumentType::UpdateLookup)
+        .max_await_time(Duration::from_millis(200))
+        .await
+        .expect("open driver change stream");
+    source.insert_one(doc! { "_id": 9, "owner": "other" }).await.expect("insert hidden document");
+    source
+        .insert_one(doc! { "_id": 10, "owner": "wire-reader", "rank": 1, "secret": "hidden" })
+        .await
+        .expect("insert visible document");
+
+    source
+        .update_one(doc! { "_id": 10 }, doc! { "$set": { "rank": 2 } })
+        .await
+        .expect("update visible document");
+    source
+        .replace_one(
+            doc! { "_id": 10 },
+            doc! { "_id": 10, "owner": "wire-reader", "rank": 3, "secret": true },
+        )
+        .await
+        .expect("replace visible document");
+    source
+        .update_one(doc! { "_id": 10 }, doc! { "$set": { "owner": "other" } })
+        .await
+        .expect("move document out of the policy");
+
+    for (op, rank) in [
+        (OperationType::Insert, Some(1)),
+        (OperationType::Update, Some(2)),
+        (OperationType::Replace, Some(3)),
+        (OperationType::Delete, None),
+    ] {
+        let event = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(change) = stream.next_if_any().await.expect("read change stream") {
+                    break change;
+                }
+            }
+        })
+        .await
+        .expect("receive the change");
+        assert_eq!(event.operation_type, op);
+        assert_eq!(event.ns.expect("event namespace").coll.as_deref(), Some("notes"));
+        assert_eq!(event.document_key.expect("document key"), doc! { "_id": 10 });
+        assert!(event.cluster_time.is_some());
+        assert!(event.wall_time.is_some());
+        match rank {
+            Some(rank) => {
+                let document = event.full_document.expect("a visible document");
+                assert_eq!(document.get_i32("rank").expect("rank"), rank);
+                assert!(!document.contains_key("secret"));
+            }
+            None => assert!(event.full_document.is_none()),
+        }
+    }
+    drop(stream);
+    let service = Client::with_uri_str(format!(
+        "mongodb://service:{WIRE_SECRET}@{base}?authMechanism=SCRAM-SHA-256&authSource=admin"
+    ))
+    .await
+    .expect("service client");
+    let anonymous = Client::with_uri_str(format!("mongodb://{base}")).await.expect("anonymous client");
+    let command = doc! { "aggregate": "notes", "pipeline": [{ "$changeStream": {} },
+    { "$match": { "operationType": "delete", "documentKey._id": 1, "fullDocument.secret": { "$exists": false } } }], "cursor": {} };
+    assert_code(
+        anonymous.database(db.name()).run_command(command.clone()).await.expect_err("anonymous watch"),
+        13,
+    );
+    let result = db.run_command(command).await.expect("open command cursor");
+    let cursor = result.get_document("cursor").expect("cursor");
+    let id = cursor.get_i64("id").expect("cursor id");
+    assert!(cursor.get_array("firstBatch").expect("initial batch").is_empty());
+    assert!(cursor.get_document("postBatchResumeToken").is_ok());
+    let more = doc! { "getMore": id, "collection": "notes", "maxTimeMS": 300 };
+    let kill = doc! { "killCursors": "notes", "cursors": [id] };
+    for attempt in [&more, &kill] {
+        assert_code(
+            service.database(db.name()).run_command(attempt.clone()).await.expect_err("foreign cursor"),
+            43,
+        );
+    }
+    source.delete_one(doc! { "_id": 1 }).await.expect("delete visible document");
+    let event = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let reply = db.run_command(more.clone()).await.expect("getMore");
+            let batch = reply.get_document("cursor").expect("cursor").get_array("nextBatch").expect("batch");
+            if let Some(event) = batch.first() {
+                break event.as_document().expect("event").clone();
+            }
+        }
+    })
+    .await
+    .expect("receive matching delete");
+    assert_eq!(event.get_str("operationType").expect("operation"), "delete");
+    assert_eq!(event.get_document("documentKey").expect("document key"), &doc! { "_id": 1 });
+    assert!(!event.contains_key("fullDocument"));
+    assert_eq!(
+        db.run_command(kill).await.expect("kill cursor").get_array("cursorsKilled").expect("killed"),
+        &[id.into()]
+    );
+    assert_code(db.run_command(more).await.expect_err("killed cursor"), 43);
+
+    for pipeline in [
+        vec![
+            doc! { "$changeStream": { "resumeAfter": cursor.get_document("postBatchResumeToken").expect("token") } },
+        ],
+        vec![doc! { "$changeStream": {} }, doc! { "$project": { "_id": 1 } }],
+    ] {
+        assert_code(
+            db.run_command(doc! { "aggregate": "notes", "pipeline": pipeline, "cursor": {} })
+                .await
+                .expect_err("unsupported pipeline"),
+            2,
+        );
+    }
+
+    let result = db
+        .run_command(doc! { "aggregate": "notes", "pipeline": [{ "$changeStream": {} }], "cursor": {} })
+        .await
+        .expect("open cursor to invalidate");
+    let id = result.get_document("cursor").expect("cursor").get_i64("id").expect("id");
+    source.drop().await.expect("drop watched collection");
+    let error = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let Err(error) =
+                db.run_command(doc! { "getMore": id, "collection": "notes", "maxTimeMS": 200 }).await
+            {
+                break error;
+            }
+        }
+    })
+    .await
+    .expect("report lost history");
+    assert_code(error, 286);
 }
 
 #[tokio::test]

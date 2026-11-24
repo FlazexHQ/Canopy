@@ -209,6 +209,7 @@ pub(crate) struct SessionLimits {
 /// sent once per connection no matter how many subscriptions contain it.
 #[derive(Debug)]
 pub(crate) struct Session {
+    pub(crate) watch: bool,
     seq: u64,
     conn: Option<ConnId>,
     frames: VecDeque<Frame>,
@@ -230,6 +231,7 @@ impl Session {
     /// Creates a session with the negotiated capabilities.
     pub(crate) fn new(caps: &[String], limits: SessionLimits) -> Session {
         Session {
+            watch: false,
             seq: 0,
             conn: None,
             frames: VecDeque::new(),
@@ -314,6 +316,30 @@ impl Session {
         if let Some(conn) = self.conn {
             out.push(Output::Frame { conn, frame });
         }
+    }
+
+    pub(crate) fn watch_event(
+        &mut self,
+        event: &crate::Event,
+        op: crate::Op,
+        doc: Option<&Document>,
+        out: &mut Vec<Output>,
+    ) {
+        let Some(conn) = self.conn.filter(|_| !self.dropped) else { return };
+        let mut image = Document::new();
+        image.insert("id", event.id.clone());
+        if let Some(doc) = doc {
+            image.insert("d", Value::Document(doc.clone()));
+        }
+        let Ok(image) = canopy_protocol::bson::encode_document(&image) else {
+            self.send_head(Head::new("resync").finish(), out);
+            return;
+        };
+        self.seq += 1;
+        out.push(Output::Watch {
+            conn,
+            frame: crate::WatchFrame { seq: self.seq, op, ct: event.ct, wall_ms: event.wall_ms, image },
+        });
     }
 
     /// Sends a message given as its head.

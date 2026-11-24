@@ -111,6 +111,7 @@ pub(crate) enum Note {
         member: Member,
         /// The cluster time.
         ct: Ct,
+        origin: Option<Arc<Event>>,
     },
     /// A document of the result changed.
     Changed {
@@ -122,6 +123,8 @@ pub(crate) enum Note {
         member: Member,
         /// The cluster time.
         ct: Ct,
+        origin: Option<Arc<Event>>,
+        changed: bool,
     },
     /// A document left the result.
     Removed {
@@ -131,6 +134,7 @@ pub(crate) enum Note {
         key: String,
         /// The cluster time.
         ct: Ct,
+        origin: Option<Arc<Event>>,
     },
     /// The snapshot of the listeners is complete.
     Ready {
@@ -443,31 +447,54 @@ impl Observer {
         }
     }
 
-    fn notify_added(&self, key: &str, member: &Member, ct: Ct, out: &mut Vec<Note>) {
+    fn notify_added(
+        &self,
+        key: &str,
+        member: &Member,
+        ct: Ct,
+        origin: Option<&Arc<Event>>,
+        out: &mut Vec<Note>,
+    ) {
         if !self.muted && !self.listeners.is_empty() {
             out.push(Note::Added {
                 to: Arc::clone(&self.shared),
                 key: key.to_owned(),
                 member: member.clone(),
                 ct,
+                origin: origin.cloned(),
             });
         }
     }
 
-    fn notify_changed(&self, key: &str, member: &Member, ct: Ct, out: &mut Vec<Note>) {
+    fn notify_changed(
+        &self,
+        key: &str,
+        member: &Member,
+        ct: Ct,
+        origin: Option<&Arc<Event>>,
+        changed: bool,
+        out: &mut Vec<Note>,
+    ) {
         if !self.muted && !self.listeners.is_empty() {
             out.push(Note::Changed {
                 to: Arc::clone(&self.shared),
                 key: key.to_owned(),
                 member: member.clone(),
                 ct,
+                origin: origin.cloned(),
+                changed,
             });
         }
     }
 
-    fn notify_removed(&self, key: &str, ct: Ct, out: &mut Vec<Note>) {
+    fn notify_removed(&self, key: &str, ct: Ct, origin: Option<&Arc<Event>>, out: &mut Vec<Note>) {
         if !self.muted && !self.listeners.is_empty() {
-            out.push(Note::Removed { to: Arc::clone(&self.shared), key: key.to_owned(), ct });
+            out.push(Note::Removed {
+                to: Arc::clone(&self.shared),
+                key: key.to_owned(),
+                ct,
+                origin: origin.cloned(),
+            });
         }
     }
 
@@ -504,7 +531,7 @@ impl Observer {
     fn serve(&mut self, listener: ListenerId, out: &mut Vec<Note>) {
         let to: Arc<[ListenerId]> = Arc::from(vec![listener]);
         for (key, member) in self.visible() {
-            out.push(Note::Added { to: Arc::clone(&to), key, member, ct: self.ct });
+            out.push(Note::Added { to: Arc::clone(&to), key, member, ct: self.ct, origin: None });
         }
         out.push(Note::Ready { to, ct: self.ct });
         self.listeners.push(listener);
@@ -757,7 +784,7 @@ impl Observer {
         }
     }
 
-    fn apply_event(&mut self, event: &Event, now_ms: u64, out: &mut Vec<Note>) {
+    fn apply_event(&mut self, event: &Arc<Event>, now_ms: u64, out: &mut Vec<Note>) {
         match self.kind {
             Kind::Filter => self.apply_filter(event, out),
             Kind::Window => self.apply_window(event, now_ms, out),
@@ -765,7 +792,7 @@ impl Observer {
         }
     }
 
-    fn apply_filter(&mut self, event: &Event, out: &mut Vec<Note>) {
+    fn apply_filter(&mut self, event: &Arc<Event>, out: &mut Vec<Note>) {
         let inside = match (&event.op, &event.post) {
             (Op::Delete, _) | (_, Post::Gone) => None,
             (_, Post::Unknown) => return,
@@ -810,16 +837,15 @@ impl Observer {
                         members.insert(event.key.clone(), member.clone());
                     }
                     self.log.added.push(event.key.clone());
-                    self.notify_added(&event.key, &member, event.ct, out);
+                    self.notify_added(&event.key, &member, event.ct, Some(event), out);
                 }
                 Some(previous) => {
-                    if !same_doc(&previous.doc, &doc) {
-                        let member = Member { id: previous.id, doc };
-                        if let Members::Filter(members) = &mut self.members {
-                            members.insert(event.key.clone(), member.clone());
-                        }
-                        self.notify_changed(&event.key, &member, event.ct, out);
+                    let changed = !same_doc(&previous.doc, &doc);
+                    let member = Member { id: previous.id, doc };
+                    if changed && let Members::Filter(members) = &mut self.members {
+                        members.insert(event.key.clone(), member.clone());
                     }
+                    self.notify_changed(&event.key, &member, event.ct, Some(event), changed, out);
                 }
             }
             return;
@@ -829,7 +855,7 @@ impl Observer {
                 members.remove(&event.key);
             }
             self.log.removed.push(event.key.clone());
-            self.notify_removed(&event.key, event.ct, out);
+            self.notify_removed(&event.key, event.ct, Some(event), out);
         }
     }
 
@@ -916,14 +942,14 @@ impl Observer {
             before.iter().map(|(key, member)| (key.as_str(), member)).collect();
         for (key, _) in before {
             if !after_keys.contains_key(key.as_str()) {
-                self.notify_removed(key, ct, out);
+                self.notify_removed(key, ct, None, out);
             }
         }
         for (key, member) in &after {
             match before_keys.get(key.as_str()) {
-                None => self.notify_added(key, member, ct, out),
+                None => self.notify_added(key, member, ct, None, out),
                 Some(previous) if !same_doc(&previous.doc, &member.doc) => {
-                    self.notify_changed(key, member, ct, out)
+                    self.notify_changed(key, member, ct, None, true, out)
                 }
                 Some(_) => {}
             }

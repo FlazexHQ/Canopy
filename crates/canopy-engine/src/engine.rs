@@ -144,6 +144,7 @@ enum ConnState {
 struct Conn {
     state: ConnState,
     last_inbound: u64,
+    watch: bool,
     address: Option<String>,
 }
 
@@ -386,8 +387,27 @@ impl Engine {
         self.metrics.connections += 1;
         self.conns.insert(
             conn,
-            Conn { state: ConnState::AwaitHello { deadline: now + 10_000 }, last_inbound: now, address },
+            Conn {
+                state: ConnState::AwaitHello { deadline: now + 10_000 },
+                last_inbound: now,
+                address,
+                watch: false,
+            },
         );
+    }
+
+    /// Opens a local change stream connection for a principal already verified by the transport.
+    pub fn open_watch(&mut self, conn: ConnId, address: Option<String>, principal: Principal, now: u64) {
+        self.open(conn, address, now);
+        if let Some(entry) = self.conns.get_mut(&conn) {
+            entry.watch = true;
+        }
+        self.welcome(conn, principal, None, Vec::new(), String::new(), None, now);
+        if let Some(sid) = self.sid_of(conn)
+            && let Some(state) = self.sessions.get_mut(&sid)
+        {
+            state.session.watch = true;
+        }
     }
 
     fn fail_conn(&mut self, conn: ConnId, code: u16, error: &CanopyError) {
@@ -529,7 +549,8 @@ impl Engine {
         let caps: Vec<String> = caps.into_iter().filter(|cap| cap == "batch" || cap == "diff").collect();
         if let Some((sid, seq)) = resume {
             let same = self.sessions.get(&sid).is_some_and(|state| {
-                state.principal.subject == principal.subject
+                !state.session.watch
+                    && state.principal.subject == principal.subject
                     && state.principal.context_key() == principal.context_key()
             });
             if same {
@@ -655,7 +676,7 @@ impl Engine {
             return;
         }
         state.session.disconnect(now);
-        if self.closing {
+        if self.closing || entry.watch {
             self.destroy(&sid, now);
         } else {
             state.drop_at = Some(now + self.config.resume_window_ms);
@@ -939,6 +960,17 @@ impl Engine {
                 return;
             }
         };
+        if state.session.watch && planned.kind != Kind::Filter {
+            self.nosub(
+                sid,
+                &id,
+                Some(&wire_error(
+                    ErrorCode::InvalidQuery,
+                    "Change streams require an event based read policy",
+                )),
+            );
+            return;
+        }
         let observer = self.acquire(planned.key.clone(), &planned);
         let listener = self.id();
         self.listeners.insert(listener, (sid.to_owned(), Arc::clone(&id)));
@@ -1013,25 +1045,55 @@ impl Engine {
         for note in notes.drain(..) {
             self.memo.clear();
             match note {
-                Note::Added { to, key, member, ct } => {
+                Note::Added { to, key, member, ct, origin } => {
                     for listener in to.iter() {
                         self.for_listener(*listener, |session, coll, sub, s, memo, out| {
                             let doc = project(sub.projection.as_ref(), &member.doc);
+                            if session.watch {
+                                if let Some(event) = &origin {
+                                    session.watch_event(event, event.op, Some(&doc), out);
+                                }
+                                return;
+                            }
                             session.added(coll, &key, &member.id, s, &doc, &sub.coverage, ct, memo, out);
                         });
                     }
                 }
-                Note::Changed { to, key, member, ct } => {
+                Note::Changed { to, key, member, ct, origin, changed } => {
                     for listener in to.iter() {
                         self.for_listener(*listener, |session, coll, sub, s, memo, out| {
                             let doc = project(sub.projection.as_ref(), &member.doc);
-                            session.changed(coll, &key, &member.id, s, &doc, &sub.coverage, ct, memo, out);
+                            if session.watch {
+                                if let Some(event) = &origin {
+                                    session.watch_event(event, event.op, Some(&doc), out);
+                                }
+                                return;
+                            }
+                            if changed {
+                                session.changed(
+                                    coll,
+                                    &key,
+                                    &member.id,
+                                    s,
+                                    &doc,
+                                    &sub.coverage,
+                                    ct,
+                                    memo,
+                                    out,
+                                );
+                            }
                         });
                     }
                 }
-                Note::Removed { to, key, ct, .. } => {
+                Note::Removed { to, key, ct, origin } => {
                     for listener in to.iter() {
                         self.for_listener(*listener, |session, coll, _, s, memo, out| {
+                            if session.watch {
+                                if let Some(event) = &origin {
+                                    session.watch_event(event, Op::Delete, None, out);
+                                }
+                                return;
+                            }
                             session.removed(coll, &key, s, ct, memo, out);
                         });
                     }
@@ -1362,6 +1424,11 @@ impl Engine {
         for (id, error) in failures {
             self.drop_sub(sid, &id, now);
             self.nosub(sid, &id, Some(&error));
+        }
+        if self.sessions.get(sid).is_some_and(|state| state.session.watch) && !moves.is_empty() {
+            let ids: Vec<_> = moves.into_iter().map(|(id, _)| id).collect();
+            self.resync(sid, &ids, reason, now);
+            return;
         }
         for (id, planned) in moves {
             let Some((old, listener)) = self
@@ -1739,15 +1806,31 @@ impl Engine {
                 Some((key, document))
             })
             .collect();
+        let mut seen = HashSet::new();
+        let mut duplicates = HashSet::new();
+        for event in pending.events.iter().filter(|event| event.coll == coll) {
+            if !seen.insert(&event.key) {
+                duplicates.insert(event.key.clone());
+            }
+        }
+        let mut uncertain = HashSet::new();
         for event in pending.events.iter_mut().filter(|e| e.coll == coll && e.op == Op::Update) {
             if matches!(event.post, Post::Unknown) {
-                event.post = match found.get(&event.key).cloned().and_then(Image::from_document) {
+                let image = found.get(&event.key).cloned().and_then(Image::from_document);
+                if image.is_none() || duplicates.contains(&event.key) {
+                    uncertain.extend(self.registry.candidates(event));
+                }
+                event.post = match image {
                     Some(image) => Post::Doc(Arc::new(image)),
                     None => Post::Gone,
                 };
             }
         }
-        if pending.lookups.is_empty() {
+        let complete = pending.lookups.is_empty();
+        if !uncertain.is_empty() {
+            self.resync_watches(&uncertain, now);
+        }
+        if complete {
             if let Some(batch) = self.pending.take() {
                 self.process(batch.events, now);
             }
@@ -1755,6 +1838,26 @@ impl Engine {
                 let Some(next) = self.queued.pop_front() else { break };
                 self.start_batch(next, now);
             }
+        }
+    }
+
+    fn resync_watches(&mut self, observers: &HashSet<ObserverId>, now: u64) {
+        let affected: Vec<_> = self
+            .sessions
+            .iter()
+            .filter(|(_, state)| state.session.watch)
+            .filter_map(|(sid, state)| {
+                let ids: Vec<_> = state
+                    .subs
+                    .iter()
+                    .filter(|(_, sub)| observers.contains(&sub.observer))
+                    .map(|(id, _)| Arc::clone(id))
+                    .collect();
+                (!ids.is_empty()).then(|| (sid.clone(), ids))
+            })
+            .collect();
+        for (sid, ids) in affected {
+            self.resync(&sid, &ids, "missing_update_image", now);
         }
     }
 
@@ -1911,7 +2014,9 @@ impl Engine {
         for (conn, entry) in &self.conns {
             match entry.state {
                 ConnState::AwaitHello { deadline } if deadline <= now => hello_late.push(*conn),
-                ConnState::Open { .. } if now.saturating_sub(entry.last_inbound) > silence => {
+                ConnState::Open { .. }
+                    if !entry.watch && now.saturating_sub(entry.last_inbound) > silence =>
+                {
                     silent.push(*conn)
                 }
                 _ => {}

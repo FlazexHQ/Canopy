@@ -77,6 +77,15 @@ impl Session {
         self
     }
 
+    /// Enables change streams through the gateway's realtime engine.
+    #[must_use]
+    pub fn with_realtime(mut self, engine: canopy_realtime::EngineSender) -> Self {
+        if let Some(reads) = &mut self.reads {
+            reads.enable_watch(engine, self.address.clone());
+        }
+        self
+    }
+
     /// Returns the authenticated identity while its credential is current.
     pub fn principal(&self) -> Option<&Principal> {
         self.principal.as_ref().filter(|principal| !self.expired(principal) && !self.revoked(principal))
@@ -124,6 +133,18 @@ impl Session {
                 reauthentication_required()
             }
             _ => error(13, "Unauthorized", format!("Command {command} requires authentication")),
+        };
+        let response = if command == "getMore" && self.principal.is_some() && self.principal().is_none() {
+            if let Some(reads) = &mut self.reads {
+                reads.clear();
+            }
+            if self.principal.as_ref().is_some_and(|principal| self.expired(principal)) {
+                reauthentication_required()
+            } else {
+                error(13, "Unauthorized", "Unauthorized")
+            }
+        } else {
+            response
         };
         let encode = if message.header.opcode == 2004 { encode_op_reply } else { encode_op_msg };
         encode(message.header.request_id, message.header.request_id, &response).map(Some)

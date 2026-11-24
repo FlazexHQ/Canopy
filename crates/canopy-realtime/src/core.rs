@@ -21,7 +21,7 @@ use crate::LogLevel;
 /// Something that happened, for the engine thread.
 pub(crate) enum Command {
     Open { conn: ConnId, address: String, shard: usize },
-    OpenLocal { conn: ConnId, address: Option<String>, deliver: Deliver },
+    OpenLocal { conn: ConnId, address: Option<String>, deliver: Deliver, principal: Option<Box<Principal>> },
     Message { conn: ConnId, text: String },
     Closed { conn: ConnId },
     Slow { conn: ConnId },
@@ -47,6 +47,8 @@ pub type Deliver = Box<dyn Fn(LocalFrame) + Send>;
 /// What the engine writes to an in-process connection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocalFrame {
+    /// A policy filtered change event on a local change stream.
+    Watch(canopy_engine::WatchFrame),
     /// A `canopy.v1` text frame.
     Text(String),
     /// The engine closed the connection with this close code and reason. Nothing follows.
@@ -81,8 +83,26 @@ impl EngineSender {
     /// connection limit. Dropping the connection closes it. Fails when the engine has stopped.
     pub fn connect(&self, address: Option<String>, deliver: Deliver) -> Result<LocalConnection, CanopyError> {
         let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
-        self.send(Command::OpenLocal { conn, address, deliver })
+        self.send(Command::OpenLocal { conn, address, deliver, principal: None })
             .map_err(|()| CanopyError::new(ErrorCode::Unavailable, "The realtime engine has stopped"))?;
+        Ok(LocalConnection { conn, engine: self.clone() })
+    }
+
+    /// Opens a local observer connection using the principal verified by the wire session.
+    pub fn connect_watch(
+        &self,
+        address: String,
+        principal: Principal,
+        deliver: Deliver,
+    ) -> Result<LocalConnection, CanopyError> {
+        let conn = self.next_conn.fetch_add(1, Ordering::Relaxed);
+        self.send(Command::OpenLocal {
+            conn,
+            address: Some(address),
+            deliver,
+            principal: Some(Box::new(principal)),
+        })
+        .map_err(|()| CanopyError::new(ErrorCode::Unavailable, "The realtime engine has stopped"))?;
         Ok(LocalConnection { conn, engine: self.clone() })
     }
 
@@ -247,12 +267,41 @@ where
             state.conn_address.insert(conn, address.clone());
             engine.open(conn, Some(address), now);
         }
-        Command::OpenLocal { conn, address, deliver } => {
+        Command::OpenLocal { conn, address, deliver, principal } => {
             state.local.insert(conn, deliver);
             if let Some(address) = &address {
                 state.conn_address.insert(conn, address.clone());
             }
-            engine.open(conn, address, now);
+            if let Some(principal) = principal {
+                if principal.subject == "anon"
+                    || principal.expires_at_ms.is_some_and(|expiry| expiry <= now)
+                    || router.options.auth.revocations.as_ref().is_some_and(|store| store.has(&principal))
+                {
+                    to_shard(
+                        state,
+                        conn,
+                        ShardMessage::Close {
+                            conn,
+                            code: close::UNAUTHORIZED,
+                            reason: "Unauthorized".to_owned(),
+                        },
+                    );
+                } else if router.options.stream_open.load(Ordering::Acquire) {
+                    engine.open_watch(conn, address, *principal, now);
+                } else {
+                    to_shard(
+                        state,
+                        conn,
+                        ShardMessage::Close {
+                            conn,
+                            code: close::SERVICE_RESTART,
+                            reason: "Change stream unavailable".to_owned(),
+                        },
+                    );
+                }
+            } else {
+                engine.open(conn, address, now);
+            }
         }
         Command::Message { conn, text } => engine.message(conn, &text, now),
         Command::Closed { conn } => {
@@ -386,6 +435,11 @@ where
 {
     for output in engine.take_outputs() {
         match output {
+            Output::Watch { conn, frame } => {
+                if let Some(deliver) = state.local.get(&conn) {
+                    deliver(LocalFrame::Watch(frame));
+                }
+            }
             Output::Frame { conn, frame } => to_shard(state, conn, ShardMessage::Frame { conn, frame }),
             Output::Text { conn, text } => to_shard(state, conn, ShardMessage::Text { conn, text }),
             Output::Session { conn, batch } => to_shard(state, conn, ShardMessage::Session { conn, batch }),
