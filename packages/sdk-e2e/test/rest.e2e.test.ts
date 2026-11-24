@@ -22,6 +22,14 @@ import {
   MongoClient,
 } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  seedSplitPolicy,
+  splitAudience,
+  splitDatabase,
+  splitIssuer,
+  splitSigningKey,
+  splitUrl,
+} from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const KEY = "pk_rest_reader"
@@ -49,7 +57,9 @@ const items = collection("items", {
 const totals = defineCollection("totals", { _id: t.string(), n: t.int() })
 
 suite("the REST reader against the composed server", () => {
-  const name = `canopy_rest_reader_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+  const name = splitUrl
+    ? splitDatabase
+    : `canopy_rest_reader_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   let mongo: MongoClient
   let canopy: Canopy
   let server: Server
@@ -80,15 +90,22 @@ suite("the REST reader against the composed server", () => {
       tokens.set(
         sub,
         await new SignJWT({})
-          .setProtectedHeader({ alg: "EdDSA", kid: "k1" })
-          .setIssuer(ISSUER)
-          .setAudience(AUDIENCE)
+          .setProtectedHeader({ alg: "EdDSA", kid: splitUrl ? "dev" : "k1" })
+          .setIssuer(splitUrl ? splitIssuer : ISSUER)
+          .setAudience(splitUrl ? splitAudience : AUDIENCE)
           .setSubject(sub)
           .setExpirationTime("10m")
-          .sign(pair.privateKey),
+          .sign(splitUrl ? await splitSigningKey() : pair.privateKey),
       )
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
+    if (splitUrl) {
+      await seedSplitPolicy(mongo, items, {
+        apikey: KEY,
+        authorization: `Bearer ${tokens.get("alice")}`,
+      })
+      url = splitUrl
+    }
     const docs = [
       ["a1", "alice", 1],
       ["a2", "alice", 2],
@@ -115,6 +132,7 @@ suite("the REST reader against the composed server", () => {
           }
         }),
       )
+    if (splitUrl) return
     canopy = await createCanopy(
       defineConfig({
         mongodb: { uri: MONGODB_URI ?? "", database: name, metaDatabase: `${name}_meta` },
@@ -132,6 +150,10 @@ suite("the REST reader against the composed server", () => {
   }, 120_000)
 
   afterAll(async () => {
+    if (splitUrl) {
+      await mongo?.close()
+      return
+    }
     await canopy?.close()
     server?.closeAllConnections()
     await new Promise<void>((resolve) => server?.close(() => resolve()))

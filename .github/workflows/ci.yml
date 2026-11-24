@@ -515,7 +515,7 @@ jobs:
     name: Docker images and compose stack
     # Temporary: MongoDB 8 refuses to start on the 7.0.0 kernel of ubuntu-24.04 runners (SERVER-121912); move back once they ship 7.0.14 or newer.
     runs-on: ubuntu-22.04
-    timeout-minutes: 40
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -524,6 +524,8 @@ jobs:
       - uses: ./.github/actions/canopy-js
       - name: Build the standalone gateway image
         run: docker build -f deploy/docker/canopyd.Dockerfile -t canopyd:ci .
+      - name: Build the control plane image
+        run: docker build -f deploy/docker/canopy-control.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-control:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
       - name: Build the canopy and Studio images and start the stack of separate services
@@ -543,8 +545,8 @@ jobs:
           bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
           deploy/compose/canopy-smoke.sh
       - name: Smoke test the split stack with the control plane stopped
-        env:
-          CANOPY_IMAGE: canopy:ci
+        env: &split-env
+          CANOPY_CONTROL_IMAGE: canopy-control:ci
           CANOPY_GATEWAY_IMAGE: canopyd:ci
           CANOPY_STUDIO_IMAGE: canopy-studio:ci
           CANOPY_PORT: "28080"
@@ -552,7 +554,93 @@ jobs:
           CANOPY_WIRE_PORT: "37018"
           CANOPY_METRICS_PORT: "29464"
           CANOPY_CONTROL_METRICS_PORT: "29465"
+          CANOPY_SPLIT_E2E_URL: http://localhost:28080
+          CANOPY_TEST_MONGODB_URI: mongodb://localhost:37017/?replicaSet=rs0&directConnection=true
+          CANOPY_PUBLISHABLE_KEYS: pk,pk_rest_reader,pk_rest_writes,pk_client_auth,pk_todo_e2e
+          CANOPY_SECRET_KEYS: sk_split_e2e
+          CANOPY_MASTER_KEY: split-stack-ci-master-key-0123456789abcdef
+          COMPOSE_FILE: ${{ github.workspace }}/deploy/compose/split.yaml:${{ github.workspace }}/deploy/compose/split-auth.yaml:${{ github.workspace }}/deploy/compose/split-e2e.yaml
         run: bun deploy/compose/split-smoke.ts --no-build
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - run: bun install --frozen-lockfile
+      - name: Install Chromium
+        working-directory: examples/todo-react
+        run: node node_modules/@playwright/test/cli.js install --with-deps chromium
+      - name: Start the split stack with built in auth
+        env: *split-env
+        run: CANOPY_PUBLISH_POLICIES=off docker compose up -d --no-build --wait --wait-timeout 240
+      - name: Run Studio through the split edge
+        env: *split-env
+        run: |
+          token="$(docker compose logs --no-color control | grep -oE 'canopy_setup_[A-Za-z0-9_-]+' | tail -n 1)"
+          test -n "$token"
+          cd apps/studio
+          STUDIO_E2E_SETUP_TOKEN="$token" node node_modules/@playwright/test/cli.js test
+      - name: Run SDK auth through the split edge
+        if: success() || failure()
+        env: *split-env
+        run: |
+          export CANOPY_PUBLISH_POLICIES=off CANOPY_CONTROL_CONFIG=./split-e2e-control.ts
+          docker compose up -d --no-build --wait --wait-timeout 120 control
+          bun run test:all --project sdk-e2e test/auth.e2e.test.ts
+      - name: Run SDK data and realtime through the split edge
+        if: success() || failure()
+        env: *split-env
+        run: |
+          export COMPOSE_FILE=deploy/compose/split.yaml:deploy/compose/split-e2e.yaml
+          export CANOPY_DB=sdk_split_e2e CANOPY_META_DB=sdk_split_meta
+          export CANOPY_GATEWAY_CONFIG="$RUNNER_TEMP/split-e2e-gateway.json"
+          bun -e '
+            import { generateKeyPairSync } from "node:crypto"
+            const { privateKey, publicKey } = generateKeyPairSync("ed25519")
+            const jwk = { ...publicKey.export({ format: "jwk" }), kid: "dev", alg: "EdDSA" }
+            await Bun.write(process.env.CANOPY_GATEWAY_CONFIG, JSON.stringify({
+              server: { metricsHost: "0.0.0.0" },
+              realtime: { checkpoints: "off" },
+              rateLimits: false,
+              auth: {
+                issuer: "https://todo-react.example/dev-issuer",
+                audience: "https://todo-react.example/api",
+                jwks: { keys: [jwk] }
+              }
+            }))
+            const value = JSON.stringify(privateKey.export({ format: "jwk" }))
+            console.log("::add-mask::" + value)
+            await Bun.write(process.env.RUNNER_TEMP + "/split-issuer-key", value)
+          '
+          export TODO_DEV_ISSUER_KEY="$(cat "$RUNNER_TEMP/split-issuer-key")"
+          docker compose up -d --no-build --wait --wait-timeout 120 data
+          bun run test:all --project sdk-e2e --maxWorkers 1 \
+            test/e2e.test.ts test/rest.e2e.test.ts test/rest-writes.e2e.test.ts \
+            test/mutations.e2e.test.ts test/offline.e2e.test.ts test/fallback.e2e.test.ts
+      - name: Run todo-react through the split edge
+        if: success() || failure()
+        env: *split-env
+        run: |
+          export COMPOSE_FILE=deploy/compose/split.yaml:deploy/compose/split-e2e.yaml
+          export CANOPY_DB=todo_split_e2e CANOPY_META_DB=todo_split_meta
+          export CANOPY_GATEWAY_CONFIG="$RUNNER_TEMP/split-e2e-gateway.json"
+          export TODO_DEV_ISSUER_KEY="$(cat "$RUNNER_TEMP/split-issuer-key")"
+          bun --conditions=@canopy/source examples/todo-react/e2e/seed-split.ts
+          docker compose up -d --no-build --wait --wait-timeout 120 data
+          cd examples/todo-react
+          node node_modules/@playwright/test/cli.js test
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: split-e2e-traces
+          path: |
+            apps/studio/test-results
+            examples/todo-react/test-results
+          retention-days: 7
+      - if: failure()
+        env: *split-env
+        run: docker compose logs --tail 100
+      - if: always()
+        env: *split-env
+        run: docker compose down --volumes
       - name: The sidecar and gateway images start and report ready
         run: |
           docker run -d --name sidecar --network canopy_default -p 127.0.0.1:18080:8080 \

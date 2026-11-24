@@ -2,11 +2,14 @@ import { generateKeyPairSync } from "node:crypto"
 import { defineConfig, devices } from "@playwright/test"
 
 const uri = process.env["CANOPY_TEST_MONGODB_URI"]
-const database = `todo_e2e_${process.env["TODO_E2E_RUN"] ?? "local"}`
+const splitUrl = process.env["CANOPY_SPLIT_E2E_URL"]
+const database = splitUrl
+  ? (process.env["CANOPY_DB"] ?? "app")
+  : `todo_e2e_${process.env["TODO_E2E_RUN"] ?? "local"}`
 const port = Number(process.env["TODO_E2E_PORT"] ?? "4317")
-const issuerKey = JSON.stringify(
-  generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }),
-)
+const issuerKey =
+  process.env["TODO_DEV_ISSUER_KEY"] ??
+  JSON.stringify(generateKeyPairSync("ed25519").privateKey.export({ format: "jwk" }))
 const server = (listen: number, extra: Record<string, string>) => ({
   command: "node --conditions=@canopy/source src/server.ts",
   url: `http://127.0.0.1:${listen}/`,
@@ -36,7 +39,7 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   reporter: "list",
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL: splitUrl ?? `http://127.0.0.1:${port}`,
     trace: "retain-on-failure",
     ...devices["Desktop Chrome"],
   },
@@ -44,6 +47,8 @@ export default defineConfig({
   ...(uri === undefined
     ? {}
     : {
-        webServer: [server(port, {}), server(port + 1, { TODO_DISABLE_WEBSOCKETS: "1" })],
+        webServer: splitUrl
+          ? server(port, { CANOPY_META_DB: process.env["CANOPY_META_DB"] ?? "canopy" })
+          : [server(port, {}), server(port + 1, { TODO_DISABLE_WEBSOCKETS: "1" })],
       }),
 })

@@ -159,8 +159,12 @@ test("falls back to SSE when WebSockets are blocked and stays live with WebSocke
   browser,
 }) => {
   const metadata = test.info().config.metadata as { fallbackPort: number }
-  const blocked = `http://127.0.0.1:${metadata.fallbackPort}`
-  const alice = await openAs(await newContext(browser), "alice", blocked)
+  const context = await newContext(browser)
+  const splitUrl = process.env["CANOPY_SPLIT_E2E_URL"]
+  if (splitUrl)
+    await context.routeWebSocket("**/realtime/v1", (socket) => socket.close({ code: 1006 }))
+  const blocked = splitUrl ?? `http://127.0.0.1:${metadata.fallbackPort}`
+  const alice = await openAs(context, "alice", blocked)
   const bob = await openAs(await newContext(browser), "bob")
   await add(alice, "Over SSE")
   await expect(titles(bob)).toHaveText(["Over SSE"])

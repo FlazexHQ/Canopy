@@ -13,6 +13,14 @@ import {
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import {
+  seedSplitPolicy,
+  splitAudience,
+  splitDatabase,
+  splitIssuer,
+  splitSigningKey,
+  splitUrl,
+} from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -39,21 +47,21 @@ async function until(test: () => boolean, timeoutMs = 10_000): Promise<void> {
 }
 
 suite("client against the realtime engine", () => {
-  const dbName = `canopy_client_${process.pid}`
+  const dbName = splitUrl ? splitDatabase : `canopy_client_${process.pid}`
   let mongo: MongoClient
   let url: string
-  let stop: () => Promise<void>
+  let stop: (() => Promise<void>) | undefined
   let token: string
 
   beforeAll(async () => {
     const { privateKey, publicKey } = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(publicKey)), kid: "k", alg: "EdDSA" }
     token = await new SignJWT({ sub: "alice" })
-      .setProtectedHeader({ alg: "EdDSA", kid: "k" })
-      .setIssuer("iss")
-      .setAudience("aud")
+      .setProtectedHeader({ alg: "EdDSA", kid: splitUrl ? "dev" : "k" })
+      .setIssuer(splitUrl ? splitIssuer : "iss")
+      .setAudience(splitUrl ? splitAudience : "aud")
       .setExpirationTime("1h")
-      .sign(privateKey)
+      .sign(splitUrl ? await splitSigningKey() : privateKey)
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
     const todos = collection("todos", {
@@ -61,6 +69,11 @@ suite("client against the realtime engine", () => {
       realtime: true,
       policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
     })
+    if (splitUrl) {
+      await seedSplitPolicy(mongo, todos, { apikey: "pk", authorization: `Bearer ${token}` })
+      url = splitUrl
+      return
+    }
     const realtime = await createRealtime({
       engine: TEST_ENGINE,
       mongo,
@@ -83,7 +96,11 @@ suite("client against the realtime engine", () => {
   })
 
   afterAll(async () => {
-    await stop()
+    if (splitUrl) {
+      await mongo?.close()
+      return
+    }
+    await stop?.()
     await mongo.db(dbName).dropDatabase()
     await mongo.close()
   })

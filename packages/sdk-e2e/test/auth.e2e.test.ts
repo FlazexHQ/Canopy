@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
@@ -9,6 +11,7 @@ import { AuthError, type CanopyAuth, createAuth } from "canopy.js/auth"
 import { memoryPersister } from "canopy.js/persist"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { seedSplitPolicy, splitDatabase, splitUrl } from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const KEY = "pk_client_auth"
@@ -35,6 +38,7 @@ suite("@canopy/client/auth against built in auth", () => {
   let server: Server
   let url: string
   let failHook = false
+  let sessionAuthorization: string | null = null
   const mails: { to: string; subject: string; body: string }[] = []
   const logger = {
     debug() {},
@@ -59,6 +63,7 @@ suite("@canopy/client/auth against built in auth", () => {
       const headers = new Headers(init?.headers)
       headers.set("x-forwarded-for", address)
       calls.push(String(input))
+      sessionAuthorization = headers.get("authorization") ?? sessionAuthorization
       return fetch(input, { ...init, headers })
     }) as typeof fetch
     return Object.assign(wrapped, { calls })
@@ -66,7 +71,25 @@ suite("@canopy/client/auth against built in auth", () => {
   const verifiedUser = async (email: string, password: string): Promise<void> => {
     const handle = createAuth({ url, fetch: fetcher() })
     expect(await handle.signUp({ email, password })).toEqual({ verification: "sent" })
-    await until(() => mails.some((mail) => mail.to === email))
+    await until(() => {
+      if (splitUrl) {
+        const file = process.env["CANOPY_SPLIT_E2E_CONTROL_LOG"]
+        const logs = file
+          ? readFileSync(file, "utf8")
+          : execFileSync(
+              "docker",
+              ["compose", "logs", "--no-color", "--no-log-prefix", "control"],
+              { encoding: "utf8" },
+            )
+        for (const line of logs.split(/\r?\n/)) {
+          if (!line.startsWith("{") || !line.endsWith("}")) continue
+          const mail = JSON.parse(line) as { to?: string; body?: string }
+          if (mail.to === email && typeof mail.body === "string")
+            mails.push({ to: email, subject: "", body: mail.body })
+        }
+      }
+      return mails.some((mail) => mail.to === email)
+    })
     const link =
       /https?:\/\/\S+/.exec(mails.findLast((mail) => mail.to === email)?.body ?? "")?.[0] ?? ""
     expect((await fetch(link, { redirect: "manual" })).status).toBeLessThan(400)
@@ -75,6 +98,11 @@ suite("@canopy/client/auth against built in auth", () => {
   beforeAll(async () => {
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
+    if (splitUrl) {
+      await seedSplitPolicy(mongo, notes, { apikey: process.env["CANOPY_SECRET_KEYS"] ?? "" })
+      url = splitUrl
+      return
+    }
     let handler: ((request: IncomingMessage, response: ServerResponse) => void) | undefined
     server = createServer((request, response) => handler?.(request, response))
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -102,6 +130,10 @@ suite("@canopy/client/auth against built in auth", () => {
   })
 
   afterAll(async () => {
+    if (splitUrl) {
+      await mongo?.close()
+      return
+    }
     await canopy?.close({ drainMs: 0 })
     // Node closes idle keep-alive connections on close(), Deno does not.
     server.closeAllConnections()
@@ -159,6 +191,8 @@ suite("@canopy/client/auth against built in auth", () => {
   it("surfaces a failing claims hook as AuthHookFailedError", async () => {
     await verifiedUser("cy@example.com", "cy password 12")
     const handle = createAuth({ url, fetch: fetcher() })
+    const hooks = mongo.db(splitDatabase).collection("sdk_e2e_hooks")
+    if (splitUrl) await hooks.insertOne({ fail: true })
     failHook = true
     try {
       const error = await handle
@@ -169,6 +203,7 @@ suite("@canopy/client/auth against built in auth", () => {
       expect(isCanopyError(error, "CANOPY_AUTH_HOOK_FAILED")).toBe(true)
     } finally {
       failHook = false
+      if (splitUrl) await hooks.deleteMany({})
     }
     expect(await handle.getToken()).not.toBeNull()
   })
@@ -196,7 +231,7 @@ suite("@canopy/client/auth against built in auth", () => {
     })
     await other.signOut()
     await mongo
-      .db(names.database)
+      .db(splitUrl ? splitDatabase : names.database)
       .collection("notes")
       .insertMany([
         { _id: "e1" as never, ownerId: eve.id },
@@ -217,7 +252,18 @@ suite("@canopy/client/auth against built in auth", () => {
       await handle.signInWithPassword({ email: "fay@example.com", password: "fay password 1" })
       await until(() => state?.status === "ready" && state.data[0]?.["_id"] === "f1")
       expect(state?.data.map((doc) => doc["_id"])).toEqual(["f1"])
-      expect(await canopy.auth?.users.revokeSessions(fay.id)).toBeGreaterThanOrEqual(1)
+      if (splitUrl) {
+        if (sessionAuthorization === null)
+          throw new Error("Missing authorization for Fay's session")
+        const response = await fetch(new URL("/auth/v1/revoke-sessions", url), {
+          method: "POST",
+          headers: { authorization: sessionAuthorization, "content-type": "application/json" },
+          body: "{}",
+        })
+        expect(response.status).toBe(200)
+      } else {
+        expect(await canopy.auth?.users.revokeSessions(fay.id)).toBeGreaterThanOrEqual(1)
+      }
       await until(() => handle.user === undefined && (state?.data.length ?? 1) === 0, 10_000)
       expect(await handle.getToken()).toBeNull()
     } finally {

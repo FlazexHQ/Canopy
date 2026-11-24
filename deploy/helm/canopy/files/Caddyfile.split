@@ -7,6 +7,8 @@
 		respond "ok" 200
 	}
 
+	import /etc/caddy/extra/*.caddy
+
 	@control path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin /admin/*
 	handle @control {
 		reverse_proxy {$CANOPY_CONTROL_UPSTREAM:control:8080}

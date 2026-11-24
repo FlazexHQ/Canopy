@@ -16,6 +16,14 @@ import { memoryPersister } from "canopy.js/persist"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  seedSplitPolicy,
+  splitAudience,
+  splitDatabase,
+  splitIssuer,
+  splitSigningKey,
+  splitUrl,
+} from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -52,10 +60,12 @@ const todos = collection("todos", {
 })
 
 suite("offline queue and persistence", () => {
-  const dbName = `canopy_client_off_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+  const dbName = splitUrl
+    ? splitDatabase
+    : `canopy_client_off_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   let mongo: MongoClient
   let url: string
-  let stop: () => Promise<void>
+  let stop: (() => Promise<void>) | undefined
   const tokens: Record<string, string> = {}
   const clients: CanopyClient[] = []
   const unreachable = "http://127.0.0.1:9"
@@ -80,13 +90,21 @@ suite("offline queue and persistence", () => {
     const jwk = { ...(await exportJWK(publicKey)), kid: "k", alg: "EdDSA" }
     for (const user of ["alice", "bob"])
       tokens[user] = await new SignJWT({ sub: user })
-        .setProtectedHeader({ alg: "EdDSA", kid: "k" })
-        .setIssuer("iss")
-        .setAudience("aud")
+        .setProtectedHeader({ alg: "EdDSA", kid: splitUrl ? "dev" : "k" })
+        .setIssuer(splitUrl ? splitIssuer : "iss")
+        .setAudience(splitUrl ? splitAudience : "aud")
         .setExpirationTime("1h")
-        .sign(privateKey)
+        .sign(splitUrl ? await splitSigningKey() : privateKey)
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
+    if (splitUrl) {
+      await seedSplitPolicy(mongo, todos, {
+        apikey: "pk",
+        authorization: `Bearer ${tokens["alice"]}`,
+      })
+      url = splitUrl
+      return
+    }
     const set = createPolicySet([todos])
     const realtime = await createRealtime({
       engine: TEST_ENGINE,
@@ -116,7 +134,11 @@ suite("offline queue and persistence", () => {
   })
 
   afterAll(async () => {
-    await stop()
+    if (splitUrl) {
+      await mongo?.close()
+      return
+    }
+    await stop?.()
     await mongo.db(dbName).dropDatabase()
     await mongo.db(`${dbName}_meta`).dropDatabase()
     await mongo.close()

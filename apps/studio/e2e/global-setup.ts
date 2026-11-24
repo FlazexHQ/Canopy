@@ -43,6 +43,13 @@ function waitForToken(child: ChildProcess, log: string[]): Promise<string> {
 export default async function globalSetup(): Promise<(() => Promise<void>) | undefined> {
   const uri = process.env["CANOPY_TEST_MONGODB_URI"]
   if (uri === undefined) return undefined
+  if (process.env["CANOPY_SPLIT_E2E_URL"]) {
+    const database = process.env["CANOPY_DB"] ?? "app"
+    await using mongo = new MongoClient(uri)
+    await mongo.db(database).collection<{ _id: string }>("todos").insertMany(TODOS)
+    process.env["STUDIO_E2E_DATABASE"] = database
+    return undefined
+  }
   if (!existsSync(here("../../../packages/studio/app/index.html")))
     throw new Error("Studio is not built. Run `bun --filter @canopy/studio-app build` first.")
   const port = process.env["STUDIO_E2E_PORT"] ?? "4410"

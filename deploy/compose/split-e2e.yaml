@@ -1,0 +1,6 @@
+services:
+  edge:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./split-e2e.caddy:/etc/caddy/extra/e2e.caddy:ro

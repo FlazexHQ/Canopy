@@ -24,6 +24,14 @@ import { restPolling } from "canopy.js/rest-polling"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { MongoClient } from "mongodb"
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import {
+  seedSplitPolicy,
+  splitAudience,
+  splitDatabase,
+  splitIssuer,
+  splitSigningKey,
+  splitUrl,
+} from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 
@@ -75,11 +83,13 @@ const todos = collection("todos", {
 })
 
 suite("fallback transports and fallback syncing", () => {
-  const dbName = `canopy_client_fb_${process.pid}_${Math.floor(Math.random() * 1e6)}`
+  const dbName = splitUrl
+    ? splitDatabase
+    : `canopy_client_fb_${process.pid}_${Math.floor(Math.random() * 1e6)}`
   let mongo: MongoClient
   let url: string
   let token: string
-  let stop: () => Promise<void>
+  let stop: (() => Promise<void>) | undefined
   const statuses: number[] = []
   const clients: CanopyClient[] = []
 
@@ -114,13 +124,18 @@ suite("fallback transports and fallback syncing", () => {
     const { privateKey, publicKey } = await generateKeyPair("EdDSA", { crv: "Ed25519" })
     const jwk = { ...(await exportJWK(publicKey)), kid: "k", alg: "EdDSA" }
     token = await new SignJWT({ sub: "alice" })
-      .setProtectedHeader({ alg: "EdDSA", kid: "k" })
-      .setIssuer("iss")
-      .setAudience("aud")
+      .setProtectedHeader({ alg: "EdDSA", kid: splitUrl ? "dev" : "k" })
+      .setIssuer(splitUrl ? splitIssuer : "iss")
+      .setAudience(splitUrl ? splitAudience : "aud")
       .setExpirationTime("1h")
-      .sign(privateKey)
+      .sign(splitUrl ? await splitSigningKey() : privateKey)
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
+    if (splitUrl) {
+      await seedSplitPolicy(mongo, todos, { apikey: "pk", authorization: `Bearer ${token}` })
+      url = splitUrl
+      return
+    }
     const jwt = { jwks: { keys: [jwk] }, issuer: "iss", audience: "aud" }
     const set = createPolicySet([todos])
     const rest = createRestHandler({
@@ -162,7 +177,11 @@ suite("fallback transports and fallback syncing", () => {
   })
 
   afterAll(async () => {
-    await stop()
+    if (splitUrl) {
+      await mongo?.close()
+      return
+    }
+    await stop?.()
     await mongo.db(dbName).dropDatabase()
     await mongo.db(`${dbName}_meta`).dropDatabase()
     await mongo.close()

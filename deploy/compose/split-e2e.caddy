@@ -1,0 +1,14 @@
+@todo path / /app.js /styles.css /dev/token
+handle @todo {
+	reverse_proxy host.docker.internal:4317
+}
+
+@sdk_auth {
+	path /auth/v1/*
+	header X-Forwarded-For 10.7.0.*
+}
+handle @sdk_auth {
+	reverse_proxy control:8080 {
+		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
+	}
+}

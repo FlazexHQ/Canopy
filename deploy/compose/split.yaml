@@ -70,10 +70,10 @@ services:
       retries: 24
 
   control:
-    image: ${CANOPY_IMAGE:-canopy:dev}
+    image: ${CANOPY_CONTROL_IMAGE:-canopy-control:dev}
     build:
       context: ../..
-      dockerfile: deploy/docker/canopy.Dockerfile
+      dockerfile: deploy/docker/canopy-control.Dockerfile
       additional_contexts:
         canopyjs: ../../../Canopy.js
     restart: unless-stopped
@@ -92,23 +92,19 @@ services:
       interval: 5s
       timeout: 5s
       retries: 24
-    entrypoint:
-      ["bun", "--preload", "/app/publish-policies.ts", "packages/server/dist/bin/canopy-server.js"]
     command: ["--config", "/app/canopy.config.ts"]
     environment:
       <<: *common
-      CANOPY_ROLE: control
       CANOPY_NODE_ID: control-1
       CANOPY_ENV: ${CANOPY_ENV:-development}
       CANOPY_MASTER_KEY: ${CANOPY_MASTER_KEY:-}
       CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-}
-      CANOPY_POLICIES: ""
+      CANOPY_POLICIES: /app/policies
       CANOPY_PUBLISH_POLICIES: ${CANOPY_PUBLISH_POLICIES:-on}
     ports:
       - "127.0.0.1:${CANOPY_CONTROL_METRICS_PORT:-9465}:9464"
     volumes:
       - ${CANOPY_POLICY_DIR:-./policies}:/app/policies:ro
-      - ./publish-policies.ts:/app/publish-policies.ts:ro
       - ${CANOPY_CONTROL_CONFIG:-./split-control.ts}:/app/canopy.config.ts:ro
 
   studio:
