@@ -12,11 +12,15 @@ import type { CreateCanopyOptions } from "./canopy.ts"
  * `realtime` serves realtime connections. It keeps the transactional write path for realtime mutations, but
  * runs no admin API, no Studio, no file storage and no webhooks, so none of them runs twice.
  *
+ * `control` is the control plane next to a data plane that serves every data route: built in auth, the JSON
+ * Web Key Set, the admin API, webhooks, migrations and policy publishing. It answers no Data API, GraphQL,
+ * storage, realtime or Studio request, so a failing control plane never takes a data route down with it.
+ *
  * A front door routes each path to the process that owns it, so one failing service leaves the others up.
  */
-export type ServerRole = "all" | "api" | "realtime"
+export type ServerRole = "all" | "api" | "realtime" | "control"
 
-const ROLES: readonly ServerRole[] = ["all", "api", "realtime"]
+const ROLES: readonly ServerRole[] = ["all", "api", "realtime", "control"]
 
 /** Reads `CANOPY_ROLE`, which defaults to `all`. */
 export function parseServerRole(value: string | undefined): ServerRole {
@@ -39,6 +43,20 @@ export interface RolePlan {
 
 function isRealtimePath(pathname: string): boolean {
   return pathname === "/realtime/v1" || pathname.startsWith("/realtime/v1/")
+}
+
+function isUnder(pathname: string, base: string): boolean {
+  return pathname === base || pathname.startsWith(`${base}/`)
+}
+
+function isControlPath(pathname: string): boolean {
+  return (
+    isUnder(pathname, "/auth/v1") ||
+    pathname === "/.well-known/jwks.json" ||
+    isUnder(pathname, "/admin/v1") ||
+    pathname === "/healthz" ||
+    isUnder(pathname, "/readyz")
+  )
 }
 
 /**
@@ -84,6 +102,11 @@ export function planServerRole(
           studio: false,
           serves: (path) => isRealtimePath(path) || path === "/healthz" || path === "/readyz",
         },
+      }
+    case "control":
+      return {
+        config: amendConfig(config, { realtime: false }),
+        options: { studio: false, serves: isControlPath },
       }
   }
 }

@@ -36,10 +36,11 @@ describe("parseServerRole", () => {
     expect(parseServerRole("all")).toBe("all")
     expect(parseServerRole("api")).toBe("api")
     expect(parseServerRole(" realtime\n")).toBe("realtime")
+    expect(parseServerRole("control")).toBe("control")
   })
 
   it("refuses unknown roles and other casings with a config error naming the variable", () => {
-    for (const value of ["studio", "edge", "API", "Realtime", "api,realtime"]) {
+    for (const value of ["studio", "edge", "API", "Realtime", "Control", "api,realtime", "data"]) {
       let thrown: unknown
       try {
         parseServerRole(value)
@@ -101,30 +102,65 @@ describe("planServerRole", () => {
     expect(Object.keys(config.webhooks.triggers)).toEqual(["created"])
   })
 
+  it("keeps auth, the admin API and webhooks for the control role, with realtime and Studio off", () => {
+    const config = resolved()
+    const plan = planServerRole(config, "control", "http://realtime:8080")
+    expect(isResolvedConfig(plan.config)).toBe(true)
+    expect(plan.config.realtime).toBe(false)
+    expect(Object.keys(plan.config.webhooks.triggers)).toEqual(["created"])
+    expect(Object.keys(plan.config.webhooks.schedules)).toEqual(["nightly"])
+    expect(plan.options.admin).toBeUndefined()
+    expect(plan.options.studio).toBe(false)
+    expect(plan.options.realtimeUrl).toBeUndefined()
+    expect(config.realtime).not.toBe(false)
+  })
+
+  it("keeps auth, the admin API and webhooks for the control role, with realtime and Studio off", () => {
+    const config = resolved()
+    const plan = planServerRole(config, "control", "http://realtime:8080")
+    expect(isResolvedConfig(plan.config)).toBe(true)
+    expect(plan.config.realtime).toBe(false)
+    expect(Object.keys(plan.config.webhooks.triggers)).toEqual(["created"])
+    expect(Object.keys(plan.config.webhooks.schedules)).toEqual(["nightly"])
+    expect(plan.options.admin).toBeUndefined()
+    expect(plan.options.studio).toBe(false)
+    expect(plan.options.realtimeUrl).toBeUndefined()
+    expect(config.realtime).not.toBe(false)
+  })
+
   it("refuses the realtime role when the config turns realtime off", () => {
     expect(() => planServerRole(resolved({ realtime: false }), "realtime")).toThrow(ConfigError)
   })
 
   it.each([
-    ["/realtime/v1", false, true],
-    ["/realtime/v1/sse", false, true],
-    ["/realtime/v1/poll", false, true],
-    ["/realtime/v10", true, false],
-    ["/studio", false, false],
-    ["/studio/assets/app.js", false, false],
-    ["/studiox", true, false],
-    ["/rest/v1/notes", true, false],
-    ["/graphql", true, false],
-    ["/graphql/v1", true, false],
-    ["/auth/v1/session", true, false],
-    ["/.well-known/jwks.json", true, false],
-    ["/healthz", true, true],
-    ["/readyz", true, true],
-    ["/readyz/details", true, false],
-  ])("limits %s by role", (path, api, realtime) => {
+    ["/realtime/v1", false, true, false],
+    ["/realtime/v1/sse", false, true, false],
+    ["/realtime/v1/poll", false, true, false],
+    ["/realtime/v10", true, false, false],
+    ["/studio", false, false, false],
+    ["/studio/assets/app.js", false, false, false],
+    ["/studiox", true, false, false],
+    ["/rest/v1/notes", true, false, false],
+    ["/graphql", true, false, false],
+    ["/graphql/v1", true, false, false],
+    ["/auth/v1/session", true, false, true],
+    ["/.well-known/jwks.json", true, false, true],
+    ["/healthz", true, true, true],
+    ["/readyz", true, true, true],
+    ["/readyz/details", true, false, true],
+
+    ["/admin/v1/accounts", true, false, true],
+    ["/admin/v1", true, false, true],
+    ["/admin/v10", true, false, false],
+    ["/auth/v10", true, false, false],
+    ["/storage/v1/object/files/a.txt", true, false, false],
+    ["/rest/v1", true, false, false],
+    ["/metrics", true, false, false],
+  ])("limits %s by role", (path, api, realtime, control) => {
     const config = resolved()
     expect(planServerRole(config, "all").options.serves).toBeUndefined()
     expect(planServerRole(config, "api").options.serves?.(path)).toBe(api)
     expect(planServerRole(config, "realtime").options.serves?.(path)).toBe(realtime)
+    expect(planServerRole(config, "control").options.serves?.(path)).toBe(control)
   })
 })
