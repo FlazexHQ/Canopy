@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url"
-import { MONGODB_URI } from "@canopy/testing"
+import { MONGODB_URI, TEST_ENGINE } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { describe, expect, it } from "vitest"
 import { recordStorage } from "./conformance/record.ts"
@@ -12,13 +12,21 @@ const DIR = fileURLToPath(new URL("../../../conformance/http/storage", import.me
  * files hold. Regenerate with `bun run vectors:http-storage`.
  */
 describe.skipIf(MONGODB_URI === undefined)("conformance/http/storage", () => {
-  it("is what the TypeScript Storage endpoint answers", async () => {
-    const client = new MongoClient(MONGODB_URI ?? "", { serverSelectionTimeoutMS: 10_000 })
-    await client.connect()
-    try {
-      expect(await recordStorage({ client, dir: DIR, check: true })).toEqual([])
-    } finally {
-      await client.close()
-    }
-  }, 300_000)
+  const name =
+    TEST_ENGINE === "ts"
+      ? "is what the TypeScript Storage endpoint answers"
+      : "TypeScript oracle replay requires CANOPY_TEST_ENGINE=ts"
+  it.skipIf(TEST_ENGINE !== "ts")(
+    name,
+    async () => {
+      const client = new MongoClient(MONGODB_URI ?? "", { serverSelectionTimeoutMS: 10_000 })
+      await client.connect()
+      try {
+        expect(await recordStorage({ client, dir: DIR, check: true })).toEqual([])
+      } finally {
+        await client.close()
+      }
+    },
+    300_000,
+  )
 })

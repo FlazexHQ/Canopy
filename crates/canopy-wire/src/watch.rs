@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use canopy_data::{ReadPath, validate_collection_name};
-use canopy_engine::{Op, Principal, close};
+use canopy_engine::{Ct, Op, Principal, close};
 use canopy_matcher::{CompiledFilter, compile_filter};
 use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, Timestamp, doc, oid::ObjectId};
 use canopy_policy::PolicyEngine;
@@ -80,6 +80,7 @@ pub(crate) struct Watch {
     frames: mpsc::Receiver<Buffered>,
     policy: Arc<PolicyEngine>,
     sequence: u64,
+    opened_at: Ct,
     filter: Option<CompiledFilter>,
     token: Document,
     pub(crate) collection: String,
@@ -104,6 +105,17 @@ impl Watch {
         if principal.subject == "anon" || !policy.is_realtime(collection) {
             return Err(unauthorized());
         }
+        let duration = Duration::from_millis(
+            number(body, "maxTimeMS")?.filter(|ms| *ms > 0).unwrap_or(OPEN_TIMEOUT).min(OPEN_TIMEOUT),
+        );
+        let deadline = tokio::time::Instant::now() + duration;
+        let open_timeout = || error(50, "MaxTimeMSExpired", "Change stream did not become ready");
+        let reply = tokio::time::timeout_at(deadline, path.database().run_command(doc! { "ping": 1 }))
+            .await
+            .map_err(|_| open_timeout())?
+            .map_err(|_| error(6, "HostUnreachable", "MongoDB is unavailable"))?;
+        let time = reply.get_timestamp("operationTime").map_err(|_| lost())?;
+        let opened_at = Ct::from_parts(time.time, time.increment);
         let (send, frames) = mpsc::channel(128);
         let sender = Mutex::new(Some(send));
         let budget = Arc::new(Semaphore::new(QUEUE_BYTES));
@@ -129,6 +141,7 @@ impl Watch {
             frames,
             policy,
             sequence: 0,
+            opened_at,
             filter,
             token: token(),
             collection: collection.to_owned(),
@@ -137,10 +150,7 @@ impl Watch {
         let mut query = String::from("{\"t\":\"sub\",\"id\":\"watch\",\"c\":");
         write_json_string(&mut query, collection);
         query.push_str(",\"q\":{}}");
-        let duration = Duration::from_millis(
-            number(body, "maxTimeMS")?.filter(|ms| *ms > 0).unwrap_or(OPEN_TIMEOUT).min(OPEN_TIMEOUT),
-        );
-        tokio::time::timeout(duration, async {
+        tokio::time::timeout_at(deadline, async {
             let welcome = cursor.opening_frame().await?;
             if text(&welcome, "t")? != "welcome" || !cursor.connection.send(query) {
                 return Err(lost());
@@ -152,7 +162,7 @@ impl Watch {
             Ok(())
         })
         .await
-        .map_err(|_| error(50, "MaxTimeMSExpired", "Change stream did not become ready"))??;
+        .map_err(|_| open_timeout())??;
         cursor.check_policy(path)?;
         Ok(cursor)
     }
@@ -223,6 +233,9 @@ impl Watch {
                 return Err(lost());
             }
             self.sequence = frame.seq;
+            if frame.ct <= self.opened_at {
+                continue;
+            }
             let mut image = Document::from_reader(frame.image.as_slice()).map_err(|_| lost())?;
             let id = image.remove("id").ok_or_else(lost)?;
             self.token = token();

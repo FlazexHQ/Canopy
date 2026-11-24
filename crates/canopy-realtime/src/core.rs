@@ -78,7 +78,7 @@ impl EngineSender {
 
     /// Opens a connection to the engine inside this process, as a WebSocket client would open one: the caller
     /// sends `canopy.v1` client frames with [`LocalConnection::send`] and the engine's frames arrive through
-    /// `deliver`, one by one and never batched. The connection authenticates with its own `hello`, so DLS
+    /// `deliver`, with the sequenced frames of an engine dispatch grouped together. The connection authenticates with its own `hello`, so DLS
     /// applies to it exactly as to a socket. `address` is the client address counted by the anonymous
     /// connection limit. Dropping the connection closes it. Fails when the engine has stopped.
     pub fn connect(&self, address: Option<String>, deliver: Deliver) -> Result<LocalConnection, CanopyError> {
@@ -190,10 +190,32 @@ pub(crate) fn now_ms() -> u64 {
         .map_or(0, |elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
 }
 
+struct LocalDelivery {
+    deliver: Deliver,
+    batch: Option<Vec<String>>,
+}
+
+impl LocalDelivery {
+    fn flush(&mut self) {
+        let Some(batch) = self.batch.as_mut() else { return };
+        let text = match batch.len() {
+            0 => return,
+            1 => batch.pop().unwrap_or_default(),
+            _ => {
+                let text = format!("{{\"t\":\"batch\",\"m\":[{}]}}", batch.join(","));
+                batch.clear();
+                text
+            }
+        };
+        (self.deliver)(LocalFrame::Text(text));
+    }
+}
+
 struct State {
     conn_shard: HashMap<ConnId, usize>,
     conn_address: HashMap<ConnId, String>,
-    local: HashMap<ConnId, Deliver>,
+    local: HashMap<ConnId, LocalDelivery>,
+    local_pending: Vec<ConnId>,
     anonymous: HashMap<ConnId, String>,
     per_address: HashMap<String, usize>,
     outgoing: Vec<Vec<ShardMessage>>,
@@ -211,6 +233,7 @@ where
         conn_shard: HashMap::new(),
         conn_address: HashMap::new(),
         local: HashMap::new(),
+        local_pending: Vec::new(),
         anonymous: HashMap::new(),
         per_address: HashMap::new(),
         outgoing: (0..router.shards.len()).map(|_| Vec::new()).collect(),
@@ -268,7 +291,7 @@ where
             engine.open(conn, Some(address), now);
         }
         Command::OpenLocal { conn, address, deliver, principal } => {
-            state.local.insert(conn, deliver);
+            state.local.insert(conn, LocalDelivery { deliver, batch: principal.is_none().then(Vec::new) });
             if let Some(address) = &address {
                 state.conn_address.insert(conn, address.clone());
             }
@@ -409,13 +432,25 @@ fn release_anonymous(state: &mut State, conn: ConnId) {
 }
 
 fn to_shard(state: &mut State, conn: ConnId, message: ShardMessage) {
-    if let Some(deliver) = state.local.get(&conn) {
+    if let Some(local) = state.local.get_mut(&conn) {
         match message {
-            ShardMessage::Frame { frame, .. } => deliver(LocalFrame::Text(frame.text())),
-            ShardMessage::Text { text, .. } => deliver(LocalFrame::Text(text)),
+            ShardMessage::Frame { frame, .. } => match local.batch.as_mut() {
+                Some(batch) => {
+                    if batch.is_empty() {
+                        state.local_pending.push(conn);
+                    }
+                    batch.push(frame.text());
+                }
+                None => (local.deliver)(LocalFrame::Text(frame.text())),
+            },
+            ShardMessage::Text { text, .. } => {
+                local.flush();
+                (local.deliver)(LocalFrame::Text(text));
+            }
             ShardMessage::Session { .. } => {}
             ShardMessage::Close { code, reason, .. } => {
-                deliver(LocalFrame::Close { code, reason });
+                local.flush();
+                (local.deliver)(LocalFrame::Close { code, reason });
                 state.local.remove(&conn);
             }
         }
@@ -436,8 +471,8 @@ where
     for output in engine.take_outputs() {
         match output {
             Output::Watch { conn, frame } => {
-                if let Some(deliver) = state.local.get(&conn) {
-                    deliver(LocalFrame::Watch(frame));
+                if let Some(local) = state.local.get(&conn) {
+                    (local.deliver)(LocalFrame::Watch(frame));
                 }
             }
             Output::Frame { conn, frame } => to_shard(state, conn, ShardMessage::Frame { conn, frame }),
@@ -511,6 +546,11 @@ where
                 }
                 router.options.reopen.notify_one();
             }
+        }
+    }
+    for conn in state.local_pending.drain(..) {
+        if let Some(local) = state.local.get_mut(&conn) {
+            local.flush();
         }
     }
     for (shard, queue) in state.outgoing.iter_mut().enumerate() {
