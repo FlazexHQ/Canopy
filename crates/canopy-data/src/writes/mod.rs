@@ -10,6 +10,7 @@
 mod plan;
 mod request;
 mod scope;
+mod selected;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -38,11 +39,12 @@ use crate::caller::Caller;
 use crate::errors::{from_driver_error, internal};
 use crate::find::validate_collection_name;
 use crate::policies::Policies;
-use crate::writes::plan::{Grouped, Plan, plan_write};
+use crate::writes::plan::{Grouped, Plan, Step, plan_write};
 use crate::writes::scope::{DriverError, Scope, Session, carried, custom, value_of};
 
 pub use plan::{Outcome, WriteLimits};
 pub use request::{IdType, WriteOp, WriteRequest, leaf_paths, merge_patch_to_update, parse_id, validate_id};
+pub use selected::WriteSelection;
 
 const MUTATION_ID_MIN: usize = 8;
 const MUTATION_ID_MAX: usize = 128;
@@ -240,6 +242,44 @@ impl WritePath {
         request: &WriteRequest,
     ) -> Result<Plan, CanopyError> {
         plan_write(&self.limits, &self.query_limits, self.scope(engine, ctx, request.collection())?, request)
+    }
+
+    /// The application database this path writes to.
+    pub fn database_name(&self) -> &str {
+        self.db.name()
+    }
+
+    /// Runs an acknowledged write in a transaction, with no client idempotency key.
+    /// A selection supplies filter, sort, upsert and image options for the write.
+    pub async fn execute_transactional(
+        &self,
+        caller: &Caller,
+        request: &WriteRequest,
+        selection: Option<&WriteSelection>,
+    ) -> Result<Outcome, CanopyError> {
+        let engine = self.policies.current();
+        let context = &caller.context;
+        let mut plan = match selection {
+            Some(selection) => selected::plan(
+                &self.query_limits,
+                self.scope(&engine, context, request.collection())?,
+                request,
+                selection,
+            )?,
+            None => self.plan(&engine, context, request)?,
+        };
+        if let Step::Insert { verify_stored, .. } = &mut plan.step {
+            *verify_stored = true;
+        }
+        let key = RecordKey {
+            c: request.collection().to_owned(),
+            op: request.op().as_str().to_owned(),
+            fp: String::new(),
+        };
+        let (mut outcomes, ct, _) = self.transact(caller, &key, &[plan], None, false, false).await?;
+        let outcome = outcomes.pop().ok_or_else(internal)?;
+        self.report(caller, request, &outcome, ct, None);
+        Ok(outcome)
     }
 
     /// Validates, authorizes and commits one write. Fails with `CANOPY_FORBIDDEN` when no policy grants the

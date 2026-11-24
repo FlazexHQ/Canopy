@@ -7,6 +7,9 @@ mod common;
 #[path = "../tests/common/read_fixture.rs"]
 mod read_fixture;
 
+#[path = "../tests/common/write_fixture.rs"]
+mod write_fixture;
+
 use std::sync::Arc;
 
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -25,14 +28,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let auth = common::authenticator();
     let connection_id = AtomicI64::new(1);
     let jwt = common::token(DateTime::now().timestamp_millis() / 1000 + 600);
-    let path = match std::env::var("CANOPY_TEST_MONGODB_URI") {
-        Ok(uri) if !uri.is_empty() => Some(read_fixture::fixture(&uri, "probe").await?),
-        _ => None,
+    let (path, write_path) = match std::env::var("CANOPY_TEST_MONGODB_URI") {
+        Ok(uri) if !uri.is_empty() && std::env::args().any(|arg| arg == "--writes") => {
+            let fixture = write_fixture::fixture(&uri, "probe").await?;
+            println!("{} {jwt} {} {}", listener.local_addr()?.port(), fixture.db.name(), fixture.meta.name());
+            (Some(fixture.reads), Some(fixture.writes))
+        }
+        Ok(uri) if !uri.is_empty() => (Some(read_fixture::fixture(&uri, "probe").await?), None),
+        _ => (None, None),
     };
-    if let Some(path) = &path {
-        println!("{} {jwt} {}", listener.local_addr()?.port(), path.database().name());
-    } else {
-        println!("{} {jwt}", listener.local_addr()?.port());
+    if write_path.is_none() {
+        if let Some(path) = &path {
+            println!("{} {jwt} {}", listener.local_addr()?.port(), path.database().name());
+        } else {
+            println!("{} {jwt}", listener.local_addr()?.port());
+        }
     }
     loop {
         let (stream, peer) = listener.accept().await?;
@@ -40,6 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut session = Session::new(auth.clone(), None, peer.ip(), id);
         if let Some(path) = &path {
             session = session.with_read_path(Arc::clone(path));
+        }
+        if let Some(path) = &write_path {
+            session = session.with_write_path(Arc::clone(path));
         }
         tokio::spawn(serve(stream, session));
     }

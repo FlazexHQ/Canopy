@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use canopy_auth::{Authenticator, RateLimits};
-use canopy_data::ReadPath;
+use canopy_data::{ReadPath, writes::WritePath};
 use canopy_engine::Principal;
 use canopy_mongo::mongodb::bson::{DateTime, Document, doc};
 
@@ -12,6 +12,7 @@ use crate::auth::{self, Conversation, Failure};
 use crate::frame::{Message, WireError, encode_op_msg, encode_op_reply};
 use crate::handshake;
 use crate::reads::Reads;
+use crate::writes;
 
 /// The authentication and command state of one MongoDB connection.
 ///
@@ -27,6 +28,7 @@ pub struct Session {
     conversation: Option<Conversation>,
     principal: Option<Principal>,
     reads: Option<Reads>,
+    writes: Option<Arc<WritePath>>,
 }
 
 impl Session {
@@ -46,6 +48,7 @@ impl Session {
             conversation: None,
             principal: None,
             reads: None,
+            writes: None,
         }
     }
 
@@ -61,6 +64,16 @@ impl Session {
     #[must_use]
     pub fn with_read_path(mut self, path: Arc<ReadPath>) -> Self {
         self.reads = Some(Reads::new(path));
+        self
+    }
+
+    /// Enables writes over the same application database as the read path.
+    ///
+    /// The read path must also be configured to resolve caller context. Each write statement
+    /// has its own majority acknowledged transaction. Drivers must set `retryWrites=false`.
+    #[must_use]
+    pub fn with_write_path(mut self, path: Arc<WritePath>) -> Self {
+        self.writes = Some(path);
         self
     }
 
@@ -95,6 +108,14 @@ impl Session {
             }
             "buildInfo" => handshake::build_info(),
             "saslStart" | "saslContinue" => self.authenticate(command, &message.body).await,
+            _ if writes::is_write(command) && self.principal().is_some() => {
+                match (self.principal.as_ref(), &self.reads, &self.writes) {
+                    (Some(principal), Some(reads), Some(path)) => {
+                        writes::handle(&reads.path, path, principal, command, &message.body).await
+                    }
+                    _ => error(59, "CommandNotFound", format!("no such command: '{command}'")),
+                }
+            }
             _ if self.principal().is_some() => match (self.principal.clone(), &mut self.reads) {
                 (Some(principal), Some(reads)) => reads.handle(&principal, command, &message.body).await,
                 _ => error(59, "CommandNotFound", format!("no such command: '{command}'")),

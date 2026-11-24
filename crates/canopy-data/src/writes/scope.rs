@@ -112,7 +112,7 @@ pub(crate) struct Scope {
     pub(crate) name: String,
     pub(crate) explain: bool,
     pub(crate) db: Database,
-    max_time: Duration,
+    pub(super) max_time: Duration,
     filter_limits: QueryLimits,
     readable: FieldAccess,
 }
@@ -599,6 +599,34 @@ impl Scope {
             format!("The caller may not write {} in collection '{}'", denied.join(", "), self.name),
         );
         Err(if self.explain { error.with_details(rule_details("fields.write", &denied)) } else { error })
+    }
+
+    pub(super) fn assert_update_paths(&self, paths: &[String]) -> Result<(), CanopyError> {
+        if paths.iter().any(|path| path == "_id" || path.starts_with("_id.")) {
+            return fail("An update may not change _id");
+        }
+        if !self.service {
+            self.assert_writable(&self.writable(Operation::Update), paths)?;
+            self.assert_mutable(paths)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn assert_replacement(&self) -> Result<(), CanopyError> {
+        if !self.service
+            && (self.writable(Operation::Update) != FieldAccess::All
+                || !self.engine.immutable(&self.name).is_empty())
+        {
+            return Err(CanopyError::named(
+                ErrorCode::Forbidden,
+                "ForbiddenError",
+                format!(
+                    "The field rules of '{}' do not allow replacing whole documents; send an update",
+                    self.name
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Refuses a write that changes an immutable field.

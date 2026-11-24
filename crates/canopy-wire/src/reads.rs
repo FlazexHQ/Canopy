@@ -53,7 +53,7 @@ impl FindCursor {
 }
 
 pub(crate) struct Reads {
-    path: Arc<ReadPath>,
+    pub(crate) path: Arc<ReadPath>,
     cursors: HashMap<i64, Cursor>,
 }
 
@@ -440,7 +440,7 @@ fn size(document: &Document) -> Result<usize> {
     document.to_vec().map(|bytes| bytes.len()).map_err(|_| internal())
 }
 
-fn value(body: &Document, key: &str) -> Result<Option<Value>> {
+pub(crate) fn value(body: &Document, key: &str) -> Result<Option<Value>> {
     let Some(bson) = body.get(key) else { return Ok(None) };
     let bytes = doc! { "value": bson.clone() }.to_vec().map_err(|_| bad("Invalid BSON value"))?;
     let mut decoded = canopy_protocol::bson::decode_document(&bytes).map_err(mapped)?;
@@ -460,7 +460,7 @@ fn string<'a>(body: &'a Document, key: &str) -> Result<&'a str> {
     body.get_str(key).map_err(|_| bad(format!("{key} must be a string")))
 }
 
-fn integer(value: &Bson) -> Option<i64> {
+pub(crate) fn integer(value: &Bson) -> Option<i64> {
     match value {
         Bson::Int32(value) => Some(i64::from(*value)),
         Bson::Int64(value) => Some(*value),

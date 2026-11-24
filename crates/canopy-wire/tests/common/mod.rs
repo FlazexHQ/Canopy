@@ -38,9 +38,13 @@ pub(crate) fn token(expires: i64) -> String {
 }
 
 pub(crate) fn token_for(subject: &str, expires: i64) -> String {
+    token_with_role(subject, "editor", expires)
+}
+
+pub(crate) fn token_with_role(subject: &str, role: &str, expires: i64) -> String {
     let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
     let claims = format!(
-        r#"{{"iss":"wire-fixture","aud":"wire-driver","sub":"{subject}","roles":["editor"],"exp":{expires}}}"#
+        r#"{{"iss":"wire-fixture","aud":"wire-driver","sub":"{subject}","roles":["{role}"],"exp":{expires}}}"#
     );
     let claims = URL_SAFE_NO_PAD.encode(claims);
     let signed = format!("{header}.{claims}");
