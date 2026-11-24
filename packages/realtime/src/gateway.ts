@@ -311,6 +311,8 @@ function listeningPorts(line: string): { port: number; wirePort?: number } | und
 
 /** A gateway running as a child process. */
 export interface RunningGateway {
+  /** The gateway process ID, or undefined if the process could not be spawned. */
+  readonly pid: number | undefined
   /** Resolves with the gateway's exit code. */
   readonly exited: Promise<number>
   /** Resolves with the port the gateway listens on, or with `undefined` when it exits first. */
@@ -406,6 +408,7 @@ export async function startGateway(
     })
   })
   return {
+    pid: child.pid,
     exited,
     listening: listening.then((ports) => ports?.port),
     wireListening: listening.then((ports) => ports?.wirePort),

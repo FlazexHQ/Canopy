@@ -24,6 +24,7 @@
     "d2": "node --conditions=@canopy/source workloads/d2/writes.ts",
     "d3": "node --conditions=@canopy/source workloads/d3/graphql.ts",
     "d4": "node --conditions=@canopy/source workloads/d4/storage.ts",
+    "d5": "node --conditions=@canopy/source workloads/d5/wire.ts",
     "test": "vitest run",
     "wire": "node --conditions=@canopy/source workloads/wire/s13-wire.ts"
   },

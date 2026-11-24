@@ -552,6 +552,7 @@ export interface RealtimeStats {
 }
 
 export interface RunningGateway {
+    readonly pid: number | undefined;
     readonly exited: Promise<number>;
     readonly listening: Promise<number | undefined>;
     readonly wireListening: Promise<number | undefined>;
