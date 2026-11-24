@@ -1,0 +1,248 @@
+{
+  "group": "transport",
+  "description": "GET, batching, persisted operations and introspection",
+  "cases": [
+    {
+      "id": "get-with-params",
+      "title": "A GET request accepts a query, variables and the operation name",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/graphql/v1?query=query+All+%7B+todosCount+%7D+query+Pick%28%24id%3A+ObjectId%21%29+%7B+todo%28id%3A+%24id%29+%7B+title+%7D+%7D&variables=%7B%22id%22%3A%22600000000000000000000001%22%7D&operationName=Pick",
+            "query": [
+              [
+                "query",
+                "query All { todosCount } query Pick($id: ObjectId!) { todo(id: $id) { title } }"
+              ],
+              [
+                "variables",
+                "{\"id\":\"600000000000000000000001\"}"
+              ],
+              [
+                "operationName",
+                "Pick"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "accept": "application/graphql-response+json",
+              "x-request-id": "transport.get-with-params.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/graphql-response+json; charset=utf-8",
+              "x-request-id": "transport.get-with-params.0"
+            },
+            "body": "{\"data\":{\"todo\":{\"title\":\"todo 1\"}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "get-mutation",
+      "title": "GET rejects a mutation without inserting a document",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/graphql/v1?query=mutation+%7B+insertTodo%28doc%3A+%7B+_id%3A+%22600000000000000000000007%22%2C+title%3A+%22new%22%2C+ownerId%3A+%22alice%22+%7D%29+%7B+_id+title+%7D+%7D",
+            "query": [
+              [
+                "query",
+                "mutation { insertTodo(doc: { _id: \"600000000000000000000007\", title: \"new\", ownerId: \"alice\" }) { _id title } }"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "accept": "application/graphql-response+json",
+              "x-request-id": "transport.get-mutation.0"
+            }
+          },
+          "response": {
+            "status": 405,
+            "headers": {
+              "content-type": "application/graphql-response+json; charset=utf-8",
+              "x-request-id": "transport.get-mutation.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Can only perform a mutation operation from a POST request.\",\"extensions\":{\"code\":\"BAD_REQUEST\"}}]}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-at-limit",
+      "title": "Two operations in one batch return results in request order",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.batch-at-limit.0"
+            },
+            "body": "[{\"query\":\"{ todosCount }\"},{\"query\":\"{ __typename }\"}]"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.batch-at-limit.0"
+            },
+            "body": "[{\"data\":{\"todosCount\":4}},{\"data\":{\"__typename\":\"Query\"}}]"
+          }
+        }
+      ]
+    },
+    {
+      "id": "batch-over-limit",
+      "title": "A third operation exceeds the batch limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.batch-over-limit.0"
+            },
+            "body": "[{\"query\":\"{ todosCount }\"},{\"query\":\"{ todosCount }\"},{\"query\":\"{ todosCount }\"}]"
+          },
+          "response": {
+            "status": 413,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.batch-over-limit.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Batching is limited to 2 operations per request.\",\"extensions\":{\"code\":\"BAD_REQUEST\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "persisted-hit",
+      "title": "A registered hash resolves to its query without query text",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.persisted-hit.0"
+            },
+            "body": "{\"extensions\":{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b\"}}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.persisted-hit.0"
+            },
+            "body": "{\"data\":{\"todosCount\":4}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "persisted-miss",
+      "title": "An unregistered hash returns PersistedQueryNotFound",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.persisted-miss.0"
+            },
+            "body": "{\"extensions\":{\"persistedQuery\":{\"version\":1,\"sha256Hash\":\"0000000000000000000000000000000000000000000000000000000000000000\"}}}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.persisted-miss.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"PersistedQueryNotFound\",\"extensions\":{\"code\":\"CANOPY_NOT_FOUND\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "introspection-allowed",
+      "title": "An authenticated caller can inspect the schema root types",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.introspection-allowed.0"
+            },
+            "body": "{\"query\":\"{ __schema { queryType { name } mutationType { name } subscriptionType { name } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.introspection-allowed.0"
+            },
+            "body": "{\"data\":{\"__schema\":{\"queryType\":{\"name\":\"Query\"},\"mutationType\":{\"name\":\"Mutation\"},\"subscriptionType\":null}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "introspection-denied",
+      "title": "An anonymous caller cannot inspect the schema",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "anon",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "transport.introspection-denied.0"
+            },
+            "body": "{\"query\":\"{ __type(name: \\\"Query\\\") { name } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "transport.introspection-denied.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Introspection is not allowed for this caller\",\"extensions\":{\"code\":\"CANOPY_FORBIDDEN\"}}]}"
+          }
+        }
+      ]
+    }
+  ]
+}

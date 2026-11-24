@@ -1,0 +1,225 @@
+{
+  "group": "limits",
+  "description": "Operations at the limit and one unit beyond it",
+  "cases": [
+    {
+      "id": "depth-at-limit",
+      "title": "Three levels of fields fit the depth limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.depth-at-limit.0"
+            },
+            "body": "{\"query\":\"{ todos(limit: 1) { nodes { title } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.depth-at-limit.0"
+            },
+            "body": "{\"data\":{\"todos\":{\"nodes\":[{\"title\":\"todo 1\"}]}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "depth-over-limit",
+      "title": "Four levels of fields exceed the depth limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.depth-over-limit.0"
+            },
+            "body": "{\"query\":\"{ todos(limit: 1) { nodes { detail { note } } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.depth-over-limit.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The operation is 4 fields deep; at most 3 are allowed\",\"extensions\":{\"code\":\"CANOPY_INVALID_QUERY\",\"details\":{\"limit\":\"depth\",\"value\":4,\"max\":3}}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "aliases-at-limit",
+      "title": "Three aliases fit the alias limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.aliases-at-limit.0"
+            },
+            "body": "{\"query\":\"{ a: todosCount b: todosCount c: todosCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.aliases-at-limit.0"
+            },
+            "body": "{\"data\":{\"a\":4,\"b\":4,\"c\":4}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "aliases-over-limit",
+      "title": "Four aliases exceed the alias limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.aliases-over-limit.0"
+            },
+            "body": "{\"query\":\"{ a: todosCount b: todosCount c: todosCount d: todosCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.aliases-over-limit.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The operation uses 4 aliases; at most 3 are allowed\",\"extensions\":{\"code\":\"CANOPY_INVALID_QUERY\",\"details\":{\"limit\":\"aliases\",\"value\":4,\"max\":3}}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "complexity-at-limit",
+      "title": "A list operation with cost ten fits the complexity budget",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.complexity-at-limit.0"
+            },
+            "body": "{\"query\":\"query Page($limit: Int!) { todos(limit: $limit) { nodes { title } total } }\",\"variables\":{\"limit\":3}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.complexity-at-limit.0"
+            },
+            "body": "{\"data\":{\"todos\":{\"nodes\":[{\"title\":\"todo 1\"},{\"title\":\"todo 2\"},{\"title\":\"todo 3\"}],\"total\":4}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "complexity-over-limit",
+      "title": "An additional root field raises the cost to eleven",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.complexity-over-limit.0"
+            },
+            "body": "{\"query\":\"query Page($limit: Int!) { todos(limit: $limit) { nodes { title } total } todosCount }\",\"variables\":{\"limit\":3}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.complexity-over-limit.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The operation costs 11; the budget is 10\",\"extensions\":{\"code\":\"CANOPY_INVALID_QUERY\",\"details\":{\"limit\":\"complexity\",\"value\":11,\"max\":10}}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "body-at-limit",
+      "title": "A JSON body of 1024 bytes fits the body limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.body-at-limit.0"
+            },
+            "body": "{\"query\":\"{ todosCount }\"}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      "
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "limits.body-at-limit.0"
+            },
+            "body": "{\"data\":{\"todosCount\":4}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "body-over-limit",
+      "title": "A JSON body of 1025 bytes exceeds the body limit",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "limits.body-over-limit.0"
+            },
+            "body": "{\"query\":\"{ todosCount }\"}                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       "
+          },
+          "response": {
+            "status": 413,
+            "headers": {
+              "content-type": "application/json;charset=utf-8"
+            },
+            "alternateContentTypes": [
+              "application/json"
+            ],
+            "body": "{\"errors\":[{\"message\":\"The request body may not exceed 1024 bytes\",\"extensions\":{\"code\":\"CANOPY_PAYLOAD_TOO_LARGE\"}}]}"
+          }
+        }
+      ],
+      "known": "The early body limit response omits the request id and its content type varies by runtime."
+    }
+  ]
+}

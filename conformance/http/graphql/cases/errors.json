@@ -1,0 +1,168 @@
+{
+  "group": "errors",
+  "description": "GraphQL validation and invalid HTTP request bodies",
+  "cases": [
+    {
+      "id": "unknown-field",
+      "title": "An unknown field fails validation",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "errors.unknown-field.0"
+            },
+            "body": "{\"query\":\"{ unknownField }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "errors.unknown-field.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Cannot query field \\\"unknownField\\\" on type \\\"Query\\\".\",\"locations\":[{\"line\":1,\"column\":3}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wrong-argument-type",
+      "title": "A list limit must be an integer",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "errors.wrong-argument-type.0"
+            },
+            "body": "{\"query\":\"{ todos(limit: \\\"two\\\") { nodes { title } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "errors.wrong-argument-type.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Int cannot represent non-integer value: \\\"two\\\"\",\"locations\":[{\"line\":1,\"column\":16}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "missing-argument",
+      "title": "A single document query requires an id",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "errors.missing-argument.0"
+            },
+            "body": "{\"query\":\"{ todo { title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "errors.missing-argument.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Field \\\"todo\\\" argument \\\"id\\\" of type \\\"ObjectId!\\\" is required, but it was not provided.\",\"locations\":[{\"line\":1,\"column\":3}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "syntax-error",
+      "title": "An unfinished selection fails parsing",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "errors.syntax-error.0"
+            },
+            "body": "{\"query\":\"{ todosCount\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "errors.syntax-error.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Syntax Error: Expected Name, found <EOF>.\",\"locations\":[{\"line\":1,\"column\":13}],\"extensions\":{\"code\":\"GRAPHQL_PARSE_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "non-json-body",
+      "title": "Malformed JSON is refused",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "errors.non-json-body.0"
+            },
+            "body": "not JSON"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "errors.non-json-body.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"POST body sent invalid JSON.\",\"extensions\":{\"code\":\"BAD_REQUEST\",\"originalError\":{\"name\":\"SyntaxError\",\"message\":\"<json-parser-message>\"}}}]}"
+          }
+        }
+      ],
+      "known": "Yoga includes the runtime's native JSON parser message in the error extensions."
+    },
+    {
+      "id": "wrong-content-type",
+      "title": "A JSON body sent as plain text is refused",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "errors.wrong-content-type.0"
+            },
+            "body": "{\"query\":\"{ todosCount }\"}"
+          },
+          "response": {
+            "status": 415,
+            "headers": {
+              "x-request-id": "errors.wrong-content-type.0"
+            },
+            "body": ""
+          }
+        }
+      ]
+    }
+  ]
+}

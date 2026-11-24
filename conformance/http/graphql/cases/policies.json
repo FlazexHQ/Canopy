@@ -1,0 +1,351 @@
+{
+  "group": "policies",
+  "description": "Caller specific schemas, document and field rules, and context lookups",
+  "cases": [
+    {
+      "id": "other-owner",
+      "title": "A document owned by another caller returns null",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.other-owner.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000005\\\") { title } todosCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.other-owner.0"
+            },
+            "body": "{\"data\":{\"todo\":null,\"todosCount\":4}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restrictive-read",
+      "title": "A restrictive policy excludes archived staff",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.restrictive-read.0"
+            },
+            "body": "{\"query\":\"{ staff(sort: [{ field: _id }], limit: 2) { nodes { name } total } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.restrictive-read.0"
+            },
+            "body": "{\"data\":{\"staff\":{\"nodes\":[{\"name\":\"Ada\"},{\"name\":\"Brook\"}],\"total\":5}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "field-hidden",
+      "title": "The authenticated schema omits the secret field",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.field-hidden.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000001\\\") { title secret } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.field-hidden.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Cannot query field \\\"secret\\\" on type \\\"Todo\\\".\",\"locations\":[{\"line\":1,\"column\":48}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "collection-hidden",
+      "title": "An unexposed collection is absent from the authenticated schema",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.collection-hidden.0"
+            },
+            "body": "{\"query\":\"{ hiddenCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.collection-hidden.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Cannot query field \\\"hiddenCount\\\" on type \\\"Query\\\". Did you mean \\\"todosCount\\\"?\",\"locations\":[{\"line\":1,\"column\":3}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "context-lookup",
+      "title": "Memberships scope tasks differently for Alice and Bob",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.context-lookup.0"
+            },
+            "body": "{\"query\":\"{ tasks(sort: [{ field: _id }], limit: 3) { nodes { title } total } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.context-lookup.0"
+            },
+            "body": "{\"data\":{\"tasks\":{\"nodes\":[{\"title\":\"task 1\"},{\"title\":\"task 2\"},{\"title\":\"task 3\"}],\"total\":4}}}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "bob",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.context-lookup.1"
+            },
+            "body": "{\"query\":\"{ tasks(sort: [{ field: _id }], limit: 3) { nodes { title } total } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.context-lookup.1"
+            },
+            "body": "{\"data\":{\"tasks\":{\"nodes\":[{\"title\":\"task 3\"},{\"title\":\"task 4\"}],\"total\":2}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anonymous-public",
+      "title": "The anonymous caller can read a public collection",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "anon",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.anonymous-public.0"
+            },
+            "body": "{\"query\":\"{ notices(limit: 1) { nodes { title } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.anonymous-public.0"
+            },
+            "body": "{\"data\":{\"notices\":{\"nodes\":[{\"title\":\"Welcome\"}]}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anonymous-private",
+      "title": "The anonymous schema omits private collections",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "anon",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.anonymous-private.0"
+            },
+            "body": "{\"query\":\"{ todosCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.anonymous-private.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Cannot query field \\\"todosCount\\\" on type \\\"Query\\\". Did you mean \\\"noticesCount\\\"?\",\"locations\":[{\"line\":1,\"column\":3}],\"extensions\":{\"code\":\"GRAPHQL_VALIDATION_FAILED\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "service-bypass",
+      "title": "The service caller sees every owner and the secret field",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.service-bypass.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000005\\\") { secret } todosCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.service-bypass.0"
+            },
+            "body": "{\"data\":{\"todo\":{\"secret\":\"secret 5\"},\"todosCount\":6}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "service-hidden",
+      "title": "The service caller can see the unexposed collection",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.service-hidden.0"
+            },
+            "body": "{\"query\":\"{ hiddenCount }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.service-hidden.0"
+            },
+            "body": "{\"data\":{\"hiddenCount\":2}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "missing-key",
+      "title": "A request without a key is rejected",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "none",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.missing-key.0"
+            },
+            "body": "{\"query\":\"{ __typename }\"}"
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.missing-key.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Unknown API key\",\"extensions\":{\"code\":\"CANOPY_UNAUTHORIZED\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "expired-token",
+      "title": "A correctly signed expired token is rejected",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "expired",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.expired-token.0"
+            },
+            "body": "{\"query\":\"{ __typename }\"}"
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.expired-token.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The token has expired\",\"extensions\":{\"code\":\"CANOPY_TOKEN_EXPIRED\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid-token",
+      "title": "A tampered token is rejected",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "tampered",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "policies.invalid-token.0"
+            },
+            "body": "{\"query\":\"{ __typename }\"}"
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "policies.invalid-token.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"Invalid token\",\"extensions\":{\"code\":\"CANOPY_UNAUTHORIZED\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}}]}"
+          }
+        }
+      ]
+    }
+  ]
+}

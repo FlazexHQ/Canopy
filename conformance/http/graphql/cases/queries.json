@@ -1,0 +1,168 @@
+{
+  "group": "queries",
+  "description": "Typed queries, BSON scalars, pagination and operation selection",
+  "cases": [
+    {
+      "id": "sorted-window",
+      "title": "Filter, sort, skip and limit a list, with its filtered count and snapshot time",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.sorted-window.0"
+            },
+            "body": "{\"query\":\"{ todos(filter: { priority: { gte: 2 } }, sort: [{ field: priority, direction: DESC }], skip: 1, limit: 1) { nodes { title priority } total ct } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.sorted-window.0"
+            },
+            "body": "{\"data\":{\"todos\":{\"nodes\":[{\"title\":\"todo 3\",\"priority\":3}],\"total\":3,\"ct\":\"<ct>\"}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bson-and-nested",
+      "title": "Serialize an ObjectId, date, numbers, an array and a nested document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.bson-and-nested.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000001\\\") { _id createdAt priority estimate tags detail { note } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.bson-and-nested.0"
+            },
+            "body": "{\"data\":{\"todo\":{\"_id\":\"600000000000000000000001\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"priority\":1,\"estimate\":0.5,\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"}}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "variables-and-fragments",
+      "title": "Use an id variable, aliases and both kinds of fragments",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.variables-and-fragments.0"
+            },
+            "body": "{\"query\":\"query Pick($id: ObjectId!) { picked: todo(id: $id) { ...Summary ... on Todo { priority } } } fragment Summary on Todo { label: title }\",\"variables\":{\"id\":\"600000000000000000000002\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.variables-and-fragments.0"
+            },
+            "body": "{\"data\":{\"picked\":{\"label\":\"todo 2\",\"priority\":2}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "select-operation",
+      "title": "Run the named operation from a document with two operations",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.select-operation.0"
+            },
+            "body": "{\"query\":\"query All { todosCount } query Active($minimum: Int!) { todosCount(filter: { priority: { gt: $minimum } }) }\",\"operationName\":\"Active\",\"variables\":{\"minimum\":2}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.select-operation.0"
+            },
+            "body": "{\"data\":{\"todosCount\":2}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "nested-relation",
+      "title": "Resolve the owner relation of a caller's document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.nested-relation.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000001\\\") { title owner { name } } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.nested-relation.0"
+            },
+            "body": "{\"data\":{\"todo\":{\"title\":\"todo 1\",\"owner\":{\"name\":\"Alice\"}}}}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "absent-by-id",
+      "title": "A missing document returns null",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "queries.absent-by-id.0"
+            },
+            "body": "{\"query\":\"{ todo(id: \\\"600000000000000000000099\\\") { title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "queries.absent-by-id.0"
+            },
+            "body": "{\"data\":{\"todo\":null}}"
+          }
+        }
+      ]
+    }
+  ]
+}

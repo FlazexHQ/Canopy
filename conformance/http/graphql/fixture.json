@@ -1,0 +1,673 @@
+{
+  "name": "graphql",
+  "basePath": "/graphql/v1",
+  "readLimits": {
+    "defaultLimit": 5,
+    "maxLimit": 10,
+    "maxSkip": 20
+  },
+  "idTypes": {},
+  "auth": {
+    "issuer": "https://idp.conformance.test/",
+    "rolesClaim": "roles",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MqBodolVGtOHV_nBE6kU-1HEfzVTzqZtBSQBkTRUqYU",
+          "kid": "conformance-1",
+          "alg": "EdDSA",
+          "use": "sig"
+        }
+      ]
+    },
+    "publishableKeys": [
+      "canopy_pk_conformance"
+    ],
+    "secretKeys": [
+      "canopy_sk_conformance"
+    ]
+  },
+  "callers": {
+    "none": {},
+    "anon": {
+      "apikey": "canopy_pk_conformance"
+    },
+    "alice": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.K4x85cAZGh1-eb-h_uLDg1NIlgbmbJ_TLrZ7iufQrCWukajWngnVEhVN8AZsgI9OH7bRAfHpwbRPgfhTnqHzCA"
+    },
+    "bob": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJib2IiLCJpc3MiOiJodHRwczovL2lkcC5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ._7TMQMqu8qjF66VmsKvp4lrd9K167Tm_-EKDQaZgyojHnMQ8KEpnkWPB64AiStpuFOZXvkh-_GwfIJitYFFHBg"
+    },
+    "carol": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJjYXJvbCIsInJvbGVzIjpbImFkbWluIl0sImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.cAApXJz7_asY2LQOHDPsqHCduhVAd0Fql5jrZIM9vyEZHdAys06nEFB929uTt2Eb1drzCVhv6Y5Li1jbgNGpCw"
+    },
+    "service": {
+      "apikey": "canopy_sk_conformance"
+    },
+    "service-bearer": {
+      "authorization": "Bearer canopy_sk_conformance"
+    },
+    "unknown-key": {
+      "apikey": "canopy_pk_unknown"
+    },
+    "expired": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjE3NjcyMjkyMDB9._uZF_otU3QH6uxGp6_7NTSi0eYeT0RmAYP1DMqAcQU1g9s3d797TXoowq9Twfm0LCrPL0ikKuvhKyKw5rUKpBg"
+    },
+    "tampered": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.K4x85cAZGh1-eb-h_uLDg1NIlgbmbJ_TLrZ7iufQrCWukajWngnVEhVN8AZsgI9OH7bRAfHpwbRPgfhTnqAAAA"
+    },
+    "wrong-issuer": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vb3RoZXIuY29uZm9ybWFuY2UudGVzdC8iLCJpYXQiOjE3NjcyMjU2MDAsImV4cCI6NDEwMjQ0NDgwMH0.o7vU6rbeHnxyQwDCwXaaSy7KnZMXjgvsPMNajWKIc7d4QCXYAeQjP8MauvMRANi6Dz-lh18I__lmTK6Jn5ptCw"
+    },
+    "service-claim": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJtYWxsb3J5Iiwicm9sZXMiOlsic2VydmljZSJdLCJpc3MiOiJodHRwczovL2lkcC5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.EZ6fZYYLZPHtsl4RBU53ztiqFQP8ZuEr8yV-kns7EFbn5fLBGZVnrntZEe2Waf2tJ7rkiHfntBi9nZ0a6WGQDA"
+    }
+  },
+  "collections": {
+    "todos": [
+      {
+        "_id": {
+          "$oid": "600000000000000000000001"
+        },
+        "ownerId": "alice",
+        "title": "todo 1",
+        "priority": {
+          "$numberInt": "1"
+        },
+        "estimate": {
+          "$numberDouble": "0.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767225600000"
+          }
+        },
+        "tags": [
+          "work",
+          "urgent"
+        ],
+        "detail": {
+          "note": "note 1"
+        },
+        "secret": "secret 1"
+      },
+      {
+        "_id": {
+          "$oid": "600000000000000000000002"
+        },
+        "ownerId": "alice",
+        "title": "todo 2",
+        "priority": {
+          "$numberInt": "2"
+        },
+        "estimate": {
+          "$numberDouble": "1.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767312000000"
+          }
+        },
+        "tags": [
+          "home"
+        ],
+        "detail": {
+          "note": "note 2"
+        },
+        "secret": "secret 2"
+      },
+      {
+        "_id": {
+          "$oid": "600000000000000000000003"
+        },
+        "ownerId": "alice",
+        "title": "todo 3",
+        "priority": {
+          "$numberInt": "3"
+        },
+        "estimate": {
+          "$numberDouble": "2.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767398400000"
+          }
+        },
+        "tags": [
+          "work",
+          "urgent"
+        ],
+        "detail": {
+          "note": "note 3"
+        },
+        "secret": "secret 3"
+      },
+      {
+        "_id": {
+          "$oid": "600000000000000000000004"
+        },
+        "ownerId": "alice",
+        "title": "todo 4",
+        "priority": {
+          "$numberInt": "4"
+        },
+        "estimate": {
+          "$numberDouble": "3.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767484800000"
+          }
+        },
+        "tags": [
+          "home"
+        ],
+        "detail": {
+          "note": "note 4"
+        },
+        "secret": "secret 4"
+      },
+      {
+        "_id": {
+          "$oid": "600000000000000000000005"
+        },
+        "ownerId": "bob",
+        "title": "todo 5",
+        "priority": {
+          "$numberInt": "5"
+        },
+        "estimate": {
+          "$numberDouble": "4.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767571200000"
+          }
+        },
+        "tags": [
+          "work",
+          "urgent"
+        ],
+        "detail": {
+          "note": "note 5"
+        },
+        "secret": "secret 5"
+      },
+      {
+        "_id": {
+          "$oid": "600000000000000000000006"
+        },
+        "ownerId": "bob",
+        "title": "todo 6",
+        "priority": {
+          "$numberInt": "6"
+        },
+        "estimate": {
+          "$numberDouble": "5.5"
+        },
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767657600000"
+          }
+        },
+        "tags": [
+          "home"
+        ],
+        "detail": {
+          "note": "note 6"
+        },
+        "secret": "secret 6"
+      }
+    ],
+    "users": [
+      {
+        "_id": "alice",
+        "name": "Alice"
+      },
+      {
+        "_id": "bob",
+        "name": "Bob"
+      }
+    ],
+    "notices": [
+      {
+        "_id": "welcome",
+        "title": "Welcome"
+      }
+    ],
+    "staff": [
+      {
+        "_id": {
+          "$numberInt": "1"
+        },
+        "name": "Ada",
+        "team": "core",
+        "salary": {
+          "$numberInt": "120"
+        },
+        "joined": {
+          "$date": {
+            "$numberLong": "1583020800000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "2"
+        },
+        "name": "Brook",
+        "team": "core",
+        "salary": {
+          "$numberInt": "110"
+        },
+        "archived": false,
+        "joined": {
+          "$date": {
+            "$numberLong": "1623715200000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "3"
+        },
+        "name": "Cy",
+        "team": "support",
+        "salary": {
+          "$numberInt": "90"
+        },
+        "archived": true,
+        "joined": {
+          "$date": {
+            "$numberLong": "1547078400000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "4"
+        },
+        "name": "Dara",
+        "team": "support",
+        "salary": {
+          "$numberInt": "95"
+        },
+        "joined": {
+          "$date": {
+            "$numberLong": "1661990400000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "5"
+        },
+        "name": "Eli",
+        "team": "sales",
+        "salary": {
+          "$numberInt": "100"
+        },
+        "archived": false,
+        "joined": {
+          "$date": {
+            "$numberLong": "1676851200000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "6"
+        },
+        "name": "Fay",
+        "team": "sales",
+        "salary": {
+          "$numberInt": "105"
+        },
+        "archived": true,
+        "joined": {
+          "$date": {
+            "$numberLong": "1541376000000"
+          }
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "7"
+        },
+        "name": "Gus",
+        "team": "core",
+        "salary": {
+          "$numberInt": "130"
+        },
+        "joined": {
+          "$date": {
+            "$numberLong": "1712188800000"
+          }
+        }
+      }
+    ],
+    "tasks": [
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000001"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000001"
+        },
+        "title": "task 1"
+      },
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000002"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000001"
+        },
+        "title": "task 2"
+      },
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000003"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000002"
+        },
+        "title": "task 3"
+      },
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000004"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000002"
+        },
+        "title": "task 4"
+      },
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000005"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000003"
+        },
+        "title": "task 5"
+      },
+      {
+        "_id": {
+          "$oid": "6f3000000000000000000006"
+        },
+        "projectId": {
+          "$oid": "6f4000000000000000000003"
+        },
+        "title": "task 6"
+      }
+    ],
+    "memberships": [
+      {
+        "_id": {
+          "$oid": "6f2000000000000000000001"
+        },
+        "userId": "alice",
+        "projectId": {
+          "$oid": "6f4000000000000000000001"
+        }
+      },
+      {
+        "_id": {
+          "$oid": "6f2000000000000000000002"
+        },
+        "userId": "alice",
+        "projectId": {
+          "$oid": "6f4000000000000000000002"
+        }
+      },
+      {
+        "_id": {
+          "$oid": "6f2000000000000000000003"
+        },
+        "userId": "bob",
+        "projectId": {
+          "$oid": "6f4000000000000000000002"
+        }
+      }
+    ],
+    "hidden": [
+      {
+        "_id": "h1",
+        "v": "hidden one"
+      },
+      {
+        "_id": "h2",
+        "v": "hidden two"
+      }
+    ]
+  },
+  "policies": {
+    "collections": [
+      {
+        "_id": "todos",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "check": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}",
+            "check": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive delete #4",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          }
+        ],
+        "fields": {
+          "read": {
+            "default": {
+              "omit": [
+                "secret"
+              ]
+            }
+          }
+        },
+        "hash": "sha256:bfb09b4638a00f1cd38c42034b29b5e859a28bbaa695984fcacb1317d6b83dd5"
+      },
+      {
+        "_id": "users",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:e26c5a5c6378852734cff64e61e6fc48c4f1292544fb47f419e2a7a859dacdbc"
+      },
+      {
+        "_id": "notices",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "public"
+            ]
+          }
+        ],
+        "hash": "sha256:2a2f5e646074d44b186c0a874d8754e860297afe2358a3712315893656eb59b4"
+      },
+      {
+        "_id": "staff",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "staff read",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "hide archived",
+            "kind": "restrictive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"archived\":{\"$ne\":true}}"
+          }
+        ],
+        "fields": {
+          "read": {
+            "default": {
+              "omit": [
+                "salary"
+              ]
+            }
+          }
+        },
+        "hash": "sha256:e6e1904ddb2befc53fd990cae1671da67707baa6e0a0fb0f828647109fd0b685"
+      },
+      {
+        "_id": "tasks",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "read project tasks",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"projectId\":{\"$in\":{\"$ctx\":\"projectIds\"}}}"
+          }
+        ],
+        "hash": "sha256:5fdc538e67b459b3370489a3f4271a82e48af656b3243a5dbafa7e44235c7b6c"
+      },
+      {
+        "_id": "hidden",
+        "version": 1,
+        "exposed": false,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "authenticated read",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:2ca1eb0f1e8154c06bd2336900b43962046ae7de4a42ab42f02452c1bd04385e"
+      }
+    ],
+    "contexts": {
+      "projectIds": {
+        "from": "memberships",
+        "where": {
+          "userId": {
+            "$auth": "sub"
+          }
+        },
+        "select": "projectId",
+        "max": 10,
+        "ttl": "5m"
+      }
+    }
+  },
+  "relations": {
+    "todos": {
+      "relations": {
+        "owner": {
+          "to": "users",
+          "local": "ownerId"
+        }
+      }
+    }
+  },
+  "limits": {
+    "maxDepth": 3,
+    "maxAliases": 3,
+    "maxComplexity": 10
+  },
+  "maxBatch": 2,
+  "maxBodyBytes": 1024,
+  "introspection": "authenticated",
+  "persisted": {
+    "operations": {
+      "9b15636826a31db36e8b145188fb218e83cbd26047bd6cb851c018cbfb91c87b": "{ todosCount }"
+    }
+  }
+}

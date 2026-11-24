@@ -1,0 +1,442 @@
+{
+  "group": "mutations",
+  "description": "Write results, policy refusals and documents left behind",
+  "cases": [
+    {
+      "id": "insert-owned",
+      "title": "Insert a document with a supplied ObjectId",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.insert-owned.0"
+            },
+            "body": "{\"query\":\"mutation { insertTodo(doc: { _id: \\\"600000000000000000000007\\\", title: \\\"new\\\", ownerId: \\\"alice\\\" }) { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.insert-owned.0"
+            },
+            "body": "{\"data\":{\"insertTodo\":{\"_id\":\"600000000000000000000007\",\"title\":\"new\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000007\"},\"ownerId\":\"alice\",\"title\":\"new\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-generated",
+      "title": "Insert a document with a generated ObjectId",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.insert-generated.0"
+            },
+            "body": "{\"query\":\"mutation { insertTodo(doc: { title: \\\"generated\\\", ownerId: \\\"alice\\\" }) { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.insert-generated.0"
+            },
+            "body": "{\"data\":{\"insertTodo\":{\"_id\":\"<object-id>\",\"title\":\"generated\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}",
+          "{\"_id\":{\"$oid\":\"<object-id>\"},\"ownerId\":\"alice\",\"title\":\"generated\"}"
+        ]
+      },
+      "generatedId": {
+        "collection": "todos",
+        "title": "generated"
+      }
+    },
+    {
+      "id": "insert-check",
+      "title": "Reject an insert with another owner",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.insert-check.0"
+            },
+            "body": "{\"query\":\"mutation { insertTodo(doc: { _id: \\\"600000000000000000000007\\\", title: \\\"refused\\\", ownerId: \\\"bob\\\" }) { _id } }\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.insert-check.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The resulting document does not satisfy the insert check for collection 'todos'\",\"locations\":[{\"line\":1,\"column\":12}],\"path\":[\"insertTodo\"],\"extensions\":{\"code\":\"CANOPY_POLICY_VIOLATION\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}}],\"data\":{\"insertTodo\":null}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-owned",
+      "title": "Update the caller's document and return its new value",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.update-owned.0"
+            },
+            "body": "{\"query\":\"mutation { updateTodo(id: \\\"600000000000000000000001\\\", update: { inc: { priority: 2 } }) { _id priority } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.update-owned.0"
+            },
+            "body": "{\"data\":{\"updateTodo\":{\"_id\":\"600000000000000000000001\",\"priority\":3}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-check",
+      "title": "Reject a change of owner and keep the original document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.update-check.0"
+            },
+            "body": "{\"query\":\"mutation { updateTodo(id: \\\"600000000000000000000001\\\", update: { set: { ownerId: \\\"bob\\\" } }) { _id } }\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.update-check.0"
+            },
+            "body": "{\"errors\":[{\"message\":\"The resulting document does not satisfy the update check for collection 'todos'\",\"locations\":[{\"line\":1,\"column\":12}],\"path\":[\"updateTodo\"],\"extensions\":{\"code\":\"CANOPY_POLICY_VIOLATION\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}}],\"data\":{\"updateTodo\":null}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-outside-scope",
+      "title": "An update cannot touch another owner's document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.update-outside-scope.0"
+            },
+            "body": "{\"query\":\"mutation { updateTodo(id: \\\"600000000000000000000005\\\", update: { set: { title: \\\"changed\\\" } }) { _id } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.update-outside-scope.0"
+            },
+            "body": "{\"data\":{\"updateTodo\":null}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "bulk-update",
+      "title": "Update only the caller's matching documents and return the commit time",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.bulk-update.0"
+            },
+            "body": "{\"query\":\"mutation { updateTodos(filter: { priority: { gte: 3 } }, update: { inc: { priority: 1 } }) { matched modified ct } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.bulk-update.0"
+            },
+            "body": "{\"data\":{\"updateTodos\":{\"matched\":2,\"modified\":2,\"ct\":\"<ct>\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "replace-owned",
+      "title": "Replace a document owned by the caller",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.replace-owned.0"
+            },
+            "body": "{\"query\":\"mutation { replaceTodo(id: \\\"600000000000000000000001\\\", doc: { title: \\\"replaced\\\", ownerId: \\\"alice\\\" }) { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.replace-owned.0"
+            },
+            "body": "{\"data\":{\"replaceTodo\":{\"_id\":\"600000000000000000000001\",\"title\":\"replaced\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"replaced\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-owned",
+      "title": "Delete a document owned by the caller",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.delete-owned.0"
+            },
+            "body": "{\"query\":\"mutation { deleteTodo(id: \\\"600000000000000000000001\\\") { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.delete-owned.0"
+            },
+            "body": "{\"data\":{\"deleteTodo\":{\"_id\":\"600000000000000000000001\",\"title\":\"todo 1\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-outside-scope",
+      "title": "A delete cannot touch another owner's document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "mutations.delete-outside-scope.0"
+            },
+            "body": "{\"query\":\"mutation { deleteTodo(id: \\\"600000000000000000000005\\\") { _id } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.delete-outside-scope.0"
+            },
+            "body": "{\"data\":{\"deleteTodo\":null}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}"
+        ]
+      }
+    },
+    {
+      "id": "idempotent-insert",
+      "title": "An insert retried with the same key leaves one document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "graphql-insert-0001",
+              "x-request-id": "mutations.idempotent-insert.0"
+            },
+            "body": "{\"query\":\"mutation { insertTodo(doc: { _id: \\\"600000000000000000000007\\\", title: \\\"new\\\", ownerId: \\\"alice\\\" }) { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.idempotent-insert.0"
+            },
+            "body": "{\"data\":{\"insertTodo\":{\"_id\":\"600000000000000000000007\",\"title\":\"new\"}}}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/graphql/v1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "graphql-insert-0001",
+              "x-request-id": "mutations.idempotent-insert.1"
+            },
+            "body": "{\"query\":\"mutation { insertTodo(doc: { _id: \\\"600000000000000000000007\\\", title: \\\"new\\\", ownerId: \\\"alice\\\" }) { _id title } }\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "mutations.idempotent-insert.1"
+            },
+            "body": "{\"data\":{\"insertTodo\":{\"_id\":\"600000000000000000000007\",\"title\":\"new\"}}}"
+          }
+        }
+      ],
+      "state": {
+        "todos": [
+          "{\"_id\":{\"$oid\":\"600000000000000000000001\"},\"ownerId\":\"alice\",\"title\":\"todo 1\",\"priority\":{\"$numberInt\":\"1\"},\"estimate\":{\"$numberDouble\":\"0.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 1\"},\"secret\":\"secret 1\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000002\"},\"ownerId\":\"alice\",\"title\":\"todo 2\",\"priority\":{\"$numberInt\":\"2\"},\"estimate\":{\"$numberDouble\":\"1.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 2\"},\"secret\":\"secret 2\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000003\"},\"ownerId\":\"alice\",\"title\":\"todo 3\",\"priority\":{\"$numberInt\":\"3\"},\"estimate\":{\"$numberDouble\":\"2.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 3\"},\"secret\":\"secret 3\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000004\"},\"ownerId\":\"alice\",\"title\":\"todo 4\",\"priority\":{\"$numberInt\":\"4\"},\"estimate\":{\"$numberDouble\":\"3.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 4\"},\"secret\":\"secret 4\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000005\"},\"ownerId\":\"bob\",\"title\":\"todo 5\",\"priority\":{\"$numberInt\":\"5\"},\"estimate\":{\"$numberDouble\":\"4.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"tags\":[\"work\",\"urgent\"],\"detail\":{\"note\":\"note 5\"},\"secret\":\"secret 5\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000006\"},\"ownerId\":\"bob\",\"title\":\"todo 6\",\"priority\":{\"$numberInt\":\"6\"},\"estimate\":{\"$numberDouble\":\"5.5\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"tags\":[\"home\"],\"detail\":{\"note\":\"note 6\"},\"secret\":\"secret 6\"}",
+          "{\"_id\":{\"$oid\":\"600000000000000000000007\"},\"ownerId\":\"alice\",\"title\":\"new\"}"
+        ]
+      }
+    }
+  ]
+}
