@@ -17,6 +17,7 @@ mod limits;
 mod page;
 mod policies;
 mod reads;
+pub mod schema;
 mod snapshot;
 pub mod writes;
 
