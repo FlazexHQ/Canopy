@@ -135,7 +135,7 @@ async fn every_recorded_storage_request_is_answered_as_typescript_answered_it() 
         async |database, meta, folder, rate_limited| {
             build(&client, database, meta, &fixture, folder, rate_limited).await
         },
-        async |handler: &StorageHandler, request| match handler.serve(request).await? {
+        async |handler: &StorageHandler, mut request| match handler.serve(&mut request).await? {
             StorageAnswer::Response(response) => Some(response),
             StorageAnswer::File { status, headers, mut body } => {
                 let mut bytes = Vec::new();

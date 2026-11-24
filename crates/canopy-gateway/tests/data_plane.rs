@@ -1200,7 +1200,7 @@ async fn selected_storage_replays_the_typescript_oracle_through_the_gateway() {
             let config = storage_launcher(&fixture, &uri, database, port, folder, rate_limited);
             Gateway::start(config, Some("storage")).await
         },
-        async |gateway: &Gateway, request| Some(gateway.send_with_framing(request, true).await),
+        async |gateway: &Gateway, request| Some(gateway.send_with_framing(&request, true).await),
     )
     .await;
     assert!(seen.lock().expect("the upstream log").is_empty());

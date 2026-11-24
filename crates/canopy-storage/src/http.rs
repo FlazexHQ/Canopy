@@ -205,8 +205,8 @@ fn range_of(header: Option<String>) -> Option<RangeRequest> {
     }
 }
 
-/// The body of an upload, at most `max` bytes.
-fn bytes_of(request: &Request, max: u64) -> Result<Vec<u8>, CanopyError> {
+/// The body of an upload, at most `max` bytes, taken without copying it.
+fn bytes_of(request: &mut Request, max: u64) -> Result<Vec<u8>, CanopyError> {
     let too_large =
         || CanopyError::new(ErrorCode::PayloadTooLarge, format!("The file may not exceed {max} bytes"));
     #[allow(clippy::cast_precision_loss)]
@@ -216,9 +216,9 @@ fn bytes_of(request: &Request, max: u64) -> Result<Vec<u8>, CanopyError> {
     {
         return Err(too_large());
     }
-    match &request.body {
+    match std::mem::take(&mut request.body) {
         Body::Bytes(bytes) if bytes.len() as u64 > max => Err(too_large()),
-        Body::Bytes(bytes) => Ok(bytes.clone()),
+        Body::Bytes(bytes) => Ok(bytes),
         Body::TooLarge => Err(too_large()),
         Body::Unreadable => Err(CanopyError::invalid_query("The request body could not be read")),
     }
@@ -380,12 +380,14 @@ impl StorageHandler {
             && rest.trim_start_matches('/') != "render"
     }
 
-    /// Answers a request; `None` for a target the handler does not own.
-    pub async fn serve(&self, request: &Request) -> Option<StorageAnswer> {
+    /// Answers a request; `None` for a target the handler does not own. An upload's body is moved out of the
+    /// request, so it is stored without copying it.
+    pub async fn serve(&self, request: &mut Request) -> Option<StorageAnswer> {
         if !self.owns(&request.target) {
             return None;
         }
-        let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
+        let target = request.target.clone();
+        let (path, query) = target.split_once('?').unwrap_or((&target, ""));
         let path = path.split('#').next().unwrap_or(path);
         let request_id = request_id_of(request);
         let origin = request.header("origin");
@@ -456,7 +458,7 @@ impl StorageHandler {
 
     async fn route(
         &self,
-        request: &Request,
+        request: &mut Request,
         query: &str,
         segments: &[String],
     ) -> Result<StorageAnswer, CanopyError> {

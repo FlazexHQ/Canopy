@@ -529,7 +529,7 @@ impl DataPlane {
                 canopy_http::Body::TooLarge
             } else {
                 match Limited::new(body, usize::try_from(limit).unwrap_or(usize::MAX)).collect().await {
-                    Ok(collected) => canopy_http::Body::Bytes(collected.to_bytes().to_vec()),
+                    Ok(collected) => canopy_http::Body::Bytes(Vec::from(collected.to_bytes())),
                     Err(error) if error.downcast_ref::<LengthLimitError>().is_some() => {
                         canopy_http::Body::TooLarge
                     }
@@ -554,7 +554,7 @@ impl DataPlane {
         });
         let serve = async {
             if let Some(storage) = storage {
-                return storage.handler.serve(&plain).await.map(storage_response);
+                return storage.handler.serve(&mut plain).await.map(storage_response);
             }
             match graphql {
                 Some(graphql) => graphql.serve_answer(&plain).await.map(|answer| match answer {

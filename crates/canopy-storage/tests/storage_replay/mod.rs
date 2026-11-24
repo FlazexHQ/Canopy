@@ -178,7 +178,7 @@ pub(crate) async fn replay<Handler>(
     fixture: &Json,
     on_wire: bool,
     mut start: impl AsyncFnMut(&str, &str, &Path, bool) -> Handler,
-    mut send: impl AsyncFnMut(&Handler, &Request) -> Option<Response>,
+    mut send: impl AsyncFnMut(&Handler, Request) -> Option<Response>,
 ) {
     let dir = directory_of("storage");
     let mut files: Vec<_> =
@@ -210,7 +210,8 @@ pub(crate) async fn replay<Handler>(
             let mut seen = Seen::default();
             for (index, step) in list(case, "steps").iter().enumerate() {
                 let request = request_of(fixture, get(step, "request"), &seen);
-                let Some(answer) = send(&handler, &request).await else {
+                let head = request.method == "HEAD";
+                let Some(answer) = send(&handler, request).await else {
                     problems.push(format!("{id}[{index}]: not owned"));
                     continue;
                 };
@@ -261,7 +262,7 @@ pub(crate) async fn replay<Handler>(
                         mismatch.push(format!("unexpected header {name}: {value}"));
                     }
                 }
-                if on_wire && (request.method == "HEAD" || number(expected, "status") == 304.0) {
+                if on_wire && (head || number(expected, "status") == 304.0) {
                     if !body.is_empty() {
                         mismatch.push("an HTTP response without a body carried bytes".to_owned());
                     }
