@@ -7,7 +7,7 @@ mod rate_limit;
 mod revocations;
 mod view_tokens;
 
-pub use api_keys::{ApiKeys, REVOKED_KEY};
+pub use api_keys::{ApiKeys, REVOKED_KEY, ScramVerifier};
 pub use jwt::{Authenticator, JwtConfig};
 pub use rate_limit::{
     BucketSpec, Clock, RateLimitOptions, RateLimits, TokenBuckets, rate_limit_error, retry_after_seconds,

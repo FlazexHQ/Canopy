@@ -120,16 +120,27 @@ async fn legacy_hello_gets_op_reply() {
 }
 
 #[tokio::test]
-async fn scram_without_configured_keys_reports_the_credential_requirement() {
+async fn scram_without_configured_keys_uses_a_decoy_challenge() {
     let _ = rustls::crypto::ring::default_provider().install_default();
     let auth = Authenticator::new(None, None, Vec::new(), reqwest::Client::new()).unwrap();
     let mut session = Session::new(auth, None, Ipv4Addr::LOCALHOST.into(), 1);
     let reply = command(&mut session, sasl("SCRAM-SHA-256", b"n,,n=service,r=clientNonce".to_vec())).await;
-    assert_eq!(reply.get_i32("code").unwrap(), 18);
-    assert_eq!(
-        reply.get_str("errmsg").unwrap(),
-        "SCRAM requires a configured service key. Keys stored in the meta database are unsupported."
-    );
+    assert!(!reply.get_bool("done").unwrap());
+    let challenge = std::str::from_utf8(reply.get_binary_generic("payload").unwrap()).unwrap();
+    let nonce = challenge.split(',').next().unwrap();
+    let proof = format!("c=biws,{nonce},p=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+    let refused = command(
+        &mut session,
+        doc! {
+            "saslContinue": 1,
+            "conversationId": reply.get_i32("conversationId").unwrap(),
+            "payload": Binary { subtype: BinarySubtype::Generic, bytes: proof.into_bytes() },
+            "$db": "admin",
+        },
+    )
+    .await;
+    assert_eq!(refused.get_i32("code").unwrap(), 18);
+    assert_eq!(refused.get_str("errmsg").unwrap(), "Authentication failed.");
     assert!(session.principal().is_none());
 }
 

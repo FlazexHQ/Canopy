@@ -194,6 +194,12 @@ export interface ApiKeyDocument {
     name: string;
     prefix: string;
     hash: string;
+    scram?: {
+        salt: string;
+        iterations: number;
+        storedKey: string;
+        serverKey: string;
+    };
     key?: string;
     createdAt: Date;
     createdBy: string;

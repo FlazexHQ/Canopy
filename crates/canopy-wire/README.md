@@ -1,5 +1,23 @@
 # Canopy MongoDB wire endpoint
 
+## API key authentication
+
+For SCRAM-SHA-256, use the secret API key's returned `info.id` as the MongoDB username,
+the full secret key as the password, and `authSource=admin`. The connection has the same
+service role and key ID as a Data API request using that key. Publishable keys grant public
+access and are ineligible for service authentication. Configured secret keys still use
+the username `service`.
+
+The control plane stores the salt, iteration count, StoredKey and ServerKey alongside
+the API key hash in the meta database. The data plane checks the primary for an active
+verifier during each handshake. Revoked or deleted keys cannot open new authenticated
+connections.
+
+Secret keys issued before SCRAM was available continue to work with the Data API.
+To enable wire access for one, create a replacement secret key with
+`POST /admin/v1/api-keys`, switch clients to its new ID and password, then revoke the
+old key with `DELETE /admin/v1/api-keys/:id`.
+
 ## Wire compression
 
 The endpoint negotiates `snappy`, `zlib` and `zstd` on `hello` or `isMaster`. The response lists

@@ -1,3 +1,4 @@
+use canopy_auth::ApiKeys;
 use canopy_mongo::mongodb::bson::{DateTime, Document, doc};
 
 use crate::frame::Compressor;
@@ -18,6 +19,7 @@ pub(crate) fn hello(
     request: &Document,
     connection_id: i64,
     service_enabled: bool,
+    stored_keys_enabled: bool,
     compressors: Option<&[Compressor]>,
 ) -> Document {
     let writable = if command == "hello" { "isWritablePrimary" } else { "ismaster" };
@@ -45,12 +47,14 @@ pub(crate) fn hello(
         reply.insert("helloOk", true);
     }
     if let Ok(user) = request.get_str("saslSupportedMechs") {
-        let mechanisms =
-            if service_enabled && user.rsplit_once('.').is_some_and(|(_, name)| name == "service") {
-                vec!["SCRAM-SHA-256"]
-            } else {
-                Vec::new()
-            };
+        let mechanisms = if user.rsplit_once('.').is_some_and(|(_, name)| {
+            (service_enabled && name == "service")
+                || (stored_keys_enabled && ApiKeys::is_scram_username(name))
+        }) {
+            vec!["SCRAM-SHA-256"]
+        } else {
+            Vec::new()
+        };
         reply.insert("saslSupportedMechs", mechanisms);
     }
     reply

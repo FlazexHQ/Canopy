@@ -34,6 +34,36 @@ fn rfc_7677_exchange() {
 }
 
 #[test]
+fn rfc_7677_exchange_with_a_stored_verifier() {
+    let mut scram = challenge(FIRST, SUFFIX).unwrap();
+    scram.stored = Some(StoredScram {
+        username: "user".into(),
+        active: true,
+        verifier: ScramVerifier {
+            salt: scram.salt.as_slice().try_into().unwrap(),
+            stored_key: STANDARD
+                .decode("WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            server_key: STANDARD
+                .decode("wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=")
+                .unwrap()
+                .try_into()
+                .unwrap(),
+        },
+    });
+    assert_eq!(
+        scram.verify(FINAL.as_bytes(), &[]).as_deref(),
+        Some("v=6rriTRBi23WpRR/wtup+mMhUZUn/dB5nLTJRsjl95G4=")
+    );
+    let wrong = FINAL.replace("p=dH", "p=AH");
+    assert!(scram.verify(wrong.as_bytes(), &[]).is_none());
+    scram.stored.as_mut().unwrap().active = false;
+    assert!(scram.verify(FINAL.as_bytes(), &[]).is_none());
+}
+
+#[test]
 fn rejects_wrong_proof() {
     let scram = challenge(FIRST, SUFFIX).unwrap();
     let wrong = FINAL.replace("p=dH", "p=AH");

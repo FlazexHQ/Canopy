@@ -4,11 +4,12 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use canopy_mongo::mongodb;
 use canopy_protocol::{CanopyError, ErrorCode};
 use futures_util::TryStreamExt as _;
 use mongodb::change_stream::event::{ChangeStreamEvent, OperationType};
-use mongodb::options::FullDocumentType;
+use mongodb::options::{FullDocumentType, ReadPreference, SelectionCriteria};
 use mongodb::{
     Collection, Database,
     bson::{Document, doc},
@@ -18,6 +19,32 @@ const CACHE_TTL: Duration = Duration::from_secs(1);
 const MAX_CACHE: usize = 10_000;
 /// The error message for a revoked API key.
 pub const REVOKED_KEY: &str = "The API key was revoked";
+
+/// The SCRAM-SHA-256 verifier issued with a stored secret API key.
+pub struct ScramVerifier {
+    /// Salt sent in the server challenge.
+    pub salt: [u8; 16],
+    /// Client proof verifier.
+    pub stored_key: [u8; 32],
+    /// Key for signing the exchange transcript.
+    pub server_key: [u8; 32],
+}
+
+impl ScramVerifier {
+    /// Iteration count used for Canopy API key verifiers.
+    pub const ITERATIONS: u32 = 15_000;
+
+    fn from_document(doc: &Document) -> Option<Self> {
+        if doc.get_i32("iterations").ok()? != i32::try_from(Self::ITERATIONS).ok()? {
+            return None;
+        }
+        Some(Self {
+            salt: STANDARD.decode(doc.get_str("salt").ok()?).ok()?.try_into().ok()?,
+            stored_key: STANDARD.decode(doc.get_str("storedKey").ok()?).ok()?.try_into().ok()?,
+            server_key: STANDARD.decode(doc.get_str("serverKey").ok()?).ok()?.try_into().ok()?,
+        })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Key {
@@ -62,6 +89,26 @@ pub struct ApiKeys {
 }
 
 impl ApiKeys {
+    /// Whether a name has the format of a stored API key ID.
+    pub fn is_scram_username(name: &str) -> bool {
+        name.strip_prefix("key_").is_some_and(|id| {
+            id.len() == 16
+                && id.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        })
+    }
+
+    /// Reads the active verifier from the primary so new exchanges do not depend on the revocation watcher.
+    pub async fn scram_verifier(&self, username: &str) -> Result<Option<ScramVerifier>, CanopyError> {
+        let doc = self
+            .collection
+            .find_one(doc! { "_id": username, "kind": "secret", "revokedAt": { "$exists": false } })
+            .selection_criteria(SelectionCriteria::ReadPreference(ReadPreference::Primary))
+            .projection(doc! { "_id": 0, "scram": 1 })
+            .await
+            .map_err(|_| CanopyError::new(ErrorCode::Unavailable, "Could not look up the API key"))?;
+        Ok(doc.as_ref().and_then(|doc| ScramVerifier::from_document(doc.get_document("scram").ok()?)))
+    }
+
     /// Creates a key store backed by the meta database.
     pub fn new(meta: &Database) -> Self {
         Self {

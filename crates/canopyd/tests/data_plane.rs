@@ -65,6 +65,98 @@ async fn wire_driver_scram_reads_and_writes_through_the_gateway() {
 }
 
 #[tokio::test]
+async fn wire_driver_authenticates_with_a_control_plane_key() {
+    use canopy_mongo::mongodb::{
+        bson::{DateTime, Document, doc},
+        error::ErrorKind,
+        options::ClientOptions,
+    };
+
+    let Some(uri) = mongodb_uri() else { return };
+    let database = format!("gateway_wire_stored_{}", std::process::id());
+    let meta = format!("{database}_meta");
+    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/server/test/fixtures/issue-wire-key.ts");
+    let output = Command::new("bun")
+        .args(["--conditions=@canopy/source"])
+        .arg(script)
+        .arg(&meta)
+        .env("CANOPY_TEST_MONGODB_URI", &uri)
+        .output()
+        .expect("run the server key store fixture");
+    assert!(output.status.success(), "key issuance failed: {}", String::from_utf8_lossy(&output.stderr));
+    let issued = canopy_protocol::json::parse_json(std::str::from_utf8(&output.stdout).expect("UTF-8"))
+        .expect("key store response");
+    let id = text(&issued, "id");
+    let key = text(&issued, "key");
+
+    let backing = Client::with_uri_str(&uri).await.expect("backing client");
+    let stored = backing.database(&meta).collection::<Document>("api_keys");
+    backing
+        .database(&database)
+        .collection("notes")
+        .insert_one(doc! {
+            "_id": 1, "body": "a service-visible note",
+        })
+        .await
+        .expect("seed the collection");
+    let config = format!(
+        r#"{{"mongodb":{{"uri":"{uri}","database":"{database}","metaDatabase":"{meta}"}},
+        "server":{{"host":"127.0.0.1","port":0,"metricsPort":0,"shards":1}},
+        "wire":{{"port":0}},
+        "realtime":{{"checkpoints":"off","drainWindowMs":100}},
+        "policies":{{"stored":[{{"_id":"notes","version":1,"exposed":true,"policies":[
+            {{"name":"own notes","kind":"permissive","ops":["read"],"roles":["authenticated"],
+            "using":"{{\"owner\":{{\"$auth\":\"sub\"}}}}"}}]}}]}}
+        }}"#,
+    );
+    let config = json_text(&canopy_protocol::json::parse_json(&config).expect("wire fixture configuration"));
+    let gateway = Gateway::start(config, None).await;
+    let port = gateway.wire_port.expect("the wire port");
+    let find = async |username: &str, password: &str| {
+        let target = format!("mongodb://{username}:{password}@127.0.0.1:{port}/{database}?authSource=admin");
+        let mut options = ClientOptions::parse(target).await.expect("driver options");
+        options.server_selection_timeout = Some(Duration::from_secs(4));
+        let wire = Client::with_options(options).expect("wire client");
+        wire.database(&database).collection::<Document>("notes").find_one(doc! { "_id": 1 }).await
+    };
+    let note = find(id, key).await.expect("stored key authentication").expect("service can read the note");
+    assert_eq!(note.get_str("body").expect("note body"), "a service-visible note");
+
+    let assert_refused = async |username: &str, password: &str| {
+        let err = find(username, password).await.expect_err("SCRAM must refuse this credential");
+        assert!(matches!(&*err.kind, ErrorKind::Authentication { .. }), "{err:?}");
+        assert!(err.to_string().contains("Authentication failed."), "{err:?}");
+    };
+    assert_refused(id, "incorrect-password").await;
+    assert_refused("key_Unknown000000000", key).await;
+
+    let public_id = "key_Public0000000000";
+    let verifier = stored.find_one(doc! { "_id": id }).await.expect("key lookup").expect("issued key");
+    stored
+        .insert_one(doc! {
+            "_id": public_id,
+            "kind": "publishable",
+            "scram": verifier.get_document("scram").expect("verifier").clone(),
+        })
+        .await
+        .expect("seed a publishable key with matching verifier material");
+    assert_refused(public_id, key).await;
+
+    stored
+        .update_one(doc! { "_id": id }, doc! { "$set": { "revokedAt": DateTime::now() } })
+        .await
+        .expect("revoke the key");
+    assert_refused(id, key).await;
+    stored.delete_one(doc! { "_id": id }).await.expect("delete the key");
+    assert_refused(id, key).await;
+
+    drop(gateway);
+    backing.database(&database).drop().await.expect("drop the fixture database");
+    backing.database(&meta).drop().await.expect("drop the fixture meta database");
+}
+
+#[tokio::test]
 async fn wire_driver_snappy_reads_and_writes_through_the_gateway() {
     wire_driver_reads(false, Some("snappy")).await;
 }

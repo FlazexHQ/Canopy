@@ -17,8 +17,7 @@ use crate::writes;
 /// The authentication and command state of one MongoDB connection.
 ///
 /// Speculative authentication is omitted so drivers run the normal SASL exchange.
-/// SCRAM accepts configured plaintext service keys. The control plane still needs
-/// a way to provision SCRAM credentials for keys stored in the meta database.
+/// SCRAM accepts configured keys as `service` and provisioned secret API keys by key ID.
 pub struct Session {
     authenticator: Authenticator,
     limits: Option<Arc<RateLimits>>,
@@ -116,6 +115,7 @@ impl Session {
                     &message.body,
                     self.connection_id,
                     !self.authenticator.configured_service_keys().is_empty(),
+                    self.authenticator.api_keys.is_some(),
                     negotiated.as_deref(),
                 );
                 if let Some(negotiated) = negotiated {
@@ -203,11 +203,6 @@ impl Session {
                 match failure {
                     Failure::Invalid => error(18, "AuthenticationFailed", "Authentication failed."),
                     Failure::Expired => reauthentication_required(),
-                    Failure::NoConfiguredKeys => error(
-                        18,
-                        "AuthenticationFailed",
-                        "SCRAM requires a configured service key. Keys stored in the meta database are unsupported.",
-                    ),
                 }
             }
         }

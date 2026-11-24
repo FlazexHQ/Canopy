@@ -1,7 +1,8 @@
 use std::num::NonZeroU32;
+use std::sync::OnceLock;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use canopy_auth::Authenticator;
+use canopy_auth::{ApiKeys, Authenticator, ScramVerifier};
 use canopy_engine::Principal;
 use canopy_mongo::mongodb::bson::{Binary, Document, doc, spec::BinarySubtype};
 use canopy_protocol::ErrorCode;
@@ -12,18 +13,18 @@ use subtle::{Choice, ConstantTimeEq as _};
 #[path = "auth_tests.rs"]
 mod tests;
 
-const ITERATIONS: NonZeroU32 = NonZeroU32::MIN.saturating_add(14_999);
+const ITERATIONS: NonZeroU32 = NonZeroU32::MIN.saturating_add(ScramVerifier::ITERATIONS - 1);
+static DECOY_KEY: OnceLock<Option<[u8; 32]>> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 pub(crate) enum Failure {
     Invalid,
     Expired,
-    NoConfiguredKeys,
 }
 
 pub(crate) enum Conversation {
     Scram(Scram),
-    Finish,
+    Finish(Option<StoredScram>),
 }
 
 pub(crate) struct Scram {
@@ -34,6 +35,54 @@ pub(crate) struct Scram {
     salt: Vec<u8>,
     iterations: NonZeroU32,
     skip_empty_exchange: bool,
+    stored: Option<StoredScram>,
+}
+
+pub(crate) struct StoredScram {
+    username: String,
+    verifier: ScramVerifier,
+    active: bool,
+}
+
+impl StoredScram {
+    async fn lookup(auth: &Authenticator, username: &str) -> Option<ScramVerifier> {
+        auth.api_keys.as_ref()?.scram_verifier(username).await.ok().flatten()
+    }
+
+    async fn current(&self, auth: &Authenticator) -> bool {
+        Self::lookup(auth, &self.username).await.is_some_and(|current| {
+            bool::from(
+                current.salt.ct_eq(&self.verifier.salt)
+                    & current.stored_key.ct_eq(&self.verifier.stored_key)
+                    & current.server_key.ct_eq(&self.verifier.server_key),
+            )
+        })
+    }
+}
+
+fn decoy(username: &str, rng: &rand::SystemRandom) -> Option<ScramVerifier> {
+    let key = DECOY_KEY.get_or_init(|| rand::generate::<[u8; 32]>(rng).ok().map(|key| key.expose()));
+    let key = key.as_ref()?;
+    let seed = sign(key, username.as_bytes());
+    Some(ScramVerifier {
+        salt: sign(seed.as_ref(), b"Salt").as_ref()[..16].try_into().ok()?,
+        stored_key: sign(seed.as_ref(), b"Client Key").as_ref().try_into().ok()?,
+        server_key: sign(seed.as_ref(), b"Server Key").as_ref().try_into().ok()?,
+    })
+}
+
+fn first_message(payload: &[u8]) -> Option<(&str, &str, &str, &'static str)> {
+    let message = std::str::from_utf8(payload).ok()?;
+    let (first, channel_binding) = if let Some(first) = message.strip_prefix("n,,") {
+        (first, "c=biws,r=")
+    } else {
+        (message.strip_prefix("y,,")?, "c=eSws,r=")
+    };
+    let (name, nonce) = first.strip_prefix("n=")?.split_once(",r=")?;
+    if nonce.is_empty() || !nonce.bytes().all(|b| b.is_ascii_graphic() && b != b',') {
+        return None;
+    }
+    Some((first, name, nonce, channel_binding))
 }
 
 impl Scram {
@@ -45,14 +94,8 @@ impl Scram {
         iterations: NonZeroU32,
         skip_empty_exchange: bool,
     ) -> Option<Self> {
-        let message = std::str::from_utf8(payload).ok()?;
-        let (first, channel_binding) = if let Some(first) = message.strip_prefix("n,,") {
-            (first, "c=biws,r=")
-        } else {
-            (message.strip_prefix("y,,")?, "c=eSws,r=")
-        };
-        let (name, nonce) = first.strip_prefix("n=")?.split_once(",r=")?;
-        if name != username || nonce.is_empty() || !nonce.bytes().all(|b| b.is_ascii_graphic() && b != b',') {
+        let (first, name, nonce, channel_binding) = first_message(payload)?;
+        if name != username {
             return None;
         }
         let nonce = format!("{nonce}{server_nonce}");
@@ -65,6 +108,7 @@ impl Scram {
             salt,
             iterations,
             skip_empty_exchange,
+            stored: None,
         })
     }
 
@@ -75,6 +119,16 @@ impl Scram {
         }
         let proof: [u8; 32] = STANDARD.decode(proof).ok()?.try_into().ok()?;
         let transcript = format!("{},{},{final_message}", self.first, self.challenge);
+        if let Some(stored) = &self.stored {
+            let (valid, signature) = verify_proof(
+                &stored.verifier.stored_key,
+                &stored.verifier.server_key,
+                proof,
+                transcript.as_bytes(),
+            );
+            return bool::from(valid & Choice::from(u8::from(stored.active)))
+                .then(|| format!("v={}", STANDARD.encode(signature.as_ref())));
+        }
         let mut matched = Choice::from(0);
         let mut signature = [0; 32];
         for password in secrets {
@@ -89,15 +143,10 @@ impl Scram {
             );
             let client_key = sign(&salted, b"Client Key");
             let stored_key = digest::digest(&digest::SHA256, client_key.as_ref());
-            let client_signature = sign(stored_key.as_ref(), transcript.as_bytes());
-            let mut candidate = proof;
-            for (byte, mask) in candidate.iter_mut().zip(client_signature.as_ref()) {
-                *byte ^= mask;
-            }
-            let valid = client_key.as_ref().ct_eq(&candidate);
-            matched |= valid;
             let server_key = sign(&salted, b"Server Key");
-            let server_signature = sign(server_key.as_ref(), transcript.as_bytes());
+            let (valid, server_signature) =
+                verify_proof(stored_key.as_ref(), server_key.as_ref(), proof, transcript.as_bytes());
+            matched |= valid;
             let mask = 0u8.wrapping_sub(valid.unwrap_u8());
             for (byte, value) in signature.iter_mut().zip(server_signature.as_ref()) {
                 *byte = (*byte & !mask) | (value & mask);
@@ -105,6 +154,20 @@ impl Scram {
         }
         bool::from(matched).then(|| format!("v={}", STANDARD.encode(signature)))
     }
+}
+
+fn verify_proof(
+    stored_key: &[u8],
+    server_key: &[u8],
+    mut proof: [u8; 32],
+    transcript: &[u8],
+) -> (Choice, hmac::Tag) {
+    let client_signature = sign(stored_key, transcript);
+    for (byte, mask) in proof.iter_mut().zip(client_signature.as_ref()) {
+        *byte ^= mask;
+    }
+    let candidate = digest::digest(&digest::SHA256, &proof);
+    (candidate.as_ref().ct_eq(stored_key), sign(server_key, transcript))
 }
 
 fn sign(key: &[u8], message: &[u8]) -> hmac::Tag {
@@ -162,13 +225,25 @@ pub(crate) async fn start(
                 .unwrap_or(false);
             let rng = rand::SystemRandom::new();
             let nonce = rand::generate::<[u8; 24]>(&rng).map_err(|_| Failure::Invalid)?.expose();
-            let salt = rand::generate::<[u8; 16]>(&rng).map_err(|_| Failure::Invalid)?.expose();
-            let scram =
-                Scram::challenge(bytes, "service", &STANDARD.encode(nonce), salt.to_vec(), ITERATIONS, skip)
+            let (_, username, _, _) = first_message(bytes).ok_or(Failure::Invalid)?;
+            let (salt, stored) =
+                if username == "service" && !authenticator.configured_service_keys().is_empty() {
+                    (rand::generate::<[u8; 16]>(&rng).map_err(|_| Failure::Invalid)?.expose(), None)
+                } else {
+                    let fallback = decoy(username, &rng).ok_or(Failure::Invalid)?;
+                    let found = if ApiKeys::is_scram_username(username) {
+                        StoredScram::lookup(authenticator, username).await
+                    } else {
+                        None
+                    };
+                    let active = found.is_some();
+                    let verifier = found.unwrap_or(fallback);
+                    (verifier.salt, Some(StoredScram { username: username.to_owned(), verifier, active }))
+                };
+            let mut scram =
+                Scram::challenge(bytes, username, &STANDARD.encode(nonce), salt.to_vec(), ITERATIONS, skip)
                     .ok_or(Failure::Invalid)?;
-            if authenticator.configured_service_keys().is_empty() {
-                return Err(Failure::NoConfiguredKeys);
-            }
+            scram.stored = stored;
             Ok(Exchange {
                 response: reply(id, scram.challenge.as_bytes(), false),
                 principal: None,
@@ -193,23 +268,38 @@ pub(crate) async fn continue_exchange(
         Conversation::Scram(scram) => {
             let done = scram.skip_empty_exchange;
             let bytes = bytes.to_owned();
-            let authenticator = authenticator.clone();
-            let signature = tokio::task::spawn_blocking(move || {
-                scram.verify(&bytes, authenticator.configured_service_keys())
-            })
-            .await
-            .ok()
-            .flatten()
-            .ok_or(Failure::Invalid)?;
-            Ok(Exchange {
-                response: reply(id, signature.as_bytes(), done),
-                principal: done.then(Principal::service),
-                next: (!done).then_some(Conversation::Finish),
-            })
+            let (signature, stored) = if let Some(stored) = &scram.stored {
+                let signature = scram.verify(&bytes, &[]).ok_or(Failure::Invalid)?;
+                if !stored.current(authenticator).await {
+                    return Err(Failure::Invalid);
+                }
+                (signature, scram.stored)
+            } else {
+                let auth = authenticator.clone();
+                let signature =
+                    tokio::task::spawn_blocking(move || scram.verify(&bytes, auth.configured_service_keys()))
+                        .await
+                        .ok()
+                        .flatten()
+                        .ok_or(Failure::Invalid)?;
+                (signature, None)
+            };
+            let (principal, next) =
+                if done { (Some(service(stored)), None) } else { (None, Some(Conversation::Finish(stored))) };
+            Ok(Exchange { response: reply(id, signature.as_bytes(), done), principal, next })
         }
-        Conversation::Finish if bytes.is_empty() => {
-            Ok(Exchange { response: reply(id, &[], true), principal: Some(Principal::service()), next: None })
+        Conversation::Finish(stored) if bytes.is_empty() => {
+            if let Some(stored) = &stored
+                && !stored.current(authenticator).await
+            {
+                return Err(Failure::Invalid);
+            }
+            Ok(Exchange { response: reply(id, &[], true), principal: Some(service(stored)), next: None })
         }
-        Conversation::Finish => Err(Failure::Invalid),
+        Conversation::Finish(_) => Err(Failure::Invalid),
     }
+}
+
+fn service(stored: Option<StoredScram>) -> Principal {
+    Principal { key_id: stored.map(|stored| stored.username), ..Principal::service() }
 }
