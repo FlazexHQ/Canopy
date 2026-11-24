@@ -269,6 +269,25 @@ impl WritePath {
             self.report(caller, request, &outcome, ct, None);
             return Ok(WriteResult { outcome: Outcome { ct: None, ..outcome }, ct, replayed: false });
         }
+        if options.mutation_id.is_none() {
+            let mut session = self
+                .client
+                .start_session()
+                .causal_consistency(true)
+                .await
+                .map_err(|e| from_driver_error(&e, service))?;
+            let mut fast = Session::fast(&mut session);
+            let direct =
+                plan.run_direct(&mut fast, read).await.map_err(|error| write_error(&error, service))?;
+            if let Some(outcome) = direct {
+                let ct = match outcome.ct {
+                    Some(ct) => ct,
+                    None => operation_time(&session)?,
+                };
+                self.report(caller, request, &outcome, ct, None);
+                return Ok(WriteResult { outcome: Outcome { ct: None, ..outcome }, ct, replayed: false });
+            }
+        }
         let key = RecordKey {
             c: request.collection().to_owned(),
             op: request.op().as_str().to_owned(),

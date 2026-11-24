@@ -113,6 +113,8 @@ pub(crate) enum Step {
         replacement: bson::Document,
         update_check: Compiled,
         insert_check: Option<Compiled>,
+        /// The replacement as MongoDB stores it, `_id` first, when its check may be evaluated before the write.
+        prechecked: Option<Document>,
     },
     DeleteById {
         id: Value,
@@ -123,6 +125,25 @@ pub(crate) enum Step {
     DeleteMany {
         target: Compiled,
     },
+}
+
+/// Whether a `check` filter reads anything but the document it is evaluated on: a system variable other than
+/// `$$ROOT`, `$$CURRENT` and `$$REMOVE`, such as `$$NOW`, whose value differs from one command to the next.
+fn reads_clock(value: &Value) -> bool {
+    match value {
+        Value::String(text) => {
+            let variable =
+                text.strip_prefix("$$").filter(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()));
+            variable.is_some_and(|rest| {
+                !["ROOT", "CURRENT", "REMOVE"].iter().any(|name| {
+                    rest.strip_prefix(name).is_some_and(|tail| tail.is_empty() || tail.starts_with('.'))
+                })
+            })
+        }
+        Value::Array(items) => items.iter().any(reads_clock),
+        Value::Document(document) => document.iter().any(|(_, member)| reads_clock(member)),
+        _ => false,
+    }
 }
 
 /// A planned write and whether it may run without a transaction.
@@ -332,6 +353,11 @@ fn plan_replace(query: &QueryLimits, scope: Scope, request: &WriteRequest) -> Re
     let mut replacement = doc.clone();
     replacement.insert("_id", id.clone());
     let fast = update_check == Compiled::All && (insert_check.is_none() || atomic_upsert);
+    let stored = id_first(&replacement);
+    let prechecked = (!upsert
+        && matches!(&update_check, Compiled::Filter(check) if !reads_clock(&Value::Document(check.clone())))
+        && encode_document(&stored).is_ok_and(|bytes| bytes.len() <= PRECHECK_MAX_BYTES))
+    .then_some(stored);
     let step = Step::Replace {
         id: id.clone(),
         filter: scope.filter(&target)?,
@@ -340,6 +366,7 @@ fn plan_replace(query: &QueryLimits, scope: Scope, request: &WriteRequest) -> Re
         replacement: to_bson(&replacement)?,
         update_check,
         insert_check,
+        prechecked,
     };
     Ok(Plan { scope, step, fast })
 }
@@ -384,6 +411,61 @@ fn fast_time(session: &Session<'_>) -> Result<Option<Ct>, DriverError> {
 }
 
 impl Plan {
+    /// Runs a replacement without a transaction when it can: MongoDB evaluates the check on the replacement as
+    /// it will be stored before anything is written, and the write is then one `replaceOne`. A check that fails
+    /// is not an error yet (the target may be missing or invisible, or the write identical), so `None` is
+    /// returned and nothing has been written: the caller runs the transaction, which decides exactly.
+    pub(crate) async fn run_direct(
+        &self,
+        session: &mut Session<'_>,
+        read: bool,
+    ) -> Result<Option<Outcome>, DriverError> {
+        let Step::Replace {
+            id,
+            filter,
+            visible,
+            conditional,
+            replacement,
+            update_check,
+            prechecked: Some(stored),
+            ..
+        } = &self.step
+        else {
+            return Ok(None);
+        };
+        let scope = &self.scope;
+        let (failed, found) = scope.check_before(std::slice::from_ref(stored), update_check, read).await?;
+        if !failed.is_empty() {
+            return Ok(None);
+        }
+        let documents = scope.readable_of(std::slice::from_ref(stored), &found, read).map_err(custom)?;
+        let coll = scope.coll();
+        let action = coll
+            .replace_one(filter.clone(), replacement.clone())
+            .upsert(false)
+            .optional(Scope::write_concern(session), |a, c| a.write_concern(c));
+        let result = match session.inner.as_deref_mut() {
+            Some(inner) => action.session(inner).await?,
+            None => action.await?,
+        };
+        let ct = fast_time(session)?;
+        if result.matched_count == 0 {
+            if *conditional {
+                scope.assert_no_conflict(session, visible).await?;
+            }
+            return Ok(Some(Outcome { ct, ..Outcome::default() }));
+        }
+        let modified = result.modified_count > 0;
+        Ok(Some(Outcome {
+            matched: result.matched_count,
+            modified: result.modified_count,
+            changed_ids: if modified { vec![id.clone()] } else { Vec::new() },
+            documents,
+            ct,
+            ..Outcome::default()
+        }))
+    }
+
     /// Runs the write in `session` and reports what it did, with the readable documents when `read` is set.
     pub(crate) async fn run(
         &self,
@@ -485,7 +567,16 @@ impl Plan {
                     ..Outcome::default()
                 })
             }
-            Step::Replace { id, filter, visible, conditional, replacement, update_check, insert_check } => {
+            Step::Replace {
+                id,
+                filter,
+                visible,
+                conditional,
+                replacement,
+                update_check,
+                insert_check,
+                ..
+            } => {
                 let atomic_upsert = insert_check.as_ref() == Some(&Compiled::All);
                 let action = coll
                     .replace_one(filter.clone(), replacement.clone())
@@ -631,3 +722,31 @@ trait Optional: Sized {
 }
 
 impl<T> Optional for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use canopy_protocol::ejson::{DecodeOptions, parse};
+
+    fn value(text: &str) -> Value {
+        parse(text, DecodeOptions::default()).unwrap_or(Value::Undefined)
+    }
+
+    #[test]
+    fn only_variables_other_than_the_document_read_the_clock() {
+        for clock in
+            [r#"{"$expr":{"$lt":["$at","$$NOW"]}}"#, r#"{"a":["$$CLUSTER_TIME"]}"#, r#"{"a":"$$ROOTS"}"#]
+        {
+            assert!(reads_clock(&value(clock)), "{clock}");
+        }
+        for document in [
+            r#"{"ownerId":"u1"}"#,
+            r#"{"$expr":{"$eq":["$$ROOT.a","$$CURRENT.b"]}}"#,
+            r#"{"a":"$$REMOVE"}"#,
+            r#"{"a":"$$now"}"#,
+            r#"{"a":"$NOW"}"#,
+        ] {
+            assert!(!reads_clock(&value(document)), "{document}");
+        }
+    }
+}
