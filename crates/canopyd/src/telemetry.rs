@@ -191,6 +191,10 @@ impl Telemetry {
         result
     }
 
+    pub(crate) fn tracer(&self) -> SdkTracer {
+        self.tracer.clone()
+    }
+
     /// The command event handler that records a client span for every MongoDB command, as a child of the span
     /// active in the task that sent it.
     pub(crate) fn command_handler(&self) -> EventHandler<CommandEvent> {

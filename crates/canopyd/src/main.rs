@@ -387,6 +387,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             checkpoints,
             engine: engine_tx.clone(),
             open: Arc::clone(&stream_open),
+            tracer: telemetry.as_ref().map(Telemetry::tracer),
         }
         .run(diagnostics),
     );

@@ -7,8 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use canopy_auth::{Authenticator, REVOKED_KEY, REVOKED_SESSION, REVOKED_TOKEN};
 use canopy_engine::{
-    ConnId, Control, Ct, Engine, Event, Frame, Mutation, MutationOutcome, MutationRequest, Output, Principal,
-    ReadResult, close,
+    BatchTrace, ConnId, Control, Ct, Engine, Event, Frame, Mutation, MutationOutcome, MutationRequest,
+    Output, Principal, ReadResult, close,
 };
 use canopy_mongo::Reader;
 use canopy_policy::PolicySet;
@@ -33,7 +33,7 @@ pub(crate) enum Command {
     LookupDone { id: u64, coll: String, result: Result<Vec<Document>, CanopyError> },
     ContextsDone { id: u64, results: Vec<(String, Result<Vec<Document>, CanopyError>)> },
     MutationDone { id: u64, mutation: Box<Mutation>, result: Result<MutationOutcome, CanopyError> },
-    Events(Vec<Event>),
+    Events(Vec<Event>, Option<BatchTrace>),
     Control(Control),
     Restart(String),
     Progress(Ct),
@@ -392,7 +392,7 @@ where
         Command::LookupDone { id, coll, result } => engine.lookup_done(id, &coll, result, now),
         Command::ContextsDone { id, results } => engine.contexts_done(id, results, now),
         Command::MutationDone { id, mutation, result } => engine.mutation_done(id, *mutation, result, now),
-        Command::Events(events) => engine.events(events, now),
+        Command::Events(events, trace) => engine.events_with_trace(events, now, trace),
         Command::Control(control) => engine.control(&control, now),
         Command::Restart(reason) => engine.restart(&reason, now),
         Command::Progress(ct) => engine.progress(ct),

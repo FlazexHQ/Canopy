@@ -475,6 +475,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "ring",
  "tokio",
  "tokio-tungstenite",

@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use canopy_engine::{Ct, Event, Normalized, merge_fragments, normalize};
+use canopy_engine::{BatchStats, BatchTrace, Ct, Event, Normalized, merge_fragments, normalize};
 use canopy_mongo::{Checkpoints, mongodb};
 use canopy_protocol::bson::{decode_document, encode_document};
 use futures_util::StreamExt;
@@ -12,6 +12,9 @@ use mongodb::change_stream::ChangeStream;
 use mongodb::change_stream::event::ResumeToken;
 use mongodb::error::{Error, ErrorKind};
 use mongodb::options::{FullDocumentBeforeChangeType, FullDocumentType};
+use opentelemetry::trace::{Span, TraceContextExt, Tracer};
+use opentelemetry::{Context, KeyValue};
+use opentelemetry_sdk::trace::SdkTracer;
 use tokio::sync::{Notify, mpsc};
 
 use crate::LogLevel;
@@ -67,6 +70,8 @@ pub struct Ingest {
     pub engine: EngineSender,
     /// Whether the stream is currently open.
     pub open: Arc<AtomicBool>,
+    /// The shared tracer used to sample and export change stream batches.
+    pub tracer: Option<SdkTracer>,
 }
 
 impl Ingest {
@@ -148,6 +153,37 @@ impl Ingest {
         }
     }
 
+    fn send_events(&self, events: Vec<Event>, ingest: Option<&Context>) {
+        let trace = self.tracer.as_ref().zip(ingest).map(|(tracer, ingest)| -> BatchTrace {
+            let tracer = tracer.clone();
+            let ingest = ingest.clone();
+            Box::new(move |stats: BatchStats| {
+                let mut matching = tracer
+                    .span_builder("canopy.realtime.match")
+                    .with_start_time(stats.matching.start)
+                    .with_attributes([
+                        KeyValue::new("events", stats.events as i64),
+                        KeyValue::new("matched_subscriptions", stats.matched_subscriptions as i64),
+                    ])
+                    .start_with_context(&tracer, &ingest);
+                matching.end_with_timestamp(stats.matching.end);
+
+                let timing = stats.fanout.unwrap_or(stats.matching.end..stats.matching.end);
+                let mut fanout = tracer
+                    .span_builder("canopy.realtime.fanout")
+                    .with_start_time(timing.start)
+                    .with_attributes([
+                        KeyValue::new("events", stats.events as i64),
+                        KeyValue::new("matched_subscriptions", stats.matched_subscriptions as i64),
+                        KeyValue::new("connections", stats.connections as i64),
+                    ])
+                    .start_with_context(&tracer, &ingest);
+                fanout.end_with_timestamp(timing.end);
+            })
+        });
+        let _ = self.engine.send(Command::Events(events, trace));
+    }
+
     async fn consume(
         &self,
         stream: &mut ChangeStream<RawDocumentBuf>,
@@ -189,12 +225,18 @@ impl Ingest {
                     Ok(None) => return End::Failed(Error::custom("the change stream closed")),
                     Ok(Some(item)) => raw.push(item),
                 }
+                let ingest = self.tracer.as_ref().filter(|_| !raw.is_empty()).and_then(|tracer| {
+                    let root = Context::new();
+                    let span = tracer.start_with_context("canopy.realtime.ingest", &root);
+                    span.span_context().is_sampled().then(|| root.with_span(span))
+                });
                 while raw.len() < MAX_BATCH {
                     match rx.try_recv() {
                         Ok(item) => raw.push(item),
                         Err(_) => break,
                     }
                 }
+                let raw_count = raw.len();
                 let mut events: Vec<Event> = Vec::new();
                 let mut failure = None;
                 for item in raw {
@@ -235,13 +277,13 @@ impl Ingest {
                         Some(Normalized::Control(control)) => {
                             last = last.max(control.ct);
                             if !events.is_empty() {
-                                let _ = self.engine.send(Command::Events(std::mem::take(&mut events)));
+                                self.send_events(std::mem::take(&mut events), ingest.as_ref());
                             }
                             let _ = self.engine.send(Command::Control(control));
                         }
                         None if op.as_deref().is_none_or(|op| DATA_OPS.contains(&op)) => {
                             if !events.is_empty() {
-                                let _ = self.engine.send(Command::Events(std::mem::take(&mut events)));
+                                self.send_events(std::mem::take(&mut events), ingest.as_ref());
                             }
                             fragments.clear();
                             log(
@@ -255,8 +297,16 @@ impl Ingest {
                     }
                     since_save += 1;
                 }
+                if let Some(ingest) = &ingest {
+                    let span = ingest.span();
+                    span.set_attribute(KeyValue::new(
+                        "events",
+                        (raw_count - usize::from(failure.is_some())) as i64,
+                    ));
+                    span.end();
+                }
                 if !events.is_empty() {
-                    let _ = self.engine.send(Command::Events(events));
+                    self.send_events(events, ingest.as_ref());
                 }
                 if let Some(error) = failure {
                     return if history_lost(&error) { End::HistoryLost } else { End::Failed(error) };

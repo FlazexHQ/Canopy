@@ -224,9 +224,30 @@ struct PendingAck {
     outcome: MutationOutcome,
 }
 
-#[derive(Debug)]
-struct PendingBatch {
+/// Timing and aggregate delivery counts for a sampled batch.
+pub struct BatchStats {
+    /// Normalized change events processed.
+    pub events: usize,
+    /// Distinct subscriptions selected by the observers for delivery.
+    pub matched_subscriptions: usize,
+    /// Distinct live connections for which the engine produced delivery frames.
+    pub connections: usize,
+    /// The interval covering predicate and policy processing.
+    pub matching: std::ops::Range<std::time::SystemTime>,
+    /// The interval covering delivery to sessions, if an observer produced notifications.
+    pub fanout: Option<std::ops::Range<std::time::SystemTime>>,
+}
+
+/// Receives the timing of a sampled batch once it has been applied, including after any deferred lookups.
+pub type BatchTrace = Box<dyn FnOnce(BatchStats) + Send>;
+
+struct EventBatch {
     events: Vec<Event>,
+    trace: Option<BatchTrace>,
+}
+
+struct PendingBatch {
+    batch: EventBatch,
     lookups: HashSet<u64>,
 }
 
@@ -253,7 +274,7 @@ pub struct Engine {
     acks: HashMap<u64, PendingAck>,
     echo: EchoWaiter,
     pending: Option<PendingBatch>,
-    queued: VecDeque<Vec<Event>>,
+    queued: VecDeque<EventBatch>,
     buckets: HashMap<String, Bucket>,
     position: Ct,
     ctx_cache: HashMap<String, (Option<Vec<Value>>, u64)>,
@@ -1754,18 +1775,24 @@ impl Engine {
     /// A batch of change events, in stream order. Updates without a post image that an observer may need are
     /// looked up first ([`Output::Lookup`]); the batch is applied once every lookup answered.
     pub fn events(&mut self, events: Vec<Event>, now: u64) {
-        if self.pending.is_some() {
-            self.queued.push_back(events);
-            return;
-        }
-        self.start_batch(events, now);
+        self.events_with_trace(events, now, None);
     }
 
-    fn start_batch(&mut self, events: Vec<Event>, now: u64) {
+    /// Applies a batch and reports aggregate timings and counts when a trace is supplied.
+    pub fn events_with_trace(&mut self, events: Vec<Event>, now: u64, trace: Option<BatchTrace>) {
+        let batch = EventBatch { events, trace };
+        if self.pending.is_some() {
+            self.queued.push_back(batch);
+            return;
+        }
+        self.start_batch(batch, now);
+    }
+
+    fn start_batch(&mut self, batch: EventBatch, now: u64) {
         let mut lookups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         let mut touched: HashSet<&str> = HashSet::new();
         let mut requested: HashSet<&str> = HashSet::new();
-        for event in &events {
+        for event in &batch.events {
             let earlier = !touched.insert(&event.key);
             if event.op != Op::Update || !matches!(event.post, Post::Unknown) {
                 continue;
@@ -1778,7 +1805,7 @@ impl Engine {
             }
         }
         if lookups.is_empty() {
-            self.process(events, now);
+            self.process(batch, now);
             return;
         }
         let mut ids = HashSet::new();
@@ -1788,7 +1815,7 @@ impl Engine {
             self.metrics.lookups += list.len() as u64;
             self.out.push(Output::Lookup { id, coll, ids: list });
         }
-        self.pending = Some(PendingBatch { events, lookups: ids });
+        self.pending = Some(PendingBatch { batch, lookups: ids });
     }
 
     /// The transport looked up current documents for [`Output::Lookup`].
@@ -1812,7 +1839,7 @@ impl Engine {
             })
             .collect();
         let mut uncertain = HashSet::new();
-        for event in pending.events.iter_mut().filter(|e| e.coll == coll && e.op == Op::Update) {
+        for event in pending.batch.events.iter_mut().filter(|e| e.coll == coll && e.op == Op::Update) {
             if matches!(event.post, Post::Unknown) {
                 let image = found.get(&event.key).cloned();
                 if image.is_none() {
@@ -1830,7 +1857,7 @@ impl Engine {
         }
         if complete {
             if let Some(batch) = self.pending.take() {
-                self.process(batch.events, now);
+                self.process(batch.batch, now);
             }
             while self.pending.is_none() {
                 let Some(next) = self.queued.pop_front() else { break };
@@ -1859,7 +1886,13 @@ impl Engine {
         }
     }
 
-    fn process(&mut self, events: Vec<Event>, now: u64) {
+    fn process(&mut self, EventBatch { events, trace }: EventBatch, now: u64) {
+        use std::time::SystemTime;
+
+        let mut matching = trace.as_ref().map(|_| (SystemTime::now(), HashSet::new()));
+        let mut fanout: Option<std::ops::Range<SystemTime>> = None;
+        let event_count = events.len();
+        let output_start = self.out.len();
         let mut last = self.position;
         let mut seen: Vec<(String, Ct)> = Vec::with_capacity(events.len());
         let mut touched: HashSet<String> = HashSet::new();
@@ -1875,11 +1908,44 @@ impl Engine {
                     None => continue,
                 }
                 self.metrics.matches += 1;
-                self.after_observer(id, notes, now);
+                if let Some((_, subscriptions)) = &mut matching
+                    && !notes.is_empty()
+                {
+                    for note in &notes {
+                        match note {
+                            Note::Added { to, .. } | Note::Changed { to, .. } | Note::Removed { to, .. } => {
+                                subscriptions.extend(to.iter().copied());
+                            }
+                            _ => {}
+                        }
+                    }
+                    let start = fanout.as_ref().map_or_else(SystemTime::now, |timing| timing.start);
+                    self.after_observer(id, notes, now);
+                    fanout = Some(start..SystemTime::now());
+                } else {
+                    self.after_observer(id, notes, now);
+                }
             }
             last = last.max(event.ct);
             seen.push((event.key.clone(), event.ct));
             touched.insert(event.coll.clone());
+        }
+        if let (Some(trace), Some((start, subscriptions))) = (trace, matching) {
+            let end = SystemTime::now();
+            let connections: HashSet<_> = self.out[output_start..]
+                .iter()
+                .filter_map(|output| match output {
+                    Output::Frame { conn, .. } | Output::Watch { conn, .. } => Some(*conn),
+                    _ => None,
+                })
+                .collect();
+            trace(BatchStats {
+                events: event_count,
+                matched_subscriptions: subscriptions.len(),
+                connections: connections.len(),
+                matching: start..end,
+                fanout,
+            });
         }
         self.position = last;
         let settled = self.echo.processed(seen.iter().map(|(key, ct)| (key.as_str(), *ct)));

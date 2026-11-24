@@ -1407,6 +1407,136 @@ async fn traces_continue_the_callers_trace_and_name_only_routes_and_commands() {
     assert_eq!(seen.lock().unwrap().len(), 1, "only the insert reached the upstream");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn realtime_traces_follow_batch_sampling_and_count_deliveries() {
+    use canopy_mongo::mongodb::bson::{Document, doc};
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = fixture();
+    let caller = common::get_as(&fixture, "alice", "/realtime/v1");
+    let key = caller.header("apikey").unwrap();
+    let authorization = caller.header("authorization").unwrap();
+    let token = authorization.strip_prefix("Bearer ").unwrap();
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let (upstream_port, _) = upstream().await;
+
+    for (tracing, sampler, ratio, sampled) in [
+        (true, "always_on", "1", true),
+        (true, "parentbased_traceidratio", "0", false),
+        (false, "always_on", "1", false),
+    ] {
+        let database = client.database(&common::scratch_name("canopyd_realtime_traces"));
+        let collection = database.collection::<Document>("todos");
+        collection.insert_one(doc! { "_id": 1, "ownerId": "alice", "title": "initial" }).await.unwrap();
+
+        let (collector_port, exported) = collector().await;
+        let endpoint = format!("http://127.0.0.1:{collector_port}");
+        let mut gateway = Gateway::start_with(
+            launcher(
+                &fixture,
+                &uri,
+                database.name(),
+                upstream_port,
+                &format!(r#","telemetry":{{"tracing":{tracing}}}"#),
+            ),
+            None,
+            &[
+                ("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint),
+                ("OTEL_BSP_SCHEDULE_DELAY", "50"),
+                ("OTEL_TRACES_SAMPLER", sampler),
+                ("OTEL_TRACES_SAMPLER_ARG", ratio),
+            ],
+        )
+        .await;
+
+        tokio::time::timeout(Duration::from_secs(15), async {
+            let stream = tokio::net::TcpStream::connect(("127.0.0.1", gateway.port)).await.unwrap();
+            let (mut socket, _) = tokio_tungstenite::client_async(
+                format!("ws://127.0.0.1:{}/realtime/v1", gateway.port),
+                stream,
+            )
+            .await
+            .expect("the realtime WebSocket");
+            socket
+                .send(Message::Text(
+                    format!(r#"{{"t":"hello","v":1,"key":"{key}","token":"{token}"}}"#).into(),
+                ))
+                .await
+                .unwrap();
+            let welcome = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert!(welcome.contains(r#""t":"welcome""#), "{welcome}");
+            socket
+                .send(Message::Text(r#"{"t":"sub","id":"trace-sub","c":"todos","q":{}}"#.into()))
+                .await
+                .unwrap();
+            loop {
+                let frame = socket.next().await.unwrap().unwrap().into_text().unwrap();
+                if frame.contains(r#""t":"ready""#) {
+                    break;
+                }
+                assert!(frame.contains(r#""t":"added""#), "{frame}");
+            }
+            collection
+                .insert_one(doc! { "_id": 2, "ownerId": "alice", "title": "private trace payload" })
+                .await
+                .unwrap();
+            let added = socket.next().await.unwrap().unwrap().into_text().unwrap();
+            assert!(added.contains(r#""t":"added""#) && added.contains("private trace payload"), "{added}");
+            socket.close(None).await.unwrap();
+        })
+        .await
+        .expect("the change reaches the subscription");
+
+        drop(gateway.child.stdin.take());
+        let started = Instant::now();
+        loop {
+            if let Some(status) = gateway.child.try_wait().unwrap() {
+                assert!(status.success(), "canopyd failed to shut down: {status}");
+                break;
+            }
+            assert!(started.elapsed() < Duration::from_secs(5), "canopyd did not finish exporting");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        database.drop().await.unwrap();
+        let exports = exported.lock().unwrap();
+        if !sampled {
+            assert!(exports.is_empty(), "tracing={tracing}, sampler={sampler}: {exports:?}");
+            continue;
+        }
+
+        let spans: Vec<_> = exports
+            .iter()
+            .map(|(_, span)| span)
+            .filter(|span| span.name.starts_with("canopy.realtime."))
+            .collect();
+        let [ingest, matching, fanout] = ["ingest", "match", "fanout"].map(|phase| {
+            spans.iter().copied().find(|span| span.name == format!("canopy.realtime.{phase}")).unwrap()
+        });
+        assert_eq!(spans.len(), 3, "{spans:?}");
+        assert!(ingest.parent_span_id.is_empty());
+        for child in [matching, fanout] {
+            assert_eq!(child.trace_id, ingest.trace_id);
+            assert_eq!(child.parent_span_id, ingest.span_id);
+            assert!(child.start_time_unix_nano >= ingest.end_time_unix_nano);
+        }
+        for span in spans {
+            assert_eq!(attribute(span, "events").as_deref(), Some("1"));
+            assert!(span.end_time_unix_nano >= span.start_time_unix_nano);
+        }
+        assert_eq!(ingest.attributes.len(), 1);
+        assert_eq!(matching.attributes.len(), 2);
+        assert_eq!(attribute(matching, "matched_subscriptions").as_deref(), Some("1"));
+        assert_eq!(fanout.attributes.len(), 3);
+        assert_eq!(attribute(fanout, "matched_subscriptions").as_deref(), Some("1"));
+        assert_eq!(attribute(fanout, "connections").as_deref(), Some("1"));
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn count_rejects_invalid_credentials_before_reading_the_body() {
     use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
