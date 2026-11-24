@@ -41,7 +41,7 @@ jobs:
       - name: Build, attest and sign the images for this architecture
         run: |
           mkdir image-digests
-          for image in canopyd canopy-realtime canopy canopy-studio; do
+          for image in canopyd canopy-realtime canopy canopy-control canopy-studio; do
             repo="ghcr.io/${REGISTRY_OWNER,,}/$image"
             metadata="$RUNNER_TEMP/$image.json"
             docker buildx build --platform "linux/$ARCH" -f "deploy/docker/$image.Dockerfile" \
@@ -88,7 +88,7 @@ jobs:
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
       - name: Publish and sign the combined image manifests
         run: |
-          for image in canopyd canopy-realtime canopy canopy-studio; do
+          for image in canopyd canopy-realtime canopy canopy-control canopy-studio; do
             repo="ghcr.io/${REGISTRY_OWNER,,}/$image"
             metadata="$RUNNER_TEMP/$image.json"
             docker buildx imagetools create --metadata-file "$metadata" -t "$repo:$RELEASE_TAG" \

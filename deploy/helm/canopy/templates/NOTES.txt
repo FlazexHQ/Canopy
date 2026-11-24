@@ -1,6 +1,11 @@
 {{- if .Values.split.enabled }}
 Canopy is starting the data, control, Studio and edge deployments.
-Once control has migrated the shared meta database, publish application policies with canopy policies push.
+Control publishes files from /app/policies to the shared meta database at startup.
+{{- if .Values.split.control.policiesConfigMap }}
+Policies come from ConfigMap {{ .Values.split.control.policiesConfigMap }}. Restart control after updating it.
+{{- else }}
+Define policy files under split.control.policies. Helm rolls control when those files change.
+{{- end }}
 {{- else }}
 Canopy is starting as {{ include "canopy.fullname" . }} with {{ .Values.replicaCount }} pods.
 {{- end }}

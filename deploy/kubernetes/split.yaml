@@ -1,5 +1,6 @@
 # Deploy this set in place of canopy.yaml. It uses the same canopy Secret and external MongoDB replica set.
-# Publish policies to the shared meta database with canopy policies push before exposing the edge.
+# Replace the example files in ConfigMap canopy-split-policies before exposing the edge.
+# Control publishes them to the shared meta database at startup. Restart control after changing them.
 # Point ingress at Service canopy. The direct MongoDB wire listener is on Service canopy-data port 27018.
 # Configure gateway.json for storage. Mount settings containing credentials from a Secret.
 # For built in auth, give control a config with auth.kind=builtin and an HTTPS CANOPY_PUBLIC_URL.
@@ -280,6 +281,28 @@ spec:
           configMap:
             name: canopy-split
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: canopy-split-policies
+data:
+  notes.ts: |
+    import { allow, auth, collection } from "canopy.js/policy"
+
+    export default collection("notes", {
+      exposed: true,
+      realtime: true,
+      policies: [
+        allow.read("authenticated").where({ ownerId: auth("sub") }),
+        allow.insert("authenticated").check({ ownerId: auth("sub") }),
+        allow
+          .update("authenticated")
+          .where({ ownerId: auth("sub") })
+          .check({ ownerId: auth("sub") }),
+        allow.delete("authenticated").where({ ownerId: auth("sub") }),
+      ],
+    })
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -315,7 +338,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: control
-          image: "canopy:latest"
+          image: "canopy-control:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -334,10 +357,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: CANOPY_ROLE
-              value: control
             - name: CANOPY_POLICIES
-              value: ""
+              value: /app/policies
             - name: CANOPY_DRAIN_WINDOW
               value: "30s"
           resources:
@@ -370,9 +391,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: policies
+              mountPath: /app/policies
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: policies
+          configMap:
+            name: canopy-split-policies
 ---
 apiVersion: apps/v1
 kind: Deployment

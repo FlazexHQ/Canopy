@@ -51,13 +51,22 @@ tolerations: []
 affinity: {}
 
 # The split stack uses the same external MongoDB replica set as the default deployment.
-# Publish policies with canopy policies push. The split deployments read the meta database.
+# Control publishes mounted policies at startup. Both planes read from the meta database.
 split:
   enabled: false
   data:
     image: canopyd:latest
   control:
     replicaCount: 1
+    image:
+      repository: canopy-control
+      tag: latest
+      pullPolicy: IfNotPresent
+    # Map policy filenames to their contents. An empty map publishes no definitions.
+    policies: {}
+    # Use an existing ConfigMap instead of creating one from policies.
+    # Restart the control deployment after changing files in the existing ConfigMap.
+    policiesConfigMap: ""
   studio:
     image: canopy-studio:latest
     replicaCount: 1

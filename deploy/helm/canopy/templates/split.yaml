@@ -29,6 +29,16 @@ data:
       policies: { source: "database" },
     }
   {{- end }}
+{{- $policiesName := default (printf "%s-split-policies" ($name | trunc 48 | trimSuffix "-")) $split.control.policiesConfigMap }}
+{{- if not $split.control.policiesConfigMap }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $policiesName }}
+data:
+  {{- toYaml $split.control.policies | nindent 2 }}
+{{- end }}
 {{- range $component := list "data" "control" "studio" "edge" }}
 {{- $image := index $split $component }}
 {{- $componentName := printf "%s-%s" $prefix $component }}
@@ -54,6 +64,9 @@ spec:
         {{- $labels | nindent 8 }}
       annotations:
         checksum/canopy-split: {{ list ($root.Files.Get "files/Caddyfile.split") $gateway $split.publicUrl | toJson | sha256sum }}
+        {{- if and (eq $component "control") (not $split.control.policiesConfigMap) }}
+        checksum/canopy-policies: {{ $split.control.policies | toJson | sha256sum }}
+        {{- end }}
     spec:
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ add $root.Values.drainWindowSeconds 15 }}
@@ -66,8 +79,8 @@ spec:
           type: RuntimeDefault
       containers:
         - name: {{ $component }}
-          image: {{ if eq $component "control" }}{{ printf "%s:%s" $root.Values.image.repository $root.Values.image.tag | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
-          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+          image: {{ if eq $component "control" }}{{ printf "%s:%s" $image.image.repository $image.image.tag | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
+          imagePullPolicy: {{ if eq $component "control" }}{{ $image.image.pullPolicy }}{{ else }}{{ $root.Values.image.pullPolicy }}{{ end }}
           ports:
             - name: http
               containerPort: 8080
@@ -102,10 +115,8 @@ spec:
             - name: CANOPY_DATA_PLANE_ROUTES
               value: all
             {{- else }}
-            - name: CANOPY_ROLE
-              value: control
             - name: CANOPY_POLICIES
-              value: ""
+              value: /app/policies
             - name: CANOPY_DRAIN_WINDOW
               value: "{{ $root.Values.drainWindowSeconds }}s"
               {{- if $split.publicUrl }}
@@ -165,10 +176,15 @@ spec:
               mountPath: /data
             - name: caddy-config
               mountPath: /config
-            {{- else if and (eq $component "control") (or $split.publicUrl $split.controlConfigMap) }}
+            {{- else if eq $component "control" }}
+            - name: policies
+              mountPath: /app/policies
+              readOnly: true
+              {{- if or $split.publicUrl $split.controlConfigMap }}
             - name: settings
               mountPath: /app/split
               readOnly: true
+              {{- end }}
             {{- end }}
       volumes:
         - name: tmp
@@ -178,6 +194,11 @@ spec:
           emptyDir: {}
         - name: caddy-config
           emptyDir: {}
+        {{- end }}
+        {{- if eq $component "control" }}
+        - name: policies
+          configMap:
+            name: {{ $policiesName }}
         {{- end }}
         {{- if or (eq $component "data") (eq $component "edge") (and (eq $component "control") (or $split.publicUrl $split.controlConfigMap)) }}
         - name: settings
