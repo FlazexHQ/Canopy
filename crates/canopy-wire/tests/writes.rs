@@ -30,12 +30,16 @@ async fn command(session: &mut Session, body: Document) -> Document {
 }
 
 async fn authenticated(fixture: &Fixture, allowed: bool) -> Session {
-    let mut session = Session::new(common::authenticator(), None, Ipv4Addr::LOCALHOST.into(), 1)
-        .with_read_path(Arc::clone(&fixture.reads))
-        .with_write_path(Arc::clone(&fixture.writes));
     let expires = DateTime::now().timestamp_millis() / 1000 + 600;
     let jwt =
         if allowed { common::token(expires) } else { common::token_with_role("other", "reader", expires) };
+    authenticated_with(fixture, &jwt).await
+}
+
+async fn authenticated_with(fixture: &Fixture, jwt: &str) -> Session {
+    let mut session = Session::new(common::authenticator(), None, Ipv4Addr::LOCALHOST.into(), 1)
+        .with_read_path(Arc::clone(&fixture.reads))
+        .with_write_path(Arc::clone(&fixture.writes));
     let reply = command(&mut session, doc! {
         "saslStart": 1, "mechanism": "MONGODB-OIDC", "$db": "$external",
         "payload": Binary { subtype: BinarySubtype::Generic, bytes: doc! { "jwt": jwt }.to_vec().unwrap() },
@@ -259,7 +263,9 @@ async fn unsupported_write_options_leave_documents_and_idempotency_unchanged() {
     let mut session = authenticated(&target, true).await;
     for (options, code) in [
         (doc! { "writeConcern": { "w": 0 } }, 2),
-        (doc! { "txnNumber": 1_i64, "lsid": { "id": "ignored" } }, 20),
+        (doc! { "txnNumber": 1_i64, "lsid": { "id": "ignored" } }, 2),
+        (doc! { "txnNumber": 1_i64, "lsid": retry_session(), "startTransaction": true }, 20),
+        (doc! { "txnNumber": 1_i64, "lsid": retry_session(), "autocommit": false }, 20),
         (doc! { "bypassDocumentValidation": true }, 2),
     ] {
         let mut request = doc! { "insert": "notes", "$db": target.db.name(), "documents": [{ "_id": 3, "owner": "oidc-user" }] };
@@ -332,4 +338,107 @@ async fn validation_failure_matches_mongodb_and_rolls_back() {
     assert_eq!(mutation_count(&target).await, 0);
     drop_fixture(&target).await;
     drop_fixture(&source).await;
+}
+
+fn retry_session() -> Document {
+    doc! { "id": Binary { subtype: BinarySubtype::Uuid, bytes: vec![0x3e; 16] } }
+}
+
+#[tokio::test]
+async fn retryable_insert_replays_across_connections_and_binds_the_caller() {
+    let Some(target) = fixture("retry_insert").await else { return };
+    let mut first = authenticated(&target, true).await;
+    let mut retry = authenticated(&target, true).await;
+    let expires = DateTime::now().timestamp_millis() / 1000 + 600;
+    let mut other = authenticated_with(&target, &common::token_for("other", expires)).await;
+    let mut insert = doc! {
+        "insert": "notes", "$db": target.db.name(), "lsid": retry_session(), "txnNumber": 1_i64,
+        "documents": [{ "owner": "oidc-user" }],
+    };
+    let expected = doc! { "ok": 1.0, "n": 1 };
+    assert_eq!(command(&mut first, insert.clone()).await, expected);
+    assert_eq!(command(&mut retry, insert.clone()).await, expected);
+    assert_error(&command(&mut other, insert.clone()).await, 20);
+    assert_eq!(documents(&target).await.len(), 3);
+    assert_eq!(mutation_count(&target).await, 1);
+
+    insert.insert("txnNumber", 2_i64);
+    assert_eq!(command(&mut retry, insert).await, expected);
+    assert_eq!(documents(&target).await.len(), 4);
+    assert_eq!(mutation_count(&target).await, 2);
+    drop_fixture(&target).await;
+}
+
+#[tokio::test]
+async fn unordered_retry_replays_successes_by_statement_id() {
+    let Some(target) = fixture("retry_batch").await else { return };
+    let mut session = authenticated(&target, true).await;
+    let first = doc! { "q": { "_id": 1 }, "u": { "$inc": { "rank": 1 } } };
+    let failed = doc! { "q": { "_id": 2 }, "u": { "$set": { "owner": "other" } } };
+    let upsert = doc! {
+        "q": { "_id": 3 }, "u": { "$set": { "owner": "oidc-user", "rank": 3 } }, "upsert": true,
+    };
+    let mut update = doc! {
+        "update": "notes", "$db": target.db.name(), "lsid": retry_session(), "txnNumber": 1_i64,
+        "ordered": false, "stmtIds": [7, 9, 12], "updates": [first.clone(), failed, upsert.clone()],
+    };
+    let reply = command(&mut session, update.clone()).await;
+    assert_eq!(reply.get_i32("n").unwrap(), 2);
+    assert_eq!(reply.get_i32("nModified").unwrap(), 1);
+    assert_eq!(reply.get_array("upserted").unwrap(), &[Bson::Document(doc! { "index": 2, "_id": 3 })]);
+    assert_error(first_error(&reply), 13);
+    assert_eq!(first_error(&reply).get_i32("index").unwrap(), 1);
+    assert_eq!(command(&mut session, update.clone()).await, reply);
+
+    update.insert("stmtIds", [12, 7]);
+    update.insert("updates", [upsert, first]);
+    assert_eq!(
+        command(&mut session, update).await,
+        doc! {
+            "ok": 1.0, "n": 2, "nModified": 1, "upserted": [{ "index": 0, "_id": 3 }],
+        }
+    );
+    let stored = documents(&target).await;
+    assert_eq!(stored.len(), 3);
+    assert_eq!(stored[0].get_i32("rank").unwrap(), 2);
+    assert_eq!(stored[1].get_str("owner").unwrap(), "oidc-user");
+    assert_eq!(stored[2].get_i32("rank").unwrap(), 3);
+    assert_eq!(mutation_count(&target).await, 2);
+    drop_fixture(&target).await;
+}
+
+#[tokio::test]
+async fn find_and_modify_replays_original_projected_images_and_delete_counts() {
+    let Some(target) = fixture("retry_image").await else { return };
+    let mut session = authenticated(&target, true).await;
+    let source = target.db.collection::<Document>("notes");
+    for (id, after, image_rank) in [(1, false, 1), (2, true, 3)] {
+        let mut update = doc! {
+            "findAndModify": "notes", "$db": target.db.name(), "lsid": retry_session(),
+            "txnNumber": 1_i64, "stmtId": id, "query": { "_id": id },
+            "update": { "$inc": { "rank": 1 } }, "new": after, "fields": { "_id": 0, "rank": 1 },
+        };
+        let expected = doc! {
+            "ok": 1.0, "lastErrorObject": { "n": 1, "updatedExisting": true },
+            "value": { "rank": image_rank },
+        };
+        assert_eq!(command(&mut session, update.clone()).await, expected);
+        source.update_one(doc! { "_id": id }, doc! { "$set": { "rank": 42 } }).await.unwrap();
+        assert_eq!(command(&mut session, update.clone()).await, expected);
+        update.insert("new", !after);
+        assert_error(&command(&mut session, update).await, 20);
+        assert_eq!(source.find_one(doc! { "_id": id }).await.unwrap().unwrap().get_i32("rank").unwrap(), 42);
+    }
+    let expires = DateTime::now().timestamp_millis() / 1000 + 600;
+    let jwt = common::token_with_role("oidc-user", "editor", expires);
+    let mut editor = authenticated_with(&target, &jwt).await;
+    let delete = doc! {
+        "delete": "notes", "$db": target.db.name(), "lsid": retry_session(), "txnNumber": 2_i64,
+        "deletes": [{ "q": { "_id": 1 }, "limit": 1 }],
+    };
+    let expected = doc! { "ok": 1.0, "n": 1 };
+    assert_eq!(command(&mut editor, delete.clone()).await, expected);
+    assert_eq!(command(&mut editor, delete).await, expected);
+    assert_eq!(documents(&target).await.len(), 1);
+    drop_fixture(&target).await;
 }

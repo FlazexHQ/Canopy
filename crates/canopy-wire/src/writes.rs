@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+use std::fmt::Write as _;
+
 use canopy_data::writes::{Outcome, WriteOp, WritePath, WriteRequest, WriteSelection};
 use canopy_data::{ReadPath, validate_collection_name};
 use canopy_engine::Principal;
-use canopy_mongo::mongodb::bson::{Bson, Document, doc};
+use canopy_mongo::mongodb::bson::{Bson, Document, doc, spec::BinarySubtype};
 use canopy_mongo::to_bson;
 use canopy_protocol::{CanopyError, ErrorCode, Value};
 
@@ -36,15 +39,8 @@ async fn dispatch(
     {
         return Err(unauthorized());
     }
-    if body.contains_key("txnNumber")
-        || body.contains_key("autocommit")
-        || body.contains_key("startTransaction")
-    {
-        return Err(error(
-            20,
-            "IllegalOperation",
-            "Retryable writes and client transactions are not supported. Set retryWrites=false.",
-        ));
+    if body.contains_key("autocommit") || body.contains_key("startTransaction") {
+        return Err(error(20, "IllegalOperation", "Client transactions are not supported"));
     }
     concern(body)?;
     let options = match command {
@@ -53,14 +49,22 @@ async fn dispatch(
         "delete" => &["deletes", "ordered"],
         _ => &["query", "sort", "update", "remove", "new", "upsert", "fields"],
     };
-    allow(body, 1, options, &["$db", "lsid", "$clusterTime", "comment", "writeConcern"])?;
+    allow(
+        body,
+        1,
+        options,
+        &["$db", "lsid", "$clusterTime", "comment", "writeConcern", "txnNumber", "stmtId", "stmtIds"],
+    )?;
     let collection = body.get_str(command).map_err(|_| bad("The collection name must be a string"))?;
     validate_collection_name(collection).map_err(mapped)?;
     let caller = reads.caller(principal, Some(&[collection])).await.map_err(mapped)?;
     if command == "findAndModify" {
         let (request, selection) = find_and_modify(collection, body)?;
-        let outcome =
-            writes.execute_transactional(&caller, &request, Some(&selection)).await.map_err(mapped)?;
+        let mutations = mutation_ids(body, 1)?;
+        let outcome = writes
+            .execute_transactional(&caller, &request, Some(&selection), mutations.first().map(String::as_str))
+            .await
+            .map_err(mapped)?;
         return modified_reply(outcome, request.op());
     }
 
@@ -73,6 +77,7 @@ async fn dispatch(
     if items.is_empty() || items.len() > limit {
         return Err(bad(format!("{field} must contain from 1 to {limit} documents")));
     }
+    let mutations = mutation_ids(body, items.len())?;
     let ordered = flag(body, "ordered", true)?;
     let requests = items
         .iter()
@@ -86,8 +91,9 @@ async fn dispatch(
     let mut upserts = Vec::new();
     let mut errors = Vec::new();
     for (index, (request, selection)) in requests.iter().enumerate() {
+        let mutation = mutations.get(index).map(String::as_str);
         let index = i32::try_from(index).map_err(|_| bad("Too many write statements"))?;
-        match writes.execute_transactional(&caller, request, selection.as_ref()).await {
+        match writes.execute_transactional(&caller, request, selection.as_ref(), mutation).await {
             Ok(outcome) => {
                 n += match command {
                     "insert" => outcome.inserted_ids.len() as u64,
@@ -98,6 +104,9 @@ async fn dispatch(
                 if let Some(id) = outcome.upserted_id {
                     upserts.push(doc! { "index": index, "_id": bson_id(id)? });
                 }
+            }
+            Err(failure) if mutation.is_some() && failure.code() == ErrorCode::Conflict => {
+                return Err(mapped(failure));
             }
             Err(failure) => {
                 let mut failure = mapped(failure);
@@ -122,6 +131,49 @@ async fn dispatch(
         reply.insert("writeErrors", errors);
     }
     Ok(reply)
+}
+
+fn mutation_ids(body: &Document, count: usize) -> Result<Vec<String>> {
+    let Some(txn) = body.get("txnNumber") else {
+        if body.contains_key("stmtId") || body.contains_key("stmtIds") {
+            return Err(bad("Statement IDs require txnNumber"));
+        }
+        return Ok(Vec::new());
+    };
+    let txn = integer(txn).filter(|txn| *txn >= 0).ok_or_else(|| bad("Invalid txnNumber"))?;
+    let id = match body.get_document("lsid").ok().and_then(|session| session.get("id")) {
+        Some(Bson::Binary(id)) if id.subtype == BinarySubtype::Uuid && id.bytes.len() == 16 => id,
+        _ => return Err(bad("Retryable writes require an lsid with a UUID")),
+    };
+    let mut prefix = String::from("wire_");
+    for byte in &id.bytes {
+        write!(prefix, "{byte:02x}").map_err(|_| bad("Invalid session ID"))?;
+    }
+    let stmt = |value: &Bson| {
+        integer(value).and_then(|id| i32::try_from(id).ok()).ok_or_else(|| bad("Invalid statement ID"))
+    };
+    let statements = match (body.get("stmtId"), body.get("stmtIds")) {
+        (None, Some(Bson::Array(ids))) if ids.len() == count => {
+            ids.iter().map(stmt).collect::<Result<Vec<_>>>()?
+        }
+        (base, None) => {
+            let base = base.map(stmt).transpose()?.unwrap_or(0);
+            (0..count)
+                .map(|index| {
+                    i32::try_from(index)
+                        .ok()
+                        .and_then(|index| base.checked_add(index))
+                        .ok_or_else(|| bad("Statement ID overflow"))
+                })
+                .collect::<Result<Vec<_>>>()?
+        }
+        _ => return Err(bad("Provide either stmtId or one stmtIds entry per statement")),
+    };
+    let mut unique = HashSet::with_capacity(count);
+    if statements.iter().any(|id| !unique.insert(*id)) {
+        return Err(bad("Statement IDs must be unique"));
+    }
+    Ok(statements.into_iter().map(|stmt| format!("{prefix}_{txn}_{stmt}")).collect())
 }
 
 fn batch_item(
@@ -275,6 +327,9 @@ fn mapped(failure: CanopyError) -> Document {
             return unauthorized();
         }
         ErrorCode::InvalidQuery | ErrorCode::BulkLimit => (2, "BadValue"),
+        ErrorCode::Conflict => {
+            return error(20, "IllegalOperation", "The mutation ID was used for a different write");
+        }
         ErrorCode::DuplicateKey => (11000, "DuplicateKey"),
         ErrorCode::ValidationFailed => (121, "DocumentValidationFailure"),
         ErrorCode::Timeout => (50, "MaxTimeMSExpired"),

@@ -30,6 +30,7 @@ use canopy_mongo::mongodb::options::{
 use canopy_mongo::mongodb::{Client, ClientSession, Database, Namespace};
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, Operation, PolicyEngine, RequestContext, Role};
+use canopy_protocol::bson::encode_document;
 use canopy_protocol::ejson::canonical_string;
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 use canopy_query::{DEFAULT_LIMITS, QueryLimits};
@@ -249,14 +250,16 @@ impl WritePath {
         self.db.name()
     }
 
-    /// Runs an acknowledged write in a transaction, with no client idempotency key.
+    /// Runs an acknowledged wire write in a transaction. A mutation ID preserves its original outcome.
     /// A selection supplies filter, sort, upsert and image options for the write.
     pub async fn execute_transactional(
         &self,
         caller: &Caller,
         request: &WriteRequest,
         selection: Option<&WriteSelection>,
+        mutation_id: Option<&str>,
     ) -> Result<Outcome, CanopyError> {
+        validate_mutation_id(mutation_id)?;
         let engine = self.policies.current();
         let context = &caller.context;
         let mut plan = match selection {
@@ -273,13 +276,62 @@ impl WritePath {
         }
         let key = RecordKey {
             c: request.collection().to_owned(),
-            op: request.op().as_str().to_owned(),
-            fp: String::new(),
+            op: format!("wire_{}", request.op().as_str()),
+            fp: if mutation_id.is_some() {
+                self.wire_fingerprint(caller, request, selection, engine.version())?
+            } else {
+                String::new()
+            },
         };
-        let (mut outcomes, ct, _) = self.transact(caller, &key, &[plan], None, false, false).await?;
+        if let Some(id) = mutation_id
+            && let Some((mut outcomes, _)) = self.replay(id, caller, &key).await?
+        {
+            return outcomes.pop().ok_or_else(internal);
+        }
+        let (mut outcomes, ct, replayed) =
+            self.transact(caller, &key, &[plan], mutation_id, false, false).await?;
         let outcome = outcomes.pop().ok_or_else(internal)?;
-        self.report(caller, request, &outcome, ct, None);
+        if !replayed {
+            self.report(caller, request, &outcome, ct, mutation_id);
+        }
         Ok(outcome)
+    }
+
+    fn wire_fingerprint(
+        &self,
+        caller: &Caller,
+        request: &WriteRequest,
+        selection: Option<&WriteSelection>,
+        policy_version: &str,
+    ) -> Result<String, CanopyError> {
+        let mut bound = Document::new();
+        bound.insert("database", Value::String(self.db.name().to_owned()));
+        bound.insert("request", Value::Document(request.object().clone()));
+        bound.insert(
+            "roles",
+            Value::Array(caller.context.roles.sorted().into_iter().map(Value::String).collect()),
+        );
+        if let Some(selection) = selection {
+            bound.insert("before", Value::Bool(selection.before));
+            bound.insert("after", Value::Bool(selection.after));
+            bound.insert("upsert", Value::Bool(selection.upsert));
+            if selection.before || selection.after {
+                bound.insert("policyVersion", Value::String(policy_version.to_owned()));
+                if let Some(claims) = &caller.context.claims {
+                    bound.insert("claims", Value::Document(claims.clone()));
+                }
+                if let Some(context) = &caller.context.ctx {
+                    bound.insert("context", Value::Document(context.clone()));
+                }
+            }
+            if let Some(sort) = &selection.sort {
+                bound.insert("sort", sort.clone());
+            }
+            if let Some(fields) = &selection.fields {
+                bound.insert("fields", fields.clone());
+            }
+        }
+        Ok(URL_SAFE_NO_PAD.encode(digest(&SHA256, &encode_document(&bound)?)))
     }
 
     /// Validates, authorizes and commits one write. Fails with `CANOPY_FORBIDDEN` when no policy grants the
@@ -994,9 +1046,9 @@ impl WritePath {
             })?;
         let outcome =
             plan.finish_with_idempotency(&mut Session::transaction(session), &written, read).await?;
-        let actual = stored_outcome(&outcome);
+        let actual = stored_outcome(&outcome, false);
         let canonical = |value| canonical_string(value).map_err(custom);
-        if canonical(&actual)? != canonical(&stored_outcome(expected))? {
+        if canonical(&actual)? != canonical(&stored_outcome(expected, false))? {
             let mut fields = Document::new();
             if key.op == "batch" {
                 fields.insert("results", Value::Array(vec![actual]));
@@ -1312,8 +1364,7 @@ fn count(value: u64) -> Value {
     i32::try_from(value).map_or_else(|_| Value::from_js_number(value as f64), Value::Int32)
 }
 
-/// An outcome as an idempotency record keeps it: without documents, which are read again on replay.
-fn stored_outcome(outcome: &Outcome) -> Value {
+fn stored_outcome(outcome: &Outcome, keep_images: bool) -> Value {
     let mut out = Document::new();
     out.insert("matched", count(outcome.matched));
     out.insert("modified", count(outcome.modified));
@@ -1323,6 +1374,14 @@ fn stored_outcome(outcome: &Outcome) -> Value {
         out.insert("upsertedId", id.clone());
     }
     out.insert("changedIds", Value::Array(outcome.changed_ids.clone()));
+    if keep_images && let Some(documents) = &outcome.documents {
+        out.insert(
+            "documents",
+            Value::Array(
+                documents.iter().map(|doc| doc.clone().map_or(Value::Null, Value::Document)).collect(),
+            ),
+        );
+    }
     Value::Document(out)
 }
 
@@ -1341,9 +1400,10 @@ fn record_of(
     record.insert("fp", Value::String(key.fp.clone()));
     record.insert("at", Value::DateTime(i64::try_from(now).unwrap_or(i64::MAX)));
     if key.op == "batch" {
-        record.insert("results", Value::Array(outcomes.iter().map(stored_outcome).collect()));
+        record
+            .insert("results", Value::Array(outcomes.iter().map(|out| stored_outcome(out, false)).collect()));
     } else if let Some(first) = outcomes.first() {
-        record.insert("result", stored_outcome(first));
+        record.insert("result", stored_outcome(first, key.op.starts_with("wire_")));
     }
     to_bson(&record).map_err(|error| Stop::Failed(custom(error)))
 }
@@ -1365,7 +1425,22 @@ fn outcome_of(stored: &Value) -> Result<Outcome, CanopyError> {
         Some(Value::Array(items)) => items.clone(),
         _ => Vec::new(),
     };
+    let documents = match stored.get("documents") {
+        None => None,
+        Some(Value::Array(items)) => Some(
+            items
+                .iter()
+                .map(|item| match item {
+                    Value::Null => Ok(None),
+                    Value::Document(doc) => Ok(Some(doc.clone())),
+                    _ => Err(internal()),
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        _ => return Err(internal()),
+    };
     Ok(Outcome {
+        documents,
         matched: number(stored.get("matched")),
         modified: number(stored.get("modified")),
         deleted: number(stored.get("deleted")),

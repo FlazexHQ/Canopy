@@ -109,7 +109,6 @@ async fn wire_driver_reads(oidc: bool) {
     };
     let mut options = ClientOptions::parse(target).await.expect("driver options");
     options.server_selection_timeout = Some(Duration::from_secs(5));
-    options.retry_writes = Some(false);
     if oidc {
         let header = URL_SAFE_NO_PAD.encode(r#"{"alg":"EdDSA","kid":"wire-test"}"#);
         let expires = DateTime::now().timestamp_millis() / 1000 + 120;
