@@ -68,6 +68,7 @@ pub(super) fn plan(
     scope: Scope,
     request: &WriteRequest,
     selection: &WriteSelection,
+    preserve_id: bool,
 ) -> Result<Plan, CanopyError> {
     let op = match request.op() {
         WriteOp::Delete => Operation::Delete,
@@ -84,7 +85,8 @@ pub(super) fn plan(
         }
         scope.require_grant(Operation::Insert)?;
     }
-    let base = scope.by_filter(request.get("filter").unwrap_or(&Value::Undefined))?;
+    let filter = request.get("filter").unwrap_or(&Value::Undefined);
+    let base = scope.by_filter(filter)?;
     let using = scope.engine.target(&scope.name, op, &scope.ctx)?;
     let target = and(&[base.clone(), using])?;
     let insert_filter = if selection.upsert {
@@ -118,6 +120,42 @@ pub(super) fn plan(
         return fail("A multi document update requires operators and cannot select or return one document");
     }
     let check = scope.engine.check(&scope.name, Operation::Update, &scope.ctx);
+    if !multi
+        && !selection.upsert
+        && !selection.before
+        && !selection.after
+        && selection.sort.is_none()
+        && selection.fields.is_none()
+        && let Some(id) = point_id(filter)
+        && (!preserve_id || matches!(id, Value::ObjectId(_)))
+        && !update.uses_matched_array_element()
+    {
+        let filter = scope.filter(&target)?;
+        let id = id.clone();
+        let step = match update {
+            Change::Delete => Step::DeleteById { id, filter, visible: target, conditional: false },
+            Change::Update(update) => Step::UpdateById {
+                id,
+                filter,
+                visible: target,
+                conditional: false,
+                update,
+                check: Some(check),
+            },
+            Change::Replace(replacement) => Step::Replace {
+                id,
+                filter,
+                visible: target,
+                conditional: false,
+                replacement,
+                update_check: check.clone(),
+                insert_check: None,
+                prechecked: None,
+                check_of_replace: Some(check),
+            },
+        };
+        return Ok(Plan { scope, step, fast: false });
+    }
     Ok(Plan {
         scope,
         step: Step::Selected(Box::new(Selected {
@@ -134,6 +172,34 @@ pub(super) fn plan(
         })),
         fast: false,
     })
+}
+
+fn point_id(filter: &Value) -> Option<&Value> {
+    let Value::Document(filter) = filter else { return None };
+    if filter.len() != 1 {
+        return None;
+    }
+    let id = match filter.get("_id")? {
+        Value::Document(condition) if condition.len() == 1 && condition.contains_key("$eq") => {
+            condition.get("$eq")?
+        }
+        id => id,
+    };
+    if validate_id(Some(id)).is_err() || matches!(id, Value::Undefined) {
+        return None;
+    }
+    Some(id)
+}
+
+impl Change {
+    // The authorized filter must not supply the array match for a positional update.
+    fn uses_matched_array_element(&self) -> bool {
+        let Self::Update(update) = self else { return false };
+        update
+            .values()
+            .filter_map(bson::Bson::as_document)
+            .any(|fields| fields.keys().any(|path| path.split('.').any(|part| part == "$")))
+    }
 }
 
 impl Selected {

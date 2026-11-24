@@ -459,3 +459,71 @@ async fn find_and_modify_replays_original_projected_images_and_delete_counts() {
     assert_eq!(documents(&target).await.len(), 1);
     drop_fixture(&target).await;
 }
+
+#[tokio::test]
+async fn point_updates_match_selection_and_replay_original_counts() {
+    let Some(point) = fixture("point").await else { return };
+    let selected = fixture("selection").await.unwrap();
+    let mut point_session = authenticated(&point, true).await;
+    let mut selected_session = authenticated(&selected, true).await;
+    for fixture in [&point, &selected] {
+        fixture
+            .db
+            .collection::<Document>("notes")
+            .update_one(doc! { "_id": 2 }, doc! { "$set": { "blocked": true } })
+            .await
+            .unwrap();
+    }
+    for retryable in [false, true] {
+        for (index, (id, update, error, counts)) in [
+            (1, doc! { "$inc": { "rank": 1 } }, None, (1, 1)),
+            (2, doc! { "$inc": { "rank": 1 } }, None, (0, 0)),
+            (1, doc! { "$set": { "owner": "other" } }, Some(13), (0, 0)),
+            (1, doc! { "$set": { "locked": true } }, Some(13), (0, 0)),
+            (1, doc! { "$set": { "fixed": true } }, Some(13), (0, 0)),
+            (1, doc! { "$unset": { "missing": 1 } }, None, (1, 0)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let initial = documents(&point).await;
+            let mut request = doc! { "update": "notes", "$db": point.db.name(),
+                "updates": [{ "q": { "_id": { "$eq": id } }, "u": update.clone() }],
+            };
+            if retryable {
+                request.insert("lsid", retry_session());
+                request.insert("txnNumber", index as i64 + 1);
+            }
+            let reply = command(&mut point_session, request.clone()).await;
+            let mut reference = request.clone();
+            reference.insert("$db", selected.db.name());
+            reference.insert(
+                "updates",
+                [doc! {
+                    "q": { "_id": id, "rank": { "$exists": true } }, "u": update,
+                }],
+            );
+            assert_eq!(reply, command(&mut selected_session, reference).await);
+            assert_eq!((reply.get_i32("n").unwrap(), reply.get_i32("nModified").unwrap()), counts);
+            if let Some(code) = error {
+                assert_error(first_error(&reply), code);
+            } else {
+                assert!(!reply.contains_key("writeErrors"), "{reply:?}");
+            }
+            let mut expected = initial;
+            if counts.1 == 1 {
+                let rank = expected[0].get_i32("rank").unwrap();
+                expected[0].insert("rank", rank + 1);
+            }
+            if retryable {
+                assert_eq!(reply, command(&mut point_session, request).await);
+            }
+            assert_eq!(documents(&point).await, expected);
+            assert_eq!(documents(&selected).await, expected);
+        }
+    }
+    assert_eq!(mutation_count(&point).await, 3);
+    assert_eq!(mutation_count(&selected).await, 3);
+    drop_fixture(&point).await;
+    drop_fixture(&selected).await;
+}

@@ -268,6 +268,7 @@ impl WritePath {
                 self.scope(&engine, context, request.collection())?,
                 request,
                 selection,
+                self.observer.is_some(),
             )?,
             None => self.plan(&engine, context, request)?,
         };
@@ -283,7 +284,9 @@ impl WritePath {
                 String::new()
             },
         };
-        if let Some(id) = mutation_id
+        // Point writes resolve duplicate mutation IDs after aborting the transaction.
+        if !matches!(plan.step, Step::UpdateById { .. } | Step::DeleteById { .. })
+            && let Some(id) = mutation_id
             && let Some((mut outcomes, _)) = self.replay(id, caller, &key).await?
         {
             return outcomes.pop().ok_or_else(internal);
@@ -928,7 +931,7 @@ impl WritePath {
         let service = caller.context.roles.contains(Role::SERVICE);
         self.ensure_indexes(service).await?;
         let combined = match (plans, mutation_id) {
-            ([plan], Some(id)) => match plan.with_idempotency() {
+            ([plan], Some(id)) => match plan.with_idempotency(read) {
                 Some(write) if self.client_bulk_write().await => Some((plan, id, write)),
                 _ => None,
             },

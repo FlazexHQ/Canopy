@@ -5,7 +5,7 @@ use canopy_engine::Ct;
 use canopy_mongo::mongodb::Namespace;
 use canopy_mongo::mongodb::bson::{self, oid::ObjectId};
 use canopy_mongo::mongodb::options::{
-    InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
+    DeleteOneModel, InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
 };
 use canopy_mongo::mongodb::results::VerboseBulkWriteResult;
 use canopy_mongo::to_bson;
@@ -419,7 +419,7 @@ pub(crate) struct Grouped {
 }
 
 impl Plan {
-    pub(crate) fn with_idempotency(&self) -> Option<(WriteModel, Outcome)> {
+    pub(crate) fn with_idempotency(&self, read: bool) -> Option<(WriteModel, Outcome)> {
         let scope = &self.scope;
         let namespace = Namespace { db: scope.db.name().to_owned(), coll: scope.name.clone() };
         match &self.step {
@@ -439,6 +439,10 @@ impl Plan {
                     .build()
                     .into(),
                 Outcome { matched: 1, modified: 1, changed_ids: vec![id.clone()], ..Outcome::default() },
+            )),
+            Step::DeleteById { id, filter, conditional: false, .. } if !read => Some((
+                DeleteOneModel::builder().namespace(namespace).filter(filter.clone()).build().into(),
+                deleted_by_id(id, 1),
             )),
             _ => None,
         }
@@ -460,6 +464,12 @@ impl Plan {
                     custom(CanopyError::new(ErrorCode::Internal, "The bulk write has no update result"))
                 })?;
                 self.finish_grouped(session, written.matched_count, written.modified_count, None, read).await
+            }
+            Step::DeleteById { id, .. } => {
+                let written = results.delete_results.get(&0).ok_or_else(|| {
+                    custom(CanopyError::new(ErrorCode::Internal, "The bulk write has no delete result"))
+                })?;
+                Ok(deleted_by_id(id, written.deleted_count))
             }
             _ => Err(custom(internal())),
         }
@@ -763,13 +773,7 @@ impl Plan {
                         }
                         return Ok(Outcome { ct, ..Outcome::default() });
                     }
-                    return Ok(Outcome {
-                        matched: 1,
-                        deleted: 1,
-                        changed_ids: vec![id.clone()],
-                        ct,
-                        ..Outcome::default()
-                    });
+                    return Ok(Outcome { ct, ..deleted_by_id(id, result.deleted_count) });
                 }
                 let mut action =
                     raw.find_one_and_delete(filter.clone()).optional(concern, |a, c| a.write_concern(c));
@@ -823,6 +827,15 @@ impl Plan {
                 })
             }
         }
+    }
+}
+
+fn deleted_by_id(id: &Value, deleted: u64) -> Outcome {
+    Outcome {
+        matched: deleted,
+        deleted,
+        changed_ids: if deleted > 0 { vec![id.clone()] } else { Vec::new() },
+        ..Outcome::default()
     }
 }
 

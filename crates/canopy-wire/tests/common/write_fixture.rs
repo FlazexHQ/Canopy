@@ -10,9 +10,9 @@ use canopy_protocol::json::{Json, parse_json};
 const POLICIES: &str = r#"[
 {"_id":"notes","version":1,"exposed":true,"realtime":false,"policies":[
 {"name":"read notes","kind":"permissive","ops":["read"],"roles":["authenticated"],"using":"{\"visible\":{\"$ne\":false}}"},
-{"name":"own notes","kind":"permissive","ops":["insert","update"],"roles":["authenticated"],"check":"{\"owner\":{\"$auth\":\"sub\"}}"},
+{"name":"own notes","kind":"permissive","ops":["insert","update"],"roles":["authenticated"],"using":"{\"blocked\":{\"$ne\":true}}","check":"{\"owner\":{\"$auth\":\"sub\"}}"},
 {"name":"remove notes","kind":"permissive","ops":["delete"],"roles":["editor"]}],
-"fields":{"read":{"default":{"omit":["secret"]}}}}
+"fields":{"read":{"default":{"omit":["secret"]}},"write":{"default":{"omit":["locked"]}}},"immutable":["fixed"]}
 ]"#;
 
 pub(crate) struct Fixture {
