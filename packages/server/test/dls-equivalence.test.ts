@@ -774,6 +774,102 @@ suite("DLS is the same through REST, GraphQL, realtime and the MongoDB wire endp
     }
   }
 
+  wireTest.each(CALLERS.slice(1))(
+    "wire change streams reconstruct the REST view for $name",
+    async (caller) => {
+      const coll = db.collection<Item>("items")
+      await coll.deleteMany({})
+      await using client = await wireClient(caller)
+      const items = client.db(dbName).collection<Item>("items")
+      const options = { maxAwaitTimeMS: 100, timeoutMS: 8_000 } as const
+      await using watch = items.watch([], options)
+      expect(await watch.tryNext()).toBeNull()
+
+      const marker = "watch-marker"
+      const hidden = "watch-private-value"
+      await using guarded = items.watch(
+        [{ $match: { $or: [{ "fullDocument.secret": hidden }, { "documentKey._id": marker }] } }],
+        options,
+      )
+      expect(await guarded.tryNext()).toBeNull()
+
+      const doc = (_id: string, ownerId: string, status = "open", level = 5): Item => ({
+        _id,
+        ownerId,
+        status,
+        level,
+        secret: hidden,
+      })
+      const own = doc("watch-own", caller.sub ?? "")
+      const other = doc("watch-other", caller.sub === "u1" ? "u2" : "u1")
+      const entering = doc("watch-entering", own.ownerId, "archived")
+      const leaving = doc("watch-leaving", own.ownerId)
+      const removed = doc("watch-removed", own.ownerId)
+      const reviewable = doc("watch-reviewable", other.ownerId, "open", 1)
+      const barrier = doc(marker, own.ownerId)
+      const admitted = [own, other, entering, leaving, removed, reviewable]
+      const seeded = await coll.insertMany(admitted)
+      expect(seeded.insertedCount).toBe(admitted.length)
+      expect(
+        (await coll.updateOne({ _id: own._id }, { $set: { secret: `${hidden}-updated` } }))
+          .modifiedCount,
+      ).toBe(1)
+      expect(
+        (await coll.updateOne({ _id: entering._id }, { $set: { status: "open" } })).modifiedCount,
+      ).toBe(1)
+      expect(
+        (await coll.updateOne({ _id: leaving._id }, { $set: { status: "archived" } }))
+          .modifiedCount,
+      ).toBe(1)
+      const replacement = { ...own, status: "closed" }
+      expect((await coll.replaceOne({ _id: own._id }, replacement)).modifiedCount).toBe(1)
+      expect((await coll.deleteOne({ _id: removed._id })).deletedCount).toBe(1)
+      await coll.insertOne(barrier)
+
+      const visible = ({ secret: _, ...fields }: Item) => fields
+      const expected = [
+        ...admitted
+          .filter((item) => readableBy(caller, [item]).has(item._id))
+          .map((item) => [item._id, ["insert"], visible(item)] as const),
+        [own._id, ["update"], visible(own)],
+        [entering._id, ["insert", "update"], visible({ ...entering, status: "open" })],
+        [leaving._id, ["delete"], undefined],
+        [own._id, ["replace"], visible(replacement)],
+        [removed._id, ["delete"], undefined],
+        [marker, ["insert"], visible(barrier)],
+      ] as const
+      const reconstructed = new Map<string, Record<string, unknown>>()
+      for (const [id, operations, image] of expected) {
+        const event = await watch.next()
+        expect(JSON.stringify(event)).not.toMatch(/"secret"|watch-private-value/)
+        expect(event).toHaveProperty("documentKey._id", id)
+        expect(operations).toContain(event.operationType)
+        if (image === undefined) {
+          expect(event).not.toHaveProperty("fullDocument")
+          expect(reconstructed.delete(id)).toBe(true)
+        } else {
+          if (!("fullDocument" in event) || event.fullDocument === undefined)
+            throw new Error("Expected a readable change stream image")
+          expect(event).toHaveProperty("fullDocument", image)
+          reconstructed.set(id, { ...event.fullDocument })
+        }
+      }
+      expect(await watch.tryNext()).toBeNull()
+      expect(await restRead(caller, {})).toEqual(byId([...reconstructed.values()]))
+      const guardedEvent = await guarded.next()
+      expect(guardedEvent).toHaveProperty("documentKey._id", marker)
+      expect(JSON.stringify(guardedEvent)).not.toMatch(/"secret"|watch-private-value/)
+      expect(await guarded.tryNext()).toBeNull()
+    },
+    30_000,
+  )
+
+  wireTest("wire refuses an anonymous change stream", async () => {
+    await using client = await wireClient({ name: "anon" })
+    await using watch = client.db(dbName).collection("items").watch([], { timeoutMS: 5_000 })
+    await expect(watch.tryNext()).rejects.toMatchObject({ name: "MongoServerError", code: 13 })
+  })
+
   wireTest.each([...CALLERS.slice(1), SERVICE])(
     "wire reads match REST and MongoDB for $name",
     async (caller) => {

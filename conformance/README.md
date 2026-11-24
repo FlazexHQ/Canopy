@@ -257,6 +257,17 @@ tests next to the pairs.
 Add new language neutral data as another folder here, keep its file names stable, and update this table and the
 readers in the same change.
 
+## MongoDB wire unified change streams
+
+The [change stream fixtures](wire/unified/change-streams/) come from the
+[MongoDB Node driver v7.7.0 mirror](https://github.com/mongodb/node-mongodb-native/tree/v7.7.0/test/spec/change-streams/unified)
+under the [Apache License 2.0](wire/unified/LICENSE.txt). JSON escapes preserve decoded punctuation.
+The [case decisions](wire/unified/change-stream-cases.json) identify supported fixtures and the exact
+wire error codes for unsupported operations. Cases that expect an update description are counted
+separately when Canopy delivers a readable document image without that field. The same Node driver
+runner exercises the change stream fixtures and checks the rejection of resume and historical start
+options.
+
 ## MongoDB wire unified CRUD
 
 [Vendored CRUD fixtures](wire/unified/crud/) come from the
