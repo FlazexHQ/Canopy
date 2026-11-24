@@ -40,6 +40,7 @@ import {
 import { EXACT_BSON, toDriver } from "./driver.ts"
 import { Replay } from "./idempotency.ts"
 import { validateId } from "./validation.ts"
+import { idKey } from "./write-group.ts"
 import { DUPLICATE_KEY, MAJORITY, type ReturnedDocument } from "./write-path.ts"
 
 /** Everything a planned write needs about its collection and caller. */
@@ -396,10 +397,11 @@ export class Scope {
         ...EXACT_BSON,
       })
       .toArray()
-    const byId = new Map(found.map((doc) => [canonicalString(doc["_id"]), doc]))
+    const keyOf = (id: unknown): string => idKey(toDriver(id), false) ?? canonicalString(id)
+    const byId = new Map(found.map((doc) => [keyOf(doc["_id"]), doc]))
     const missed: ReadBack[] = []
     for (const item of items) {
-      const doc = byId.get(canonicalString(item.id))
+      const doc = byId.get(keyOf(item.id))
       if (doc === undefined) missed.push(item)
       else item.slot[0] = projectReadable(access, doc)
     }

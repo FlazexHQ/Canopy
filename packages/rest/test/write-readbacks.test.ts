@@ -1,5 +1,11 @@
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
-import { CanopyError, ErrorCode, Long, ObjectId as WireObjectId } from "@canopy/protocol"
+import {
+  CanopyError,
+  Decimal128,
+  ErrorCode,
+  Long,
+  ObjectId as WireObjectId,
+} from "@canopy/protocol"
 import { MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import { BSON, type Db, type Document, MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
@@ -218,12 +224,47 @@ suite("read backs of an atomic batch against MongoDB", () => {
       ])
     })
 
-    it("keeps one read per operation when the documents may be the same", async () => {
-      await seedBoth("things", [{ _id: 1 }, { _id: 2 }])
-      const { names } = await commands(() =>
-        batch(alice, [update(1, { n: 1 }), update(2, { n: 2 })]),
+    it("reads numeric ids of every BSON type by value with one find", async () => {
+      await seedBoth("things", [
+        { _id: 1 },
+        { _id: new BSON.Long(2) },
+        { _id: 2.5 },
+        { _id: Number.NaN },
+      ])
+      const { value, names } = await commands(() =>
+        batch(alice, [
+          update(new Long(1), { n: 1 }),
+          update(2, { n: 2 }),
+          update(2.5, { n: 3 }),
+          update(Number.NaN, { n: 4 }),
+        ]),
       )
-      expect(names.filter((name) => name === "find")).toHaveLength(2)
+      expect(names.filter((name) => name === "find")).toHaveLength(1)
+      expect(relaxed(value.results.map((result) => result.documents))).toEqual([
+        [{ _id: 1, n: 1 }],
+        [{ _id: 2, n: 2 }],
+        [{ _id: 2.5, n: 3 }],
+        [{ _id: { $numberDouble: "NaN" }, n: 4 }],
+      ])
+    })
+
+    it("keeps one read per operation when the documents may be the same", async () => {
+      await seedBoth("things", [{ _id: 1 }, { _id: 2 }, { _id: Number.NaN }, { _id: new Date(0) }])
+      const cases: WriteRequest[][] = [
+        [update(1, { n: 1 }), update(new Long(1), { n: 2 })],
+        [update(new Long(2), { n: 1 }), update(2, { n: 2 })],
+        [update(Number.NaN, { n: 1 }), update(Number.NaN, { n: 2 })],
+        [update(1, { n: 1 }), update(new Decimal128("1.0"), { n: 2 })],
+        [update(new Decimal128("2"), { n: 1 }), update(1, { n: 2 })],
+        [update(2, { n: 1 }), update(new Date(0), { n: 2 })],
+      ]
+      for (const requests of cases) {
+        const { names } = await commands(() => batch(alice, requests))
+        expect(
+          names.filter((name) => name === "find"),
+          JSON.stringify(requests),
+        ).toHaveLength(2)
+      }
     })
 
     it("reads a batch of a filter write and a single update at once", async () => {
@@ -298,14 +339,20 @@ suite("read backs of an atomic batch against MongoDB", () => {
     })
 
     it("treats numeric ids of different BSON types as one document", async () => {
-      await seedBoth("things", [{ _id: 1 }])
+      await seedBoth("things", [{ _id: 1 }, { _id: 9_007_199_254_740_992 }])
       const value = await batch(alice, [
         update(1, { title: "int" }),
         update(new Long(1), { title: "long" }),
+        update(new Decimal128("1.00"), { title: "decimal" }),
+        update(9_007_199_254_740_992, { title: "double" }),
+        update(new Long(9_007_199_254_740_993n), { title: "other long" }),
       ])
       expect(relaxed(value.results.map((result) => result.documents))).toEqual([
         [{ _id: 1, title: "int" }],
         [{ _id: 1, title: "long" }],
+        [{ _id: 1, title: "decimal" }],
+        [{ _id: 9_007_199_254_740_992, title: "double" }],
+        null,
       ])
     })
 
@@ -417,7 +464,12 @@ suite("read backs of an atomic batch against MongoDB", () => {
         ...objectIds.map((hex) => new WireObjectId(hex)),
         1,
         2,
+        new Long(1),
         new Long(2),
+        2.5,
+        new Decimal128("2.5"),
+        new Decimal128("1"),
+        Number.NaN,
       ]
       let saved = 0
       let total = 0
@@ -441,6 +493,8 @@ suite("read backs of an atomic batch against MongoDB", () => {
           })),
           { _id: 1, ownerId: "alice", n: 4 },
           { _id: 2, ownerId: "bob", n: 5 },
+          { _id: 2.5, ownerId: "alice", n: 6 },
+          { _id: Number.NaN, ownerId: "bob", n: 7 },
         ]
         for (const name of ["things", "owned"]) await seedBoth(name, seeded)
         const caller = pick(callers)

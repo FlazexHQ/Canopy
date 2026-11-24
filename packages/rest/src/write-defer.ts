@@ -1,20 +1,7 @@
 import { isDocument } from "@canopy/protocol"
-import { BSON } from "mongodb"
 import { toDriver } from "./driver.ts"
+import { idKey } from "./write-group.ts"
 import type { WriteRequest } from "./write-path.ts"
-
-/** An `_id` whose equality is decided by its bytes: a string (unless the collection has a collation) or an ObjectId. */
-interface SimpleId {
-  readonly kind: "string" | "objectId"
-  readonly key: string
-}
-
-function simpleId(value: unknown): SimpleId | undefined {
-  const id: unknown = toDriver(value)
-  if (typeof id === "string") return { kind: "string", key: id }
-  if (id instanceof BSON.ObjectId) return { kind: "objectId", key: id.toHexString() }
-  return undefined
-}
 
 /** The `_id`s a request names, `undefined` when it names documents by a filter. Absent `_id`s are generated. */
 function idsOf(request: WriteRequest): readonly unknown[] | undefined {
@@ -39,10 +26,10 @@ function idsOf(request: WriteRequest): readonly unknown[] | undefined {
  * Which operations of an atomic batch may have their read back queued until the end of the transaction:
  * the ones whose documents no later operation touches, so the document read at the end is the document as
  * the operation left it. A later operation that names documents by a filter, or by an `_id` that may be
- * the same document, rules it out. Only strings and ObjectIds are deferred, because their equality is the
- * equality of their bytes: numbers compare across BSON types in MongoDB, and strings compare by collation,
- * so an operation on a number, or on a string in a collection with a collation (`collated`), always
- * reads back at once.
+ * the same document, rules it out; an `_id` whose equality cannot be told here (a Decimal128, a date) may be
+ * any document. Strings, ObjectIds and numbers are deferred, numbers compared by value across BSON types as
+ * MongoDB compares them. Strings compare by collation, so an operation on a string in a collection with a
+ * collation (`collated`), or on an `_id` without a key, always reads back at once.
  */
 export async function deferrable(
   requests: readonly WriteRequest[],
@@ -63,19 +50,22 @@ async function isDeferrable(
 ): Promise<boolean> {
   const own = idsOf(request)
   if (own === undefined) return false
-  const mine = own.map(simpleId)
-  if (mine.some((id) => id === undefined)) return false
-  if (mine.some((id) => id?.kind === "string") && (await collated(request.collection))) return false
+  const ids = own.map((id) => toDriver(id))
+  const strings = ids.some((id) => typeof id === "string")
+  if (strings && (await collated(request.collection))) return false
+  const mine = new Set<string>()
+  for (const id of ids) {
+    const key = idKey(id, false)
+    if (key === undefined) return false
+    mine.add(key)
+  }
   for (const later of requests.slice(index + 1)) {
     if (later.collection !== request.collection) continue
     const theirs = idsOf(later)
     if (theirs === undefined) return false
-    for (const other of theirs.map(simpleId)) {
-      if (other === undefined) continue
-      for (const id of mine) {
-        if (id === undefined || id.kind !== other.kind) continue
-        if (id.key === other.key) return false
-      }
+    for (const other of theirs) {
+      const key = idKey(toDriver(other), false)
+      if (key === undefined || mine.has(key)) return false
     }
   }
   return true

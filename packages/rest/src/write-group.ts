@@ -7,7 +7,7 @@ import { BSON } from "mongodb"
  * `NaN`), which `BigInt` states exactly for whole numbers. Other types, such as `Decimal128` and dates,
  * have no key.
  */
-function idKey(id: unknown, collated: boolean): string | undefined {
+export function idKey(id: unknown, collated: boolean): string | undefined {
   if (typeof id === "string") return collated ? undefined : `s${id}`
   if (id instanceof BSON.ObjectId) return `o${id.toHexString()}`
   if (typeof id === "number") return numberKey(id)

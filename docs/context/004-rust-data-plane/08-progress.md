@@ -13,7 +13,7 @@ This document records completed tasks, open issues, and planned work for the Rus
 2. **`POST /rest/v1/{coll}/_explain` from Rust: done (2026-11-24).** The route is selectable as `explain`; its oracle is `conformance/http/reads/cases/explain.json` (39 cases: stated callers, roles, filters, counts, context lookups given and resolved, refusals); `canopy_policy::access_report_document` (moved from `canopy-engine`) writes the report for both the route and realtime `o.explain`. Replays 167 of 167 reads on MongoDB 8 and 9.
 3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
 4. **`conformance/errors.json`: done (2026-11-24).** Written by hand as the one source of the codes (name, status, title, slug, TypeScript class, hint, docs page); `packages/protocol/test/conformance-errors.test.ts`, `packages/rest/test/conformance-errors.test.ts`, `crates/canopy-protocol/tests/errors.rs` and `crates/canopy-http/tests/errors.rs` fail on any drift. Checked rather than generated, so the universal `@canopy/protocol` (vendored by Canopy.js) keeps its hand written module.
-5. **Numeric id deferral in atomic batches** (Open Issues).
+5. **Numeric id deferral in atomic batches: done (2026-11-24).** `packages/rest/src/write-defer.ts` defers Int32, Long and Double ids too, compared by value with the `idKey` of `write-group.ts`; Decimal128 and other ids without a key are never deferred and a later one on the collection rules deferral out; `ReadBacks.readMany` matches found documents by the same key, so a `Long(1)` read back finds an Int32 `_id`. Tests in `packages/rest/test/write-readbacks.test.ts` (the differential batch test now draws Long, Double, Decimal128 and NaN ids too); the `@canopy/rest` suite passes on MongoDB 8 and 9.
 6. **D2 (writes)**, including `explainDenials`, which only concerns writes; then D3 to D7.
 
 **Known differences, documented:** each process keeps its own rate limit budget while routes are split between the gateway and TypeScript; the gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
@@ -30,7 +30,7 @@ Ordered as the work should proceed:
 3. **`POST /rest/v1/{coll}/_explain` from Rust:** done, selectable as `explain`.
 4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
 5. **`conformance/errors.json`:** done; both languages are checked against it.
-6. **Numeric ID deferral in atomic batches:** extend batch read back deferral to numeric types across BSON representations.
+6. **Numeric ID deferral in atomic batches:** done.
 
 ### Stage D2: Transactional Writes in Rust
 1. **Write execution core in `canopy-data`:** port `WritePath` methods (`insert`, `patch`, `replace`, `delete`, `executeBatch`, `executeEach`, `explainDenials`).
@@ -283,7 +283,7 @@ Status of the baseline findings from [bench/baselines/d0/README.md](../../../ben
 | 4 (insert) | Kept at 2 commands: no single command checks and inserts with the same errors and results. |
 | 5 (replace) | Fixed: 2 commands, no transaction (the check runs on the replacement before the write). |
 | 6 (non atomic batch) | Fixed on MongoDB 8.0: the D0 batch takes 4.08 commands instead of 11, 504 requests per second instead of 329. MongoDB 7.0 runs it one operation at a time, as before. |
-| 7 (atomic batch) | Partly fixed: read backs of string and ObjectId ids are one `find` per collection (9 to 7 commands); numeric ids, which the D0 workload uses, still read one by one. |
+| 7 (atomic batch) | Fixed: read backs of string, ObjectId and numeric ids are one `find` per collection (numeric ids since 2026-11-24); Decimal128 ids still read one by one. |
 | 8, 9 (Bun, Windows timer) | Environment findings; the gates run on the Linux reference runner. |
 
 The checks that run before a write (single insert, replace, grouped batches) now run on the target collection through `$unionWith`, so MongoDB applies its default collation; before, a `$documents` check on the database could pass a document that fails its check once stored in a collection with a collation.
@@ -370,7 +370,7 @@ Workflow from here (user, 2026-11-23): the orchestrator writes all the code; Gem
 
 ## Open Issues
 
-- **Numeric ID Deferral in Atomic Batches:** Extending batch read back deferral to numeric ids requires value based comparison across BSON numeric types (Int32, Long, Double, Decimal128) and careful handling of NaN and Long precision.
+- **Numeric ID Deferral in Atomic Batches:** resolved on 2026-11-24 (see the checkpoint); Decimal128 ids remain undeferred by design.
 - **Atlas and Reference Hardware D0 Runs:** The formal D0 performance gate measurements must execute against a same-region Atlas cluster (`CANOPY_BENCH_TIER=M30`) and on the Linux reference benchmark runner.
 
 ## Next Planned Tasks

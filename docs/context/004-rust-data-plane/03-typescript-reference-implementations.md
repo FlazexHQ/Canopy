@@ -44,8 +44,7 @@ Stage D1 has already ported `find`, `_count`, `_distinct`, and `_aggregate` to `
   - [packages/rest/src/write-scope.ts](../../../packages/rest/src/write-scope.ts): `ReadBacks.readMany(db, session)`.
 - **Reference Behavior:**
   - In an atomic batch of two or more writes, read backs of written documents that need no `check` clause are queued and executed as a single `find` per collection at the end of the transaction.
-  - Currently restricted to string and ObjectId identifiers because BSON numeric types (Int32, Long, Double, Decimal128) compare numerically equal across distinct binary types.
-  - The extension to numeric identifiers requires value based equality across numeric BSON representations without precision loss or type confusion.
+  - Strings, ObjectIds and Int32, Long and Double ids are deferred, numbers compared by value across BSON types with the `idKey` of `packages/rest/src/write-group.ts` (exact `BigInt` for whole numbers, `NaN` equal to `NaN`, `-0` equal to `0`). Decimal128 and other ids without a key are never deferred, and a later operation on one rules out deferring any earlier operation of its collection. The Rust write path (D2) must keep this rule.
 
 ### 5. Canonical Error Schema
 - **Reference File:**
