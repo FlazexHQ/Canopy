@@ -977,7 +977,12 @@ export class WritePath {
     if (!sameStored(outcome, combined.expected))
       await mutations.updateOne(
         { _id: id },
-        { $set: { result: storedOutcome(outcome) } },
+        {
+          $set:
+            key.op === "batch"
+              ? { results: [storedOutcome(outcome)] }
+              : { result: storedOutcome(outcome) },
+        },
         { session, maxTimeMS: this.limits.maxTimeMS },
       )
     return outcome

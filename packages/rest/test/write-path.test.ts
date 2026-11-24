@@ -926,6 +926,30 @@ suite("WritePath against MongoDB", () => {
       expect((await byId("todos", 1))?.["title"]).toBe("a")
     })
 
+    it("records the real outcome of a keyed one operation batch that changed nothing", async () => {
+      await coll("todos").insertOne({ _id: 1, ownerId: "alice", title: "same" })
+      const batch = (id: number): WriteRequest[] => [
+        { op: "update", collection: "todos", id, update: { $set: { title: "same" } } },
+      ]
+      const first = await writes.executeBatch(alice, batch(1), { mutationId: "m-batch-same" })
+      expect(first.results[0]).toMatchObject({ matched: 1, modified: 0, changedIds: [] })
+      const missing = await writes.executeBatch(alice, batch(2), { mutationId: "m-batch-none" })
+      expect(missing.results[0]).toMatchObject({ matched: 0, modified: 0, changedIds: [] })
+      const records = await client
+        .db(metaName)
+        .collection("mutations")
+        .find({ _id: { $in: ["m-batch-same", "m-batch-none"] } } as Document)
+        .sort({ _id: 1 })
+        .toArray()
+      expect(records.map((record) => [record["result"], record["results"]])).toEqual([
+        [undefined, [{ matched: 0, modified: 0, deleted: 0, insertedIds: [], changedIds: [] }]],
+        [undefined, [{ matched: 1, modified: 0, deleted: 0, insertedIds: [], changedIds: [] }]],
+      ])
+      const replayed = await writes.executeBatch(alice, batch(2), { mutationId: "m-batch-none" })
+      expect(replayed.replayed).toBe(true)
+      expect(replayed.results[0]).toMatchObject({ matched: 0, modified: 0, changedIds: [] })
+    })
+
     it("still replays records written before mutation IDs were bound to their request", async () => {
       await coll("todos").insertOne({ _id: 1, ownerId: "alice", count: 0 })
       const bump = (by: number): WriteRequest => ({
