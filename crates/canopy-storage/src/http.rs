@@ -2,7 +2,7 @@
 //! (upload with `POST`, replace with `PUT`, read with `GET` or `HEAD`, delete), `list/<bucket>`,
 //! `sign/<bucket>/<path>`, `signed/<bucket>/<path>?token=`, `public/<bucket>/<path>` and resumable uploads
 //! (`POST upload/<bucket>/<path>`, then `uploads/<id>`). Authentication, rate limits, CORS and problem documents
-//! work as in the Data API. Image transformations (`render/...`) are not served here.
+//! work as in the Data API. Image transformations reuse these download rules.
 
 use std::sync::Arc;
 
@@ -17,6 +17,7 @@ use canopy_protocol::json::{Json, js_number_string, parse_json, write_json_strin
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 
 use crate::backend::ByteStream;
+use crate::render::Transform;
 use crate::storage::{ListOptions, OpenedObject, RangeRequest, Storage, UploadOptions, UploadStatus};
 
 const ALLOWED_HEADERS: &str =
@@ -371,13 +372,11 @@ impl StorageHandler {
         StorageHandler { storage, rest, base_path, cors }
     }
 
-    /// Whether the handler answers a request target: its paths, except image transformations.
+    /// Whether the handler answers a request target: all storage paths.
     pub fn owns(&self, target: &str) -> bool {
         let path = target.split(['?', '#']).next().unwrap_or("");
         let Some(rest) = path.strip_prefix(&self.base_path) else { return false };
-        (rest.is_empty() || rest.starts_with('/'))
-            && !rest.trim_start_matches('/').starts_with("render/")
-            && rest.trim_start_matches('/') != "render"
+        rest.is_empty() || rest.starts_with('/')
     }
 
     /// Answers a request; `None` for a target the handler does not own. An upload's body is moved out of the
@@ -552,6 +551,27 @@ impl StorageHandler {
                 let token = query_param(query, "token").unwrap_or_default();
                 let opened = storage.open_signed(&token, &bucket, &path, range).await?;
                 return Ok(file_response(request, opened, "private, max-age=0", download));
+            }
+            "render" if method == "GET" || method == "HEAD" => {
+                let [kind, access, file @ ..] = rest else { return Err(route_not_found()) };
+                let Some(limits) = storage.image_limits().filter(|_| kind == "image") else {
+                    return Err(route_not_found());
+                };
+                if !matches!(access.as_str(), "object" | "public" | "signed") {
+                    return Err(route_not_found());
+                }
+                let (bucket, path) = split(file)?;
+                let transform = Transform::parse(|name| query_param(query, name), limits.max_dimension)?;
+                let opened = if access == "object" {
+                    let caller = self.caller(request).await?;
+                    storage.open_image(Some(&caller), None, &bucket, &path, transform, limits).await?
+                } else {
+                    self.rest.limit_anonymous(request, "storage:public")?;
+                    let token = (access == "signed").then(|| query_param(query, "token").unwrap_or_default());
+                    storage.open_image(None, token.as_deref(), &bucket, &path, transform, limits).await?
+                };
+                let cache = if access == "public" { "public, max-age=3600" } else { "private, max-age=0" };
+                return Ok(file_response(request, opened, cache, download));
             }
             "upload" if method == "POST" => {
                 let (bucket, path) = split(rest)?;

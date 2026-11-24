@@ -1,5 +1,5 @@
 import { createHash, createPrivateKey, createPublicKey, randomUUID } from "node:crypto"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { Authenticator, DEFAULT_RATE_LIMITS, RateLimits } from "@canopy/auth"
@@ -14,9 +14,16 @@ import {
   toStored,
 } from "@canopy/policy"
 import { TEST_ENGINE, testPolicyEngine } from "@canopy/testing"
+import { Transformer } from "@napi-rs/image"
 import { exportJWK, SignJWT } from "jose"
 import { BSON, type MongoClient, ObjectId } from "mongodb"
-import { createStorageHandler, localBackend, Storage, UrlSigner } from "../../src/index.ts"
+import {
+  createStorageHandler,
+  ImageRenderer,
+  localBackend,
+  Storage,
+  UrlSigner,
+} from "../../src/index.ts"
 
 const ORIGIN = "http://canopy.test"
 const BASE_PATH = "/storage/v1"
@@ -109,6 +116,7 @@ async function buildFixture() {
       },
       avatars: { public: true, maxFileSize: 1024, allowedTypes: ["image/*"] },
     },
+    images: { maxDimension: 2500, maxSourceSize: 512 },
     partSize: PART_SIZE,
     signingMasterKey,
     expiredToken: new UrlSigner(signingMasterKey).sign({
@@ -131,6 +139,8 @@ interface Step {
   readonly body?: string
   readonly bodyBase64?: string
   readonly stream?: boolean
+  readonly rustError?: string
+  readonly cacheProbe?: boolean
 }
 
 interface Spec {
@@ -412,6 +422,117 @@ const groups: Readonly<Record<string, readonly Spec[]>> = {
   ],
 }
 
+async function imageCases(): Promise<readonly Spec[]> {
+  const width = 48
+  const height = 24
+  const rgba = new Uint8Array(width * height * 4)
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      rgba.set(
+        [x < 12 ? 240 : 12, x >= 12 && x < 36 ? 200 : 16, x >= 36 ? 240 : y * 8, 255],
+        (y * width + x) * 4,
+      )
+    }
+  }
+  const source = Transformer.fromRgbaPixels(rgba, width, height)
+  const photo = "avatars/photo.png"
+  const put = (path: string, type: string, bytes: Uint8Array): Step => ({
+    ...call("POST", `object/${path}`, "service", { "content-type": type }),
+    bodyBase64: Buffer.from(bytes).toString("base64"),
+  })
+  const png = await source.png()
+  const save = put(photo, "image/png", png)
+  const render = "render/image"
+  const publicPath = `${render}/public/${photo}`
+  const square = `${publicPath}?width=20&height=20`
+  const avif = await Transformer.fromRgbaPixels(rgba, width, height).avif({ speed: 8 })
+  const webp = await Transformer.fromRgbaPixels(rgba, width, height).webp(80)
+  return [
+    mutation(
+      "geometry",
+      save,
+      call("GET", square, "none", { range: "bytes=0-1" }),
+      {
+        ...call("HEAD", `${square}&resize=cover&quality=80&format=origin`, "none"),
+        cacheProbe: true,
+      },
+      call("GET", square, "none", { "if-none-match": "<etag>" }),
+      call("GET", `${square}&resize=contain`, "none"),
+      call("GET", `${square}&resize=fill&download=`, "none"),
+      call("GET", `${publicPath}?width=19`, "none"),
+      call("GET", `${publicPath}?height=15`, "none"),
+    ),
+    mutation(
+      "formats",
+      save,
+      call("GET", `${square}&format=jpeg&quality=20`, "none"),
+      call("GET", `${square}&format=jpeg&quality=95`, "none"),
+      call("GET", `${square}&format=avif&quality=80`, "none"),
+      call("GET", `${square}&format=png`, "none"),
+      {
+        ...call("GET", `${square}&format=webp`, "none"),
+        rustError: "Lossy WebP output is not supported",
+      },
+      put("avatars/input.webp", "image/webp", webp),
+      call("GET", `${render}/public/avatars/input.webp?width=20&format=png`, "none"),
+      {
+        ...call("GET", `${render}/public/avatars/input.webp?width=20`, "none"),
+        rustError: "Lossy WebP output is not supported",
+      },
+      put("avatars/input.avif", "image/avif", avif),
+      {
+        ...call("GET", `${render}/public/avatars/input.avif?width=20&format=png`, "none"),
+        rustError: "AVIF input is not supported",
+      },
+    ),
+    mutation(
+      "authorization",
+      save,
+      call("GET", `${render}/object/${photo}?width=20`, "none"),
+      call("GET", `${render}/object/${photo}?width=20`, "bob"),
+      call("GET", `${render}/object/${photo}?width=20`, "service"),
+      call(
+        "POST",
+        `sign/${photo}`,
+        "service",
+        { "content-type": "application/json" },
+        '{"expiresIn":60}',
+      ),
+      call("GET", `${render}/signed/${photo}?width=20&token=<signed-token>`, "none"),
+      call("GET", `${render}/signed/${photo}?width=20&token=<expired-token>`, "none"),
+      call("GET", `${render}/public/docs/file.txt?width=20`, "none"),
+    ),
+    mutation(
+      "limits",
+      save,
+      call("GET", `${publicPath}?width=2501`, "none"),
+      call("GET", `${publicPath}?quality=101`, "none"),
+      call("GET", `${publicPath}?resize=crop`, "none"),
+      call("GET", `${publicPath}?format=gif`, "none"),
+      put("avatars/large.png", "image/png", Buffer.concat([png, Buffer.alloc(513 - png.length)])),
+      call("GET", `${render}/public/avatars/large.png`, "none"),
+      put("avatars/bad.png", "image/png", Buffer.from("invalid image")),
+      call("GET", `${render}/public/avatars/bad.png`, "none"),
+      upload(),
+      call("GET", `${render}/object/docs/file.txt`),
+    ),
+    mutation(
+      "cache-cap-and-invalidation",
+      save,
+      ...Array.from({ length: 26 }, (_, i) => call("HEAD", `${publicPath}?width=${i + 1}`, "none")),
+      call("DELETE", `object/${photo}`, "service"),
+      call("GET", square, "none"),
+      save,
+      call("GET", square, "none"),
+    ),
+    mutation(
+      "cache-cap",
+      save,
+      ...Array.from({ length: 26 }, (_, i) => call("HEAD", `${publicPath}?width=${i + 1}`, "none")),
+    ),
+  ]
+}
+
 function json(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`
 }
@@ -454,6 +575,7 @@ async function captureCase(
         buckets: fixture.buckets,
         signer: new UrlSigner(fixture.signingMasterKey),
         partSize: fixture.partSize,
+        images: new ImageRenderer(fixture.images),
       }),
       authenticator: new Authenticator(
         {
@@ -509,16 +631,36 @@ async function captureCase(
           ? { body: new Blob([body]).stream(), duplex: "half" as const }
           : {}),
       }
-      const response = await handler.fetch(
-        new Request(`${ORIGIN}${resolve(step.target)}`, init),
-        spec.rateLimited === true ? { ip: fixture.rateLimited.peer } : undefined,
-      )
+      const send = () =>
+        handler.fetch(
+          new Request(`${ORIGIN}${resolve(step.target)}`, init),
+          spec.rateLimited === true ? { ip: fixture.rateLimited.peer } : undefined,
+        )
+      const response =
+        step.cacheProbe === true
+          ? await (async () => {
+              const object = await documents.findOne({})
+              if (typeof object?.["key"] !== "string") throw new Error("Missing cache probe source")
+              const file = join(root, "objects", object["key"])
+              const hidden = join(root, "hidden-source")
+              await rename(file, hidden)
+              try {
+                return await send()
+              } finally {
+                await rename(hidden, file)
+              }
+            })()
+          : await send()
       const responseHeaders = Object.fromEntries(
         [...response.headers]
           .filter(([name]) => CONTRACT_HEADERS.has(name) || name.startsWith("access-control-"))
           .sort(([left], [right]) => left.localeCompare(right, "en")),
       )
-      const content = fileBody(Buffer.from(await response.arrayBuffer()))
+      const bytes = Buffer.from(await response.arrayBuffer())
+      const content = fileBody(bytes)
+      const image =
+        group === "render" && step.target.includes("/render/") && response.status === 200
+      if (image) responseHeaders["content-length"] = "<image-size>"
       const etag = response.headers.get("etag")
       if (etag !== null) bindings.set("<etag>", etag)
       if (content.body !== undefined && response.status < 300 && step.method === "POST") {
@@ -541,8 +683,25 @@ async function captureCase(
           if (name !== "<etag>") responseBody = responseBody.replaceAll(value, name)
         }
       }
+      let rustResponse:
+        { status: number; headers: Record<string, string>; body: string } | undefined
+      if (step.rustError !== undefined) {
+        const invalid = new URL(resolve(step.target), ORIGIN)
+        invalid.search = "?quality=101"
+        const error = await handler.fetch(new Request(invalid, { headers }))
+        const problem = await error.text()
+        rustResponse = {
+          status: error.status,
+          headers: Object.fromEntries(
+            [...error.headers].filter(([name]) => CONTRACT_HEADERS.has(name)),
+          ),
+          body: problem.replace("quality must be a whole number from 20 to 100", step.rustError),
+        }
+      }
       steps.push({
         request,
+        ...(image ? { image: true } : {}),
+        ...(rustResponse === undefined ? {} : { rustResponse }),
         response: {
           status: response.status,
           headers: responseHeaders,
@@ -576,11 +735,49 @@ async function captureCase(
             ),
           }
         : undefined
+    if (group === "render" && state === undefined) throw new Error("Render state is required")
+    const variants =
+      group === "render"
+        ? await meta.collection("storage_variants").find().sort({ _id: 1 }).toArray()
+        : undefined
+    const keys =
+      variants === undefined ? [] : await documents.find().sort({ bucket: 1, path: 1 }).toArray()
+    const variantState = variants
+      ?.flatMap(({ _id, key, size, contentType, createdAt, ...rest }) => {
+        if (typeof key !== "string" || typeof size !== "number" || !(createdAt instanceof Date))
+          throw new Error("Invalid variant metadata")
+        if (
+          contentType === "image/webp" ||
+          key === keys.find((doc) => doc["path"] === "input.avif")?.["key"]
+        )
+          return []
+        const id = keys.findIndex((doc) => doc["key"] === key) + 1
+        if (id === 0) throw new Error("Variant without a source")
+        const canonical = `${keys[id - 1]?.["bucket"]}/<backend-id-${id}>`
+        return [
+          JSON.stringify({
+            _id: String(_id).replace(key, canonical),
+            key: canonical,
+            size: "<image-size>",
+            contentType,
+            createdAt: "<createdAt>",
+            ...rest,
+          }),
+        ]
+      })
+      .sort()
     return {
       id: spec.id,
       ...(spec.rateLimited === true ? { rateLimited: true } : {}),
       steps,
-      ...(state === undefined ? {} : { state }),
+      ...(state === undefined
+        ? {}
+        : {
+            state: {
+              ...state,
+              ...(variantState === undefined ? {} : { storage_variants: variantState }),
+            },
+          }),
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -600,7 +797,7 @@ export async function recordStorage(options: {
   const outputs = new Map([["fixture.json", json(fixture)]])
   const database = `canopy_storage_oracle_${randomUUID()}`
   try {
-    for (const [group, specs] of Object.entries(groups)) {
+    for (const [group, specs] of Object.entries({ ...groups, render: await imageCases() })) {
       const cases = []
       for (const spec of specs)
         cases.push(await captureCase(client, fixture, database, group, spec))

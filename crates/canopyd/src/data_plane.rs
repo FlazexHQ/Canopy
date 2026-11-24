@@ -30,6 +30,7 @@ use canopy_realtime::{Body, EngineSender, LocalConnection, LocalFrame, full};
 use canopy_storage::backend::StorageBackend as ByteBackend;
 use canopy_storage::http::{StorageAnswer, StorageHandler};
 use canopy_storage::local::LocalBackend;
+use canopy_storage::render::ImageLimits;
 use canopy_storage::s3::{R2Options, S3Backend, S3Credentials, S3Options};
 use canopy_storage::storage::{BucketSettings, Storage, StorageOptions};
 use canopy_storage::tokens::UrlSigner;
@@ -268,6 +269,10 @@ impl StorageRoute {
                 policies,
                 backend,
                 buckets,
+                images: settings.images.enabled.then_some(ImageLimits {
+                    max_dimension: settings.images.max_dimension,
+                    max_source_size: settings.images.max_source_size,
+                }),
                 signer: UrlSigner::new(settings.signing_master_key.as_deref()),
                 part_size: settings.part_size,
                 max_upload_size: settings.max_upload_size,

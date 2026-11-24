@@ -98,6 +98,10 @@ async fn build(
         policies,
         backend: Arc::new(backend),
         buckets,
+        images: Some(canopy_storage::render::ImageLimits {
+            max_dimension: number(get(fixture, "images"), "maxDimension") as u32,
+            max_source_size: number(get(fixture, "images"), "maxSourceSize") as u64,
+        }),
         signer: UrlSigner::new(Some(common::text(fixture, "signingMasterKey"))),
         part_size: number(fixture, "partSize") as u64,
         max_upload_size,

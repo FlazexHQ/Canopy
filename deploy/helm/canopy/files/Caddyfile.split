@@ -19,11 +19,6 @@
 		reverse_proxy {$CANOPY_STUDIO_UPSTREAM:studio:8080}
 	}
 
-	@render path /storage/v1/render /storage/v1/render/*
-	handle @render {
-		respond "Image transforms are unavailable in the split stack" 501
-	}
-
 	handle {
 		reverse_proxy {$CANOPY_DATA_UPSTREAM:data:8080} {
 			flush_interval -1

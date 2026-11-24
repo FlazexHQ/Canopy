@@ -280,6 +280,7 @@ export function gatewayConfig(
         : {
             path: "/storage/v1",
             buckets: storage.buckets,
+            images: storage.images,
             backend: storage.backend,
             signingMasterKey: config.masterKey,
             partSize: 8 * 1024 * 1024,

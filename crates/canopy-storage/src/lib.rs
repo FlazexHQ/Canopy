@@ -6,6 +6,7 @@ pub mod backend;
 pub mod http;
 pub mod local;
 pub mod paths;
+pub mod render;
 pub mod s3;
 pub mod storage;
 pub mod tokens;

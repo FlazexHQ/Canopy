@@ -1593,12 +1593,13 @@ fn storage_launcher(
         "false".to_owned()
     };
     let extra = format!(
-        r#","storage":{{"path":{},"buckets":{},"backend":{{"kind":"local","root":{}}},"signingMasterKey":{},"partSize":{}}},"cors":{}"#,
+        r#","storage":{{"path":{},"buckets":{},"backend":{{"kind":"local","root":{}}},"signingMasterKey":{},"partSize":{},"images":{}}},"cors":{}"#,
         json_text(get(fixture, "basePath")),
         json_text(get(fixture, "buckets")),
         json_text(&Json::String(folder.to_string_lossy().into_owned())),
         json_text(get(fixture, "signingMasterKey")),
         storage_replay::number(fixture, "partSize"),
+        json_text(get(fixture, "images")),
         json_text(get(fixture, "cors")),
     );
     launcher(fixture, uri, database, port, &extra)
@@ -1630,24 +1631,46 @@ async fn selected_storage_replays_the_typescript_oracle_through_the_gateway() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn image_rendering_is_forwarded_when_storage_is_selected() {
+async fn image_rendering_is_served_when_storage_is_selected() {
     let Some(uri) = mongodb_uri() else {
         eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
         return;
     };
     let fixture = common::read_json(&common::directory_of("storage").join("fixture.json"));
     let (port, seen) = upstream().await;
-    let database = common::scratch_name("canopyd_storage_forward");
+    let database = common::scratch_name("canopyd_storage_render");
     let folder = std::env::temp_dir().join(&database);
-    let render = "/storage/v1/render/image/public/avatars/photo.png?width=64";
+    let cases = common::read_json(&common::directory_of("storage").join("cases/render.json"));
+    let upload = get(&common::list(&common::list(&cases, "cases")[0], "steps")[0], "request");
+    let image = base64::Engine::decode(
+        &base64::engine::general_purpose::STANDARD,
+        common::text(upload, "bodyBase64"),
+    )
+    .expect("a PNG source");
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
     {
         let config = storage_launcher(&fixture, &uri, &database, port, &folder, false);
         let gateway = Gateway::start(config, Some("storage")).await;
-        let response = gateway.send(&canopy_http::Request::new("GET", render)).await;
-        assert_eq!(response.header("x-upstream"), Some("yes"));
+        let upload = canopy_http::Request::new("POST", common::text(upload, "target"))
+            .with_header("apikey", "canopy_sk_storage_fixture")
+            .with_header("content-type", "image/png")
+            .with_header("content-length", image.len().to_string())
+            .with_body(image);
+        assert_eq!(gateway.send(&upload).await.status, 201);
+        let response = gateway
+            .send(&canopy_http::Request::new(
+                "GET",
+                "/storage/v1/render/image/public/avatars/photo.png?width=20&format=jpeg",
+            ))
+            .await;
+        assert_eq!(response.status, 200);
+        assert_eq!(response.header("content-type"), Some("image/jpeg"));
+        assert_eq!(response.header("cache-control"), Some("public, max-age=3600"));
+        assert!(response.body.starts_with(&[0xff, 0xd8, 0xff]));
     }
+    client.database(&format!("{database}_meta")).drop().await.expect("drop storage metadata");
     let _ = std::fs::remove_dir_all(&folder);
-    assert_eq!(*seen.lock().expect("the upstream log"), [("GET".to_owned(), render.to_owned())],);
+    assert!(seen.lock().expect("the upstream log").is_empty());
 }
 
 /// The data plane serves every data route when the control plane behind it is down: `all` routes need no

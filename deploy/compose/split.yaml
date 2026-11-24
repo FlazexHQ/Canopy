@@ -11,7 +11,7 @@
 # Set CANOPY_PUBLISHABLE_KEYS and CANOPY_SECRET_KEYS in the environment or .env. External JWT settings
 # use the same variables as canopy.yaml. Add split-auth.yaml to enable
 # built in auth instead. Set CANOPY_GATEWAY_CONFIG for storage or other gateway settings and CANOPY_CONTROL_CONFIG
-# for control settings. Image transforms at /storage/v1/render are unavailable in this topology.
+# for control settings.
 # To combine custom gateway settings with built in auth, use split.yaml with your own control and gateway
 # configs. Set CANOPY_PUBLIC_URL and use the issuer, audience and revocation settings shown in split-auth.yaml.
 # Control publishes CANOPY_POLICY_DIR on each start. Set CANOPY_PUBLISH_POLICIES=off to manage published

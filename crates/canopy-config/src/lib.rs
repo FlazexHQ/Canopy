@@ -3,7 +3,7 @@
 mod graphql;
 mod storage;
 mod wire;
-pub use storage::{BucketSettings, StorageBackend, StorageSettings};
+pub use storage::{BucketSettings, StorageBackend, StorageImages, StorageSettings};
 pub use wire::{WireSettings, WireTls};
 mod trusted_proxy;
 

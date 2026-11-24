@@ -63,6 +63,24 @@ pub struct BucketSettings {
     pub allowed_types: Vec<String>,
 }
 
+/// Settings for the image transformation routes.
+#[derive(Clone, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct StorageImages {
+    /// Whether image transformations are enabled.
+    pub enabled: bool,
+    /// Maximum output width and height, in pixels.
+    pub max_dimension: u32,
+    /// Maximum source size, in bytes.
+    pub max_source_size: u64,
+}
+
+impl Default for StorageImages {
+    fn default() -> Self {
+        Self { enabled: true, max_dimension: 2500, max_source_size: 25 * 1024 * 1024 }
+    }
+}
+
 /// The storage API settings resolved by the launcher.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -72,6 +90,9 @@ pub struct StorageSettings {
     pub path: String,
     /// Logical buckets and their upload rules.
     pub buckets: HashMap<String, BucketSettings>,
+    /// Image transformation settings.
+    #[serde(default)]
+    pub images: StorageImages,
     /// The backend holding the bytes.
     pub backend: StorageBackend,
     /// The master key of signed URLs, when shared with another process.
@@ -133,6 +154,8 @@ pub(super) fn settings(value: Option<&Json>) -> Result<Option<StorageSettings>, 
     const MAX_SAFE_INTEGER: i64 = 9_007_199_254_740_991;
     if settings.part_size < 5 * 1024 * 1024
         || settings.max_upload_size == 0
+        || settings.images.max_dimension == 0
+        || settings.images.max_source_size == 0
         || !(1..=MAX_SAFE_INTEGER).contains(&settings.upload_ttl_ms)
         || !(1..=MAX_SAFE_INTEGER).contains(&settings.max_signed_url_seconds)
         || settings.buckets.values().any(|bucket| bucket.max_file_size == 0)

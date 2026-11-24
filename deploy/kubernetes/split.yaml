@@ -7,7 +7,7 @@
 # In gateway.json configure auth.issuer as that URL plus /auth/v1, auth.audience as the URL,
 # auth.builtinJwks as true, auth.algorithms as ["EdDSA"],
 # auth.rolesClaim as roles and auth.checkRevocations as true. Use the same CANOPY_META_DB on both planes.
-# Image transforms at /storage/v1/render return 501. Release manifests can also be rendered with Helm.
+# Release manifests can also be rendered with Helm.
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
@@ -44,11 +44,6 @@ data:
     	@studio path /studio /studio/*
     	handle @studio {
     		reverse_proxy {$CANOPY_STUDIO_UPSTREAM:studio:8080}
-    	}
-
-    	@render path /storage/v1/render /storage/v1/render/*
-    	handle @render {
-    		respond "Image transforms are unavailable in the split stack" 501
     	}
 
     	handle {

@@ -244,6 +244,21 @@ canonical EJSON text with the generated ObjectId and backend key suffix replaced
 `<object-id-N>` and `<backend-id-N>`, numbered from one in that order. The EJSON date wrapper is
 retained with the corresponding date placeholder in place of its millisecond value.
 
+The render cases compare decoded format and dimensions exactly. A test only Bun helper decodes both
+images with the TypeScript reference decoder, including AVIF, then compares mean RGBA values in a grid
+of up to 8 by 8 bins. Each bin and channel may differ by at most 30 out of 255. The source has contrasting
+outer bands and a vertical ramp so the comparison detects a wrong crop, mirror or stretch while allowing
+lossy encoding and resampling differences. Length headers and cached variant sizes are checked against
+the actual encoded bytes. Variant IDs, source keys and types are checked exactly after substituting
+generated storage identifiers and timestamps. The original TypeScript answers for lossy WebP encoding
+and AVIF sources are retained, with the expected Rust HTTP 400 responses alongside them.
+
+The Rust image stack uses `image` for decoding JPEG, PNG, GIF, BMP and WebP, Lanczos3 resampling,
+and encoding PNG and JPEG. Its AVIF feature uses `ravif` for the AV1 encoder. The selected features
+keep these codecs portable without adding C libraries or requiring NASM. WebP sources can be converted
+to PNG, JPEG or AVIF. Output dimensions, including a side inferred from aspect ratio, are bounded by
+`storage.images.maxDimension`.
+
 Set `CANOPY_TEST_MONGODB_URI` to a MongoDB replica set. Run `bun run vectors:http-storage` to
 regenerate the files and `bun run vectors:http-storage --check` to compare a fresh recording.
 

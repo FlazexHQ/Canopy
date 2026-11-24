@@ -16,10 +16,11 @@ canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
+image = { version = "=0.25.9", default-features = false, features = ["avif", "bmp", "gif", "jpeg", "png", "webp"] }
 ring = "0.17"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
-tokio = { version = "1", features = ["fs", "io-util", "rt", "time"] }
+tokio = { version = "1", features = ["fs", "io-util", "rt", "sync", "time"] }
 url = "2"
 uuid = { version = "1", features = ["v4"] }
 

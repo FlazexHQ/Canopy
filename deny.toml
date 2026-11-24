@@ -2,6 +2,21 @@
 
 [graph]
 all-features = true
+# Match the shipped targets so upstream dependencies gated on custom cfg(fuzzing) stay out of the release audit.
+targets = [
+  { triple = "x86_64-pc-windows-msvc" },
+  { triple = "aarch64-pc-windows-msvc" },
+  { triple = "x86_64-pc-windows-gnu" },
+  { triple = "x86_64-apple-darwin" },
+  { triple = "aarch64-apple-darwin" },
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "aarch64-unknown-linux-gnu" },
+  { triple = "x86_64-unknown-linux-musl" },
+  { triple = "aarch64-unknown-linux-musl" },
+  { triple = "wasm32-unknown-unknown" },
+  { triple = "wasm32-wasip1" },
+  { triple = "wasm32-wasip1-threads" },
+]
 
 [advisories]
 version = 2

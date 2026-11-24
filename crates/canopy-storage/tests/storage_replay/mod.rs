@@ -172,6 +172,66 @@ fn replace_long_date(text: &str, field: &str) -> String {
     }
 }
 
+async fn variant_state(client: &Client, meta: &str, folder: &Path) -> Vec<String> {
+    let db = client.database(meta);
+    let mut sources = db
+        .collection::<BsonDocument>("storage_objects")
+        .find(doc! {})
+        .sort(doc! { "bucket": 1, "path": 1 })
+        .await
+        .expect("source objects");
+    let mut keys = Vec::new();
+    while sources.advance().await.expect("source cursor") {
+        let source = sources.deserialize_current().expect("source document");
+        keys.push(source.get_str("key").expect("source key").to_owned());
+    }
+    let mut variants =
+        db.collection::<BsonDocument>("storage_variants").find(doc! {}).await.expect("variants");
+    let mut out = Vec::new();
+    while variants.advance().await.expect("variant cursor") {
+        let mut variant = variants.deserialize_current().expect("variant document");
+        let key = variant.get_str("key").expect("variant source");
+        let id = variant.get_str("_id").expect("variant ID");
+        let index = keys.iter().position(|source| source == key).expect("variant has a source") + 1;
+        let bucket = key.split_once('/').expect("source bucket").0;
+        let canonical = format!("{bucket}/<backend-id-{index}>");
+        let file = folder.join("objects").join(id);
+        let stored_size = std::fs::metadata(file).expect("cached variant bytes").len();
+        assert_eq!(u64::try_from(variant.get_i32("size").expect("variant size")).unwrap(), stored_size);
+        assert!(stored_size > 0);
+        assert!(variant.get_datetime("createdAt").is_ok());
+        variant.insert("_id", id.replacen(key, &canonical, 1));
+        variant.insert("key", canonical);
+        variant.insert("size", "<image-size>");
+        variant.insert("createdAt", "<createdAt>");
+        let value = canopy_protocol::bson::decode_document(&variant.to_vec().expect("BSON"))
+            .expect("variant metadata");
+        out.push(
+            canopy_protocol::ejson::canonical_string(&canopy_protocol::Value::Document(value))
+                .expect("canonical JSON"),
+        );
+    }
+    out.sort();
+    out
+}
+
+fn compare_images(folder: &Path, bytes: &[u8], oracle: &str) -> Result<(), String> {
+    let actual = folder.join("actual-image");
+    let expected = folder.join("oracle-image");
+    std::fs::write(&actual, bytes).expect("write actual image");
+    std::fs::write(&expected, STANDARD.decode(oracle).expect("reference bytes"))
+        .expect("write reference image");
+    let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packages/storage/test/conformance/compare-render.ts");
+    let output = std::process::Command::new("bun")
+        .arg(script)
+        .arg(actual)
+        .arg(expected)
+        .output()
+        .expect("Bun is required for the image comparison");
+    if output.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&output.stderr).into_owned()) }
+}
+
 /// Compares the recorded handler responses or their HTTP wire representation.
 pub(crate) async fn replay<Handler>(
     client: &Client,
@@ -208,10 +268,31 @@ pub(crate) async fn replay<Handler>(
             let folder = std::env::temp_dir().join(scratch_name("canopy_storage_replay"));
             let handler = start(&database, &meta, &folder, rate_limited).await;
             let mut seen = Seen::default();
+            let mut image_lengths = BTreeMap::new();
             for (index, step) in list(case, "steps").iter().enumerate() {
-                let request = request_of(fixture, get(step, "request"), &seen);
+                let recorded_request = get(step, "request");
+                let request = request_of(fixture, recorded_request, &seen);
                 let head = request.method == "HEAD";
-                let Some(answer) = send(&handler, request).await else {
+                let hidden = folder.join("hidden-source");
+                let source = if matches!(recorded_request.get("cacheProbe"), Some(Json::Bool(true))) {
+                    let object = client
+                        .database(&meta)
+                        .collection::<BsonDocument>("storage_objects")
+                        .find_one(doc! {})
+                        .await
+                        .expect("find a source")
+                        .expect("cache probe source");
+                    let source = folder.join("objects").join(object.get_str("key").expect("source key"));
+                    std::fs::rename(&source, &hidden).expect("hide the source");
+                    Some(source)
+                } else {
+                    None
+                };
+                let answer = send(&handler, request).await;
+                if let Some(source) = source {
+                    std::fs::rename(&hidden, source).expect("restore the source");
+                }
+                let Some(answer) = answer else {
                     problems.push(format!("{id}[{index}]: not owned"));
                     continue;
                 };
@@ -237,7 +318,9 @@ pub(crate) async fn replay<Handler>(
                     let upload: String = body_text[at + 7..].chars().take_while(|c| *c != '"').collect();
                     seen.upload = Some(upload);
                 }
-                let expected = get(step, "response");
+                let expected = step.get("rustResponse").unwrap_or_else(|| get(step, "response"));
+                let image =
+                    step.get("rustResponse").is_none() && matches!(step.get("image"), Some(Json::Bool(true)));
                 let mut mismatch = Vec::new();
                 if status as f64 != number(expected, "status") {
                     mismatch.push(format!("status {status}, expected {}", number(expected, "status")));
@@ -248,7 +331,22 @@ pub(crate) async fn replay<Handler>(
                     .collect();
                 for (name, value) in &recorded {
                     let actual = header(name).map(|actual| seen.hide(&actual));
-                    if actual.as_deref() != Some(value.as_str()) {
+                    if image && name == "content-length" {
+                        let length = actual.as_deref().and_then(|value| value.parse::<usize>().ok());
+                        let tag = header("etag").unwrap_or_default();
+                        let matches_length = if head {
+                            length.is_some_and(|length| {
+                                length > 0
+                                    && image_lengths.get(&tag).is_none_or(|expected| *expected == length)
+                            })
+                        } else {
+                            image_lengths.insert(tag, body.len());
+                            length == Some(body.len())
+                        };
+                        if !matches_length {
+                            mismatch.push(format!("invalid encoded image length: {actual:?}"));
+                        }
+                    } else if actual.as_deref() != Some(value.as_str()) {
                         mismatch.push(format!("header {name}: {actual:?}, expected {value:?}"));
                     }
                 }
@@ -274,6 +372,11 @@ pub(crate) async fn replay<Handler>(
                                 mismatch.push(format!("body {actual}\n   expected {text}"));
                             }
                         }
+                        (_, Some(Json::String(encoded))) if image => {
+                            if let Err(error) = compare_images(&folder, &body, encoded) {
+                                mismatch.push(error);
+                            }
+                        }
                         (_, Some(Json::String(encoded))) if STANDARD.encode(&body) != *encoded => {
                             mismatch.push("binary body differs".to_owned());
                         }
@@ -294,6 +397,14 @@ pub(crate) async fn replay<Handler>(
                 let wanted: Vec<String> = list(expected, "storage_objects").iter().map(json_string).collect();
                 if actual != wanted {
                     problems.push(format!("{id} state:\n  {actual:?}\n  expected {wanted:?}"));
+                }
+            }
+            if let Some(expected) = case.get("state").and_then(|state| state.get("storage_variants")) {
+                let actual = variant_state(client, &meta, &folder).await;
+                let Json::Array(expected) = expected else { panic!("variant state must be an array") };
+                let wanted: Vec<_> = expected.iter().map(json_string).collect();
+                if actual != wanted {
+                    problems.push(format!("{id} variants:\n  {actual:?}\n  expected {wanted:?}"));
                 }
             }
             drop(handler);

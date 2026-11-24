@@ -5,6 +5,7 @@
 //! first, so a refused write leaves nothing behind.
 
 use std::collections::HashMap;
+use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -20,10 +21,13 @@ use canopy_mongo::mongodb::{Client, ClientSession, Collection};
 use canopy_policy::{Compiled, Operation, PolicyEngine, Role, STORAGE_COLLECTION, project_readable};
 use canopy_protocol::sha256::sha256_hex;
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
+use futures_util::StreamExt;
 use ring::rand::{SecureRandom, SystemRandom};
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::backend::{ByteRange, ByteStream, StorageBackend, UploadedPart};
 use crate::paths::{check_path, check_type, is_bucket_name, media_type};
+use crate::render::{ImageLimits, MAX_VARIANTS, Transform, check_source_size};
 use crate::tokens::{SignedGrant, UrlSigner};
 
 const MIB: u64 = 1024 * 1024;
@@ -53,6 +57,8 @@ pub struct StorageOptions {
     pub backend: Arc<dyn StorageBackend>,
     /// The buckets by name.
     pub buckets: HashMap<String, BucketSettings>,
+    /// Image transformations, or disabled when absent.
+    pub images: Option<ImageLimits>,
     /// Signs and checks signed URLs.
     pub signer: UrlSigner,
     /// The part size of resumable uploads, at least 5 MiB. Defaults to 8 MiB.
@@ -239,6 +245,8 @@ pub struct Storage {
     objects: Collection<BsonDocument>,
     uploads: Collection<BsonDocument>,
     variants: Collection<BsonDocument>,
+    render_slots: Arc<Semaphore>,
+    variant_locks: [Mutex<()>; 64],
 }
 
 impl Storage {
@@ -255,6 +263,8 @@ impl Storage {
             objects: meta.collection("storage_objects"),
             uploads: meta.collection("storage_uploads"),
             variants: meta.collection("storage_variants"),
+            render_slots: Arc::new(Semaphore::new(2)),
+            variant_locks: std::array::from_fn(|_| Mutex::new(())),
             options,
         })
     }
@@ -627,6 +637,114 @@ impl Storage {
     ) -> Result<OpenedObject, CanopyError> {
         let object = self.find_signed(token, bucket, path).await?;
         self.read(&object, range).await
+    }
+
+    pub(crate) fn image_limits(&self) -> Option<ImageLimits> {
+        self.options.images
+    }
+
+    pub(crate) async fn open_image(
+        &self,
+        caller: Option<&Caller>,
+        token: Option<&str>,
+        bucket: &str,
+        path: &str,
+        transform: Transform,
+        limits: ImageLimits,
+    ) -> Result<OpenedObject, CanopyError> {
+        let mut object = match (caller, token) {
+            (Some(caller), _) => self.find_visible(caller, bucket, path).await?,
+            (None, Some(token)) => self.find_signed(token, bucket, path).await?,
+            (None, None) => self.find_public(bucket, path).await?,
+        };
+        let key = text(&object, "key")?;
+        let hash = transform.hash();
+        let variant_key = format!("{key}.variants/{hash}");
+        let source_type = text(&object, "contentType")?;
+        let content_type = transform.output(source_type)?;
+        check_source_size(size_of(&object), limits.max_source_size)?;
+
+        let stripe =
+            BuildHasherDefault::<DefaultHasher>::new().hash_one(key) as usize % self.variant_locks.len();
+        let _lock = self.variant_locks[stripe].lock().await;
+        let (size, body) =
+            self.image_variant(key, &variant_key, source_type, content_type, transform, limits).await?;
+        object.insert("etag", format!("{}-{hash}", text(&object, "etag")?));
+        object.insert("contentType", content_type);
+        object.insert("size", number(size));
+        let object = match caller {
+            Some(caller) => self.readable(caller, &object)?,
+            None => info(&object)?,
+        };
+        Ok(OpenedObject { object, body, range: None })
+    }
+
+    async fn image_variant(
+        &self,
+        key: &str,
+        variant_key: &str,
+        source_type: &str,
+        content_type: &str,
+        transform: Transform,
+        limits: ImageLimits,
+    ) -> Result<(u64, ByteStream), CanopyError> {
+        let selector = doc! { "_id": variant_key };
+        let backend = &self.options.backend;
+        if let Some(cached) = self
+            .variants
+            .find_one(selector.clone())
+            .await
+            .map_err(|error| from_driver_error(&error, false))?
+        {
+            match backend.get(variant_key, None).await {
+                Ok(body) => return Ok((size_of(&cached), body)),
+                Err(error) if error.code() == ErrorCode::NotFound => {
+                    self.variants
+                        .delete_one(selector.clone())
+                        .await
+                        .map_err(|error| from_driver_error(&error, false))?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+
+        let slot = Arc::clone(&self.render_slots).acquire_owned().await.map_err(internal)?;
+        let mut source = Vec::new();
+        let mut chunks = backend.get(key, None).await?;
+        while let Some(chunk) = chunks.next().await {
+            let chunk = chunk?;
+            check_source_size(source.len() as u64 + chunk.len() as u64, limits.max_source_size)?;
+            source.extend(chunk);
+        }
+        let source_type = source_type.to_owned();
+        let (_slot, body) = tokio::task::spawn_blocking(move || {
+            let body = transform.encode(&source, &source_type, limits)?;
+            Ok::<_, CanopyError>((slot, body))
+        })
+        .await
+        .map_err(internal)??;
+        let size = body.len() as u64;
+
+        if let Ok(count) = self.variants.count_documents(doc! { "key": key }).limit(MAX_VARIANTS).await
+            && count < MAX_VARIANTS
+            && backend.put(variant_key, body.clone(), content_type).await.is_ok()
+        {
+            let variant = doc! {
+                "_id": variant_key,
+                "key": key,
+                "size": number(size),
+                "contentType": content_type,
+                "createdAt": DateTime::now(),
+            };
+            if self.variants.replace_one(selector, variant).upsert(true).await.is_err() {
+                let _ = backend.delete(variant_key).await;
+            } else if matches!(self.objects.count_documents(doc! { "key": key }).limit(1).await, Ok(0)) {
+                self.discard(key).await;
+            }
+        }
+
+        let stream = futures_util::stream::once(async move { Ok(body) });
+        Ok((size, Box::pin(stream)))
     }
 
     /// A token that lets anyone read one file the caller may read, for `expires_in` seconds, and when it expires
