@@ -390,6 +390,7 @@ impl Probe {
             id: 0,
             key: "pk_s13".to_owned(),
             token: Some(token.to_owned()),
+            address: None,
             principal: principal.clone(),
             mutation: Mutation {
                 id: mongodb::bson::oid::ObjectId::new().to_hex(),

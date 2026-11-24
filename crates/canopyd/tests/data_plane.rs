@@ -1062,6 +1062,112 @@ async fn the_writes_route_answers_every_recorded_write_through_the_gateway() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn realtime_mutations_share_the_data_api_request_budget() {
+    use futures_util::{SinkExt as _, StreamExt as _};
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("writes").join("fixture.json"));
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopyd_mutation_rate_rs");
+    let meta = format!("{database}_meta");
+    common::reset_writes(&client, &database, &meta, &fixture).await;
+    let (port, seen) = upstream().await;
+    let config = launcher(&fixture, &uri, &database, port, "")
+        .replace(r#""rateLimits":false"#, r#""rateLimits":{"requests":{"perSecond":0.001,"burst":2}}"#)
+        .replace(r#""shards":2"#, r#""shards":2,"trustedProxies":["127.0.0.1"]"#);
+    let gateway = Gateway::start(config, None).await;
+    let connect = async |caller: &str, address: &str| {
+        let credentials = get(get(&fixture, "callers"), caller);
+        let token = credentials
+            .get("authorization")
+            .map(|_| text(credentials, "authorization").strip_prefix("Bearer ").unwrap());
+        let socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.port)).await.unwrap();
+        let mut upgrade =
+            format!("ws://127.0.0.1:{}/realtime/v1", gateway.port).into_client_request().unwrap();
+        upgrade.headers_mut().insert("x-forwarded-for", address.parse().unwrap());
+        let (mut socket, _) = tokio_tungstenite::client_async(upgrade, socket).await.unwrap();
+        let key = text(credentials, "apikey");
+        socket
+            .send(Message::text(format!(
+                r#"{{"t":"hello","v":1,"key":"{key}","token":"{}"}}"#,
+                token.unwrap_or_default()
+            )))
+            .await
+            .unwrap();
+        let welcome = socket.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(welcome.starts_with(r#"{"t":"welcome","#), "{welcome}");
+        socket
+    };
+    let mut alice =
+        tokio::time::timeout(Duration::from_secs(10), connect("alice", "192.0.2.1")).await.unwrap();
+    let mut bob = tokio::time::timeout(Duration::from_secs(10), connect("bob", "192.0.2.1")).await.unwrap();
+    let read =
+        common::get_as(&fixture, "alice", "/rest/v1/notes").with_header("x-forwarded-for", "192.0.2.2");
+    assert_eq!(gateway.send(&read).await.status, 200);
+    let mutation = |caller: &str, id: &str| {
+        Message::text(format!(
+            r#"{{"t":"mut","id":"{id}","c":"notes","op":"insert","args":{{"doc":{{"_id":"{id}","ownerId":"{caller}"}}}}}}"#
+        ))
+    };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        alice.send(mutation("alice", "mutation-rate1")).await.unwrap();
+        let ack = alice.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(ack.starts_with(r#"{"t":"ack","m":"mutation-rate1","ok":true,"#), "{ack}");
+        alice.send(mutation("alice", "mutation-rate2")).await.unwrap();
+        let ack = alice.next().await.unwrap().unwrap().into_text().unwrap();
+        let json = canopy_protocol::json::parse_json(&ack).unwrap();
+        let message = text(get(&json, "err"), "msg");
+        let seconds: u64 = message.strip_prefix("Too many requests. Retry in ").unwrap()
+            .strip_suffix(" seconds.").unwrap().parse().unwrap();
+        assert!((990..=1000).contains(&seconds), "{ack}");
+        assert_eq!(ack, format!(
+            r#"{{"t":"ack","m":"mutation-rate2","ok":false,"err":{{"code":"CANOPY_RATE_LIMITED","msg":"Too many requests. Retry in {seconds} seconds."}},"seq":2}}"#
+        ));
+        bob.send(mutation("bob", "mutation-rate3")).await.unwrap();
+        let ack = bob.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(ack.starts_with(r#"{"t":"ack","m":"mutation-rate3","ok":true,"#), "{ack}");
+    }).await.unwrap();
+    assert_eq!(gateway.send(&read).await.status, 429);
+
+    let anonymous = || common::get_as(&fixture, "anon", "/rest/v1/notes");
+    let anonymous_read = anonymous().with_header("x-forwarded-for", "192.0.2.1");
+    for _ in 0..2 {
+        assert_eq!(gateway.send(&anonymous_read).await.status, 200);
+    }
+    tokio::time::timeout(Duration::from_secs(10), async {
+        let mut exhausted = connect("anon", "192.0.2.1").await;
+        exhausted.send(mutation("anon", "mutation-rate4")).await.unwrap();
+        let ack = exhausted.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(
+            ack.starts_with(
+                r#"{"t":"ack","m":"mutation-rate4","ok":false,"err":{"code":"CANOPY_RATE_LIMITED","#
+            ),
+            "{ack}"
+        );
+        let mut other = connect("anon", "192.0.2.2").await;
+        other.send(mutation("anon", "mutation-rate5")).await.unwrap();
+        let ack = other.next().await.unwrap().unwrap().into_text().unwrap();
+        assert!(
+            ack.starts_with(
+                r#"{"t":"ack","m":"mutation-rate5","ok":false,"err":{"code":"CANOPY_FORBIDDEN","#
+            ),
+            "{ack}"
+        );
+    })
+    .await
+    .unwrap();
+    assert!(seen.lock().unwrap().is_empty());
+    drop(gateway);
+    client.database(&database).drop().await.expect("the scratch database drops");
+    client.database(&meta).drop().await.expect("the meta database drops");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_requests_the_routes_answer_are_sampled_into_the_request_log() {
     use canopy_mongo::mongodb::bson::{Bson, Document, doc};
     let Some(uri) = mongodb_uri() else {

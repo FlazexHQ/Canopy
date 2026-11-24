@@ -520,14 +520,17 @@ pub struct Mutated {
 impl Rest {
     /// Runs the write of a realtime `mut` frame as the `_batch` route runs an atomic batch of that one
     /// operation (`{op, c, ...}`, the mutation ID as its idempotency key), so its idempotency record is the
-    /// one a forwarded mutation writes. Fails as that batch fails, with the error of the operation.
+    /// one a forwarded mutation writes. Charges the caller and client address the same request cost as REST.
     pub async fn mutate(
         &self,
         principal: &Principal,
+        key: &str,
+        address: Option<&str>,
         operation: &Value,
         mutation_id: &str,
         bulk: bool,
     ) -> Result<Mutated, CanopyError> {
+        self.limit_request(principal, key, address.unwrap_or("unknown"))?;
         let caller = self.reads.caller(principal, None).await?;
         let (request, _) = batch_request(operation, 0, bulk)?;
         let options = WriteOptions { mutation_id: Some(mutation_id.to_owned()), skip_documents: false };

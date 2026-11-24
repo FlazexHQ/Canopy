@@ -175,7 +175,7 @@ struct SessionState {
     grace_at: Option<u64>,
     drop_at: Option<u64>,
     close_at: Option<u64>,
-    mutations: VecDeque<Mutation>,
+    mutations: VecDeque<(Mutation, Option<String>)>,
     inflight: Option<u64>,
     refreshing: bool,
     ctx: Document,
@@ -810,7 +810,8 @@ impl Engine {
                     self.nack(&sid, &mutation.id, &err);
                     return;
                 }
-                self.enqueue_mutation(&sid, mutation);
+                let address = self.conns.get(&conn).and_then(|entry| entry.address.clone());
+                self.enqueue_mutation(&sid, mutation, address);
             }
             ClientMessage::Bye => {
                 self.destroy(&sid, now);
@@ -1584,7 +1585,7 @@ impl Engine {
         self.send(sid, head);
     }
 
-    fn enqueue_mutation(&mut self, sid: &str, mutation: Mutation) {
+    fn enqueue_mutation(&mut self, sid: &str, mutation: Mutation, address: Option<String>) {
         let Some(state) = self.sessions.get(sid) else { return };
         if !self.config.mutations {
             let err = wire_error(
@@ -1609,7 +1610,7 @@ impl Engine {
             return;
         }
         if let Some(state) = self.sessions.get_mut(sid) {
-            state.mutations.push_back(mutation);
+            state.mutations.push_back((mutation, address));
         }
         self.next_mutation(sid);
     }
@@ -1620,7 +1621,7 @@ impl Engine {
             if state.inflight.is_some() {
                 return;
             }
-            let Some(mutation) = state.mutations.pop_front() else { return };
+            let Some((mutation, address)) = state.mutations.pop_front() else { return };
             let allowed = mutation.op.arguments();
             if let Some(key) = mutation.args.keys().find(|key| !allowed.contains(key)) {
                 let err = wire_error(
@@ -1644,6 +1645,7 @@ impl Engine {
                 id: request,
                 key,
                 token,
+                address,
                 principal,
                 mutation,
             })));

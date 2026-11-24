@@ -144,6 +144,9 @@ pub(crate) async fn forward(
     if let Some(token) = &request.token {
         call = call.header("authorization", format!("Bearer {token}"));
     }
+    if let Some(address) = &request.address {
+        call = call.header("x-forwarded-for", address);
+    }
     if request.mutation.op.is_bulk() {
         call = call.header("prefer", "bulk=true");
     }
@@ -166,6 +169,7 @@ mod tests {
             id: 1,
             key: "pk".to_owned(),
             token: None,
+            address: None,
             principal: Principal::anon(),
             mutation: Mutation { id: "m1".to_owned(), c: "items".to_owned(), op, args },
         }

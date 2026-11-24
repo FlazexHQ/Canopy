@@ -698,6 +698,8 @@ pub(crate) async fn mutate(rest: &Rest, request: &MutationRequest) -> Result<Mut
     let mutated = rest
         .mutate(
             &request.principal,
+            &request.key,
+            request.address.as_deref(),
             &crate::forward::operation(request),
             &request.mutation.id,
             request.mutation.op.is_bulk(),

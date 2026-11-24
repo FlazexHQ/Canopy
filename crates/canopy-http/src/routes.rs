@@ -414,12 +414,23 @@ impl Rest {
                 "A view token only follows data over realtime",
             ));
         }
-        let key = principal.key_id.as_deref().unwrap_or(&credentials.key);
+        self.limit_request(&principal, &credentials.key, address)?;
+        self.reads.caller(&principal, collections).await
+    }
+
+    pub(crate) fn limit_request(
+        &self,
+        principal: &canopy_engine::Principal,
+        key: &str,
+        address: &str,
+    ) -> Result<(), CanopyError> {
+        let Some(limits) = &self.rate_limits else { return Ok(()) };
+        let key = principal.key_id.as_deref().unwrap_or(key);
         let wait = limits.request(Some(key), &principal.subject, &principal.roles, address);
         if wait > 0 {
             return Err(self.limited(wait));
         }
-        self.reads.caller(&principal, collections).await
+        Ok(())
     }
 
     /// Reads and decodes an EJSON request body. An empty body reads as `None`. Fails with

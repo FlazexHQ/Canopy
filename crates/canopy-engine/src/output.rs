@@ -59,6 +59,8 @@ pub struct MutationRequest {
     pub key: String,
     /// The connection's user token, if any.
     pub token: Option<String>,
+    /// The resolved client address when the mutation was received.
+    pub address: Option<String>,
     /// Who writes.
     pub principal: Principal,
     /// The `mut` frame.
