@@ -1,0 +1,797 @@
+{
+  "group": "insert",
+  "description": "POST /{coll}: inserts with check clauses, field rules, validators, unique indexes and the refusals of the route",
+  "cases": [
+    {
+      "id": "insert-own",
+      "title": "An owner inserts a document the check admits",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-own.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"new\",\"done\":false}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-own.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"new\",\"done\":false},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"new\",\"done\":false}"
+        ]
+      }
+    },
+    {
+      "id": "insert-other-owner",
+      "title": "A document the check refuses is not written",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-other-owner.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"bob\",\"title\":\"new\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-other-owner.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the insert check for collection 'notes'\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-other-owner.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-anon",
+      "title": "A caller without a grant is refused",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "anon",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-anon.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-anon.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"No policy grants insert on 'notes'\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-anon.0\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-denied-field",
+      "title": "A field the caller may not write is refused",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-denied-field.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"secret\":\"x\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-denied-field.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The caller may not write secret in collection 'notes'\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-denied-field.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-admin-field",
+      "title": "Field rules are per role",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "carol",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-admin-field.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"carol\",\"n\":9}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-admin-field.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"carol\",\"n\":9},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"carol\",\"n\":{\"$numberInt\":\"9\"}}"
+        ]
+      }
+    },
+    {
+      "id": "insert-existing-id",
+      "title": "An _id that exists is a duplicate key",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-existing-id.0"
+            },
+            "body": "{\"_id\":\"n1\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-existing-id.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:duplicate-key\",\"title\":\"Duplicate key\",\"status\":409,\"code\":\"CANOPY_DUPLICATE_KEY\",\"detail\":\"A document with the same unique key exists\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-existing-id.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-unique-index",
+      "title": "A unique index refuses the document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/people",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-unique-index.0"
+            },
+            "body": "{\"_id\":\"u3\",\"email\":\"ann@example.test\"}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-unique-index.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:duplicate-key\",\"title\":\"Duplicate key\",\"status\":409,\"code\":\"CANOPY_DUPLICATE_KEY\",\"detail\":\"A document with the same unique key exists\",\"instance\":\"/rest/v1/people\",\"requestId\":\"insert.insert-unique-index.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "people": [
+          "{\"_id\":\"u1\",\"email\":\"ann@example.test\"}",
+          "{\"_id\":\"u2\",\"email\":\"ben@example.test\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-validator",
+      "title": "The collection validator refuses the document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/counters",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-validator.0"
+            },
+            "body": "{\"_id\":3,\"n\":\"three\"}"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-validator.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:validation-failed\",\"title\":\"Validation failed\",\"status\":422,\"code\":\"CANOPY_VALIDATION_FAILED\",\"detail\":\"The document failed the collection validator\",\"instance\":\"/rest/v1/counters\",\"requestId\":\"insert.insert-validator.0\",\"hint\":\"The collection's validator refused the document: compare the document with its JSON Schema.\",\"docs\":\"errors/validation-failed\"}"
+          }
+        }
+      ],
+      "state": {
+        "counters": [
+          "{\"_id\":{\"$numberInt\":\"1\"},\"n\":{\"$numberInt\":\"1\"}}",
+          "{\"_id\":{\"$numberInt\":\"2\"},\"n\":{\"$numberInt\":\"2\"}}"
+        ]
+      }
+    },
+    {
+      "id": "insert-number-id",
+      "title": "A numeric _id is the Location of a collection of numbers",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/counters",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-number-id.0"
+            },
+            "body": "{\"_id\":3,\"n\":3}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/counters/3",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-number-id.0"
+            },
+            "body": "{\"data\":{\"_id\":3,\"n\":3},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "counters": [
+          "{\"_id\":{\"$numberInt\":\"1\"},\"n\":{\"$numberInt\":\"1\"}}",
+          "{\"_id\":{\"$numberInt\":\"2\"},\"n\":{\"$numberInt\":\"2\"}}",
+          "{\"_id\":{\"$numberInt\":\"3\"},\"n\":{\"$numberInt\":\"3\"}}"
+        ]
+      }
+    },
+    {
+      "id": "insert-ejson",
+      "title": "An EJSON body keeps its types",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/ejson",
+              "x-request-id": "insert.insert-ejson.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"when\":{\"$date\":\"2026-05-01T00:00:00Z\"},\"big\":{\"$numberLong\":\"9007199254740993\"}}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-ejson.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\",\"when\":{\"$date\":\"2026-05-01T00:00:00.000Z\"},\"big\":{\"$numberLong\":\"9007199254740993\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"when\":{\"$date\":{\"$numberLong\":\"1777593600000\"}},\"big\":{\"$numberLong\":\"9007199254740993\"}}"
+        ]
+      }
+    },
+    {
+      "id": "insert-unreadable",
+      "title": "A document the caller may not read comes back as null",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/inbox",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-unreadable.0"
+            },
+            "body": "{\"_id\":\"m1\",\"text\":\"hello\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/inbox/m1",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-unreadable.0"
+            },
+            "body": "{\"data\":null,\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "inbox": [
+          "{\"_id\":\"m1\",\"text\":\"hello\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-hidden-collection",
+      "title": "A collection that is not exposed",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/hidden",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-hidden-collection.0"
+            },
+            "body": "{\"_id\":\"h2\"}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-hidden-collection.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Unknown collection 'hidden'\",\"instance\":\"/rest/v1/hidden\",\"requestId\":\"insert.insert-hidden-collection.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "hidden": [
+          "{\"_id\":\"h1\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-service",
+      "title": "service bypasses the policies and the field rules",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-service.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"nobody\",\"secret\":\"s\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-service.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"nobody\",\"secret\":\"s\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"nobody\",\"secret\":\"s\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-minimal",
+      "title": "return=minimal answers 204 with the cluster time",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "prefer": "return=minimal",
+              "x-request-id": "insert.insert-minimal.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-minimal.0"
+            },
+            "body": ""
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-many",
+      "title": "An array inserts every document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-many.0"
+            },
+            "body": "[{\"_id\":\"n8\",\"ownerId\":\"alice\"},{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"nine\"}]"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "insert.insert-many.0"
+            },
+            "body": "{\"data\":[{\"_id\":\"n8\",\"ownerId\":\"alice\"},{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"nine\"}],\"ids\":[\"n8\",\"n9\"],\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n8\",\"ownerId\":\"alice\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"nine\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-many-one-refused",
+      "title": "One refused document refuses all of them",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-many-one-refused.0"
+            },
+            "body": "[{\"_id\":\"n8\",\"ownerId\":\"alice\"},{\"_id\":\"n9\",\"ownerId\":\"bob\"}]"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-many-one-refused.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the insert check for collection 'notes'\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-many-one-refused.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-not-document",
+      "title": "A body that is neither a document nor a list",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-not-document.0"
+            },
+            "body": "5"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-not-document.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A document must be an object\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-not-document.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-malformed",
+      "title": "A body that is not JSON",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-malformed.0"
+            },
+            "body": "{"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-malformed.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Malformed JSON\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-malformed.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "insert-text",
+      "title": "A media type the route does not take",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "insert.insert-text.0"
+            },
+            "body": "hello"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-text.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The request body must be one of: application/json, application/ejson\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-text.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "insert-no-body",
+      "title": "A request without a body",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "insert.insert-no-body.0"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-no-body.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The request needs a body\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-no-body.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "insert-parameter",
+      "title": "A query parameter on an insert",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes?select=title",
+            "query": [
+              [
+                "select",
+                "title"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-parameter.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-parameter.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown parameter select\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-parameter.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "insert-expired",
+      "title": "An expired token",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "expired",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "insert.insert-expired.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-expired.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:token-expired\",\"title\":\"Token expired\",\"status\":401,\"code\":\"CANOPY_TOKEN_EXPIRED\",\"detail\":\"The token has expired\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-expired.0\",\"hint\":\"Refresh the access token and retry; the SDK does this itself when it is given a token provider.\",\"docs\":\"errors/token-expired\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    }
+  ]
+}

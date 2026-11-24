@@ -1,0 +1,590 @@
+{
+  "group": "replace",
+  "description": "PUT /{coll}/{id}: replacements, upserts and their refusals",
+  "cases": [
+    {
+      "id": "replace-own",
+      "title": "A replacement the check and the immutable fields admit",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-own.0"
+            },
+            "body": "{\"status\":\"published\",\"title\":\"replaced\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "replace.replace-own.0"
+            },
+            "body": "{\"data\":{\"_id\":\"p1\",\"status\":\"published\",\"title\":\"replaced\",\"authorId\":\"alice\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"published\",\"title\":\"replaced\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-field-rules",
+      "title": "Write field rules refuse whole document replacements",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-field-rules.0"
+            },
+            "body": "{\"ownerId\":\"alice\",\"title\":\"replaced\",\"createdAt\":{\"$date\":\"2026-01-01T00:00:00Z\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-field-rules.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"The field rules of 'notes' do not allow replacing whole documents; send an update\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"replace.replace-field-rules.0\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "replace-check",
+      "title": "A replacement the check refuses",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-check.0"
+            },
+            "body": "{\"status\":\"deleted\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-check.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the update check for collection 'posts'\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"replace.replace-check.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-immutable-fields",
+      "title": "Immutable fields refuse whole document replacements",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/frozen/f1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-immutable-fields.0"
+            },
+            "body": "{\"kind\":\"a\",\"v\":2}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-immutable-fields.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"The field rules of 'frozen' do not allow replacing whole documents; send an update\",\"instance\":\"/rest/v1/frozen/f1\",\"requestId\":\"replace.replace-immutable-fields.0\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}"
+          }
+        }
+      ],
+      "state": {
+        "frozen": [
+          "{\"_id\":\"f1\",\"kind\":\"a\",\"v\":{\"$numberInt\":\"1\"}}"
+        ]
+      }
+    },
+    {
+      "id": "update-frozen",
+      "title": "An update that leaves the immutable field alone",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/frozen/f1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.update-frozen.0"
+            },
+            "body": "{\"$set\":{\"v\":2}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "replace.update-frozen.0"
+            },
+            "body": "{\"data\":{\"_id\":\"f1\",\"kind\":\"a\",\"v\":2},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "frozen": [
+          "{\"_id\":\"f1\",\"kind\":\"a\",\"v\":{\"$numberInt\":\"2\"}}"
+        ]
+      }
+    },
+    {
+      "id": "update-frozen-immutable",
+      "title": "An update of the immutable field",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/frozen/f1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.update-frozen-immutable.0"
+            },
+            "body": "{\"$set\":{\"kind\":\"b\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.update-frozen-immutable.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"Immutable fields cannot be changed: kind\",\"instance\":\"/rest/v1/frozen/f1\",\"requestId\":\"replace.update-frozen-immutable.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "frozen": [
+          "{\"_id\":\"f1\",\"kind\":\"a\",\"v\":{\"$numberInt\":\"1\"}}"
+        ]
+      }
+    },
+    {
+      "id": "replace-upsert",
+      "title": "An upsert inserts a missing document",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p9?upsert=true",
+            "query": [
+              [
+                "upsert",
+                "true"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-upsert.0"
+            },
+            "body": "{\"status\":\"draft\",\"title\":\"nine\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "replace.replace-upsert.0"
+            },
+            "body": "{\"data\":{\"_id\":\"p9\",\"status\":\"draft\",\"title\":\"nine\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}",
+          "{\"_id\":\"p9\",\"status\":\"draft\",\"title\":\"nine\"}"
+        ]
+      }
+    },
+    {
+      "id": "replace-upsert-existing",
+      "title": "An upsert of an existing document replaces it",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1?upsert=true",
+            "query": [
+              [
+                "upsert",
+                "true"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-upsert-existing.0"
+            },
+            "body": "{\"status\":\"published\",\"title\":\"one\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "replace.replace-upsert-existing.0"
+            },
+            "body": "{\"data\":{\"_id\":\"p1\",\"status\":\"published\",\"title\":\"one\",\"authorId\":\"alice\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"published\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-upsert-check",
+      "title": "An upsert the insert check refuses",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p9?upsert=true",
+            "query": [
+              [
+                "upsert",
+                "true"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-upsert-check.0"
+            },
+            "body": "{\"status\":\"deleted\"}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-upsert-check.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the insert check for collection 'posts'\",\"instance\":\"/rest/v1/posts/p9\",\"requestId\":\"replace.replace-upsert-check.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-missing",
+      "title": "Without upsert a missing document is not found",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p9",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-missing.0"
+            },
+            "body": "{\"status\":\"draft\"}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-missing.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/posts/p9\",\"requestId\":\"replace.replace-missing.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-upsert-bad",
+      "title": "upsert takes true or false",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p9?upsert=yes",
+            "query": [
+              [
+                "upsert",
+                "yes"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-upsert-bad.0"
+            },
+            "body": "{\"status\":\"draft\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-upsert-bad.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"upsert must be true or false\",\"instance\":\"/rest/v1/posts/p9\",\"requestId\":\"replace.replace-upsert-bad.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-where-conflict",
+      "title": "A failed compare and set",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1?where=%7B%22status%22%3A%22published%22%7D",
+            "query": [
+              [
+                "where",
+                "{\"status\":\"published\"}"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-where-conflict.0"
+            },
+            "body": "{\"status\":\"draft\",\"title\":\"x\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-where-conflict.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"The where precondition did not match\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"replace.replace-where-conflict.0\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-id-mismatch",
+      "title": "A replacement with another _id",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-id-mismatch.0"
+            },
+            "body": "{\"_id\":\"p2\",\"status\":\"draft\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-id-mismatch.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The replacement _id must match the target _id\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"replace.replace-id-mismatch.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-operators",
+      "title": "A replacement may not hold operators",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-operators.0"
+            },
+            "body": "{\"$set\":{\"status\":\"draft\"}}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-operators.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Field names may not start with $: $set\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"replace.replace-operators.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-locked",
+      "title": "A restrictive policy hides the document",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p4",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-locked.0"
+            },
+            "body": "{\"status\":\"draft\",\"authorId\":\"alice\"}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "replace.replace-locked.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/posts/p4\",\"requestId\":\"replace.replace-locked.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "replace-service",
+      "title": "service bypasses the check and the immutable fields",
+      "steps": [
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "replace.replace-service.0"
+            },
+            "body": "{\"status\":\"gone\"}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "replace.replace-service.0"
+            },
+            "body": "{\"data\":{\"_id\":\"p1\",\"status\":\"gone\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"gone\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    }
+  ]
+}

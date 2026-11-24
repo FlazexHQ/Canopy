@@ -1,0 +1,285 @@
+{
+  "group": "delete",
+  "description": "DELETE /{coll}/{id}: deletes, compare and set, and their refusals",
+  "cases": [
+    {
+      "id": "delete-own",
+      "title": "An owner deletes an own document",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-own.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "delete.delete-own.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-other-owner",
+      "title": "A document of another owner",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n5",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-other-owner.0"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "delete.delete-other-owner.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/notes/n5\",\"requestId\":\"delete.delete-other-owner.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-missing",
+      "title": "A missing document",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n99",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-missing.0"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "delete.delete-missing.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/notes/n99\",\"requestId\":\"delete.delete-missing.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-where-conflict",
+      "title": "A failed compare and set",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n1?where=%7B%22done%22%3Atrue%7D",
+            "query": [
+              [
+                "where",
+                "{\"done\":true}"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-where-conflict.0"
+            }
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "delete.delete-where-conflict.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"The where precondition did not match\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"delete.delete-where-conflict.0\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-admin",
+      "title": "A role allowed to delete every document",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n5",
+            "query": [],
+            "caller": "carol",
+            "headers": {
+              "x-request-id": "delete.delete-admin.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "delete.delete-admin.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":5,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-05T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-no-grant",
+      "title": "A caller without a delete grant",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-no-grant.0"
+            }
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "delete.delete-no-grant.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"No policy grants delete on 'posts'\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"delete.delete-no-grant.0\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "delete-minimal",
+      "title": "return=minimal",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n2",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "prefer": "return=minimal",
+              "x-request-id": "delete.delete-minimal.0"
+            }
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "delete.delete-minimal.0"
+            },
+            "body": ""
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "delete-number-id",
+      "title": "A numeric _id",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/counters/1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "delete.delete-number-id.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "delete.delete-number-id.0"
+            },
+            "body": "{\"data\":{\"_id\":1,\"n\":1},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "counters": [
+          "{\"_id\":{\"$numberInt\":\"2\"},\"n\":{\"$numberInt\":\"2\"}}"
+        ]
+      }
+    }
+  ]
+}

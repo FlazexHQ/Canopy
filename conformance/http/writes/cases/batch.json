@@ -1,0 +1,459 @@
+{
+  "group": "batch",
+  "description": "POST /_batch: atomic and non atomic batches",
+  "cases": [
+    {
+      "id": "batch-atomic",
+      "title": "Every operation of an atomic batch commits together",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-atomic.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"insert\",\"c\":\"notes\",\"doc\":{\"_id\":\"n9\",\"ownerId\":\"alice\"}},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$set\":{\"title\":\"b1\"}}},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n9\",\"update\":{\"$set\":{\"title\":\"b9\"}}},{\"op\":\"delete\",\"c\":\"notes\",\"id\":\"n2\"},{\"op\":\"replace\",\"c\":\"posts\",\"id\":\"p1\",\"doc\":{\"status\":\"draft\",\"title\":\"r\"}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "batch.batch-atomic.0"
+            },
+            "body": "{\"data\":[{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"matched\":0},{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"b1\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1},{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"b9\"},\"matched\":1},{\"data\":{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":2,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}},\"matched\":1},{\"data\":{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"r\"},\"matched\":1}],\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"b1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\",\"title\":\"b9\"}"
+        ],
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"r\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "batch-atomic-refused",
+      "title": "One refused operation rolls the batch back and names its index",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-atomic-refused.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$set\":{\"title\":\"b1\"}}},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n2\",\"update\":{\"$set\":{\"ownerId\":\"bob\"}}}]}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-atomic-refused.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"Operation 1: The resulting document does not satisfy the update check for collection 'notes'\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-atomic-refused.0\",\"details\":{\"index\":1},\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-atomic-mid",
+      "title": "An atomic batch takes its key from the header",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-atomic-mid.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"delete\",\"c\":\"notes\",\"id\":\"n1\",\"mid\":\"abcdefgh1\"}]}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-atomic-mid.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Operation 0: an atomic batch takes its idempotency key from the Idempotency-Key header\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-atomic-mid.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-atomic-minimal",
+      "title": "return=minimal",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "prefer": "return=minimal",
+              "x-request-id": "batch.batch-atomic-minimal.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"delete\",\"c\":\"notes\",\"id\":\"n1\"}]}"
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "batch.batch-atomic-minimal.0"
+            },
+            "body": ""
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-each",
+      "title": "Each operation of a batch that is not atomic stands alone",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-each.0"
+            },
+            "body": "{\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$set\":{\"title\":\"e1\"}}},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n2\",\"update\":{\"$set\":{\"ownerId\":\"bob\"}}},{\"op\":\"insert\",\"c\":\"notes\",\"doc\":{\"_id\":\"n9\",\"ownerId\":\"alice\"}},{\"op\":\"nope\",\"c\":\"notes\"},{\"op\":\"delete\",\"c\":\"notes\",\"id\":\"n5\"},{\"op\":\"insertMany\",\"c\":\"notes\",\"docs\":[{\"_id\":\"n8\",\"ownerId\":\"alice\"}]}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "batch.batch-each.0"
+            },
+            "body": "{\"data\":[{\"status\":200,\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"e1\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1,\"ct\":\"<ct>\",\"replayed\":false},{\"status\":403,\"error\":{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the update check for collection 'notes'\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-each.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}},{\"status\":200,\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"matched\":0,\"ct\":\"<ct>\",\"replayed\":false},{\"status\":400,\"error\":{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Operation 3: op must be one of insert, insertMany, update, replace, delete, updateMany, deleteMany\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-each.0\",\"details\":{\"index\":3},\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}},{\"status\":200,\"data\":null,\"matched\":0,\"ct\":\"<ct>\",\"replayed\":false},{\"status\":200,\"data\":[{\"_id\":\"n8\",\"ownerId\":\"alice\"}],\"ids\":[\"n8\"],\"ct\":\"<ct>\",\"replayed\":false}]}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"e1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n8\",\"ownerId\":\"alice\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-each-bulk-without-prefer",
+      "title": "A bulk operation needs Prefer: bulk=true",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-each-bulk-without-prefer.0"
+            },
+            "body": "{\"ops\":[{\"op\":\"deleteMany\",\"c\":\"notes\",\"filter\":{\"done\":true}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "batch.batch-each-bulk-without-prefer.0"
+            },
+            "body": "{\"data\":[{\"status\":400,\"error\":{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Operation 0: writes to many documents need the header Prefer: bulk=true\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-each-bulk-without-prefer.0\",\"details\":{\"index\":0},\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}}]}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-each-bulk",
+      "title": "A bulk operation with Prefer: bulk=true",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "prefer": "bulk=true",
+              "x-request-id": "batch.batch-each-bulk.0"
+            },
+            "body": "{\"ops\":[{\"op\":\"updateMany\",\"c\":\"notes\",\"filter\":{\"done\":true},\"update\":{\"$set\":{\"title\":\"u\"}}},{\"op\":\"deleteMany\",\"c\":\"notes\",\"filter\":{\"done\":false}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "batch.batch-each-bulk.0"
+            },
+            "body": "{\"data\":[{\"status\":200,\"data\":{\"matched\":2,\"modified\":2},\"ct\":\"<ct>\",\"replayed\":false},{\"status\":200,\"data\":{\"deleted\":2},\"ct\":\"<ct>\",\"replayed\":false}]}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"u\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"u\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-empty",
+      "title": "A batch without operations",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-empty.0"
+            },
+            "body": "{\"ops\":[]}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-empty.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A batch needs at least one operation\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-empty.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "batch-unknown-field",
+      "title": "An unknown batch field",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-unknown-field.0"
+            },
+            "body": "{\"ops\":[],\"parallel\":true}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-unknown-field.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown batch field parallel\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-unknown-field.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "batch-atomic-not-boolean",
+      "title": "atomic must be a boolean",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-atomic-not-boolean.0"
+            },
+            "body": "{\"atomic\":\"yes\",\"ops\":[]}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-atomic-not-boolean.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"atomic must be a boolean\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-atomic-not-boolean.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "batch-not-document",
+      "title": "A batch must be a document",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-not-document.0"
+            },
+            "body": "[{\"op\":\"delete\"}]"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-not-document.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A batch must be a document\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-not-document.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {}
+    },
+    {
+      "id": "batch-op-unknown-field",
+      "title": "An operation with an unknown field",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-op-unknown-field.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"delete\",\"c\":\"notes\",\"id\":\"n1\",\"filter\":{}}]}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-op-unknown-field.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Operation 0: unknown field filter\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-op-unknown-field.0\",\"details\":{\"index\":0},\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "batch-op-no-id",
+      "title": "An update without an id",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "batch.batch-op-no-id.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"update\":{\"$set\":{\"a\":1}}}]}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "batch.batch-op-no-id.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Operation 0: id is required\",\"instance\":\"/rest/v1/_batch\",\"requestId\":\"batch.batch-op-no-id.0\",\"details\":{\"index\":0},\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    }
+  ]
+}

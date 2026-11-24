@@ -1,0 +1,897 @@
+{
+  "group": "update",
+  "description": "PATCH /{coll}/{id}: updates with operators or a merge patch, compare and set, check clauses, immutable fields and the refusals",
+  "cases": [
+    {
+      "id": "update-set",
+      "title": "An owner sets fields of an own document",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-set.0"
+            },
+            "body": "{\"$set\":{\"title\":\"changed\",\"done\":true}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-set.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"changed\",\"done\":true,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"changed\",\"done\":true,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-merge-patch",
+      "title": "A merge patch sets and removes fields",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/merge-patch+json",
+              "x-request-id": "update.update-merge-patch.0"
+            },
+            "body": "{\"title\":\"merged\",\"done\":null,\"extra\":{\"a\":1}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-merge-patch.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"merged\",\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"},\"extra\":{\"a\":1}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"merged\",\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\",\"extra\":{\"a\":{\"$numberInt\":\"1\"}}}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-operators",
+      "title": "Several operators in one update",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n2",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-operators.0"
+            },
+            "body": "{\"$set\":{\"title\":\"x\"},\"$push\":{\"tags\":\"c\"},\"$unset\":{\"done\":\"\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-operators.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"x\",\"n\":2,\"tags\":[\"a\",\"c\"],\"createdAt\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"x\",\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\",\"c\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-other-owner",
+      "title": "A document of another owner is not found",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n5",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-other-owner.0"
+            },
+            "body": "{\"$set\":{\"title\":\"mine\"}}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-other-owner.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/notes/n5\",\"requestId\":\"update.update-other-owner.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-check",
+      "title": "An update the check refuses is rolled back",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-check.0"
+            },
+            "body": "{\"$set\":{\"ownerId\":\"bob\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-check.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the update check for collection 'notes'\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-check.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-immutable",
+      "title": "An immutable field may not change",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-immutable.0"
+            },
+            "body": "{\"$set\":{\"createdAt\":{\"$date\":\"2027-01-01T00:00:00Z\"}}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-immutable.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"Immutable fields cannot be changed: createdAt\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-immutable.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-immutable-same",
+      "title": "An immutable field may not be named in an update, even with its own value",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-immutable-same.0"
+            },
+            "body": "{\"$set\":{\"createdAt\":{\"$date\":\"2026-01-01T00:00:00Z\"},\"title\":\"same\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-immutable-same.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"Immutable fields cannot be changed: createdAt\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-immutable-same.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-denied-field",
+      "title": "A field the caller may not write",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-denied-field.0"
+            },
+            "body": "{\"$set\":{\"secret\":\"x\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-denied-field.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The caller may not write secret in collection 'notes'\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-denied-field.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-admin",
+      "title": "A role with an update grant on every document",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n5",
+            "query": [],
+            "caller": "carol",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-admin.0"
+            },
+            "body": "{\"$inc\":{\"n\":1}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-admin.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":6,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-05T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-where-conflict",
+      "title": "A failed compare and set on a visible document is a conflict",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1?where=%7B%22done%22%3Atrue%7D",
+            "query": [
+              [
+                "where",
+                "{\"done\":true}"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-where-conflict.0"
+            },
+            "body": "{\"$set\":{\"title\":\"cas\"}}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-where-conflict.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"The where precondition did not match\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-where-conflict.0\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-where-match",
+      "title": "A compare and set that holds",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n2?where=%7B%22done%22%3Atrue%7D",
+            "query": [
+              [
+                "where",
+                "{\"done\":true}"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-where-match.0"
+            },
+            "body": "{\"$set\":{\"title\":\"cas\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-where-match.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"cas\",\"done\":true,\"n\":2,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"cas\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-not-found",
+      "title": "A missing document",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n99",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-not-found.0"
+            },
+            "body": "{\"$set\":{\"title\":\"x\"}}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-not-found.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/notes/n99\",\"requestId\":\"update.update-not-found.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-no-change",
+      "title": "An update that changes nothing",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-no-change.0"
+            },
+            "body": "{\"$set\":{\"title\":\"note 1\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-no-change.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-not-operators",
+      "title": "A body that is not an update",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-not-operators.0"
+            },
+            "body": "{\"title\":\"plain\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-not-operators.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"An update needs update operators; use replace for whole documents\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-not-operators.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-unknown-operator",
+      "title": "An operator Canopy does not take",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-unknown-operator.0"
+            },
+            "body": "{\"$where\":\"1\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-unknown-operator.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The update operator $where is not allowed\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-unknown-operator.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-id-change",
+      "title": "An update may not change _id",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-id-change.0"
+            },
+            "body": "{\"$set\":{\"_id\":\"other\"}}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-id-change.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"An update may not change _id\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-id-change.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-restrictive",
+      "title": "A restrictive policy hides a locked post from updates",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/posts/p4",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-restrictive.0"
+            },
+            "body": "{\"$set\":{\"title\":\"unlock\"}}"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-restrictive.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Document not found\",\"instance\":\"/rest/v1/posts/p4\",\"requestId\":\"update.update-restrictive.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "update-check-values",
+      "title": "A check on values",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/posts/p1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-check-values.0"
+            },
+            "body": "{\"$set\":{\"status\":\"deleted\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-check-values.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the update check for collection 'posts'\",\"instance\":\"/rest/v1/posts/p1\",\"requestId\":\"update.update-check-values.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "posts": [
+          "{\"_id\":\"p1\",\"status\":\"draft\",\"title\":\"one\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p2\",\"status\":\"published\",\"title\":\"two\",\"authorId\":\"bob\"}",
+          "{\"_id\":\"p3\",\"status\":\"draft\",\"title\":\"three\",\"authorId\":\"alice\"}",
+          "{\"_id\":\"p4\",\"status\":\"published\",\"title\":\"four\",\"authorId\":\"alice\",\"locked\":true}"
+        ]
+      }
+    },
+    {
+      "id": "update-number-id",
+      "title": "A numeric _id in the path",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/counters/2",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-number-id.0"
+            },
+            "body": "{\"$inc\":{\"n\":5}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-number-id.0"
+            },
+            "body": "{\"data\":{\"_id\":2,\"n\":7},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "counters": [
+          "{\"_id\":{\"$numberInt\":\"1\"},\"n\":{\"$numberInt\":\"1\"}}",
+          "{\"_id\":{\"$numberInt\":\"2\"},\"n\":{\"$numberInt\":\"7\"}}"
+        ]
+      }
+    },
+    {
+      "id": "update-validator",
+      "title": "The validator refuses the result",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/counters/1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-validator.0"
+            },
+            "body": "{\"$set\":{\"n\":\"one\"}}"
+          },
+          "response": {
+            "status": 422,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-validator.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:validation-failed\",\"title\":\"Validation failed\",\"status\":422,\"code\":\"CANOPY_VALIDATION_FAILED\",\"detail\":\"The document failed the collection validator\",\"instance\":\"/rest/v1/counters/1\",\"requestId\":\"update.update-validator.0\",\"hint\":\"The collection's validator refused the document: compare the document with its JSON Schema.\",\"docs\":\"errors/validation-failed\"}"
+          }
+        }
+      ],
+      "state": {
+        "counters": [
+          "{\"_id\":{\"$numberInt\":\"1\"},\"n\":{\"$numberInt\":\"1\"}}",
+          "{\"_id\":{\"$numberInt\":\"2\"},\"n\":{\"$numberInt\":\"2\"}}"
+        ]
+      }
+    },
+    {
+      "id": "update-unique-index",
+      "title": "A unique index refuses the result",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/people/u2",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-unique-index.0"
+            },
+            "body": "{\"$set\":{\"email\":\"ann@example.test\"}}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-unique-index.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:duplicate-key\",\"title\":\"Duplicate key\",\"status\":409,\"code\":\"CANOPY_DUPLICATE_KEY\",\"detail\":\"A document with the same unique key exists\",\"instance\":\"/rest/v1/people/u2\",\"requestId\":\"update.update-unique-index.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "people": [
+          "{\"_id\":\"u1\",\"email\":\"ann@example.test\"}",
+          "{\"_id\":\"u2\",\"email\":\"ben@example.test\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-collation",
+      "title": "A default collation finds the document",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/folded/key",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-collation.0"
+            },
+            "body": "{\"$set\":{\"v\":2}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-collation.0"
+            },
+            "body": "{\"data\":{\"_id\":\"Key\",\"v\":2},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "folded": [
+          "{\"_id\":\"Key\",\"v\":{\"$numberInt\":\"2\"}}"
+        ]
+      }
+    },
+    {
+      "id": "update-minimal",
+      "title": "return=minimal",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "prefer": "return=minimal",
+              "x-request-id": "update.update-minimal.0"
+            },
+            "body": "{\"$set\":{\"title\":\"min\"}}"
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "update.update-minimal.0"
+            },
+            "body": ""
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"min\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    },
+    {
+      "id": "update-unknown-parameter",
+      "title": "Only where is taken",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1?limit=1",
+            "query": [
+              [
+                "limit",
+                "1"
+              ]
+            ],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "update.update-unknown-parameter.0"
+            },
+            "body": "{\"$set\":{\"title\":\"x\"}}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "update.update-unknown-parameter.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Unknown parameter limit\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"update.update-unknown-parameter.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      }
+    }
+  ]
+}

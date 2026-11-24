@@ -1,0 +1,700 @@
+{
+  "name": "writes",
+  "basePath": "/rest/v1",
+  "readLimits": {
+    "defaultLimit": 5,
+    "maxLimit": 10,
+    "maxSkip": 20
+  },
+  "idTypes": {
+    "counters": "number"
+  },
+  "auth": {
+    "issuer": "https://idp.conformance.test/",
+    "rolesClaim": "roles",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "MqBodolVGtOHV_nBE6kU-1HEfzVTzqZtBSQBkTRUqYU",
+          "kid": "conformance-1",
+          "alg": "EdDSA",
+          "use": "sig"
+        }
+      ]
+    },
+    "publishableKeys": [
+      "canopy_pk_conformance"
+    ],
+    "secretKeys": [
+      "canopy_sk_conformance"
+    ]
+  },
+  "callers": {
+    "none": {},
+    "anon": {
+      "apikey": "canopy_pk_conformance"
+    },
+    "alice": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.K4x85cAZGh1-eb-h_uLDg1NIlgbmbJ_TLrZ7iufQrCWukajWngnVEhVN8AZsgI9OH7bRAfHpwbRPgfhTnqHzCA"
+    },
+    "bob": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJib2IiLCJpc3MiOiJodHRwczovL2lkcC5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ._7TMQMqu8qjF66VmsKvp4lrd9K167Tm_-EKDQaZgyojHnMQ8KEpnkWPB64AiStpuFOZXvkh-_GwfIJitYFFHBg"
+    },
+    "carol": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJjYXJvbCIsInJvbGVzIjpbImFkbWluIl0sImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.cAApXJz7_asY2LQOHDPsqHCduhVAd0Fql5jrZIM9vyEZHdAys06nEFB929uTt2Eb1drzCVhv6Y5Li1jbgNGpCw"
+    },
+    "service": {
+      "apikey": "canopy_sk_conformance"
+    },
+    "service-bearer": {
+      "authorization": "Bearer canopy_sk_conformance"
+    },
+    "unknown-key": {
+      "apikey": "canopy_pk_unknown"
+    },
+    "expired": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjE3NjcyMjkyMDB9._uZF_otU3QH6uxGp6_7NTSi0eYeT0RmAYP1DMqAcQU1g9s3d797TXoowq9Twfm0LCrPL0ikKuvhKyKw5rUKpBg"
+    },
+    "tampered": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vaWRwLmNvbmZvcm1hbmNlLnRlc3QvIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjQxMDI0NDQ4MDB9.K4x85cAZGh1-eb-h_uLDg1NIlgbmbJ_TLrZ7iufQrCWukajWngnVEhVN8AZsgI9OH7bRAfHpwbRPgfhTnqAAAA"
+    },
+    "wrong-issuer": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vb3RoZXIuY29uZm9ybWFuY2UudGVzdC8iLCJpYXQiOjE3NjcyMjU2MDAsImV4cCI6NDEwMjQ0NDgwMH0.o7vU6rbeHnxyQwDCwXaaSy7KnZMXjgvsPMNajWKIc7d4QCXYAeQjP8MauvMRANi6Dz-lh18I__lmTK6Jn5ptCw"
+    },
+    "service-claim": {
+      "apikey": "canopy_pk_conformance",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNvbmZvcm1hbmNlLTEifQ.eyJzdWIiOiJtYWxsb3J5Iiwicm9sZXMiOlsic2VydmljZSJdLCJpc3MiOiJodHRwczovL2lkcC5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.EZ6fZYYLZPHtsl4RBU53ztiqFQP8ZuEr8yV-kns7EFbn5fLBGZVnrntZEe2Waf2tJ7rkiHfntBi9nZ0a6WGQDA"
+    }
+  },
+  "collections": {
+    "notes": [
+      {
+        "_id": "n1",
+        "ownerId": "alice",
+        "title": "note 1",
+        "done": false,
+        "n": {
+          "$numberInt": "1"
+        },
+        "tags": [
+          "a"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767225600000"
+          }
+        },
+        "secret": "secret-1"
+      },
+      {
+        "_id": "n2",
+        "ownerId": "alice",
+        "title": "note 2",
+        "done": true,
+        "n": {
+          "$numberInt": "2"
+        },
+        "tags": [
+          "a"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767312000000"
+          }
+        },
+        "secret": "secret-2"
+      },
+      {
+        "_id": "n3",
+        "ownerId": "alice",
+        "title": "note 3",
+        "done": false,
+        "n": {
+          "$numberInt": "3"
+        },
+        "tags": [
+          "a",
+          "b"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767398400000"
+          }
+        },
+        "secret": "secret-3"
+      },
+      {
+        "_id": "n4",
+        "ownerId": "alice",
+        "title": "note 4",
+        "done": true,
+        "n": {
+          "$numberInt": "4"
+        },
+        "tags": [
+          "a"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767484800000"
+          }
+        },
+        "secret": "secret-4"
+      },
+      {
+        "_id": "n5",
+        "ownerId": "bob",
+        "title": "note 5",
+        "done": false,
+        "n": {
+          "$numberInt": "5"
+        },
+        "tags": [
+          "a"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767571200000"
+          }
+        },
+        "secret": "secret-5"
+      },
+      {
+        "_id": "n6",
+        "ownerId": "bob",
+        "title": "note 6",
+        "done": true,
+        "n": {
+          "$numberInt": "6"
+        },
+        "tags": [
+          "a",
+          "b"
+        ],
+        "createdAt": {
+          "$date": {
+            "$numberLong": "1767657600000"
+          }
+        },
+        "secret": "secret-6"
+      }
+    ],
+    "posts": [
+      {
+        "_id": "p1",
+        "status": "draft",
+        "title": "one",
+        "authorId": "alice"
+      },
+      {
+        "_id": "p2",
+        "status": "published",
+        "title": "two",
+        "authorId": "bob"
+      },
+      {
+        "_id": "p3",
+        "status": "draft",
+        "title": "three",
+        "authorId": "alice"
+      },
+      {
+        "_id": "p4",
+        "status": "published",
+        "title": "four",
+        "authorId": "alice",
+        "locked": true
+      }
+    ],
+    "counters": [
+      {
+        "_id": {
+          "$numberInt": "1"
+        },
+        "n": {
+          "$numberInt": "1"
+        }
+      },
+      {
+        "_id": {
+          "$numberInt": "2"
+        },
+        "n": {
+          "$numberInt": "2"
+        }
+      }
+    ],
+    "people": [
+      {
+        "_id": "u1",
+        "email": "ann@example.test"
+      },
+      {
+        "_id": "u2",
+        "email": "ben@example.test"
+      }
+    ],
+    "folded": [
+      {
+        "_id": "Key",
+        "v": {
+          "$numberInt": "1"
+        }
+      }
+    ],
+    "frozen": [
+      {
+        "_id": "f1",
+        "kind": "a",
+        "v": {
+          "$numberInt": "1"
+        }
+      }
+    ],
+    "inbox": [],
+    "hidden": [
+      {
+        "_id": "h1"
+      }
+    ]
+  },
+  "policies": {
+    "collections": [
+      {
+        "_id": "notes",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "check": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}",
+            "check": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive delete #4",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "permissive read #5",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "admin"
+            ]
+          },
+          {
+            "name": "permissive update #6",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "admin"
+            ]
+          },
+          {
+            "name": "permissive delete #7",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "admin"
+            ]
+          }
+        ],
+        "fields": {
+          "read": {
+            "default": {
+              "omit": [
+                "secret"
+              ]
+            }
+          },
+          "write": {
+            "default": {
+              "omit": [
+                "secret",
+                "n"
+              ]
+            },
+            "admin": {
+              "omit": [
+                "secret"
+              ]
+            }
+          }
+        },
+        "immutable": [
+          "createdAt"
+        ],
+        "hash": "sha256:b8c5439e32a07a29395110df11812f677cfeb482417470b6254c43cf2b4605c4"
+      },
+      {
+        "_id": "posts",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "public"
+            ]
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "check": "{\"status\":{\"$in\":[\"draft\",\"published\"]}}"
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "check": "{\"status\":{\"$in\":[\"draft\",\"published\"]}}"
+          },
+          {
+            "name": "restrictive update #4",
+            "kind": "restrictive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"locked\":{\"$ne\":true}}"
+          },
+          {
+            "name": "permissive delete #5",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "admin"
+            ]
+          }
+        ],
+        "hash": "sha256:19e755d75dc7a3566784832473e49683a82681197b23b2f8c417c60c4114fa51"
+      },
+      {
+        "_id": "frozen",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive update #2",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "immutable": [
+          "kind"
+        ],
+        "hash": "sha256:76bf4990318b8131755457e1c3e5cde5fd23bbd03ce6c00b1531b3ae8c8c9c8f"
+      },
+      {
+        "_id": "counters",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive delete #4",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:fedc81cf735f4991a4ff0f3552c475a79c6392efc138b0849c2699ce790e5058"
+      },
+      {
+        "_id": "people",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:eaf96a3c5777a595721db58ceb3dfa1e6417c34ea50a34a6becd50142fe10b34"
+      },
+      {
+        "_id": "folded",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive update #3",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive delete #4",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:7511d95199a2e80d74155b86fd345739b5531adc3e1c83a6f6ca84b77327f61a"
+      },
+      {
+        "_id": "inbox",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive insert #1",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:31678f2cbe36dfdcdeeb1567ab6b74221864c6f51eb822ff1f6baca61b4faa37"
+      },
+      {
+        "_id": "hidden",
+        "version": 1,
+        "exposed": false,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          },
+          {
+            "name": "permissive insert #2",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ]
+          }
+        ],
+        "hash": "sha256:c2bde4ebb142c5322acf6b34635522d97b8984685536ef7ee077761de2e1fdb4"
+      }
+    ],
+    "contexts": {}
+  },
+  "setup": {
+    "counters": {
+      "options": {
+        "validator": {
+          "$jsonSchema": {
+            "bsonType": "object",
+            "required": [
+              "n"
+            ],
+            "properties": {
+              "n": {
+                "bsonType": "int"
+              }
+            }
+          }
+        }
+      }
+    },
+    "people": {
+      "indexes": [
+        {
+          "key": {
+            "email": 1
+          },
+          "name": "email_unique",
+          "unique": true
+        }
+      ]
+    },
+    "folded": {
+      "options": {
+        "collation": {
+          "locale": "en",
+          "strength": 2
+        }
+      }
+    }
+  }
+}

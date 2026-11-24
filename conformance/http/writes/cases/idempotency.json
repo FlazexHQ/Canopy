@@ -1,0 +1,581 @@
+{
+  "group": "idempotency",
+  "description": "Idempotency-Key: a repeated key answers the stored outcome, a reused key for another write or caller is a conflict",
+  "cases": [
+    {
+      "id": "key-replay-insert",
+      "title": "The same insert twice with one key is written once",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-insert.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-insert.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-insert.1"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-insert.1"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"ct\":\"<ct>\",\"replayed\":true}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"insert\",\"fp\":\"VAjfxKwOyG42XP7xAxA1TYudfJaZPaLuErgM6fYKW88\",\"result\":{\"matched\":{\"$numberInt\":\"0\"},\"modified\":{\"$numberInt\":\"0\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[\"n9\"],\"changedIds\":[\"n9\"]}}"
+      ]
+    },
+    {
+      "id": "key-replay-update",
+      "title": "A replayed update answers the document as it is now",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-update.0"
+            },
+            "body": "{\"$push\":{\"tags\":\"k\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-update.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "idempotency.key-replay-update.1"
+            },
+            "body": "{\"$set\":{\"title\":\"later\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-update.1"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"later\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-update.2"
+            },
+            "body": "{\"$push\":{\"tags\":\"k\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-update.2"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"later\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":true}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"later\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"update\",\"fp\":\"p4xSMvJ7z1idzyw7HS1uk-OuqoB2MxT59S_j2G7A4RQ\",\"result\":{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"1\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]}}"
+      ]
+    },
+    {
+      "id": "key-other-body",
+      "title": "A key reused for another write is a conflict",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-other-body.0"
+            },
+            "body": "{\"$set\":{\"title\":\"a\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-other-body.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"a\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-other-body.1"
+            },
+            "body": "{\"$set\":{\"title\":\"b\"}}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "idempotency.key-other-body.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"The mutation ID was used for a different write\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"idempotency.key-other-body.1\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"a\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"update\",\"fp\":\"dX1l8SI8yicqPJOCXg6jXOacZAEKqU2QZNrfLOy_VDI\",\"result\":{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"1\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]}}"
+      ]
+    },
+    {
+      "id": "key-other-caller",
+      "title": "A key used by another caller is a conflict",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-other-caller.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "location": "/rest/v1/notes/n9",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-other-caller.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "bob",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-other-caller.1"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"bob\"}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "idempotency.key-other-caller.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"The mutation ID was used by another caller\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"idempotency.key-other-caller.1\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"insert\",\"fp\":\"VAjfxKwOyG42XP7xAxA1TYudfJaZPaLuErgM6fYKW88\",\"result\":{\"matched\":{\"$numberInt\":\"0\"},\"modified\":{\"$numberInt\":\"0\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[\"n9\"],\"changedIds\":[\"n9\"]}}"
+      ]
+    },
+    {
+      "id": "key-replay-delete",
+      "title": "A replayed delete has no document left to return",
+      "steps": [
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-delete.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-delete.0"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-replay-delete.1"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-delete.1"
+            },
+            "body": "{\"data\":null,\"ct\":\"<ct>\",\"replayed\":true}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"delete\",\"fp\":\"1OpTiUJFUxKJsFIPxeC3WJlFj3YjUvv-P6QyiHdIwpY\",\"result\":{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"0\"},\"deleted\":{\"$numberInt\":\"1\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]}}"
+      ]
+    },
+    {
+      "id": "key-refused-write",
+      "title": "A refused write records nothing, so the key stays free",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-refused-write.0"
+            },
+            "body": "{\"$set\":{\"ownerId\":\"bob\"}}"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "idempotency.key-refused-write.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The resulting document does not satisfy the update check for collection 'notes'\",\"instance\":\"/rest/v1/notes/n1\",\"requestId\":\"idempotency.key-refused-write.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/rest/v1/notes/n1",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "idempotency.key-refused-write.1"
+            },
+            "body": "{\"$set\":{\"title\":\"ok\"}}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-refused-write.1"
+            },
+            "body": "{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"ok\",\"done\":false,\"n\":1,\"tags\":[\"a\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"ok\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"update\",\"fp\":\"9ky85t10QmsqxPgm8-JTsk2EYcO04WjpIGMkwoHaQ5A\",\"result\":{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"1\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]}}"
+      ]
+    },
+    {
+      "id": "key-replay-batch",
+      "title": "An atomic batch under one key",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-2",
+              "x-request-id": "idempotency.key-replay-batch.0"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$push\":{\"tags\":\"k\"}}},{\"op\":\"insert\",\"c\":\"notes\",\"doc\":{\"_id\":\"n9\",\"ownerId\":\"alice\"}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-batch.0"
+            },
+            "body": "{\"data\":[{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1},{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"matched\":0}],\"ct\":\"<ct>\",\"replayed\":false}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-2",
+              "x-request-id": "idempotency.key-replay-batch.1"
+            },
+            "body": "{\"atomic\":true,\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$push\":{\"tags\":\"k\"}}},{\"op\":\"insert\",\"c\":\"notes\",\"doc\":{\"_id\":\"n9\",\"ownerId\":\"alice\"}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-canopy-ct": "<ct>",
+              "x-request-id": "idempotency.key-replay-batch.1"
+            },
+            "body": "{\"data\":[{\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1},{\"data\":{\"_id\":\"n9\",\"ownerId\":\"alice\"},\"matched\":0}],\"ct\":\"<ct>\",\"replayed\":true}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}",
+          "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-2\",\"sub\":\"alice\",\"c\":\"\",\"op\":\"batch\",\"fp\":\"Wy1Io5PWZ6Hh3Bae-KPXEu4qpMnvD-cT_Ebs4TtkjAI\",\"results\":[{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"1\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]},{\"matched\":{\"$numberInt\":\"0\"},\"modified\":{\"$numberInt\":\"0\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[\"n9\"],\"changedIds\":[\"n9\"]}]}"
+      ]
+    },
+    {
+      "id": "key-each-mid",
+      "title": "Each operation of a batch that is not atomic has its own key",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "idempotency.key-each-mid.0"
+            },
+            "body": "{\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$push\":{\"tags\":\"k\"}},\"mid\":\"conformance-key-1\"},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n2\",\"update\":{\"$push\":{\"tags\":\"k\"}}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "idempotency.key-each-mid.0"
+            },
+            "body": "{\"data\":[{\"status\":200,\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1,\"ct\":\"<ct>\",\"replayed\":false},{\"status\":200,\"data\":{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":2,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}},\"matched\":1,\"ct\":\"<ct>\",\"replayed\":false}]}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/_batch",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "idempotency.key-each-mid.1"
+            },
+            "body": "{\"ops\":[{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n1\",\"update\":{\"$push\":{\"tags\":\"k\"}},\"mid\":\"conformance-key-1\"},{\"op\":\"update\",\"c\":\"notes\",\"id\":\"n2\",\"update\":{\"$push\":{\"tags\":\"k\"}}}]}"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "x-request-id": "idempotency.key-each-mid.1"
+            },
+            "body": "{\"data\":[{\"status\":200,\"data\":{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":1,\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-01T00:00:00.000Z\"}},\"matched\":1,\"ct\":\"<ct>\",\"replayed\":true},{\"status\":200,\"data\":{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":2,\"tags\":[\"a\",\"k\",\"k\"],\"createdAt\":{\"$date\":\"2026-01-02T00:00:00.000Z\"}},\"matched\":1,\"ct\":\"<ct>\",\"replayed\":false}]}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\",\"k\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\",\"k\",\"k\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": [
+        "{\"_id\":\"conformance-key-1\",\"sub\":\"alice\",\"c\":\"notes\",\"op\":\"update\",\"fp\":\"p4xSMvJ7z1idzyw7HS1uk-OuqoB2MxT59S_j2G7A4RQ\",\"result\":{\"matched\":{\"$numberInt\":\"1\"},\"modified\":{\"$numberInt\":\"1\"},\"deleted\":{\"$numberInt\":\"0\"},\"insertedIds\":[],\"changedIds\":[\"n1\"]}}"
+      ]
+    },
+    {
+      "id": "key-invalid",
+      "title": "A key that is not 8 to 128 URL safe characters",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "short",
+              "x-request-id": "idempotency.key-invalid.0"
+            },
+            "body": "{\"_id\":\"n9\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "idempotency.key-invalid.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"A mutation ID must be 8 to 128 letters, digits, hyphens or underscores\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"idempotency.key-invalid.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": []
+    }
+  ]
+}
