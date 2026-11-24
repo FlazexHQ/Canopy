@@ -137,7 +137,7 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Transfer throughput and memory consumption per upload characterized and verified on GitHub Actions run 45449511220 (`bench/baselines/d4/README.md`).
 
 ### Stage D5: MongoDB Wire Protocol Endpoint
-- **Status:** Done in code (wire framing, router handshake, MONGODB-OIDC, SCRAM-SHA-256 for configured and stored secret keys, reads through ReadPath, keyset cursor paging, transactional writes via WritePath, wire point updates without select, gateway wire listener, retryable writes, wire DLS replay, unified CRUD spec tests, maxTimeMS, D5 gate benchmark run, change streams over the wire, change stream unified spec tests and batch update lookup fix, and OP_COMPRESSED completed).
+- **Status:** Done (2026-11-24, gate characterized on GitHub Actions run 45453474230; see bench/baselines/d5/README.md).
 - **Completed Work Items:**
   1. Crate `canopy-wire` core and framing (commit `1ee5390`): OP_MSG and legacy OP_QUERY framing with CRC32C checksums, hello command answering as a MongoDB 8.0 router.
   2. Authentication (commits `1ee5390`, `bf93ad7`, `50265bd`): MONGODB-OIDC with access tokens (roles extracted from token claims), SCRAM-SHA-256 for user `service` using configured secret keys, and SCRAM-SHA-256 for stored secret keys (verifier stored next to key hash, key id as username, revocations read from primary on handshake, decoy for unknown users).
@@ -153,8 +153,7 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   12. Stage D5 gate benchmark on Actions (run 45453474230, `bench/baselines/d5/README.md`): characterized wire throughput against Rust Data API and direct MongoDB floor across Node 26 and Bun with MongoDB 8.0.34 and 9.0.8. Wire find by `_id` reaches 1.21 to 1.30 times Data API requests per CPU second, count reaches 1.41 to 1.54 times, insertOne reaches 1.13 to 1.16 times, find 20 documents is on par at 0.92 to 0.99 times, and updateOne reaches 0.67 to 0.70 times due to retryable write documents. Idle wire memory confirmed at 19.50 to 22.74 KiB per authenticated connection across 200 connections.
   13. Change streams over wire (commits `f11bf8a`, `0a9e54a`, `7b8c3a3`): watch served by realtime engine, change stream unified spec tests and DLS coverage, batch updateLookup keeping wire change streams open across repeated updates to one document in a single batch.
   14. OP_COMPRESSED (commit `01ea940`): snappy, zlib and zstd in pure Rust.
-- **Remaining Work Items:**
-  1. Wire update scenario throughput characterization vs Data API.
+- **Remaining Work Items:** None.
 - **Read cursor behavior:** Wire `find` continues through the Data API keyset cursor, with `skip` applied to the first page and the driver's `limit` applied across the cursor. Each continuation uses a fresh Data API snapshot. Aggregation has no continuation in the Data API, so the wire endpoint returns an error if the aggregation exceeds its document or BSON byte budget.
 - **Conformance and Oracle Deliverables:**
   - Official MongoDB driver unified spec tests passing with Node.js, Python, Go, and Java drivers (CRUD complete in commit `832a82f`; change streams complete).
@@ -163,36 +162,41 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Allowlisted unified spec tests pass with official drivers.
   - Wire endpoint integrated into cross entry point DLS tests with 0 bypasses on the attack corpus.
   - Concurrency, write throughput, and change stream resumption fully validated.
+  - Gate status: Passed. Characterized on GitHub Actions run 45453474230 (`bench/baselines/d5/README.md`).
 
 ### Stage D6: Control Plane Split
-- **Status:** Started, in progress (groundwork landed in commit `f048d0a`: `CANOPY_ROLE=control`; split container stack and images integration landed in commits `849c4e9`, `1fc80ad`, and `0108ec4`; D6 gate remains open due to images job failure in CI run 45466670974).
+- **Status:** Done (2026-11-25).
 - **Completed Work Items:**
   1. Control role groundwork (commit `f048d0a`): `CANOPY_ROLE=control` serves only built in auth, the JWKS, the admin API and health, keeps webhooks, and refuses every data path through an allowlist.
-  2. Standalone Rust data plane binary renamed to `canopyd` (`crates/canopyd`).
-  3. Control plane service extracted to `packages/control` with its own Dockerfile `deploy/docker/canopy-control.Dockerfile`.
-  4. Split container stack in Docker Compose (`deploy/compose/split.yaml`), Helm (`split.enabled`), and Kubernetes manifests (`deploy/kubernetes/split.yaml`), running the control plane from `canopy-control` image with policies published at startup (`0108ec4`).
-  5. Control plane resilience test (`520794b`) and probe mode `canopyd --probe` (`3927295`).
-- **Remaining Work Items:**
-  1. Resolve smoke test failure in `Docker images and compose stack` where realtime answered plain GET with 503 instead of a 4xx refusal, allowing the split stack smoke that stops control, sdk-e2e, Studio Playwright, and todo-react Playwright suites to run and pass through the split edge.
+  2. Standalone Rust data plane binary renamed to `canopyd` (`crates/canopyd`, commits `34b2d02`, `6cbdf1a`).
+  3. Control plane service extracted to `packages/control` (commit `e30ac6a`) with its own Dockerfile `deploy/docker/canopy-control.Dockerfile`.
+  4. Split container stack in Docker Compose (`deploy/compose/split.yaml`, commit `849c4e9`), Helm (`split.enabled`), and Kubernetes manifests (`deploy/kubernetes/split.yaml`), running the control plane from `canopy-control` image with policies published at startup (commit `0108ec4`).
+  5. Control plane resilience test (commit `520794b`) and probe mode `canopyd --probe` (commit `3927295`).
+  6. SCRAM authentication for stored secret keys issued by control plane (commits `bf93ad7`, `50265bd`).
+  7. Split stack test harness and CI setup (commits `1fc80ad`, `2ca9c4d`): `sdk-e2e`, Studio Playwright suite and `todo-react` Playwright suite configured to run against the split stack; smoke waits up to 15 seconds for routes to leave 503 through the edge.
+  8. GraphQL and wire stream fixes (commit `4e52c47`): delivered complete live snapshots for GraphQL follower through grouped `batch` frames, wire change streams start at operation time when opened, oracle replays skip under native engine, GraphQL coverage back above 94%.
+  9. Live query SSE reconnect stabilization (commit `717dc78`): SSE reconnect check in route switch suite waits for the reconnected live query before the next write (passed 40 runs in a row on Bun and Node 26 with MongoDB 8 and 9).
+  10. Built in auth verification in `canopyd` (commit `65ec3f5`): `canopyd` verifies built in auth tokens from public keys read from `canopy_auth.signing_keys` with `auth.builtinJwks` / `CANOPY_JWT_BUILTIN_JWKS`, projecting only `_id`, `publicKey` and `alg`, refreshing every five seconds and once early for an unknown key id, keeping retired keys through the grace period, denying when a refresh fails; HTTPS requirement for remote JWKS stays.
+- **Remaining Work Items:** None.
 - **Conformance and Oracle Deliverables:**
   - Verification through `sdk-e2e`, Studio, and `todo-react` Playwright suites against the split edge.
-  - Control plane failure resilience verification.
+  - Control plane failure resilience verification: data plane routes and built in auth tokens continue serving during control downtime while `/admin/v1` answers 503.
 - **Gate Criteria:**
-  - The container stack passes `sdk-e2e`, Studio, and `todo-react` Playwright suites.
+  - The container stack passes `sdk-e2e`, Studio, and `todo-react` Playwright suites against the split stack.
   - A crash or failure of the control plane leaves data plane routes serving without interruption.
-  - Gate status: unclosed. In GitHub Actions run 45466670974, `Docker images and compose stack` failed on `Smoke test the stack, then the native gateway as the realtime service`, so Stage D6 remains in progress.
+  - Gate status: Passed. GitHub Actions run 45482098612 on commit 65ec3f5 (https://github.com/FlazexHQ/Canopy/actions/runs/45482098612) is green on all 28 jobs (two macOS jobs were cancelled before running any step and passed on a rerun). Its "Docker images and compose stack" job built the images, ran the existing stack smoke, ran the split stack smoke that stops the control plane and checks that REST reads and writes, realtime, Studio and a built in auth token issued by control keep working through the edge while `/admin/v1` answers 503, and ran sdk-e2e, the Studio Playwright suite and the todo-react Playwright suite against the split stack.
 
 ### Stage D7: Defaults and Embedded Mode
-- **Status:** Started, in progress (groundwork landed in commit `dcfe7a5`: `all` in `dataPlane.routes`; default flip landed in commit `750ca82`).
+- **Status:** Done in code (default flip in commit `750ca82`, `@canopy/embedded` in commit `c4608cb`; gate waits on the user).
 - **Completed Work Items:**
   1. Route selection groundwork (commit `dcfe7a5`): `all` in `dataPlane.routes` selects every Data API route plus graphql and storage when configured.
   2. Default flip (commit `750ca82`): `canopyd` and the front door default to `all`, serving every Data API route plus GraphQL and storage when configured; an empty list or empty `CANOPY_DATA_PLANE_ROUTES` opts out; the sidecar and filtered front doors keep passing HTTP routes upstream.
-  3. Export cleanup (commit `446a360`): removed unused test helper exports flagged by Knip.
+  3. Embedded mode package (commit `c4608cb`): added `@canopy/embedded` (`createEmbeddedCanopy`), composing REST, GraphQL, realtime and storage on the TypeScript engine as the single entry for running Canopy data routes in Node applications; frozen TypeScript equivalence reference for `canopyd`.
+  4. Export cleanup (commit `446a360`): removed unused test helper exports flagged by Knip.
 - **Remaining Work Items:**
-  1. Consolidate TypeScript data packages (`packages/rest`, `packages/realtime`, `packages/graphql`, `packages/storage`, `packages/node-http`) into a single frozen `packages/embedded` package for Node.js apps.
-  2. Image transforms in storage (waiting on a library decision).
-  3. Formal resolution of open question Q17 regarding post-1.0 embedded mode support.
-  4. Zero P0 or P1 bugs open against the Rust data plane for one full release cycle.
+  1. One release cycle with zero P0 or P1 bugs open against the Rust data plane.
+  2. Formal resolution of open question Q17 regarding post-1.0 embedded mode support, which decides whether the TypeScript data packages move into `@canopy/embedded`.
+  3. Note: image transforms in storage (Stage D4) wait on the user's choice of image library. Nothing else is in progress.
 - **Gate Criteria:**
   - Zero P0 or P1 bugs open against the Rust data plane for one full release cycle.
   - Formal resolution of open question Q17.
