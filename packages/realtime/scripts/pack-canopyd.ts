@@ -1,0 +1,195 @@
+import { spawnSync } from "node:child_process"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+import { NATIVE_TARGETS, type NativeTarget } from "../../native/src/targets.ts"
+import { gatewayPackage } from "../src/gateway-package.ts"
+import {
+  optionalDependencies,
+  pack,
+  type Release,
+  stagePlatformPackage,
+  tarballName,
+  verifyLauncherTarball,
+  verifyPlatformTarball,
+} from "./canopyd-packages.ts"
+
+/**
+ * Packs the prebuilt `canopyd` executables as npm packages. Run with Bun:
+ *
+ *   bun packages/realtime/scripts/pack-canopyd.ts --target <triple> --binary <file> [--glibc-baseline]
+ *   bun packages/realtime/scripts/pack-canopyd.ts --assemble <dir> [--partial]
+ *
+ * The first form packs the release build `<file>` of one target into `packs/` as `@canopy/canopyd-<suffix>`
+ * (the suffixes of `@canopy/native`), checks the tarball (with `--glibc-baseline`, also the glibc version a
+ * Linux build links against) and lists it in `packs/packs.json`.
+ *
+ * `--assemble` takes the `packs/` folders of several such runs, downloaded anywhere under `<dir>`, checks every
+ * platform package, and packs the release into `packs/`: the platform packages and `@canopy/realtime`, which
+ * launches canopyd, with `optionalDependencies` naming all of them at its version. The optional dependencies
+ * exist only in that tarball, so the repository installs without packages that are not published. It fails
+ * when a target is missing, unless `--partial` allows a subset for local testing. Nothing is published.
+ */
+const root = fileURLToPath(new URL("..", import.meta.url))
+const packs = join(root, "packs")
+const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
+  string,
+  unknown
+> & { name: string; version: string; license: string }
+const release: Release = { version: source.version, license: source.license }
+
+/** A tarball in `packs/`, as `packs/packs.json` lists it. */
+interface Packed {
+  readonly name: string
+  readonly file: string
+}
+
+function usage(message: string): never {
+  throw new Error(
+    `${message}\nUsage: pack-canopyd.ts --target <triple> --binary <file> [--glibc-baseline]\n       pack-canopyd.ts --assemble <dir> [--partial]`,
+  )
+}
+
+function fail(problems: readonly string[]): void {
+  if (problems.length > 0) throw new Error(`Packing failed:\n${problems.join("\n")}`)
+}
+
+function packTarget(triple: string, binary: string, glibcBaseline: boolean): void {
+  const target =
+    NATIVE_TARGETS.find((candidate) => candidate.triple === triple) ??
+    usage(`No canopyd target ${triple}`)
+  if (!existsSync(binary)) usage(`No file ${binary}`)
+  rmSync(packs, { recursive: true, force: true })
+  const staging = join(packs, "staging", target.suffix)
+  stagePlatformPackage(target, resolve(binary), staging, release)
+  pack(process.execPath, staging, packs)
+  rmSync(join(packs, "staging"), { recursive: true, force: true })
+  const packed: Packed = {
+    name: gatewayPackage(target),
+    file: tarballName(gatewayPackage(target), release.version),
+  }
+  fail(verifyPlatformTarball(join(packs, packed.file), target, release, glibcBaseline))
+  writeFileSync(join(packs, "packs.json"), `${JSON.stringify([packed], null, 2)}\n`)
+  process.stdout.write(`packed ${packed.name} into ${packs}\n`)
+}
+
+function run(command: string, commandArgs: readonly string[]): void {
+  const result = spawnSync(command, commandArgs, { cwd: root, stdio: "inherit" })
+  if (result.status !== 0)
+    throw new Error(`${command} ${commandArgs.join(" ")} failed with ${String(result.status)}`)
+}
+
+/** Packs `@canopy/realtime` naming the platform packages of `targets`, checks it and writes `packs.json`. */
+function packLauncher(targets: readonly NativeTarget[]): void {
+  run(process.execPath, ["run", "build"])
+  const optional = optionalDependencies(targets, release.version)
+  const manifest = join(root, "package.json")
+  const original = readFileSync(manifest, "utf8")
+  try {
+    writeFileSync(
+      manifest,
+      `${JSON.stringify({ ...source, optionalDependencies: optional }, null, 2)}\n`,
+    )
+    pack(process.execPath, root, packs)
+  } finally {
+    writeFileSync(manifest, original)
+  }
+  const own: Packed = { name: source.name, file: tarballName(source.name, release.version) }
+  fail(verifyLauncherTarball(join(packs, own.file), source.name, release.version, optional))
+  const all = [
+    own,
+    ...targets.map((target) => ({
+      name: gatewayPackage(target),
+      file: tarballName(gatewayPackage(target), release.version),
+    })),
+  ]
+  writeFileSync(join(packs, "packs.json"), `${JSON.stringify(all, null, 2)}\n`)
+  process.stdout.write(`packed ${all.map(({ name }) => name).join(", ")} into ${packs}\n`)
+}
+
+function assemble(folder: string, partial: boolean): void {
+  const input = resolve(folder)
+  const inside = relative(packs, input)
+  if (!inside.startsWith("..") && !isAbsolute(inside))
+    usage(`--assemble cannot read from ${packs}, which it replaces`)
+  const found = new Map<string, string>()
+  const lists = readdirSync(input, { recursive: true, encoding: "utf8" }).filter(
+    (path) => basename(path) === "packs.json",
+  )
+  for (const list of lists) {
+    const entries = JSON.parse(readFileSync(join(input, list), "utf8")) as Packed[]
+    for (const { name, file } of entries) {
+      if (name === source.name) continue
+      if (file !== tarballName(name, release.version))
+        throw new Error(
+          `${list} lists ${file} for ${name}, expected ${tarballName(name, release.version)}`,
+        )
+      const path = join(input, dirname(list), file)
+      const previous = found.get(name)
+      if (previous !== undefined)
+        throw new Error(`${name} is packed twice: ${previous} and ${path}`)
+      found.set(name, path)
+    }
+  }
+  const wanted = NATIVE_TARGETS.map((target) => gatewayPackage(target))
+  const unknown = [...found.keys()].filter((name) => !wanted.includes(name))
+  if (unknown.length > 0) throw new Error(`Unknown packages in ${input}: ${unknown.join(", ")}`)
+  const missing = wanted.filter((name) => !found.has(name))
+  if (missing.length > 0 && !partial)
+    throw new Error(`Missing from ${input}: ${missing.join(", ")} (--partial allows a subset)`)
+  if (found.size === 0) throw new Error(`No packs.json under ${input}`)
+  rmSync(packs, { recursive: true, force: true })
+  mkdirSync(packs, { recursive: true })
+  const targets: NativeTarget[] = []
+  const problems: string[] = []
+  for (const target of NATIVE_TARGETS) {
+    const path = found.get(gatewayPackage(target))
+    if (path === undefined) continue
+    const tarball = join(packs, tarballName(gatewayPackage(target), release.version))
+    copyFileSync(path, tarball)
+    problems.push(...verifyPlatformTarball(tarball, target, release, true))
+    targets.push(target)
+  }
+  fail(problems)
+  if (missing.length > 0) process.stdout.write(`partial release, without ${missing.join(", ")}\n`)
+  packLauncher(targets)
+}
+
+const argv = process.argv.slice(2)
+let triple: string | undefined
+let binary: string | undefined
+let folder: string | undefined
+let glibcBaseline = false
+let partial = false
+for (let index = 0; index < argv.length; index += 1) {
+  const flag = argv[index]
+  if (flag === "--glibc-baseline") glibcBaseline = true
+  else if (flag === "--partial") partial = true
+  else if (flag === "--target" || flag === "--binary" || flag === "--assemble") {
+    index += 1
+    const value = argv[index] ?? usage(`${flag} needs a value`)
+    if (flag === "--target") triple = value
+    else if (flag === "--binary") binary = value
+    else folder = value
+  } else usage(`Unexpected argument ${flag ?? ""}`)
+}
+if (folder !== undefined) {
+  if (triple !== undefined || binary !== undefined || glibcBaseline)
+    usage("--assemble takes no target options")
+  assemble(folder, partial)
+} else {
+  if (partial) usage("--partial needs --assemble")
+  packTarget(
+    triple ?? usage("--target is required"),
+    binary ?? usage("--binary is required"),
+    glibcBaseline,
+  )
+}

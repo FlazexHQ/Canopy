@@ -13,3 +13,4 @@ export {
   type EngineKind,
   selectEngine,
 } from "./select.ts"
+export { hostTarget, NATIVE_TARGETS, type NativeTarget, targetFor } from "./targets.ts"

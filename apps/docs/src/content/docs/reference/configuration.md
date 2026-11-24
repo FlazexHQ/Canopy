@@ -99,7 +99,13 @@ Socket writes go to the server's REST write path, and their acknowledgements sti
 events. Built in auth works: the gateway verifies tokens with the server's own JWKS. GraphQL subscriptions
 follow their live queries through the gateway over loopback. The `canopy-server` metrics port also carries
 the gateway's metrics, scraped every second. The launcher checks `CANOPYD_BIN`, the legacy
-`CANOPY_GATEWAY_BIN`, Cargo release and debug builds, the directory beside the running executable, and `PATH`.
+`CANOPY_GATEWAY_BIN`, the prebuilt platform package, Cargo release and debug builds, the directory beside the
+running executable, and `PATH`. The platform packages are `@canopy/canopyd-<platform>` (for example
+`@canopy/canopyd-linux-x64-gnu`, `@canopy/canopyd-linux-x64-musl`, `@canopy/canopyd-darwin-arm64` or
+`@canopy/canopyd-win32-x64-msvc`): optional dependencies of `@canopy/realtime`, so installing the CLI or the
+server with Bun, pnpm, Yarn or npm installs the one for your machine, with no Rust toolchain. When none is
+found, the error names the package for your platform; reinstall without skipping optional dependencies, or set
+`CANOPYD_BIN`.
 
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in
 Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection}`), `count`, `distinct`,

@@ -622,7 +622,7 @@ function directoryPolicies(dir: string): PolicySource
 
 function docKey(coll: string, id: unknown): string
 
-function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: string): string | undefined
+function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: string, target?: NativeTarget | undefined): string | undefined
 
 function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv, overrides?: GatewayOverrides): Record<string, unknown>
 

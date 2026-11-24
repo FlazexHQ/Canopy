@@ -5,25 +5,31 @@ import { readFile } from "node:fs/promises"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { ResolvedConfig } from "@canopy/config"
+import { hostTarget, type NativeTarget } from "@canopy/native"
 import { type PolicySet, toStored } from "@canopy/policy"
 import { toCanonical } from "@canopy/protocol"
+import { gatewayExecutable, gatewayPackage, packagedGateway } from "./gateway-package.ts"
 import type { Logger } from "./logger.ts"
 import { directoryPolicies } from "./policy-source.ts"
 
-const BINARY = process.platform === "win32" ? "canopyd.exe" : "canopyd"
+const BINARY = gatewayExecutable(process.platform)
 
 /**
- * Finds the `canopyd` executable via `CANOPYD_BIN` or the legacy `CANOPY_GATEWAY_BIN`.
- * Otherwise checks for a release or debug Cargo build, a binary beside the running executable,
- * then a binary on `PATH`. Returns `undefined` when there is none.
+ * Finds the `canopyd` executable. `CANOPYD_BIN` (or the legacy `CANOPY_GATEWAY_BIN`) wins; otherwise the
+ * prebuilt platform package for `target` (this process's platform, musl or glibc on Linux) as installed with
+ * this package, then a release or debug Cargo build in a folder above `from`, a binary beside the running
+ * executable, and a binary on `PATH`. Returns `undefined` when there is none.
  */
 export function findGatewayBinary(
   env: NodeJS.ProcessEnv = process.env,
   execPath: string = process.execPath,
   from: string = dirname(fileURLToPath(import.meta.url)),
+  target: NativeTarget | undefined = hostTarget(),
 ): string | undefined {
   const configured = env["CANOPYD_BIN"] || env["CANOPY_GATEWAY_BIN"]
   if (configured) return resolve(configured)
+  const packaged = packagedGateway(target, from)
+  if (packaged !== undefined) return packaged
   let dir = from
   for (let depth = 0; depth < 6; depth += 1) {
     for (const profile of ["release", "debug"]) {
@@ -43,6 +49,19 @@ export function findGatewayBinary(
     if (existsSync(candidate)) return candidate
   }
   return undefined
+}
+
+/**
+ * Tells the user how to get `canopyd` when `findGatewayBinary` finds none for `target`, the platform of this
+ * process or `undefined` when it has no prebuilt `canopyd`.
+ */
+export function missingGatewayMessage(target: NativeTarget | undefined): string {
+  const build =
+    "set CANOPYD_BIN to a canopyd executable or build one with cargo build --release -p canopyd"
+  if (target === undefined)
+    return `No canopyd executable found, and none is prebuilt for ${process.platform} ${process.arch}: ${build}`
+  const platform = `${target.os} ${target.cpu}${target.libc === undefined ? "" : ` (${target.libc})`}`
+  return `No canopyd executable found. Install ${gatewayPackage(target)}, the prebuilt canopyd for ${platform} that @canopy/realtime lists as an optional dependency (reinstall without skipping optional dependencies), or ${build}`
 }
 
 /** The policies in the stored form the gateway reads: one document per collection plus the context lookups. */
@@ -355,10 +374,7 @@ export async function startGateway(
   overrides: GatewayOverrides = {},
 ): Promise<RunningGateway> {
   const binary = findGatewayBinary()
-  if (binary === undefined)
-    throw new TypeError(
-      "CANOPY_REALTIME_SERVER=gateway needs the canopyd executable: set CANOPYD_BIN or build it with cargo build --release -p canopyd",
-    )
+  if (binary === undefined) throw new TypeError(missingGatewayMessage(hostTarget()))
   const source = "dir" in config.policies ? directoryPolicies(config.policies.dir) : undefined
   const initial = source === undefined ? undefined : storedPolicies(await source.load())
   const persisted = config.graphql === false ? undefined : config.graphql.persisted

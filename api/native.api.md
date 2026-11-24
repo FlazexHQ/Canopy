@@ -34,6 +34,8 @@ export type EngineChoice = EngineKind | "auto";
 
 export type EngineKind = "ts" | "native" | "wasm";
 
+const NATIVE_TARGETS: readonly NativeTarget[]
+
 export interface NativeCompiledFilter extends CompiledFilter {
     matchesBson(document: Uint8Array): boolean;
     matchMany(documents: readonly Uint8Array[]): Uint8Array;
@@ -50,11 +52,23 @@ export interface NativeEngine {
     bsonToEjson(bytes: Uint8Array, canonical: boolean): string;
 }
 
+export interface NativeTarget {
+    readonly suffix: string;
+    readonly triple: string;
+    readonly os: "win32" | "darwin" | "linux";
+    readonly cpu: "x64" | "arm64";
+    readonly libc?: "glibc" | "musl";
+}
+
 function engineFromBinding(binding: Binding): NativeEngine
 
 function fromBinding(error: unknown): Error
 
+function hostTarget(): NativeTarget | undefined
+
 function loadNativeEngine(kind?: BindingKind): NativeEngine
 
 function selectEngine(kind?: EngineChoice): CoreEngine
+
+function targetFor(os: string, cpu: string, libc: NativeTarget["libc"]): NativeTarget | undefined
 ```

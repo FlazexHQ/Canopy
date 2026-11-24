@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs"
 import { gunzipSync } from "node:zlib"
 import { GLIBC_BASELINE, type NativeTarget, WASM_TARGET } from "../src/targets.ts"
 
-/** The files of a gzipped tarball, by path. */
-export function readTarball(file: string): Map<string, Buffer> {
+/** The files of a gzipped tarball, by path. When `modes` is given, it receives the permission bits of each file. */
+export function readTarball(file: string, modes?: Map<string, number>): Map<string, Buffer> {
   const tar = gunzipSync(readFileSync(file))
   const files = new Map<string, Buffer>()
   const text = (start: number, length: number): string =>
@@ -27,6 +27,7 @@ export function readTarball(file: string): Map<string, Buffer> {
       longName = path?.[1]
     } else if (type === "0" || type === "\0") {
       files.set(name, Buffer.from(body))
+      modes?.set(name, Number.parseInt(text(offset + 100, 8).trim() || "0", 8))
     }
     offset += 512 + Math.ceil(size / 512) * 512
   }
@@ -58,8 +59,14 @@ function expect(problems: string[], label: string, actual: unknown, expected: un
     problems.push(`${label} is ${JSON.stringify(actual)}, not ${JSON.stringify(expected)}`)
 }
 
-/** The machine an addon was built for, read from its PE, ELF or Mach-O header. */
-function machineOf(binary: Buffer): { format: string; cpu: string } | undefined {
+/**
+ * The machine a binary was built for, read from its PE, ELF or Mach-O header. An ELF file counts only when its
+ * type is one of `elfTypes`: shared objects (3) for an addon, also executables (2) for a program.
+ */
+export function machineOf(
+  binary: Buffer,
+  elfTypes: readonly number[] = [3],
+): { format: string; cpu: string } | undefined {
   if (binary.length >= 64 && binary.toString("latin1", 0, 2) === "MZ") {
     const pe = binary.readUInt32LE(0x3c)
     if (binary.toString("latin1", pe, pe + 4) !== "PE\0\0") return undefined
@@ -70,7 +77,8 @@ function machineOf(binary: Buffer): { format: string; cpu: string } | undefined 
     }
   }
   if (binary.length >= 64 && binary.toString("latin1", 0, 4) === "\x7fELF") {
-    if (binary[4] !== 2 || binary[5] !== 1 || binary.readUInt16LE(16) !== 3) return undefined
+    if (binary[4] !== 2 || binary[5] !== 1 || !elfTypes.includes(binary.readUInt16LE(16)))
+      return undefined
     const machine = binary.readUInt16LE(18)
     return { format: "elf", cpu: machine === 62 ? "x64" : machine === 183 ? "arm64" : "other" }
   }
@@ -84,7 +92,8 @@ function machineOf(binary: Buffer): { format: string; cpu: string } | undefined 
   return undefined
 }
 
-const FORMAT: Readonly<Record<NativeTarget["os"], string>> = {
+/** The binary format of each operating system, as `machineOf` names it. */
+export const FORMAT: Readonly<Record<NativeTarget["os"], string>> = {
   win32: "pe",
   linux: "elf",
   darwin: "macho",
@@ -97,6 +106,29 @@ const newer = (a: number[], b: number[]): boolean => {
     if (difference !== 0) return difference > 0
   }
   return false
+}
+
+/**
+ * What is wrong with how a Linux binary links its C library: a glibc binary must need no glibc newer than
+ * `GLIBC_BASELINE`, and a musl binary must not reference glibc at all.
+ */
+export function linkProblems(binary: Buffer, file: string, target: NativeTarget): string[] {
+  const problems: string[] = []
+  const required = [...binary.toString("latin1").matchAll(/GLIBC_(\d+(?:\.\d+)+)/g)].map(
+    (match) => match[1] ?? "",
+  )
+  if (target.libc === "musl" && required.length > 0)
+    problems.push(`${file} references glibc ${[...new Set(required)].join(", ")}`)
+  if (target.libc === "glibc") {
+    if (required.length === 0) problems.push(`${file} references no glibc symbol version`)
+    const newest = required.reduce(
+      (top, next) => (newer(version(next), version(top)) ? next : top),
+      "0",
+    )
+    if (newer(version(newest), version(GLIBC_BASELINE)))
+      problems.push(`${file} needs glibc ${newest}, newer than ${GLIBC_BASELINE}`)
+  }
+  return problems
 }
 
 /** What a platform or root package must contain. */
@@ -134,22 +166,8 @@ export function verifyNative(
   else {
     const machine = machineOf(binary)
     expect(problems, file, machine, { format: FORMAT[target.os], cpu: target.cpu })
-    if (target.libc !== undefined && glibcBaseline) {
-      const required = [...binary.toString("latin1").matchAll(/GLIBC_(\d+(?:\.\d+)+)/g)].map(
-        (match) => match[1] ?? "",
-      )
-      if (target.libc === "musl" && required.length > 0)
-        problems.push(`${file} references glibc ${[...new Set(required)].join(", ")}`)
-      if (target.libc === "glibc") {
-        if (required.length === 0) problems.push(`${file} references no glibc symbol version`)
-        const newest = required.reduce(
-          (top, next) => (newer(version(next), version(top)) ? next : top),
-          "0",
-        )
-        if (newer(version(newest), version(GLIBC_BASELINE)))
-          problems.push(`${file} needs glibc ${newest}, newer than ${GLIBC_BASELINE}`)
-      }
-    }
+    if (target.libc !== undefined && glibcBaseline)
+      problems.push(...linkProblems(binary, file, target))
   }
   return problems.map((problem) => `${tarball}: ${problem}`)
 }
