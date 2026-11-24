@@ -24,9 +24,9 @@ use canopy_mongo::mongodb::error::{
     ErrorKind, TRANSIENT_TRANSACTION_ERROR, UNKNOWN_TRANSACTION_COMMIT_RESULT, WriteFailure,
 };
 use canopy_mongo::mongodb::options::{
-    ReadConcern, ReadPreference, SelectionCriteria, WriteConcern, WriteModel,
+    InsertOneModel, ReadConcern, ReadPreference, SelectionCriteria, WriteConcern, WriteModel,
 };
-use canopy_mongo::mongodb::{Client, ClientSession, Database};
+use canopy_mongo::mongodb::{Client, ClientSession, Database, Namespace};
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, Operation, PolicyEngine, RequestContext, Role};
 use canopy_protocol::ejson::canonical_string;
@@ -835,6 +835,13 @@ impl WritePath {
     ) -> Result<(Vec<Outcome>, Ct, bool), CanopyError> {
         let service = caller.context.roles.contains(Role::SERVICE);
         self.ensure_indexes(service).await?;
+        let combined = match (plans, mutation_id) {
+            ([plan], Some(id)) => match plan.with_idempotency() {
+                Some(write) if self.client_bulk_write().await => Some((plan, id, write)),
+                _ => None,
+            },
+            _ => None,
+        };
         let deadline = Instant::now() + Duration::from_millis(self.limits.transaction_timeout_ms);
         let mut session =
             self.client.start_session().await.map_err(|error| from_driver_error(&error, service))?;
@@ -856,9 +863,18 @@ impl WritePath {
             if let Err(error) = started {
                 break Err(Stop::Failed(error));
             }
-            let attempt = self
-                .attempt(&mut session, caller, key, plans, mutation_id, read, deferred, &mut failed_at)
-                .await;
+            let attempt = if let Some((plan, id, write)) = &combined {
+                failed_at = Some(0);
+                self.run_with_idempotency(&mut session, caller, key, plan, id, write, read).await.map(
+                    |outcome| {
+                        failed_at = None;
+                        vec![outcome]
+                    },
+                )
+            } else {
+                self.attempt(&mut session, caller, key, plans, mutation_id, read, deferred, &mut failed_at)
+                    .await
+            };
             match attempt {
                 Ok(outcomes) => match commit(&mut session, deadline).await {
                     Ok(()) => break Ok(outcomes),
@@ -903,6 +919,54 @@ impl WritePath {
                 })
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn run_with_idempotency(
+        &self,
+        session: &mut ClientSession,
+        caller: &Caller,
+        key: &RecordKey,
+        plan: &Plan,
+        id: &str,
+        (model, expected): &(WriteModel, Outcome),
+        read: bool,
+    ) -> Result<Outcome, Stop> {
+        let mutations = self.meta.collection::<bson::Document>("mutations");
+        let idempotency = InsertOneModel::builder()
+            .namespace(Namespace { db: self.meta.name().to_owned(), coll: mutations.name().to_owned() })
+            .document(record_of(id, caller, key, std::slice::from_ref(expected))?)
+            .build();
+        let written = self
+            .client
+            .bulk_write([model.clone(), idempotency.into()])
+            .ordered(true)
+            .verbose_results()
+            .session(&mut *session)
+            .await
+            .map_err(|error| match error.kind.as_ref() {
+                ErrorKind::BulkWrite(bulk)
+                    if bulk.write_errors.get(&1).is_some_and(|write| write.code == DUPLICATE_KEY) =>
+                {
+                    Stop::Replay
+                }
+                _ => Stop::Failed(error),
+            })?;
+        let outcome =
+            plan.finish_with_idempotency(&mut Session::transaction(session), &written, read).await?;
+        let actual = stored_outcome(&outcome);
+        let canonical = |value| canonical_string(value).map_err(custom);
+        if canonical(&actual)? != canonical(&stored_outcome(expected))? {
+            let mut fields = Document::new();
+            if key.op == "batch" {
+                fields.insert("results", Value::Array(vec![actual]));
+            } else {
+                fields.insert("result", actual);
+            }
+            let set = to_bson(&fields).map_err(custom)?;
+            mutations.update_one(doc! { "_id": id }, doc! { "$set": set }).session(session).await?;
+        }
+        Ok(outcome)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1304,6 +1368,16 @@ fn write_code(error: &DriverError) -> Option<i32> {
 fn write_error(error: &DriverError, service: bool) -> CanopyError {
     if let Some(carried) = carried(error) {
         return carried;
+    }
+    if let ErrorKind::BulkWrite(bulk) = error.kind.as_ref() {
+        if let Some((_, write)) = bulk.write_errors.iter().min_by_key(|(index, _)| *index) {
+            let command = doc! { "code": write.code, "errmsg": &write.message };
+            if let Ok(command) = bson::deserialize_from_document(command) {
+                return write_error(&ErrorKind::Command(command).into(), service);
+            }
+        } else if let Some(source) = std::error::Error::source(error).and_then(|e| e.downcast_ref()) {
+            return write_error(source, service);
+        }
     }
     match write_code(error) {
         Some(DUPLICATE_KEY) => {

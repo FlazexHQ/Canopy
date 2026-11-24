@@ -7,6 +7,7 @@ use canopy_mongo::mongodb::bson::{self, oid::ObjectId};
 use canopy_mongo::mongodb::options::{
     InsertOneModel, ReplaceOneModel, UpdateModifications, UpdateOneModel, WriteModel,
 };
+use canopy_mongo::mongodb::results::VerboseBulkWriteResult;
 use canopy_mongo::to_bson;
 use canopy_policy::{Compiled, FieldAccess, Operation, and, check_implied, project_readable, to_projection};
 use canopy_protocol::bson::encode_document;
@@ -90,6 +91,7 @@ impl Default for WriteLimits {
 /// How a planned write runs.
 pub(crate) enum Step {
     Insert {
+        single: bool,
         documents: Vec<bson::Document>,
         values: Vec<Document>,
         ids: Vec<Value>,
@@ -258,7 +260,7 @@ fn plan_insert(
     let precheck = single && size <= PRECHECK_MAX_BYTES;
     let ids = values.iter().map(|doc| doc.get("_id").cloned().unwrap_or(Value::Null)).collect();
     let fast = single && (check == Compiled::All || precheck);
-    Ok(Plan { scope, step: Step::Insert { documents, values, ids, check, precheck }, fast })
+    Ok(Plan { scope, step: Step::Insert { single, documents, values, ids, check, precheck }, fast })
 }
 
 fn plan_update(
@@ -430,6 +432,52 @@ pub(crate) struct Grouped {
 }
 
 impl Plan {
+    pub(crate) fn with_idempotency(&self) -> Option<(WriteModel, Outcome)> {
+        let scope = &self.scope;
+        let namespace = Namespace { db: scope.db.name().to_owned(), coll: scope.name.clone() };
+        match &self.step {
+            Step::Insert { single: true, documents, ids, .. } => Some((
+                InsertOneModel::builder()
+                    .namespace(namespace)
+                    .document(documents.first()?.clone())
+                    .build()
+                    .into(),
+                Outcome::inserted(ids.clone(), None),
+            )),
+            Step::UpdateById { id, filter, update, .. } => Some((
+                UpdateOneModel::builder()
+                    .namespace(namespace)
+                    .filter(filter.clone())
+                    .update(UpdateModifications::Document(update.clone()))
+                    .build()
+                    .into(),
+                Outcome { matched: 1, modified: 1, changed_ids: vec![id.clone()], ..Outcome::default() },
+            )),
+            _ => None,
+        }
+    }
+
+    pub(crate) async fn finish_with_idempotency(
+        &self,
+        session: &mut Session<'_>,
+        results: &VerboseBulkWriteResult,
+        read: bool,
+    ) -> Result<Outcome, DriverError> {
+        match &self.step {
+            Step::Insert { ids, check, .. } => {
+                let documents = self.scope.verify(session, ids, Some(check), Operation::Insert, read).await?;
+                Ok(Outcome::inserted(ids.clone(), documents))
+            }
+            Step::UpdateById { .. } => {
+                let written = results.update_results.get(&0).ok_or_else(|| {
+                    custom(CanopyError::new(ErrorCode::Internal, "The bulk write has no update result"))
+                })?;
+                self.finish_grouped(session, written.matched_count, written.modified_count, None, read).await
+            }
+            _ => Err(custom(internal())),
+        }
+    }
+
     /// The write as a member of a grouped `bulkWrite`, where it is exactly what [`Plan::run`] does on its own:
     /// a single insert checked before the write, an update by `_id` whose check cannot fail, or a replacement
     /// without upsert whose check cannot fail or is a filter of constants.
@@ -593,7 +641,7 @@ impl Plan {
         let coll = scope.coll();
         let raw = scope.db.collection::<bson::RawDocumentBuf>(&scope.name);
         match &self.step {
-            Step::Insert { documents, values, ids, check, precheck } => {
+            Step::Insert { documents, values, ids, check, precheck, .. } => {
                 let checked = if *precheck {
                     if *check == Compiled::Deny {
                         return Err(custom(scope.violation(Operation::Insert)));
@@ -629,7 +677,7 @@ impl Plan {
                 };
                 Ok(Outcome { ct, ..Outcome::inserted(ids.clone(), documents) })
             }
-            Step::UpdateById { id, filter, visible, conditional, update, check } => {
+            Step::UpdateById { filter, update, .. } => {
                 let action = coll
                     .update_one(filter.clone(), update.clone())
                     .optional(concern, |a, c| a.write_concern(c));
@@ -638,24 +686,10 @@ impl Plan {
                     None => action.await?,
                 };
                 let ct = fast_time(session)?;
-                if result.matched_count == 0 {
-                    if *conditional {
-                        scope.assert_no_conflict(session, visible).await?;
-                    }
-                    return Ok(Outcome { ct, ..Outcome::default() });
-                }
-                let modified = result.modified_count > 0;
-                let checked = if modified { check.as_ref() } else { None };
-                let documents =
-                    scope.verify(session, std::slice::from_ref(id), checked, Operation::Update, read).await?;
-                Ok(Outcome {
-                    matched: result.matched_count,
-                    modified: result.modified_count,
-                    changed_ids: if modified { vec![id.clone()] } else { Vec::new() },
-                    documents,
-                    ct,
-                    ..Outcome::default()
-                })
+                let outcome = self
+                    .finish_grouped(session, result.matched_count, result.modified_count, None, read)
+                    .await?;
+                Ok(Outcome { ct, ..outcome })
             }
             Step::UpdateMany { target, update, check } => {
                 let ids = scope
