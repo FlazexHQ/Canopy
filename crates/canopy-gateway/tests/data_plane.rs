@@ -61,15 +61,25 @@ fn wire_config(uri: &str, database: &str, wire: &str, auth: &str) -> String {
 
 #[tokio::test]
 async fn wire_driver_scram_reads_and_writes_through_the_gateway() {
-    wire_driver_reads(false).await;
+    wire_driver_reads(false, None).await;
+}
+
+#[tokio::test]
+async fn wire_driver_snappy_reads_and_writes_through_the_gateway() {
+    wire_driver_reads(false, Some("snappy")).await;
+}
+
+#[tokio::test]
+async fn wire_driver_zlib_reads_and_writes_through_the_gateway() {
+    wire_driver_reads(false, Some("zlib")).await;
 }
 
 #[tokio::test]
 async fn wire_driver_oidc_enforces_the_collection_policies() {
-    wire_driver_reads(true).await;
+    wire_driver_reads(true, None).await;
 }
 
-async fn wire_driver_reads(oidc: bool) {
+async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use canopy_mongo::mongodb::{
         bson::{DateTime, Document, doc},
@@ -81,7 +91,11 @@ async fn wire_driver_reads(oidc: bool) {
     use ring::signature::{Ed25519KeyPair, KeyPair as _};
 
     let Some(uri) = mongodb_uri() else { return };
-    let database = format!("gateway_wire_{}_{}", std::process::id(), u8::from(oidc));
+    let database = format!(
+        "gateway_wire_{}_{}",
+        std::process::id(),
+        compressor.unwrap_or(if oidc { "oidc" } else { "scram" })
+    );
     let backing = Client::with_uri_str(&uri).await.expect("the backing client");
     if oidc {
         backing
@@ -112,11 +126,15 @@ async fn wire_driver_reads(oidc: bool) {
     let gateway = Gateway::start(config, (!oidc).then_some("find,count")).await;
     let port = gateway.wire_port.expect("the wire port");
     let base = format!("127.0.0.1:{port}/{database}");
-    let target = if oidc {
+    let mut target = if oidc {
         format!("mongodb://{base}?authMechanism=MONGODB-OIDC&authSource=%24external")
     } else {
         format!("mongodb://service:{WIRE_SECRET}@{base}?authMechanism=SCRAM-SHA-256&authSource=admin")
     };
+    if let Some(compressor) = compressor {
+        target.push_str("&compressors=");
+        target.push_str(compressor);
+    }
     let mut options = ClientOptions::parse(target).await.expect("driver options");
     options.server_selection_timeout = Some(Duration::from_secs(5));
     options.max_pool_size = Some(1);
@@ -351,6 +369,38 @@ async fn wire_refuses_oversized_headers_without_waiting_for_the_body() {
 }
 
 #[tokio::test]
+async fn wire_echoes_the_request_compressor_and_closes_on_unnegotiated_frames() {
+    use canopy_mongo::mongodb::bson::doc;
+    use canopy_wire::frame::{Compressor, encode_compressed, encode_op_msg, parse_request};
+    use tokio::io::AsyncWriteExt as _;
+
+    let Some(uri) = mongodb_uri() else { return };
+    let database = "gateway_wire_compression";
+    let config = wire_config(&uri, database, r#"{"port":0}"#, "null");
+    let gateway = Gateway::start(config, None).await;
+    let mut socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.wire_port.expect("the wire port")))
+        .await
+        .expect("connect the wire socket");
+    let offered = [Compressor::Zlib, Compressor::Zstd];
+    let hello = encode_op_msg(1, 0, &doc! { "hello": 1, "compression": ["zlib", "zstd"] }).unwrap();
+    socket.write_all(&hello).await.unwrap();
+    let (hello, used) = parse_request(&wire_read_reply(&mut socket).await, 1024, &offered).unwrap();
+    assert_eq!(used, None);
+    assert_eq!(hello.body.get_array("compression").unwrap(), &vec!["zlib".into(), "zstd".into()]);
+
+    let ping = encode_op_msg(2, 0, &doc! { "ping": 1, "$db": database }).unwrap();
+    for compressor in offered {
+        socket.write_all(&encode_compressed(&ping, compressor).unwrap()).await.unwrap();
+        let (reply, used) = parse_request(&wire_read_reply(&mut socket).await, 48_000_000, &offered).unwrap();
+        assert_eq!(reply.header.response_to, 2);
+        assert_eq!(reply.body.get_f64("ok").unwrap(), 1.0);
+        assert_eq!(used, Some(compressor));
+    }
+    socket.write_all(&encode_compressed(&ping, Compressor::Snappy).unwrap()).await.unwrap();
+    wire_closed(&mut socket).await;
+}
+
+#[tokio::test]
 async fn wire_enforces_capacity_and_releases_idle_connections() {
     let Some(uri) = mongodb_uri() else { return };
     let config = wire_config(
@@ -381,8 +431,8 @@ async fn wire_closed(socket: &mut tokio::net::TcpStream) {
 
 async fn wire_ping(socket: &mut tokio::net::TcpStream) {
     use canopy_mongo::mongodb::bson::doc;
-    use canopy_wire::frame::{Header, encode_op_msg, parse_message};
-    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use canopy_wire::frame::{encode_op_msg, parse_message};
+    use tokio::io::AsyncWriteExt as _;
 
     let command = doc! { "ping":1, "$db":"gateway_wire_capacity" };
     let mut suppressed = encode_op_msg(28, 0, &command).expect("encode silent ping");
@@ -390,18 +440,25 @@ async fn wire_ping(socket: &mut tokio::net::TcpStream) {
     socket.write_all(&suppressed).await.expect("send silent ping");
     let message = encode_op_msg(29, 0, &command).expect("encode ping");
     socket.write_all(&message).await.expect("send ping");
-    let reply = tokio::time::timeout(Duration::from_secs(3), async {
+    let reply = parse_message(&wire_read_reply(socket).await, 1024).expect("parse ping reply");
+    assert_eq!(reply.header.response_to, 29);
+    assert_eq!(reply.body.get_f64("ok").expect("a ping status"), 1.0);
+}
+
+async fn wire_read_reply(socket: &mut tokio::net::TcpStream) -> Vec<u8> {
+    use canopy_wire::frame::Header;
+    use tokio::io::AsyncReadExt as _;
+
+    tokio::time::timeout(Duration::from_secs(3), async {
         let mut reply = vec![0; 16];
         socket.read_exact(&mut reply).await.expect("read reply header");
         let header = Header::parse(&reply, 1024).expect("parse reply header");
         reply.resize(header.length, 0);
         socket.read_exact(&mut reply[16..]).await.expect("read reply body");
-        parse_message(&reply, 1024).expect("parse ping reply")
+        reply
     })
     .await
-    .expect("the gateway replies");
-    assert_eq!(reply.header.response_to, 29);
-    assert_eq!(reply.body.get_f64("ok").expect("a ping status"), 1.0);
+    .expect("the gateway replies")
 }
 
 /// What the upstream saw: the method and the exact request target of each request, in arrival order.
@@ -1429,7 +1486,8 @@ async fn every_data_route_keeps_serving_while_the_control_plane_is_down() {
             r#"{"_id":"control-down","title":"still served","ownerId":"u1"}"#,
         ))
         .await;
-    let updated = gateway.send(&json("PATCH", "/rest/v1/notes/control-down", r#"{"$set":{"title":"updated"}}"#)).await;
+    let updated =
+        gateway.send(&json("PATCH", "/rest/v1/notes/control-down", r#"{"$set":{"title":"updated"}}"#)).await;
     let read = gateway.send(&common::get_as(&fixture, "service", "/rest/v1/notes/control-down")).await;
     let counted = gateway.send(&json("POST", "/rest/v1/notes/_count", "{}")).await;
     let graphql = gateway.send(&json("POST", "/graphql/v1", r#"{"query":"{ __typename }"}"#)).await;

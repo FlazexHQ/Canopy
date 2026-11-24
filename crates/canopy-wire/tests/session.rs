@@ -9,7 +9,7 @@ use std::sync::Arc;
 use canopy_auth::{Authenticator, BucketSpec, RateLimitOptions, RateLimits};
 use canopy_mongo::mongodb::bson::{Binary, DateTime, Document, doc, spec::BinarySubtype};
 use canopy_wire::Session;
-use canopy_wire::frame::{Message, encode_op_msg, parse_message};
+use canopy_wire::frame::{Compressor, Message, encode_op_msg, parse_message};
 
 const LIMIT: usize = 48_000_000;
 
@@ -48,7 +48,7 @@ async fn router_hello_matches_mongodb_8_limits() {
         let before = DateTime::now();
         let mut reply = command(
             &mut session,
-            doc! { (name): 1, "helloOk": true, "compression": ["zstd"], "saslSupportedMechs": "admin.service",
+            doc! { (name): 1, "helloOk": true, "saslSupportedMechs": "admin.service",
             "speculativeAuthenticate": { "saslStart": 1 } },
         )
         .await;
@@ -69,6 +69,32 @@ async fn router_hello_matches_mongodb_8_limits() {
     assert!(reply.get_array("saslSupportedMechs").unwrap().is_empty());
     assert!(!reply.contains_key("helloOk"));
     assert_eq!(command(&mut session, doc! { "buildInfo": 1 }).await.get_str("version").unwrap(), "8.0.34");
+}
+
+#[tokio::test]
+async fn hello_negotiates_supported_compressors_in_client_order() {
+    let mut session = session();
+    let reply = command(&mut session, doc! { "hello": 1 }).await;
+    assert!(!reply.contains_key("compression"));
+    assert!(session.compressors().is_empty());
+
+    let reply = command(
+        &mut session,
+        doc! {
+            "isMaster": 1, "compression": ["zlib", "noop", "zstd", "snappy", "zlib", "unknown"],
+        },
+    )
+    .await;
+    assert_eq!(reply.get_array("compression").unwrap(), &vec!["zlib".into(), "zstd".into(), "snappy".into()]);
+    assert_eq!(session.compressors(), &[Compressor::Zlib, Compressor::Zstd, Compressor::Snappy]);
+
+    let reply = command(&mut session, doc! { "hello": 1 }).await;
+    assert!(!reply.contains_key("compression"));
+    assert_eq!(session.compressors(), &[Compressor::Zlib, Compressor::Zstd, Compressor::Snappy]);
+
+    let reply = command(&mut session, doc! { "hello": 1, "compression": ["unknown"] }).await;
+    assert!(reply.get_array("compression").unwrap().is_empty());
+    assert!(session.compressors().is_empty());
 }
 
 #[tokio::test]

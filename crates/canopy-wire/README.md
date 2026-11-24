@@ -1,4 +1,21 @@
-# Canopy MongoDB wire writes
+# Canopy MongoDB wire endpoint
+
+## Wire compression
+
+The endpoint negotiates `snappy`, `zlib` and `zstd` on `hello` or `isMaster`. The response lists
+the supported compressors in the client's order. With no offer on the initial handshake, the connection
+uses uncompressed messages. A compressed request receives a reply using the same compressor. Handshake
+and authentication commands always use uncompressed frames.
+
+The endpoint closes the connection on a malformed compressed frame, an unnegotiated compressor, a
+compressed handshake or authentication command, or a decompressed size mismatch. The configured
+`maxMessageBytes` applies to both the compressed frame and the reconstructed message, including its
+header. The Zstandard decoding window is also bounded by that limit.
+
+The wire endpoint uses `snap` for raw Snappy, `flate2` with its Rust backend for zlib, and `ruzstd`
+for Zstandard. These codecs implement the MongoDB formats without native compression libraries.
+
+## Writes
 
 Configure both `Session::with_read_path` and `Session::with_write_path` for the same application database and policy source. The read path resolves the authenticated principal's policy context. The write path applies its grants, document policies, field rules and limits. Each write statement runs in a majority acknowledged transaction. For ordered batches the first write error stops execution. Unordered batches continue, and earlier successful statements in either batch stay committed.
 

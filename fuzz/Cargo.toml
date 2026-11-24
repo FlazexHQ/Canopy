@@ -20,6 +20,7 @@ members = ["."]
 canopy-engine = { path = "../crates/canopy-engine" }
 canopy-matcher = { path = "../crates/canopy-matcher" }
 canopy-protocol = { path = "../crates/canopy-protocol" }
+canopy-wire = { path = "../crates/canopy-wire" }
 libfuzzer-sys = "0.4.10"
 
 [[bin]]
@@ -60,6 +61,13 @@ bench = false
 [[bin]]
 name = "frame"
 path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wire_frame"
+path = "fuzz_targets/wire_frame.rs"
 test = false
 doc = false
 bench = false

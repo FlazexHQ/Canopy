@@ -6,10 +6,10 @@ use canopy_auth::{Authenticator, RateLimits};
 use canopy_config::{WireSettings, WireTls};
 use canopy_data::ReadPath;
 use canopy_data::writes::WritePath;
-use canopy_mongo::mongodb::bson::{Document, doc};
+use canopy_mongo::mongodb::bson::doc;
 use canopy_policy::Roles;
 use canopy_realtime::EngineSender;
-use canopy_wire::frame::{Header, WireError, encode_op_msg, encode_op_reply, parse_message};
+use canopy_wire::frame::{Header, WireError, encode_compressed, encode_reply, parse_request};
 use canopy_wire::session::Session;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWrite, AsyncWriteExt as _};
@@ -210,11 +210,11 @@ impl Handler {
                 frame = timeout(self.idle, read_frame(&mut stream, self.max_bytes)) => frame,
             };
             let Ok(Some(frame)) = frame else { break };
-            let reply = match parse_message(&frame, self.max_bytes) {
-                Ok(message) => {
+            let (reply, compressor) = match parse_request(&frame, self.max_bytes, session.compressors()) {
+                Ok((message, compressor)) => {
                     self.metrics.commands.fetch_add(1, Ordering::Relaxed);
                     let command = message.body.keys().next().map_or("", String::as_str);
-                    if self.limited(command, address) {
+                    let reply = if self.limited(command, address) {
                         if message.more_to_come {
                             continue;
                         }
@@ -225,16 +225,27 @@ impl Handler {
                         .map(Some)
                     } else {
                         session.handle(message).await
-                    }
+                    };
+                    (reply, compressor)
                 }
-                Err(WireError::Reply { header, document }) => encode_reply(header, &document).map(Some),
+                Err(WireError::Reply { header, document }) => {
+                    (encode_reply(header, &document).map(Some), None)
+                }
                 Err(_) => break,
             };
-            match reply {
-                Ok(None) => {}
-                Ok(Some(reply))
-                    if matches!(timeout(self.idle, stream.write_all(&reply)).await, Ok(Ok(()))) => {}
-                _ => break,
+            let reply = match reply {
+                Ok(Some(reply)) => reply,
+                Ok(None) => continue,
+                Err(_) => break,
+            };
+            let reply = if let Some(compressor) = compressor {
+                let Ok(compressed) = encode_compressed(&reply, compressor) else { break };
+                compressed
+            } else {
+                reply
+            };
+            if !matches!(timeout(self.idle, stream.write_all(&reply)).await, Ok(Ok(()))) {
+                break;
             }
         }
         let _ = timeout(self.idle, stream.shutdown()).await;
@@ -257,9 +268,4 @@ async fn read_frame(stream: &mut (impl AsyncRead + Unpin), max_bytes: usize) -> 
     let remaining = header.length - HEADER_BYTES;
     let count = stream.take(remaining as u64).read_to_end(&mut frame).await.ok()?;
     (count == remaining).then_some(frame)
-}
-
-fn encode_reply(header: Header, document: &Document) -> Result<Vec<u8>, WireError> {
-    let encode = if header.opcode == 2004 { encode_op_reply } else { encode_op_msg };
-    encode(header.request_id, header.request_id, document)
 }

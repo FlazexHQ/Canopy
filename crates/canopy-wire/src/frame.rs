@@ -7,6 +7,8 @@ use canopy_mongo::mongodb::bson::{
     raw::{RawBsonRef, RawDocument},
 };
 
+pub use crate::compression::Compressor;
+
 const HEADER_SIZE: usize = 16;
 const OP_REPLY: i32 = 1;
 const OP_QUERY: i32 = 2004;
@@ -118,7 +120,6 @@ pub fn parse_message(bytes: &[u8], max_message_size: usize) -> Result<Message, W
             (flags, parse_sections(payload))
         }
         OP_QUERY => (0, parse_query(payload)),
-        OP_COMPRESSED => return Err(WireError::CloseConnection("Wire compression is disabled")),
         _ => return Err(WireError::CloseConnection("Unsupported MongoDB wire opcode")),
     };
 
@@ -144,6 +145,92 @@ pub fn parse_message(bytes: &[u8], max_message_size: usize) -> Result<Message, W
         more_to_come,
         exhaust_allowed: flags & EXHAUST_ALLOWED != 0,
     })
+}
+
+/// Parses a frame using the compressors negotiated on this connection.
+pub fn parse_request(
+    bytes: &[u8],
+    max_message_size: usize,
+    negotiated: &[Compressor],
+) -> Result<(Message, Option<Compressor>), WireError> {
+    let header = Header::parse(bytes, max_message_size)?;
+    if header.opcode != OP_COMPRESSED {
+        return parse_message(bytes, max_message_size).map(|message| (message, None));
+    }
+    let invalid = WireError::CloseConnection("Invalid OP_COMPRESSED framing");
+    if bytes.len() != header.length {
+        return Err(invalid);
+    }
+    let mut payload = Bytes(&bytes[HEADER_SIZE..]);
+    let opcode = payload
+        .word()
+        .filter(|opcode| matches!(*opcode, OP_MSG | OP_QUERY))
+        .ok_or(WireError::CloseConnection("Unsupported OP_COMPRESSED original opcode"))?;
+    let size = payload.word().ok_or(WireError::CloseConnection("Missing OP_COMPRESSED uncompressed size"))?;
+    let length = usize::try_from(size)
+        .ok()
+        .and_then(|size| size.checked_add(HEADER_SIZE))
+        .filter(|length| *length <= max_message_size && i32::try_from(*length).is_ok())
+        .ok_or(WireError::CloseConnection("Invalid OP_COMPRESSED uncompressed size"))?;
+    let (&id, compressed) =
+        payload.0.split_first().ok_or(WireError::CloseConnection("Missing OP_COMPRESSED compressor ID"))?;
+    let compressor = negotiated
+        .iter()
+        .copied()
+        .find(|compressor| *compressor as u8 == id)
+        .ok_or(WireError::CloseConnection("OP_COMPRESSED compressor was not negotiated"))?;
+    let mut original = Vec::from((length as i32).to_le_bytes());
+    original.extend_from_slice(&bytes[4..12]);
+    original.extend_from_slice(&opcode.to_le_bytes());
+    compressor.decompress(compressed, &mut original, size as usize, max_message_size)?;
+    let message = parse_message(&original, max_message_size)
+        .map_err(|_| WireError::CloseConnection("Invalid original message in OP_COMPRESSED"))?;
+    let command = message.body.keys().next().map_or("", String::as_str);
+    if matches!(
+        command,
+        "hello"
+            | "isMaster"
+            | "ismaster"
+            | "saslStart"
+            | "saslContinue"
+            | "getnonce"
+            | "authenticate"
+            | "createUser"
+            | "updateUser"
+            | "copydbSaslStart"
+            | "copydbgetnonce"
+            | "copydb"
+    ) {
+        return Err(WireError::CloseConnection("Command must not be compressed"));
+    }
+    Ok((message, Some(compressor)))
+}
+
+/// Wraps a complete OP_MSG, OP_QUERY or OP_REPLY frame in OP_COMPRESSED.
+pub fn encode_compressed(bytes: &[u8], compressor: Compressor) -> Result<Vec<u8>, WireError> {
+    let header =
+        Header::parse(bytes, bytes.len()).map_err(|_| WireError::Encode("Invalid frame for compression"))?;
+    if header.length != bytes.len() || !matches!(header.opcode, OP_MSG | OP_QUERY | OP_REPLY) {
+        return Err(WireError::Encode("Invalid frame for compression"));
+    }
+    let compressed = compressor.compress(&bytes[HEADER_SIZE..])?;
+    let length = i32::try_from(compressed.len() + HEADER_SIZE + 9)
+        .map_err(|_| WireError::Encode("Compressed reply exceeds the wire length limit"))?;
+    let mut frame = Vec::with_capacity(length as usize);
+    frame.extend_from_slice(&length.to_le_bytes());
+    frame.extend_from_slice(&bytes[4..12]);
+    frame.extend_from_slice(&OP_COMPRESSED.to_le_bytes());
+    frame.extend_from_slice(&header.opcode.to_le_bytes());
+    frame.extend_from_slice(&((header.length - HEADER_SIZE) as i32).to_le_bytes());
+    frame.push(compressor as u8);
+    frame.extend_from_slice(&compressed);
+    Ok(frame)
+}
+
+/// Encodes a reply in the wire format corresponding to a request header.
+pub fn encode_reply(header: Header, document: &Document) -> Result<Vec<u8>, WireError> {
+    let encode = if header.opcode == OP_QUERY { encode_op_reply } else { encode_op_msg };
+    encode(header.request_id, header.request_id, document)
 }
 
 /// Encodes a single body OP_MSG reply with no flags or checksum.

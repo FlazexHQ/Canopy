@@ -9,7 +9,7 @@ use canopy_engine::Principal;
 use canopy_mongo::mongodb::bson::{DateTime, Document, doc};
 
 use crate::auth::{self, Conversation, Failure};
-use crate::frame::{Message, WireError, encode_op_msg, encode_op_reply};
+use crate::frame::{Compressor, Message, WireError, encode_reply};
 use crate::handshake;
 use crate::reads::Reads;
 use crate::writes;
@@ -24,6 +24,7 @@ pub struct Session {
     limits: Option<Arc<RateLimits>>,
     address: String,
     connection_id: i64,
+    compressors: Vec<Compressor>,
     conversation_id: i32,
     conversation: Option<Conversation>,
     principal: Option<Principal>,
@@ -44,6 +45,7 @@ impl Session {
             limits,
             address: address.to_string(),
             connection_id,
+            compressors: Vec::new(),
             conversation_id: 0,
             conversation: None,
             principal: None,
@@ -91,6 +93,11 @@ impl Session {
         self.principal.as_ref().filter(|principal| !self.expired(principal) && !self.revoked(principal))
     }
 
+    /// Returns the compressors accepted on this connection.
+    pub fn compressors(&self) -> &[Compressor] {
+        &self.compressors
+    }
+
     /// Dispatches a parsed request and encodes a reply in the request's wire format.
     /// Requests with moreToCome receive no reply.
     pub async fn handle(&mut self, message: Message) -> Result<Option<Vec<u8>>, WireError> {
@@ -102,12 +109,20 @@ impl Session {
         }
         let command = message.body.keys().next().map_or("", String::as_str);
         let response = match command {
-            "hello" | "isMaster" | "ismaster" => handshake::hello(
-                command,
-                &message.body,
-                self.connection_id,
-                !self.authenticator.configured_service_keys().is_empty(),
-            ),
+            "hello" | "isMaster" | "ismaster" => {
+                let negotiated = handshake::negotiate(&message.body);
+                let response = handshake::hello(
+                    command,
+                    &message.body,
+                    self.connection_id,
+                    !self.authenticator.configured_service_keys().is_empty(),
+                    negotiated.as_deref(),
+                );
+                if let Some(negotiated) = negotiated {
+                    self.compressors = negotiated;
+                }
+                response
+            }
             "ping" | "endSessions" => {
                 if self.reads.as_ref().is_none_or(|reads| reads.accepts_database(&message.body)) {
                     doc! { "ok": 1.0 }
@@ -146,8 +161,7 @@ impl Session {
         } else {
             response
         };
-        let encode = if message.header.opcode == 2004 { encode_op_reply } else { encode_op_msg };
-        encode(message.header.request_id, message.header.request_id, &response).map(Some)
+        encode_reply(message.header, &response).map(Some)
     }
 
     fn expired(&self, principal: &Principal) -> bool {

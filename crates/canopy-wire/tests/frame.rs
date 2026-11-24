@@ -1,7 +1,10 @@
 #![allow(missing_docs)]
 
 use canopy_mongo::mongodb::bson::{Document, doc};
-use canopy_wire::frame::{Header, WireError, encode_op_msg, encode_op_reply, parse_message};
+use canopy_wire::frame::{
+    Compressor, Header, WireError, encode_compressed, encode_op_msg, encode_op_reply, parse_message,
+    parse_request,
+};
 
 const MAX: usize = 48_000_000;
 const BODY: &str = "000c0000001078000700000000";
@@ -29,6 +32,111 @@ fn wire(opcode: i32, payload: &[u8]) -> Vec<u8> {
     let mut frame: Vec<_> = [length, 42, 0, opcode].into_iter().flat_map(i32::to_le_bytes).collect();
     frame.extend_from_slice(payload);
     frame
+}
+
+#[test]
+fn compressed_header_and_checksummed_body_round_trip() -> Result<(), WireError> {
+    let original = hex(CHECKSUM);
+    for (compressor, id) in [(Compressor::Snappy, 1), (Compressor::Zlib, 2), (Compressor::Zstd, 3)] {
+        let compressed = encode_compressed(&original, compressor)?;
+        assert_eq!(Header::parse(&compressed, MAX)?.opcode, 2012);
+        assert_eq!(&compressed[4..12], &original[4..12]);
+        assert_eq!(&compressed[16..25], &[221, 7, 0, 0, 21, 0, 0, 0, id]);
+        let (message, used) = parse_request(&compressed, MAX, &[compressor])?;
+        assert_eq!(used, Some(compressor));
+        assert_eq!(message.header, Header { length: 37, request_id: 42, response_to: 0, opcode: 2013 });
+        assert!(message.checksum_present);
+        assert_eq!(message.body, doc! { "x": 7 });
+        assert_eq!(
+            parse_request(&compressed, MAX, &[]),
+            Err(WireError::CloseConnection("OP_COMPRESSED compressor was not negotiated"))
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn compressed_requests_reject_oversized_declarations_and_mismatches() -> Result<(), WireError> {
+    let original = encode_op_msg(42, 0, &doc! { "ping": 1, "comment": "x".repeat(262_144) })?;
+    let original_size = (original.len() - 16) as i32;
+    for compressor in [Compressor::Snappy, Compressor::Zlib, Compressor::Zstd] {
+        let frame = encode_compressed(&original, compressor)?;
+        assert!(frame.len() < 32_768);
+        assert!(parse_request(&frame, original.len(), &[compressor]).is_ok());
+        assert_eq!(
+            parse_request(&frame, 32_768, &[compressor]),
+            Err(WireError::CloseConnection("Invalid OP_COMPRESSED uncompressed size"))
+        );
+        for size in [-1, 1, original_size - 1, original_size + 1, i32::MAX] {
+            let mut mismatch = frame.clone();
+            mismatch[20..24].copy_from_slice(&size.to_le_bytes());
+            assert!(matches!(
+                parse_request(&mismatch, MAX, &[compressor]),
+                Err(WireError::CloseConnection(_))
+            ));
+        }
+        let mut truncated = frame;
+        truncated.pop();
+        let length = truncated.len() as i32;
+        truncated[..4].copy_from_slice(&length.to_le_bytes());
+        assert!(matches!(parse_request(&truncated, MAX, &[compressor]), Err(WireError::CloseConnection(_))));
+    }
+    let window_bomb = wire(2012, &hex("dd070000 20000000 03 28b52ffd 00 ff"));
+    assert_eq!(
+        parse_request(&window_bomb, 1024, &[Compressor::Zstd]),
+        Err(WireError::CloseConnection("Invalid Zstandard frame header"))
+    );
+    Ok(())
+}
+
+#[test]
+fn compressed_frames_refuse_nested_opcodes_and_protected_commands() -> Result<(), WireError> {
+    let compressor = Compressor::Snappy;
+    for command in [
+        "hello",
+        "isMaster",
+        "ismaster",
+        "saslStart",
+        "saslContinue",
+        "getnonce",
+        "authenticate",
+        "createUser",
+        "updateUser",
+        "copydbSaslStart",
+        "copydbgetnonce",
+        "copydb",
+    ] {
+        let original = encode_op_msg(42, 0, &doc! { (command): 1 })?;
+        let mut compressed = encode_compressed(&original, compressor)?;
+        assert_eq!(
+            parse_request(&compressed, MAX, &[compressor]),
+            Err(WireError::CloseConnection("Command must not be compressed"))
+        );
+        compressed[16..20].copy_from_slice(&2012_i32.to_le_bytes());
+        assert_eq!(
+            parse_request(&compressed, MAX, &[compressor]),
+            Err(WireError::CloseConnection("Unsupported OP_COMPRESSED original opcode"))
+        );
+    }
+    let hello = legacy(b"admin.$cmd", "100000001068656c6c6f000100000000");
+    assert_eq!(
+        parse_request(&encode_compressed(&hello, compressor)?, MAX, &[compressor]),
+        Err(WireError::CloseConnection("Command must not be compressed"))
+    );
+    Ok(())
+}
+
+#[test]
+fn decodes_standard_zlib_and_zstd_frames() -> Result<(), WireError> {
+    for (compressor, payload) in [
+        (Compressor::Zlib, "dd070000 11000000 02 789c6360606060e061606010a8606007b101048c009c"),
+        (Compressor::Zstd, "dd070000 11000000 03 28b52ffd201189000000000000000c0000001078000700000000"),
+    ] {
+        let (message, used) = parse_request(&wire(2012, &hex(payload)), 1024, &[compressor])?;
+        assert_eq!(used, Some(compressor));
+        assert_eq!(message.body, doc! { "x": 7 });
+    }
+    Ok(())
 }
 
 fn op_msg(flags: u32, sections: &str) -> Vec<u8> {

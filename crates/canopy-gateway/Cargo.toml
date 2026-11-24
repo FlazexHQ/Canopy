@@ -41,6 +41,7 @@ tokio-tungstenite = { version = "0.30", default-features = false, features = ["h
 
 [dev-dependencies]
 base64 = "0.22"
+mongodb = { version = "=3.10.1", default-features = false, features = ["snappy-compression", "zlib-compression"] }
 opentelemetry-proto = { version = "0.33", default-features = false, features = ["gen-tonic-messages", "trace"] }
 prost = "0.14"
 
