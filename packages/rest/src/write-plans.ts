@@ -227,6 +227,8 @@ function planUpdate(
   })
   if (parsed.kind === "replacement")
     throw new InvalidQueryError("An update needs update operators; use replace for whole documents")
+  if (parsed.writtenPaths.some((path) => path === "_id" || path.startsWith("_id.")))
+    throw new InvalidQueryError("An update may not change _id")
   if (!scope.service) {
     assertWritable(scope, scope.writable("update"), parsed.writtenPaths)
     assertMutable(scope, parsed.writtenPaths)
