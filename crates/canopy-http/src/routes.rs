@@ -30,7 +30,7 @@ pub enum Cors {
 
 impl Cors {
     /// The value of `Access-Control-Allow-Origin` for a request from `origin`, or `None` when it is not allowed.
-    fn allowed(&self, origin: Option<&str>) -> Option<String> {
+    pub fn allowed(&self, origin: Option<&str>) -> Option<String> {
         let origin = origin?;
         match self {
             Cors::Any => Some("*".to_owned()),
@@ -342,6 +342,12 @@ impl Rest {
         self.caller(request, None).await
     }
 
+    /// The caller of a request, with the contexts the policies of `collections` need resolved, under the same
+    /// credentials checks and rate limits as the Data API routes.
+    pub async fn caller_for(&self, request: &Request, collections: &[&str]) -> Result<Caller, CanopyError> {
+        self.caller(request, Some(collections)).await
+    }
+
     /// The write path, when writes are served.
     pub fn write_path(&self) -> Option<&Arc<WritePath>> {
         self.writes.as_ref()
@@ -399,38 +405,21 @@ impl Rest {
         request: &Request,
         accepted: &[&str],
     ) -> Result<Option<(Value, String)>, CanopyError> {
-        let too_large = || {
-            CanopyError::new(
-                ErrorCode::PayloadTooLarge,
-                format!("The request body may not exceed {} bytes", self.max_body_bytes),
-            )
+        read_body(request, self.max_body_bytes, accepted)
+    }
+
+    /// Counts a request that carries no credentials, such as a read of a public file, against its client
+    /// address under `key`, as an anonymous caller. Fails with `CANOPY_RATE_LIMITED` once the budget is spent.
+    pub fn limit_anonymous(&self, request: &Request, key: &str) -> Result<(), CanopyError> {
+        let (Some(limits), Some(address)) = (&self.rate_limits, request.client_address.as_deref()) else {
+            return Ok(());
         };
-        #[allow(clippy::cast_precision_loss)]
-        let max = self.max_body_bytes as f64;
-        if request
-            .header("content-length")
-            .is_some_and(|declared| declared.trim().parse::<f64>().is_ok_and(|length| length > max))
-        {
-            return Err(too_large());
+        let roles: canopy_policy::Roles = [canopy_policy::Role::ANON].into_iter().collect();
+        let wait = limits.request(Some(key), "anon", &roles, address);
+        if wait > 0 {
+            return Err(self.limited(wait));
         }
-        let bytes = match &request.body {
-            Body::TooLarge => return Err(too_large()),
-            Body::Unreadable => return Err(CanopyError::invalid_query("The request body could not be read")),
-            Body::Bytes(bytes) if bytes.is_empty() => return Ok(None),
-            Body::Bytes(bytes) => bytes,
-        };
-        let media_type = request.header("content-type").unwrap_or_default();
-        let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
-        if !accepted.contains(&media_type.as_str()) {
-            return Err(CanopyError::invalid_query(format!(
-                "The request body must be one of: {}",
-                accepted.join(", ")
-            )));
-        }
-        let text = std::str::from_utf8(bytes)
-            .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        Ok(Some((js_property_order(&parse(text, DecodeOptions::default())?), media_type)))
+        Ok(())
     }
 
     /// Checks a body document against the fields a route takes.
@@ -664,6 +653,48 @@ pub fn request_path(target: &str) -> Option<String> {
 
 fn parse_target(target: &str) -> Option<url::Url> {
     if target.starts_with('/') { url::Url::parse(&format!("http://canopy.test{target}")).ok() } else { None }
+}
+
+/// Reads and decodes an EJSON request body of one of the `accepted` media types, with its media type, as the
+/// TypeScript `readBody` does. An empty body reads as `None`. Fails with `CANOPY_PAYLOAD_TOO_LARGE` beyond
+/// `max_bytes`, and with an invalid query error for other media types, text that is not UTF-8 and malformed JSON.
+pub fn read_body(
+    request: &Request,
+    max_bytes: u64,
+    accepted: &[&str],
+) -> Result<Option<(Value, String)>, CanopyError> {
+    let too_large = || {
+        CanopyError::new(
+            ErrorCode::PayloadTooLarge,
+            format!("The request body may not exceed {max_bytes} bytes"),
+        )
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let max = max_bytes as f64;
+    if request
+        .header("content-length")
+        .is_some_and(|declared| declared.trim().parse::<f64>().is_ok_and(|length| length > max))
+    {
+        return Err(too_large());
+    }
+    let bytes = match &request.body {
+        Body::TooLarge => return Err(too_large()),
+        Body::Unreadable => return Err(CanopyError::invalid_query("The request body could not be read")),
+        Body::Bytes(bytes) if bytes.is_empty() => return Ok(None),
+        Body::Bytes(bytes) => bytes,
+    };
+    let media_type = request.header("content-type").unwrap_or_default();
+    let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
+    if !accepted.contains(&media_type.as_str()) {
+        return Err(CanopyError::invalid_query(format!(
+            "The request body must be one of: {}",
+            accepted.join(", ")
+        )));
+    }
+    let text = std::str::from_utf8(bytes)
+        .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    Ok(Some((js_property_order(&parse(text, DecodeOptions::default())?), media_type)))
 }
 
 /// Answers a CORS preflight: no body, and the allowed origin only when the origin may call.

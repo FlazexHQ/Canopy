@@ -1,0 +1,405 @@
+{
+  "group": "policies",
+  "cases": [
+    {
+      "id": "insert-check",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{\"blocked\":true}",
+              "x-request-id": "policies.insert-check.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.insert-check.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The file does not satisfy the insert check of storage.objects\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.insert-check.0\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    },
+    {
+      "id": "update-target",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.update-target.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.update-target.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "bob",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.update-target.1"
+            },
+            "body": "denied"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.update-target.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.update-target.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "update-check",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.update-check.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.update-check.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{\"blocked\":true}",
+              "x-request-id": "policies.update-check.1"
+            },
+            "body": "denied"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.update-check.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:policy-violation\",\"title\":\"Policy violation\",\"status\":403,\"code\":\"CANOPY_POLICY_VIOLATION\",\"detail\":\"The file does not satisfy the update check of storage.objects\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.update-check.1\",\"hint\":\"The write failed a policy's where or check clause, or touched a field the caller may not write.\",\"docs\":\"errors/policy-violation\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "using-hides",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.using-hides.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.using-hides.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "bob",
+            "headers": {
+              "x-request-id": "policies.using-hides.1"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.using-hides.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.using-hides.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "HEAD",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "bob",
+            "headers": {
+              "x-request-id": "policies.using-hides.2"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.using-hides.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.using-hides.2\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "restrictive-policy",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{\"archived\":true}",
+              "x-request-id": "policies.restrictive-policy.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.restrictive-policy.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"archived\":true},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "policies.restrictive-policy.1"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.restrictive-policy.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.restrictive-policy.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "policies.restrictive-policy.2"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.restrictive-policy.2"
+            },
+            "body": "{\"data\":[]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "field-projection",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-metadata": "{\"title\":\"notes\",\"secret\":\"internal\"}",
+              "x-request-id": "policies.field-projection.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.field-projection.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"title\":\"notes\",\"secret\":\"internal\"},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "policies.field-projection.1"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.field-projection.1"
+            },
+            "body": "{\"data\":[{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"title\":\"notes\"},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}]}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs",
+            "caller": "service",
+            "headers": {
+              "x-request-id": "policies.field-projection.2"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.field-projection.2"
+            },
+            "body": "{\"data\":[{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{\"title\":\"notes\",\"secret\":\"internal\"},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "anonymous-caller",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.anonymous-caller.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "policies.anonymous-caller.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "anon",
+            "headers": {
+              "x-request-id": "policies.anonymous-caller.1"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.anonymous-caller.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such file\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"policies.anonymous-caller.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/anon.txt",
+            "caller": "anon",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "policies.anonymous-caller.2"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 403,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "policies.anonymous-caller.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:forbidden\",\"title\":\"Forbidden\",\"status\":403,\"code\":\"CANOPY_FORBIDDEN\",\"detail\":\"No storage policy grants insert to these roles\",\"instance\":\"/storage/v1/object/docs/anon.txt\",\"requestId\":\"policies.anonymous-caller.2\",\"hint\":\"No policy grants this operation to the caller's roles: add an allow rule, or check the roles in the token.\",\"docs\":\"errors/forbidden\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"10\"},\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,361 @@
+{
+  "group": "resumable",
+  "cases": [
+    {
+      "id": "complete",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/upload/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "resumable.complete.0"
+            },
+            "body": "{\"size\":3,\"contentType\":\"text/plain\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.0"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"partSize\":5242880,\"partCount\":1,\"parts\":[],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.1"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.1"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"partSize\":5242880,\"partCount\":1,\"parts\":[],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/uploads/<upload-id>/complete",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.2"
+            }
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:conflict\",\"title\":\"Conflict\",\"status\":409,\"code\":\"CANOPY_CONFLICT\",\"detail\":\"Part 1 has not been uploaded\",\"instance\":\"/storage/v1/uploads/<upload-id>/complete\",\"requestId\":\"resumable.complete.2\",\"hint\":\"The document changed since it was read: read it again and retry the write.\",\"docs\":\"errors/conflict\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/1",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.3"
+            },
+            "body": "ab"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.3"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"Part 1 must have 3 bytes, not 2\",\"instance\":\"/storage/v1/uploads/<upload-id>/1\",\"requestId\":\"resumable.complete.3\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/nope",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.4"
+            },
+            "body": "abc"
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.4"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/uploads/<upload-id>/nope\",\"requestId\":\"resumable.complete.4\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/0",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.5"
+            },
+            "body": "abc"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.5"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The part number must be from 1 to 1\",\"instance\":\"/storage/v1/uploads/<upload-id>/0\",\"requestId\":\"resumable.complete.5\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/2",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.6"
+            },
+            "body": "abc"
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.6"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"The part number must be from 1 to 1\",\"instance\":\"/storage/v1/uploads/<upload-id>/2\",\"requestId\":\"resumable.complete.6\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/1",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.7"
+            },
+            "body": "abc"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.7"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"partSize\":5242880,\"partCount\":1,\"parts\":[1],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.8"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.8"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"partSize\":5242880,\"partCount\":1,\"parts\":[1],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/uploads/<upload-id>/complete",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.9"
+            }
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.9"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":3,\"contentType\":\"text/plain\",\"etag\":\"dfe7a23fefeea519e9bbfdd1a6be94c4b2e4529dd6b7cbea83f9959c2621b13c-1\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.10"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "3",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"dfe7a23fefeea519e9bbfdd1a6be94c4b2e4529dd6b7cbea83f9959c2621b13c-1\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "resumable.complete.10"
+            },
+            "body": "abc"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.complete.11"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.complete.11"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such upload\",\"instance\":\"/storage/v1/uploads/<upload-id>\",\"requestId\":\"resumable.complete.11\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": [
+          "{\"_id\":{\"$oid\":\"<object-id-1>\"},\"bucket\":\"docs\",\"path\":\"file.txt\",\"key\":\"docs/<backend-id-1>\",\"size\":{\"$numberInt\":\"3\"},\"contentType\":\"text/plain\",\"etag\":\"dfe7a23fefeea519e9bbfdd1a6be94c4b2e4529dd6b7cbea83f9959c2621b13c-1\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":{\"$date\":{\"$numberLong\":\"<createdAt>\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"<updatedAt>\"}}}"
+        ]
+      }
+    },
+    {
+      "id": "multipart-abort",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/upload/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "application/json",
+              "x-request-id": "resumable.multipart-abort.0"
+            },
+            "body": "{\"size\":5242881,\"contentType\":\"text/plain\"}"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.multipart-abort.0"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":5242881,\"partSize\":5242880,\"partCount\":2,\"parts\":[],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "bob",
+            "headers": {
+              "x-request-id": "resumable.multipart-abort.1"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.multipart-abort.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such upload\",\"instance\":\"/storage/v1/uploads/<upload-id>\",\"requestId\":\"resumable.multipart-abort.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "PUT",
+            "target": "/storage/v1/uploads/<upload-id>/2",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.multipart-abort.2"
+            },
+            "body": "z"
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "resumable.multipart-abort.2"
+            },
+            "body": "{\"id\":\"<upload-id>\",\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":5242881,\"partSize\":5242880,\"partCount\":2,\"parts\":[2],\"expiresAt\":\"<expiresAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "DELETE",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.multipart-abort.3"
+            }
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "vary": "Origin",
+              "x-request-id": "resumable.multipart-abort.3"
+            },
+            "body": ""
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/uploads/<upload-id>",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "resumable.multipart-abort.4"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "resumable.multipart-abort.4"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"No such upload\",\"instance\":\"/storage/v1/uploads/<upload-id>\",\"requestId\":\"resumable.multipart-abort.4\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ],
+      "state": {
+        "storage_objects": []
+      }
+    }
+  ]
+}

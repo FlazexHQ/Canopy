@@ -1,0 +1,162 @@
+{
+  "name": "storage",
+  "basePath": "/storage/v1",
+  "auth": {
+    "issuer": "https://storage.conformance.test/",
+    "rolesClaim": "roles",
+    "jwks": {
+      "keys": [
+        {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "ZvmuwUbk95hqt3lJnKe0lGRAbeDGTBskmAGHhyXLSBo",
+          "kid": "canopy-storage-fixture",
+          "alg": "EdDSA",
+          "use": "sig"
+        }
+      ]
+    },
+    "publishableKeys": [
+      "canopy_pk_storage_fixture"
+    ],
+    "secretKeys": [
+      "canopy_sk_storage_fixture"
+    ]
+  },
+  "callers": {
+    "none": {},
+    "anon": {
+      "apikey": "canopy_pk_storage_fixture"
+    },
+    "alice": {
+      "apikey": "canopy_pk_storage_fixture",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNhbm9weS1zdG9yYWdlLWZpeHR1cmUifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vc3RvcmFnZS5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.2lJBvp03kr7o3qz-t5dk58Z2A3DkpavVGDWHhlxCnX6_6KjJso3VFS0CXgn9_hs6d2bGRCFk8xWZWf-P9Ey6DQ"
+    },
+    "bob": {
+      "apikey": "canopy_pk_storage_fixture",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNhbm9weS1zdG9yYWdlLWZpeHR1cmUifQ.eyJzdWIiOiJib2IiLCJpc3MiOiJodHRwczovL3N0b3JhZ2UuY29uZm9ybWFuY2UudGVzdC8iLCJpYXQiOjE3NjcyMjU2MDAsImV4cCI6NDEwMjQ0NDgwMH0.uz3RnKYa9ObsANvZCMqEV1yp6OI5m-JrhC4tAXSO3Uf_ee6ZEg4WUBNq8KdNAP8_hSWuu0yLpSfKFdgpfH2bDQ"
+    },
+    "service": {
+      "apikey": "canopy_sk_storage_fixture"
+    },
+    "unknown-key": {
+      "apikey": "canopy_pk_unknown"
+    },
+    "tampered": {
+      "apikey": "canopy_pk_storage_fixture",
+      "authorization": "Bearer eyJhbGciOiJFZERTQSIsImtpZCI6ImNhbm9weS1zdG9yYWdlLWZpeHR1cmUifQ.eyJzdWIiOiJhbGljZSIsImlzcyI6Imh0dHBzOi8vc3RvcmFnZS5jb25mb3JtYW5jZS50ZXN0LyIsImlhdCI6MTc2NzIyNTYwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.2lJBvp03kr7o3qz-t5dk58Z2A3DkpavVGDWHhlxCnX6_6KjJso3VFS0CXgn9_hs6d2bGRCFk8xWZWf-P9EAAAA"
+    }
+  },
+  "policies": {
+    "collections": [
+      {
+        "_id": "storage.objects",
+        "version": 1,
+        "exposed": true,
+        "realtime": false,
+        "policies": [
+          {
+            "name": "permissive read #1",
+            "kind": "permissive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"owner\":{\"$auth\":\"sub\"}}"
+          },
+          {
+            "name": "restrictive read #2",
+            "kind": "restrictive",
+            "ops": [
+              "read"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"metadata.archived\":{\"$ne\":true}}"
+          },
+          {
+            "name": "permissive insert #3",
+            "kind": "permissive",
+            "ops": [
+              "insert"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "check": "{\"bucket\":\"docs\",\"owner\":{\"$auth\":\"sub\"},\"metadata.blocked\":{\"$ne\":true}}"
+          },
+          {
+            "name": "permissive update #4",
+            "kind": "permissive",
+            "ops": [
+              "update"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"owner\":{\"$auth\":\"sub\"}}",
+            "check": "{\"owner\":{\"$auth\":\"sub\"},\"metadata.blocked\":{\"$ne\":true}}"
+          },
+          {
+            "name": "permissive delete #5",
+            "kind": "permissive",
+            "ops": [
+              "delete"
+            ],
+            "roles": [
+              "authenticated"
+            ],
+            "using": "{\"owner\":{\"$auth\":\"sub\"}}"
+          }
+        ],
+        "fields": {
+          "read": {
+            "default": {
+              "omit": [
+                "metadata.secret"
+              ]
+            }
+          }
+        },
+        "hash": "sha256:ef096619fd30ff44e16fddf8c256fc6d717bb22bf5f501a87a7152cdfa22f01f"
+      }
+    ],
+    "contexts": []
+  },
+  "buckets": {
+    "docs": {
+      "public": false,
+      "maxFileSize": 10485760,
+      "allowedTypes": [
+        "text/plain",
+        "application/octet-stream"
+      ]
+    },
+    "avatars": {
+      "public": true,
+      "maxFileSize": 1024,
+      "allowedTypes": [
+        "image/*"
+      ]
+    }
+  },
+  "partSize": 5242880,
+  "signingMasterKey": "canopy conformance storage signing key v1",
+  "expiredToken": "eyJiIjoiZG9jcyIsInAiOiJmaWxlLnR4dCIsImUiOjEwMDB9.C-oxwbu0gxJ5nNny-_aWDSoakpgwOiivId70G6UcX2I",
+  "cors": {
+    "origins": [
+      "https://app.canopy.test"
+    ]
+  },
+  "rateLimited": {
+    "peer": "192.0.2.1",
+    "requests": {
+      "perSecond": 1,
+      "burst": 1
+    },
+    "now": 0
+  }
+}

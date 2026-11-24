@@ -1,0 +1,160 @@
+{
+  "group": "cors",
+  "cases": [
+    {
+      "id": "preflight",
+      "steps": [
+        {
+          "request": {
+            "method": "OPTIONS",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "none",
+            "headers": {
+              "origin": "https://app.canopy.test",
+              "access-control-request-method": "PUT",
+              "access-control-request-headers": "apikey, content-type",
+              "x-request-id": "cors.preflight.0"
+            }
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "access-control-allow-headers": "apikey, authorization, content-type, range, if-none-match, x-upsert, x-metadata, x-request-id",
+              "access-control-allow-methods": "GET, HEAD, POST, PUT, DELETE, OPTIONS",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-max-age": "600",
+              "vary": "Origin"
+            },
+            "body": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "denied-preflight",
+      "steps": [
+        {
+          "request": {
+            "method": "OPTIONS",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "none",
+            "headers": {
+              "origin": "https://other.canopy.test",
+              "access-control-request-method": "GET",
+              "x-request-id": "cors.denied-preflight.0"
+            }
+          },
+          "response": {
+            "status": 204,
+            "headers": {
+              "vary": "Origin"
+            },
+            "body": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "cors-file-and-error",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "cors.cors-file-and-error.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "cors.cors-file-and-error.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"file.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "origin": "https://app.canopy.test",
+              "x-request-id": "cors.cors-file-and-error.1"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "x-request-id, etag, content-range, accept-ranges, content-length, content-disposition, retry-after",
+              "cache-control": "private, max-age=0",
+              "content-length": "10",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "cors.cors-file-and-error.1"
+            },
+            "body": "abcdefghij"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "none",
+            "headers": {
+              "origin": "https://app.canopy.test",
+              "x-request-id": "cors.cors-file-and-error.2"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "x-request-id, etag, content-range, accept-ranges, content-length, content-disposition, retry-after",
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "cors.cors-file-and-error.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"cors.cors-file-and-error.2\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "origin": "https://other.canopy.test",
+              "x-request-id": "cors.cors-file-and-error.3"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "accept-ranges": "bytes",
+              "cache-control": "private, max-age=0",
+              "content-length": "10",
+              "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+              "content-type": "text/plain",
+              "etag": "\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\"",
+              "vary": "Origin",
+              "x-content-type-options": "nosniff",
+              "x-request-id": "cors.cors-file-and-error.3"
+            },
+            "body": "abcdefghij"
+          }
+        }
+      ]
+    }
+  ]
+}

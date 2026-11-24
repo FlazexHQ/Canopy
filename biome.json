@@ -18,6 +18,7 @@
       "!!conformance/query",
       "!!conformance/policy",
       "!!conformance/http",
+      "!!conformance/http/storage",
       "!!conformance/graphql/schema.json",
       "!!conformance/cursor",
       "!!conformance/auth",

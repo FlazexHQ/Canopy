@@ -1,0 +1,194 @@
+{
+  "group": "lists",
+  "cases": [
+    {
+      "id": "prefix-after-limit-and-owner",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/reports/a.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "lists.prefix-after-limit-and-owner.0"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.0"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"reports/a.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/reports/b.txt",
+            "caller": "bob",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "lists.prefix-after-limit-and-owner.1"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.1"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"reports/b.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"bob\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/reports/c.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "lists.prefix-after-limit-and-owner.2"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.2"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"reports/c.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/object/docs/outside.txt",
+            "caller": "alice",
+            "headers": {
+              "content-type": "text/plain",
+              "x-request-id": "lists.prefix-after-limit-and-owner.3"
+            },
+            "body": "abcdefghij"
+          },
+          "response": {
+            "status": 201,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.3"
+            },
+            "body": "{\"bucket\":\"docs\",\"path\":\"outside.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs?prefix=reports%2F&limit=1",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "lists.prefix-after-limit-and-owner.4"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.4"
+            },
+            "body": "{\"data\":[{\"bucket\":\"docs\",\"path\":\"reports/a.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}],\"next\":\"reports/a.txt\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs?prefix=reports%2F&after=reports%2Fa.txt&limit=1",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "lists.prefix-after-limit-and-owner.5"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.5"
+            },
+            "body": "{\"data\":[{\"bucket\":\"docs\",\"path\":\"reports/c.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"alice\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}]}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs?prefix=reports%2F",
+            "caller": "bob",
+            "headers": {
+              "x-request-id": "lists.prefix-after-limit-and-owner.6"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "lists.prefix-after-limit-and-owner.6"
+            },
+            "body": "{\"data\":[{\"bucket\":\"docs\",\"path\":\"reports/b.txt\",\"size\":10,\"contentType\":\"text/plain\",\"etag\":\"72399361da6a7754fec986dca5b7cbaf1c810a28ded4abaf56b2106d06cb78b0\",\"owner\":\"bob\",\"metadata\":{},\"createdAt\":\"<createdAt>\",\"updatedAt\":\"<updatedAt>\"}]}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "invalid-limit",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs?limit=oops",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "lists.invalid-limit.0"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "lists.invalid-limit.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be from 1 to 1000\",\"instance\":\"/storage/v1/list/docs\",\"requestId\":\"lists.invalid-limit.0\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs?limit=0",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "lists.invalid-limit.1"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "lists.invalid-limit.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:invalid-query\",\"title\":\"Invalid query\",\"status\":400,\"code\":\"CANOPY_INVALID_QUERY\",\"detail\":\"limit must be from 1 to 1000\",\"instance\":\"/storage/v1/list/docs\",\"requestId\":\"lists.invalid-limit.1\",\"hint\":\"Check the operators, field paths and value types; operators Canopy does not support are refused.\",\"docs\":\"errors/invalid-query\"}"
+          }
+        }
+      ]
+    }
+  ]
+}

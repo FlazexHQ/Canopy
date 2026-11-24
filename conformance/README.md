@@ -12,6 +12,7 @@ repository, vendors the protocol vectors.
 | `http/`         | `find/`: the fixture (documents, policies, callers, limits) and request and response pairs of `GET /rest/v1/{collection}`, byte for byte; `reads/`: the same for `_query`, `_count`, `_distinct`, `_aggregate`, `_explain` and `GET /rest/v1/{collection}/{id}`                                                                                               | `bun run vectors:http` (`packages/testing/scripts/http-find-vectors.ts`)            | `packages/rest/test/conformance-find.test.ts` and `conformance-reads.test.ts`; the Rust data plane (stage D1)                                                                        |
 | `http/`         | `writes/`: its own fixture (the find callers and keys, collections made for writes, their validator, unique index, collation and immutable fields) and cases of one or more requests to the write routes, each on a freshly seeded database, with the responses, the documents of the observed collections and the idempotency records after the last request | `bun run vectors:http-writes` (`packages/testing/scripts/http-writes-vectors.ts`)   | `packages/rest/test/conformance-writes.test.ts` (the files are current); the Rust write path (stage D2)                                                                              |
 | `http/graphql/` | GraphQL HTTP request and response pairs, with their fixture and the documents left by mutations                                                                                                                                                                                                                                                               | `bun run vectors:http-graphql` (`packages/testing/scripts/http-graphql-vectors.ts`) | `packages/graphql/test/conformance-graphql.test.ts` (the files are current)                                                                                                          |
+| `http/storage/` | Storage HTTP request and response sequences, with their fixture and the resulting object metadata documents                                                                                                                                                                                                                                                   | `bun run vectors:http-storage` (`packages/testing/scripts/http-storage-vectors.ts`) | `packages/storage/test/conformance-storage.test.ts` (the files are current); `crates/canopy-storage/tests/http_conformance.rs`, the Rust storage handler (stage D4)                  |
 | `policy/`       | `policy.json`: generated policy sets and callers with the TypeScript `@canopy/policy` answer                                                                                                                                                                                                                                                                  | `bun run vectors:policy` (`packages/testing/scripts/policy-vectors.ts`)             | `crates/canopy-policy/tests/vectors.rs`; `packages/native/test/port.test.ts`                                                                                                         |
 | `policy/`       | `pipeline.json`: fixed and generated aggregation pipelines for several callers, with and without search, with what the TypeScript `securePipeline` returns (canonical EJSON) or its refusal                                                                                                                                                                   | `bun run vectors:pipeline` (`packages/testing/scripts/pipeline-vectors.ts`)         | `crates/canopy-policy/tests/pipeline.rs`; `packages/policy/test/conformance-pipeline.test.ts` (the file is current)                                                                  |
 | `auth/`         | `rate-limits.json`: seeded operations on the token buckets and the request limits on a fake clock, with what `@canopy/auth` answers, and the rate limit error                                                                                                                                                                                                 | `bun run vectors:rate-limits` (`packages/testing/scripts/rate-limit-vectors.ts`)    | `crates/canopy-auth/tests/rate_limits.rs`; `packages/auth/test/conformance-rate-limits.test.ts` (the file is current)                                                                |
@@ -29,8 +30,8 @@ repository, vendors the protocol vectors.
 - `query/` and `policy/` need no database. TypeScript is the reference for query validation and canonical hashing
   and for compiling policies, and the Rust crates must give the same answers: byte identical canonical queries,
   hashes, MongoDB filters (canonical EJSON) and matcher decisions, and the same refusals.
-- `http/` is recorded from the TypeScript REST and GraphQL handlers built from their fixtures, against a
-  MongoDB replica set (see [`http/find`](#httpfind) and [`http/graphql`](#httpgraphql) below).
+- `http/` is recorded from the TypeScript REST, GraphQL and storage handlers built from their fixtures, against a
+  MongoDB replica set (see [`http/find`](#httpfind), [`http/graphql`](#httpgraphql) and [`http/storage`](#httpstorage) below).
 - `cursor/` needs no database either: the script computes the query hash, the keyset filter and the cursor of
   each fixed input with the TypeScript code, and records a refusal with its message. `--check` fails when a file
   differs from a fresh computation, and `packages/rest/test/conformance-cursor.test.ts` runs that check.
@@ -216,6 +217,35 @@ times are saved as `<ct>`. In the generated id case, use the ObjectId of the doc
 
 Set `CANOPY_TEST_MONGODB_URI` to a MongoDB replica set, then run `bun run vectors:http-graphql` to regenerate
 the files or `bun run vectors:http-graphql --check` to check for drift.
+
+## http/storage
+
+The TypeScript handler for `/storage/v1` serves the steps in `cases/*.json` in order. Start each case
+with an empty scratch database, a unique index on `storage_objects` by bucket and path, and a fresh
+local backend directory. Configure the buckets, stored policy definitions, authentication, signing
+master key, part size and CORS from `fixture.json`. Enable the fixture's request budget with its
+fixed clock and peer address only for the case marked `rateLimited`.
+
+Send the named caller's headers first, then the request headers. The `target` includes the query
+string. A `body` is UTF-8 text and a `bodyBase64` is the exact binary payload. A request marked
+`stream` sends its body as a stream without a declared length. Responses preserve status, file and
+CORS headers, `retry-after`, `vary`, `x-request-id`, and body bytes. Binary responses that cannot
+round trip through UTF-8 use `bodyBase64`. Empty responses have an empty `body`.
+
+Each request supplies a fixed `x-request-id` of the form `group.case.index`, with a zero based index.
+Use the earlier response's `etag` header, signed URL token or resumable session id for request
+placeholders `<etag>`, `<signed-token>` and `<upload-id>`. Replace the same token or session id in
+response text, including the Problem Details instance path. Resolve `<expired-token>` using the
+fixture's token for the same file, signed with an expiry of 1000 milliseconds since the Unix epoch.
+Response dates use `<createdAt>`, `<updatedAt>` and `<expiresAt>`.
+
+Cases with `state` capture `storage_objects` documents in bucket and path order. Each document is
+canonical EJSON text with the generated ObjectId and backend key suffix replaced by
+`<object-id-N>` and `<backend-id-N>`, numbered from one in that order. The EJSON date wrapper is
+retained with the corresponding date placeholder in place of its millisecond value.
+
+Set `CANOPY_TEST_MONGODB_URI` to a MongoDB replica set. Run `bun run vectors:http-storage` to
+regenerate the files and `bun run vectors:http-storage --check` to compare a fresh recording.
 
 ### What it does not pin
 

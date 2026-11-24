@@ -1,0 +1,208 @@
+{
+  "group": "errors",
+  "cases": [
+    {
+      "id": "missing-key",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "none",
+            "headers": {
+              "x-request-id": "errors.missing-key.0"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.missing-key.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"errors.missing-key.0\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bad-key",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "unknown-key",
+            "headers": {
+              "x-request-id": "errors.bad-key.0"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.bad-key.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Unknown API key\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"errors.bad-key.0\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "bad-bearer",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "tampered",
+            "headers": {
+              "x-request-id": "errors.bad-bearer.0"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.bad-bearer.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:unauthorized\",\"title\":\"Unauthorized\",\"status\":401,\"code\":\"CANOPY_UNAUTHORIZED\",\"detail\":\"Invalid token\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"errors.bad-bearer.0\",\"hint\":\"Send an API key in the apikey header, and a signed in user's token as Authorization: Bearer <token>.\",\"docs\":\"errors/unauthorized\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "rate-limited",
+      "rateLimited": true,
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.rate-limited.0"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "content-type": "application/json; charset=utf-8",
+              "vary": "Origin",
+              "x-request-id": "errors.rate-limited.0"
+            },
+            "body": "{\"data\":[]}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/list/docs",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.rate-limited.1"
+            }
+          },
+          "response": {
+            "status": 429,
+            "headers": {
+              "content-type": "application/problem+json",
+              "retry-after": "1",
+              "vary": "Origin",
+              "x-request-id": "errors.rate-limited.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:rate-limited\",\"title\":\"Rate limited\",\"status\":429,\"code\":\"CANOPY_RATE_LIMITED\",\"detail\":\"Too many requests. Retry in 1 second.\",\"instance\":\"/storage/v1/list/docs\",\"requestId\":\"errors.rate-limited.1\",\"details\":{\"retryAfterSeconds\":1},\"hint\":\"Wait for Retry-After (or details.retryAfterSeconds) before sending more.\",\"docs\":\"errors/rate-limited\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-route",
+      "steps": [
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/unknown",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.unknown-route.0"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.unknown-route.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/unknown\",\"requestId\":\"errors.unknown-route.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ]
+    },
+    {
+      "id": "unsupported-method",
+      "steps": [
+        {
+          "request": {
+            "method": "PATCH",
+            "target": "/storage/v1/object/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.unsupported-method.0"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.unsupported-method.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/object/docs/file.txt\",\"requestId\":\"errors.unsupported-method.0\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "POST",
+            "target": "/storage/v1/list/docs",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.unsupported-method.1"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.unsupported-method.1"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/list/docs\",\"requestId\":\"errors.unsupported-method.1\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        },
+        {
+          "request": {
+            "method": "GET",
+            "target": "/storage/v1/sign/docs/file.txt",
+            "caller": "alice",
+            "headers": {
+              "x-request-id": "errors.unsupported-method.2"
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "content-type": "application/problem+json",
+              "vary": "Origin",
+              "x-request-id": "errors.unsupported-method.2"
+            },
+            "body": "{\"type\":\"urn:canopy:error:not-found\",\"title\":\"Not found\",\"status\":404,\"code\":\"CANOPY_NOT_FOUND\",\"detail\":\"Not found\",\"instance\":\"/storage/v1/sign/docs/file.txt\",\"requestId\":\"errors.unsupported-method.2\",\"hint\":\"The document does not exist, or no read policy lets the caller see it.\",\"docs\":\"errors/not-found\"}"
+          }
+        }
+      ]
+    }
+  ]
+}
