@@ -87,19 +87,25 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Cross version idempotency and DLS property tests pass with zero violations on MongoDB 8 and 9 (`packages/server/test/data-plane-switch.test.ts`, `dls-equivalence.test.ts`).
 
 ### Stage D3: GraphQL Schema and Execution
-- **Status:** Planned (parallel with D4 and D5 after D2).
-- **Concrete Work Items:**
-  1. Spike S15: evaluate and select Rust GraphQL library.
-  2. Implement `canopy-graphql` crate on top of `canopy-data` reads and writes.
-  3. Dynamic schema generation from collection schema definitions.
-  4. Operation limits (depth, complexity, aliases) and persisted query validation.
-  5. GraphQL subscriptions integrated with `canopy-engine`.
+- **Status:** In progress.
+- **Completed Work Items:**
+  1. Spike S15 completed (commit `b2371dd`): evaluated `async-graphql`, `apollo-compiler`, and `graphql-js`. Decided to build `canopy-graphql` on `apollo-compiler` 1.x (parsing, validation, introspection, schema built as SDL) with a Canopy executor over `canopy_data` (`docs/spikes/S15-rust-graphql.md`).
+  2. GraphQL HTTP oracle recorded (commit `16d0d3c`): `conformance/http/graphql/` with 51 cases and 53 requests in six files (queries 6, policies 12, mutations 11, limits 8, transport 8, errors 6), recorded by `packages/graphql/test/conformance/record.ts` via `bun run vectors:http-graphql` (`--check`), checked by `packages/graphql/test/conformance-graphql.test.ts`. Bun and Node differ only in the malformed JSON parser message (substituted `<json-parser-message>`) and the 413 content type (`alternateContentTypes`).
+  3. Collection schema shape model in `canopy-data` (commit `aa92ddc`): `canopy_data::schema` (`Shape`, `Field`, `ObjectShape`, `ScalarType`, `union`, `restrict_shape`, `CollectionSchema`, `SchemaSource`), enabling schema generation restricted to the fields a caller role may access.
+- **In Progress (Not Committed):**
+  1. Port schema inference, `fromJsonSchema`, the schema loader and cache, and `ReadPath::collections` into `canopy-data` with a `conformance/schema/` oracle (Codex agent).
+  2. Implement `crates/canopy-graphql` (names derivation, generated schema model and SDL, executor over `canopy_data`) (orchestrator).
+- **Remaining Work Items:**
+  1. Operation limits (depth, complexity, aliases) checked on the parsed document and persisted query validation by SHA-256.
+  2. Wire GraphQL subscriptions to `canopy-engine` over `graphql-ws`.
+  3. Replay `conformance/http/graphql/` against the Rust data plane with contractual equivalence.
 - **Conformance and Oracle Deliverables:**
-  - Record `conformance/http/graphql/`: GraphQL query, mutation, and subscription cases.
-  - Replay existing GraphQL test suite (`packages/graphql`) unchanged against the data plane.
+  - `conformance/http/graphql/`: 51 cases across 6 files validating queries, mutations, policies, limits, transport, and errors.
+  - Oracle comparison rules: parse and validation error messages compared only by kind; data, `extensions.code`, paths, and locations compared exactly; Canopy's own messages compared byte for byte.
 - **Gate Criteria:**
   - The existing GraphQL test suite passes unchanged against the Rust data plane.
-  - Nested queries execute in a single round-trip without internal resolver request loops.
+  - Replay of `conformance/http/graphql/` passes with contractual parity.
+  - Nested queries execute in a single round trip without internal resolver request loops, batching relation levels with `$in`.
 
 ### Stage D4: File Storage
 - **Status:** Planned (parallel with D3 and D5 after D2).

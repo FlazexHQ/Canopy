@@ -93,6 +93,26 @@ The wire harness is located at `bench/workloads/wire/s13-wire.ts`, the CRUD fixt
   - Direct MongoDB connection (unsecured baseline): 7.85 µs per document.
   - The wire path reduced CPU wall time per document by 52% to 65% compared to the HTTP Data API.
 
+## Spike S15: Rust GraphQL Library Selection ([S15-rust-graphql.md](../../spikes/S15-rust-graphql.md))
+
+### Question
+Which Rust GraphQL library does the data plane build on to achieve dynamic schema synthesis from collections and policies, validation, introspection, execution over `canopy_data` without per field resolver overhead, subscriptions over `graphql-ws`, and request limits under a permissive license?
+
+### Prototype Location
+The spike prototype and comparison harness is located at `bench/spikes/S15/` (`src/main.rs`).
+
+### Findings and Library Comparison
+- **Error message texts:** Tested against 8 invalid queries that a recorded oracle holds (unknown field, wrong argument type, syntax error, missing required argument, list without subselection, duplicate operation name, unknown argument, unknown fragment type). Neither `async-graphql` nor `apollo-compiler` reproduces the exact error text of `graphql-js`. `async-graphql` matched one of eight messages, `apollo-compiler` matched none. Both agree with `graphql-js` on what is invalid.
+- **Execution efficiency:** For a list query of 100 documents with 3 fields, `async-graphql` with dynamic schema executed in 341 µs (spawning 300 async field resolvers). In contrast, `apollo-compiler` parsed and validated the query in 13 µs. A custom Canopy executor walking validated selections over documents already read in a single `canopy_data` command eliminates per field resolver overhead.
+- **Transport and protocol fit:** `apollo-compiler` builds a schema from SDL generated at runtime, validates executable documents, and provides introspection. It omits executors and transport layers, allowing the data plane to map root fields directly to `canopy_data` reads and writes, batch relation levels, stream subscriptions from `canopy-engine`, and serve `graphql-ws` frames over existing WebSocket infrastructure.
+- **Dependency footprint:** `apollo-compiler` 1.33.1 pulls 88 crates, compared to 104 crates for `async-graphql` (which introduces `pest`, `multer`, `async-io`, and derive dependencies). Both libraries use permissive MIT or Apache 2.0 licensing.
+
+### Decision
+Build `canopy-graphql` on **apollo-compiler 1.x** (parsing, validation, introspection, dynamic schema built as SDL) with a **Canopy executor** over `canopy_data`: one read or write per root field, one batched `$in` read per relation level, operation limits from `packages/graphql/src/limits.ts` checked on the parsed document, persisted queries identified by SHA-256, and subscriptions fed from `canopy-engine` over `graphql-ws`.
+
+### Consequence for Conformance Oracles
+The GraphQL HTTP oracle (`conformance/http/graphql/`) compares parse and validation error messages only by kind (since `graphql-js` message texts are not reproduced). Data, `extensions.code`, paths, and locations are compared exactly. All Canopy specific error messages (limits, policy refusals, and internal errors) are compared byte for byte.
+
 ## Additional Prototype Relocations
 
 The Durable Objects fan-out prototype from spike S8 is located at `bench/spikes/S8/` (previously `docs/spikes/S8-prototype/`).

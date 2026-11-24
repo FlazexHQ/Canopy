@@ -20,7 +20,7 @@ canopy/
 │   ├── canopy-data/             Read execution of find, caller contexts, keyset cursors, raw BSON pages (Stage D1 task 10, Done; write execution in D2)
 │   ├── canopy-storage/          Storage policies, GridFS and S3 backends, signed URLs (New, Stage D4)
 │   ├── canopy-http/             REST find route over plain request/response, auth, content negotiation, Problem Details (Stage D1 task 10, Done)
-│   ├── canopy-graphql/          GraphQL schema and execution (New, Stage D3)
+│   ├── canopy-graphql/          GraphQL schema and execution (Stage D3, in progress)
 │   ├── canopy-realtime/         WebSocket, SSE, and long polling transports, change stream ingestion (Extracted from gateway, Stage D1, Done)
 │   ├── canopy-wire/             MongoDB wire protocol listener (New, Stage D5)
 │   ├── canopy-port/             Shared boundary layer for Node-API and WebAssembly
@@ -43,11 +43,11 @@ canopy/
 │   ├── query/                   Query test vectors (moved from crates/canopy-query/tests/vectors)
 │   ├── policy/                  Policy compilation test vectors (moved from crates/canopy-policy/tests/vectors)
 │   ├── errors.json              The canonical source for all CanopyError codes
-│   └── http/                    REST and GraphQL request/response pairs for gates D1 through D3 (Planned)
+│   └── http/                    REST and GraphQL request/response pairs for gates D1 through D3 (find, reads, writes, and graphql recorded)
 ├── bench/                       Unified benchmark harnesses and baselines (@canopy/bench workspace package, completed in D0)
 │   ├── workloads/               Workloads: matcher/, realtime/, rest/, wire/
 │   ├── baselines/               Committed baselines: matcher/, realtime/, rest/
-│   └── spikes/                  Standalone spike prototypes: S8, S11, S12
+│   └── spikes/                  Standalone spike prototypes: S8, S11, S12, S15
 └── deploy/                      Container configurations, Helm charts, Kubernetes manifests
 ```
 
@@ -72,7 +72,7 @@ The large `canopy-gateway` crate is decomposed into modular crates over stages D
 | New crate | `crates/canopy-config` | D1 (Done) | Strongly typed configuration parsing, JSON Schema, and plain config types. |
 | New crate | `crates/canopy-http` | D1 (Done for find) | REST request routing, RFC 7807 Problem Details serialization, and OpenAPI schema generation. |
 | New crate | `crates/canopy-data` | D1 (Done for find, writes in D2) | Core execution engine for reads, transactional writes, atomic fast paths, idempotency, and echo correlation. |
-| New crate | `crates/canopy-graphql` | D3 | GraphQL schema synthesis and query/mutation/subscription execution. |
+| New crate | `crates/canopy-graphql` | D3 (In progress) | GraphQL schema synthesis and query/mutation/subscription execution. |
 | New crate | `crates/canopy-storage` | D4 | Storage policy enforcement, GridFS streaming, S3 backend integration, and signed URLs. |
 | New crate | `crates/canopy-wire` | D5 | MongoDB wire protocol parser and command dispatcher. |
 | `crates/canopy-gateway/src/main.rs` | `crates/canopyd` | D6 | Standalone data plane entry point, composing selected surfaces based on `CANOPY_ROLE`. |

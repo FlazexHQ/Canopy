@@ -7,7 +7,7 @@ This folder contains the complete technical context gathered for implementing [0
 An engineer continuing the implementation of Plan 004 should read the context documents in the following sequence:
 
 1. [08-progress.md](08-progress.md)
-   **Start here.** The Checkpoint at the top records the completion of stages D1 and D2, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D3 through D7.
+   **Start here.** The Checkpoint at the top records the completion of stages D1 and D2, Stage D3 in progress, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D3 through D7.
 
 2. [02-current-rust-workspace.md](02-current-rust-workspace.md)
    **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the data plane crates: `canopy-data` (reads and transactional writes execution), `canopy-http` (Data API read, document, and write routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
@@ -38,7 +38,7 @@ An engineer continuing the implementation of Plan 004 should read the context do
 - MongoDB Depth: [15-mongodb-depth.md](../../design/15-mongodb-depth.md)
 - Security Model: [09-security.md](../../design/09-security.md)
 - Document Level Security: [02-document-level-security.md](../../design/02-document-level-security.md)
-- Spikes: [S3-write-path-cost.md](../../spikes/S3-write-path-cost.md), [S7-echo-before-ack.md](../../spikes/S7-echo-before-ack.md), [S11-native-gateway.md](../../spikes/S11-native-gateway.md), [S12-rust-driver-fidelity.md](../../spikes/S12-rust-driver-fidelity.md), [S13-inbound-wire.md](../../spikes/S13-inbound-wire.md)
+- Spikes: [S3-write-path-cost.md](../../spikes/S3-write-path-cost.md), [S7-echo-before-ack.md](../../spikes/S7-echo-before-ack.md), [S11-native-gateway.md](../../spikes/S11-native-gateway.md), [S12-rust-driver-fidelity.md](../../spikes/S12-rust-driver-fidelity.md), [S13-inbound-wire.md](../../spikes/S13-inbound-wire.md), [S15-rust-graphql.md](../../spikes/S15-rust-graphql.md)
 - Rust Data Plane Crates:
   - [crates/canopy-data/src/lib.rs](../../../crates/canopy-data/src/lib.rs)
   - [crates/canopy-http/src/lib.rs](../../../crates/canopy-http/src/lib.rs)
@@ -47,6 +47,7 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [crates/canopy-mongo/src/lib.rs](../../../crates/canopy-mongo/src/lib.rs)
   - [crates/canopy-realtime/src/lib.rs](../../../crates/canopy-realtime/src/lib.rs)
   - [crates/canopy-gateway/src/main.rs](../../../crates/canopy-gateway/src/main.rs)
+  - [crates/canopy-graphql/src/lib.rs](../../../crates/canopy-graphql/src/lib.rs)
 - TypeScript Reference Implementations:
   - [packages/rest/src/read-path.ts](../../../packages/rest/src/read-path.ts)
   - [packages/rest/src/write-path.ts](../../../packages/rest/src/write-path.ts)
@@ -57,6 +58,7 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [conformance/http/find/](../../../conformance/http/find/)
   - [conformance/http/reads/](../../../conformance/http/reads/)
   - [conformance/http/writes/](../../../conformance/http/writes/)
+  - [conformance/http/graphql/](../../../conformance/http/graphql/)
   - [conformance/cursor/](../../../conformance/cursor/)
   - [conformance/policy/pipeline.json](../../../conformance/policy/pipeline.json)
   - [conformance/auth/rate-limits.json](../../../conformance/auth/rate-limits.json)

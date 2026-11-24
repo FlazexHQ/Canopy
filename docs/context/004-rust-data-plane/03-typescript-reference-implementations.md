@@ -139,13 +139,32 @@ Stage D3 implements GraphQL schema synthesis and query execution in Rust, delega
   - Delegates all query execution to `ReadPath` and all mutation execution to `WritePath`.
   - Maps GraphQL operations to Data API equivalents without secondary authorization checks.
   - Enforces rate limits, CORS headers, and authentication via `Authenticator`.
+- **Conformance Oracle:**
+  - `conformance/http/graphql/` (51 cases, 53 requests across six files) recorded by `packages/graphql/test/conformance/record.ts` via `bun run vectors:http-graphql` (`--check`), checked by `packages/graphql/test/conformance-graphql.test.ts`. Covers queries (6), policies (12), mutations (11), limits (8), transport (8), and errors (6).
+  - Bun and Node differ only in the malformed JSON parser message (substituted `<json-parser-message>`) and the 413 content type (`alternateContentTypes`).
+  - Evaluated against the spike S15 decision: `canopy-graphql` builds on `apollo-compiler` 1.x with a Canopy executor over `canopy_data`. The oracle compares parse and validation error messages only by kind (since `graphql-js` message texts are not reproduced); data, `extensions.code`, paths, and locations are compared exactly; Canopy's own messages (limits, policy refusals, internal errors) are compared byte for byte.
 
 ### 2. Schema Synthesis
 - **Reference File:**
   - [packages/graphql/src/schema.ts](../../../packages/graphql/src/schema.ts): `buildSchema(options)`.
 - **Reference Behavior:**
-  - Generates GraphQL ObjectTypes, Query fields (`find`, `count`, `distinct`, `aggregate`), Mutation fields (`insert`, `update`, `replace`, `delete`), and relationship resolvers dynamically from collection schema definitions.
-  - Resolves cross-collection relationships (`RelationSpec`) using batched lookups to avoid N+1 query patterns.
+  - The TypeScript schema (`packages/graphql/src/schema.ts`) exposes, per readable collection:
+    - A list query (`names.list`, such as `todos`): returns a connection object with `nodes` (page documents), `next` (cursor string or null), `total` (exact count of matching documents, evaluated when selected), and `ct` (snapshot cluster time string).
+    - A by id query (`names.one`, such as `todo`, or `todoById` if singular matches list): takes non-null `id` of the collection's id type, returning the document or null.
+    - A count query (`names.count`, such as `todosCount`): takes optional `filter`, returning a non-null integer count.
+    - Mutations as policies grant:
+      - `insert<Singular>`: single document insert taking `doc`, returning the inserted document.
+      - `insert<Plural>`: multiple document insert taking `docs`, returning a list of inserted documents.
+      - `replace<Singular>`: replaces a document by `id` with optional `where` filter and `upsert` flag, returning the replaced document.
+      - `update<Singular>`: updates a document by `id` with update object (`set`, `inc`, `unset`, `raw`) and optional `where` filter, returning the updated document.
+      - `update<Plural>`: bulk updates documents matching `filter` with update object, returning `BulkResult` (`matched`, `modified`, `deleted`, `ct`).
+      - `delete<Singular>`: deletes a document by `id` with optional `where` filter, returning the deleted document.
+      - `delete<Plural>`: bulk deletes documents matching `filter`, returning `BulkResult`.
+    - Subscriptions when realtime is enabled (`subscriptions: true` and `engine.isRealtime(collection)`):
+      - `live<Plural>`: sends the full query result again on every change.
+      - `<singular>Changes`: streams individual change events (`ADDED`, `CHANGED`, `REMOVED`, `READY`) with `id`, `doc`, and `index`.
+    - Relations declared in collection configuration (`CollectionGraphqlConfig.relations`): resolved dynamically via `RelationSpec` (`to`, `local`, `foreign`, `many`) using batched `$in` lookups (`related`) to avoid N+1 query loops.
+  - When the caller can read no collection, exposes a dummy query `_empty`.
 
 ### 3. Operation Limits and Persisted Operations
 - **Reference Files:**
