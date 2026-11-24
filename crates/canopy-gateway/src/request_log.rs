@@ -20,6 +20,7 @@ const MAX_PATH: usize = 512;
 
 /// What is known about a request when its response is ready.
 pub(crate) struct Logged<'a> {
+    pub(crate) surface: &'a str,
     pub(crate) method: &'a str,
     pub(crate) path: &'a str,
     pub(crate) status: u16,
@@ -123,7 +124,7 @@ impl RequestLog {
         let mut entry = doc! {
             "_id": ObjectId::new(),
             "at": DateTime::now(),
-            "surface": "rest",
+            "surface": logged.surface,
             "method": cut(logged.method, 16),
             "path": cut(logged.path, MAX_PATH),
             "status": i32::from(logged.status),
@@ -182,6 +183,7 @@ mod tests {
     #[test]
     fn an_entry_keeps_the_fields_of_the_typescript_log_and_rounds_the_duration() {
         let logged = Logged {
+            surface: "rest",
             method: "POST",
             path: "/rest/v1/todos/_count",
             status: 200,

@@ -161,7 +161,7 @@ pub(crate) async fn forward(
     let out_body: Body = if upgrade {
         Empty::<Bytes>::new().map_err(|never| match never {}).boxed_unsync()
     } else {
-        body.boxed_unsync()
+        body.map_err(Into::into).boxed_unsync()
     };
     let outgoing = Request::from_parts(parts, out_body);
     let sender = match if upgrade { None } else { pool.take() } {
@@ -187,7 +187,7 @@ pub(crate) async fn forward(
     }
     let (mut parts, body) = response.into_parts();
     strip_hop_by_hop(&mut parts.headers, false);
-    Response::from_parts(parts, body.boxed_unsync())
+    Response::from_parts(parts, body.map_err(Into::into).boxed_unsync())
 }
 
 #[cfg(test)]

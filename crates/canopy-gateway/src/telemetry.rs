@@ -45,7 +45,7 @@ fn check_protocol(traces: Option<&str>, generic: Option<&str>) -> Result<(), Str
 
 /// The low cardinality route of a path, so span names carry no collection names or ids.
 pub(crate) fn route_of(path: &str) -> &str {
-    for prefix in ["/rest/v1", "/graphql/v1", "/realtime/v1", "/auth/v1", "/admin/v1"] {
+    for prefix in ["/rest/v1", "/graphql/v1", "/storage/v1", "/realtime/v1", "/auth/v1", "/admin/v1"] {
         if let Some(rest) = path.strip_prefix(prefix)
             && (rest.is_empty() || rest.starts_with('/'))
         {
@@ -141,9 +141,15 @@ impl Telemetry {
 
     /// The context of a server span for a request, continuing its `traceparent`, `tracestate` and `baggage`.
     /// End it with [`Telemetry::finish`].
-    pub(crate) fn server(&self, method: &str, path: &str, headers: &[(String, String)]) -> Context {
+    pub(crate) fn server(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(String, String)],
+        route: Option<&str>,
+    ) -> Context {
         let parent = self.propagator.extract(&Headers(headers));
-        let route = route_of(path);
+        let route = route.unwrap_or_else(|| route_of(path));
         let span = self
             .tracer
             .span_builder(format!("{method} {route}"))

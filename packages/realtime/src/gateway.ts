@@ -139,6 +139,7 @@ export function gatewayConfig(
       "built in auth runs in the canopy server; point the gateway at its JWKS with external() instead",
     )
   const limits = config.rateLimits
+  const storage = config.storage
   const graphql = config.graphql
   const { graphqlPersisted } = overrides
   const mutationsUrl = overrides.mutationsUrl ?? env["CANOPY_GATEWAY_MUTATIONS_URL"]
@@ -256,6 +257,19 @@ export function gatewayConfig(
                 )
                 .map(([name, { typeName, relations }]) => [name, { typeName, relations }]),
             ),
+          },
+    storage:
+      storage === false
+        ? false
+        : {
+            path: "/storage/v1",
+            buckets: storage.buckets,
+            backend: storage.backend,
+            signingMasterKey: config.masterKey,
+            partSize: 8 * 1024 * 1024,
+            maxUploadSize: storage.maxUploadSize,
+            uploadTtlMs: 86_400_000,
+            maxSignedUrlSeconds: 7 * 86_400,
           },
     ...(overrides.dataPlaneRoutes === undefined
       ? {}

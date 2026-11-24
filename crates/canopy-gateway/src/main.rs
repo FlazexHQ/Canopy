@@ -278,6 +278,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
             )
         })
         .transpose()?;
+    if let Some(plane) = &data_plane {
+        plane.start_storage_sweep(log);
+    }
     let routes = Arc::new(Routes {
         ready: Arc::clone(&stream_open),
         trusted_proxies: config.trusted_proxies.clone(),

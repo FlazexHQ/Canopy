@@ -33,7 +33,7 @@ use tokio::sync::Notify;
 use crate::core::{Command, EngineSender};
 
 /// The response body shared by the realtime routes and the host's fallback handler.
-pub type Body = UnsyncBoxBody<Bytes, hyper::Error>;
+pub type Body = UnsyncBoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Which browser origins may call the endpoints from another origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -694,7 +694,7 @@ impl HttpTransport {
         let start = SseState { session, start: after, generation, opened: false, done: false, keep_alive };
         let body = stream::unfold(start, |mut state| async move {
             let chunk = state.next().await?;
-            Some((Ok::<_, hyper::Error>(Frame::data(Bytes::from(chunk))), state))
+            Some((Ok(Frame::data(Bytes::from(chunk))), state))
         });
         let mut response = Response::new(StreamBody::new(body).boxed_unsync());
         let headers = response.headers_mut();

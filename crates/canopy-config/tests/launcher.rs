@@ -37,6 +37,7 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert!(config.data_plane_routes.is_empty());
     assert_eq!(config.rest_limits, RestLimits::default());
     assert_eq!(config.graphql, Some(GraphqlSettings::default()));
+    assert!(config.storage.is_none());
     assert_eq!(config.rest_limits.max_body_bytes, 1_048_576);
     assert!(config.search_collections.is_empty());
     Ok(())
@@ -57,6 +58,7 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
             DataPlaneRoute::Explain,
             DataPlaneRoute::Writes,
             DataPlaneRoute::Graphql,
+            DataPlaneRoute::Storage,
         ]
     );
     assert_eq!(
@@ -95,6 +97,23 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
             audit: true,
         }
     );
+    let storage = config.storage.as_ref().ok_or("Expected storage settings")?;
+    assert_eq!(storage.path, "/storage/v1");
+    assert_eq!(storage.part_size, 8 * 1024 * 1024);
+    assert_eq!(storage.max_upload_size, 16 * 1024 * 1024);
+    let files = storage.buckets.get("files").ok_or("Expected files bucket")?;
+    assert!(files.public);
+    assert_eq!(files.max_file_size, 8192);
+    assert_eq!(files.allowed_types, ["text/plain"]);
+    let canopy_config::StorageBackend::S3 { prefix, session_token, .. } = &storage.backend else {
+        return Err("Expected S3 storage".to_owned());
+    };
+    assert_eq!(prefix, "fixtures/");
+    assert_eq!(session_token.as_deref(), Some("fixture-session"));
+    let debug = format!("{config:?}");
+    for secret in ["fixture-storage-master-key", "fixture-access", "fixture-secret", "fixture-session"] {
+        assert!(!debug.contains(secret), "storage credentials must be redacted");
+    }
     let host = Fallbacks { data_plane_routes: Some(vec!["unknown".to_owned()]), ..Fallbacks::default() };
     assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, config.data_plane_routes);
     Ok(())
@@ -226,5 +245,34 @@ fn json_keeps_precedence_over_host_fallbacks() -> Result<(), String> {
     assert_eq!(config.auth.ok_or("Expected fallback JWT auth")?.issuers, ["https://issuer.example.test"]);
     assert_eq!(config.publishable, Some(vec!["fixture-env-key".to_owned()]));
     assert!(config.messages.is_none());
+    Ok(())
+}
+
+#[test]
+fn selects_r2_storage_with_rest_disabled_and_uses_storage_defaults() -> Result<(), String> {
+    let config = parse(
+        r#"{
+        "mongodb":{"uri":"mongodb://db.example.test/app"},
+        "rest":false,
+        "dataPlane":{"routes":["storage"]},
+        "storage":{"buckets":{},"backend":{
+            "kind":"r2","accountId":"fixture-account","bucket":"fixture-bucket",
+            "accessKeyId":"fixture-access","secretAccessKey":"fixture-secret","jurisdiction":"eu"
+        }}
+    }"#,
+    )?;
+    assert_eq!(config.data_plane_routes, [DataPlaneRoute::Storage]);
+    let storage = config.storage.ok_or("Expected storage settings")?;
+    assert_eq!(storage.path, "/storage/v1");
+    assert_eq!(storage.part_size, 8 * 1024 * 1024);
+    assert_eq!(storage.max_upload_size, 5 * 1024 * 1024 * 1024);
+    assert_eq!(storage.upload_ttl_ms, 86_400_000);
+    assert_eq!(storage.max_signed_url_seconds, 604_800);
+    assert!(storage.signing_master_key.is_none());
+    let canopy_config::StorageBackend::R2 { account_id, jurisdiction, .. } = storage.backend else {
+        return Err("Expected R2 storage".to_owned());
+    };
+    assert_eq!(account_id, "fixture-account");
+    assert_eq!(jurisdiction.as_deref(), Some("eu"));
     Ok(())
 }

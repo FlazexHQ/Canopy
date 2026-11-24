@@ -239,6 +239,7 @@ dependencies = [
 name = "canopy-gateway"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "canopy-auth",
  "canopy-config",
  "canopy-data",
@@ -250,6 +251,7 @@ dependencies = [
  "canopy-policy",
  "canopy-protocol",
  "canopy-realtime",
+ "canopy-storage",
  "futures-util",
  "http-body-util",
  "hyper",

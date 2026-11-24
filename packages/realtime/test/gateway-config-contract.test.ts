@@ -63,6 +63,22 @@ const cases: readonly Fixture[] = [
   {
     name: "data-plane",
     input: {
+      masterKey: "fixture-storage-master-key".repeat(2),
+      storage: {
+        backend: {
+          kind: "s3",
+          endpoint: "https://s3.example.test",
+          region: "us-east-1",
+          bucket: "canopy-fixture",
+          accessKeyId: "fixture-access",
+          secretAccessKey: "fixture-secret",
+          sessionToken: "fixture-session",
+          forcePathStyle: true,
+          prefix: "fixtures/",
+        },
+        buckets: { files: { public: true, maxFileSize: 8192, allowedTypes: ["text/plain"] } },
+        maxUploadSize: 16 * 1024 * 1024,
+      },
       rest: { defaultLimit: 25, maxLimit: 250, maxBodyBytes: 4096 },
       graphql: {
         maxDepth: 4,
@@ -93,6 +109,7 @@ const cases: readonly Fixture[] = [
         "explain",
         "writes",
         "graphql",
+        "storage",
       ],
       graphqlPersisted: {
         only: true,

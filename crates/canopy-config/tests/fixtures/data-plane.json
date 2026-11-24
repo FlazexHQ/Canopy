@@ -82,7 +82,17 @@
     }
   },
   "dataPlane": {
-    "routes": ["find", "count", "distinct", "aggregate", "query", "explain", "writes", "graphql"]
+    "routes": [
+      "find",
+      "count",
+      "distinct",
+      "aggregate",
+      "query",
+      "explain",
+      "writes",
+      "graphql",
+      "storage"
+    ]
   },
   "log": {
     "level": "info"
@@ -92,5 +102,31 @@
   },
   "audit": {
     "dataWrites": true
+  },
+  "storage": {
+    "path": "/storage/v1",
+    "buckets": {
+      "files": {
+        "public": true,
+        "maxFileSize": 8192,
+        "allowedTypes": ["text/plain"]
+      }
+    },
+    "backend": {
+      "kind": "s3",
+      "endpoint": "https://s3.example.test",
+      "region": "us-east-1",
+      "bucket": "canopy-fixture",
+      "accessKeyId": "fixture-access",
+      "secretAccessKey": "fixture-secret",
+      "sessionToken": "fixture-session",
+      "forcePathStyle": true,
+      "prefix": "fixtures/"
+    },
+    "signingMasterKey": "fixture-storage-master-keyfixture-storage-master-key",
+    "partSize": 8388608,
+    "maxUploadSize": 16777216,
+    "uploadTtlMs": 86400000,
+    "maxSignedUrlSeconds": 604800
   }
 }

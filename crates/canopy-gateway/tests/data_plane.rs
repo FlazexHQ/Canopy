@@ -12,6 +12,9 @@ mod common;
 #[path = "../../canopy-graphql/tests/graphql_replay/mod.rs"]
 mod graphql_replay;
 
+#[path = "../../canopy-storage/tests/storage_replay/mod.rs"]
+mod storage_replay;
+
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -126,6 +129,14 @@ impl Gateway {
 
     /// Sends a request with its exact target over a new connection.
     async fn send(&self, request: &canopy_http::Request) -> canopy_http::Response {
+        self.send_with_framing(request, false).await
+    }
+
+    async fn send_with_framing(
+        &self,
+        request: &canopy_http::Request,
+        storage: bool,
+    ) -> canopy_http::Response {
         let stream = tokio::net::TcpStream::connect(("127.0.0.1", self.port)).await.expect("connected");
         let (mut sender, connection) =
             hyper::client::conn::http1::handshake(TokioIo::new(stream)).await.expect("a handshake");
@@ -141,10 +152,27 @@ impl Gateway {
             canopy_http::Body::Bytes(bytes) => Bytes::from(bytes.clone()),
             other => panic!("a test sends bytes, not {other:?}"),
         };
-        let response = sender
-            .send_request(builder.body(Full::new(body)).expect("a request"))
-            .await
-            .unwrap_or_else(|error| panic!("{} {}: {error}", request.method, request.target));
+        let length = request.header("content-length").and_then(|value| value.parse::<usize>().ok());
+        let body = if storage && !body.is_empty() && length != Some(body.len()) {
+            let frame = Ok::<_, std::convert::Infallible>(hyper::body::Frame::data(body));
+            let frames = futures_util::stream::iter([frame]);
+            if length.is_some() {
+                use futures_util::StreamExt as _;
+                builder = builder.header("connection", "close");
+                http_body_util::StreamBody::new(frames.chain(futures_util::stream::pending())).boxed_unsync()
+            } else {
+                http_body_util::StreamBody::new(frames).boxed_unsync()
+            }
+        } else {
+            Full::new(body).boxed_unsync()
+        };
+        let response = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            sender.send_request(builder.body(body).expect("a request")),
+        )
+        .await
+        .expect("the gateway responds without waiting for an oversized body")
+        .unwrap_or_else(|error| panic!("{} {}: {error}", request.method, request.target));
         let (parts, body) = response.into_parts();
         let body = body.collect().await.expect("a body").to_bytes();
         canopy_http::Response {
@@ -189,7 +217,10 @@ fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &st
         .map_or_else(String::new, |limit| format!(r#","maxBodyBytes":{}"#, json_text(limit)));
     let auth = get(fixture, "auth");
     let policies = get(fixture, "policies");
-    let limits = get(fixture, "readLimits");
+    let defaults =
+        canopy_protocol::json::parse_json(r#"{"defaultLimit":100,"maxLimit":1000,"maxSkip":10000}"#)
+            .expect("the default read limits");
+    let limits = fixture.get("readLimits").unwrap_or(&defaults);
     let keys = |name: &str| json_text(get(auth, name));
     let document = format!(
         r#"{{"mongodb":{{"uri":{uri},"database":"{database}","metaDatabase":"{database}_meta"}},
@@ -209,11 +240,14 @@ fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &st
         publishable = keys("publishableKeys"),
         secret = keys("secretKeys"),
         stored = json_text(get(policies, "collections")),
-        contexts = json_text(get(policies, "contexts")),
+        contexts = match get(policies, "contexts") {
+            Json::Array(contexts) if contexts.is_empty() => "null".to_owned(),
+            contexts => json_text(contexts),
+        },
         default = json_text(get(limits, "defaultLimit")),
         max = json_text(get(limits, "maxLimit")),
         skip = json_text(get(limits, "maxSkip")),
-        id_types = json_text(get(fixture, "idTypes")),
+        id_types = fixture.get("idTypes").map_or_else(|| "{}".to_owned(), json_text),
     );
     document.replace(['\n', '\r'], "")
 }
@@ -840,7 +874,7 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
         assert_eq!(code, Some(1), "{routes}");
         assert!(
             message.contains(
-                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not"
+                "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not"
             ),
             "{routes}: {message}"
         );
@@ -917,4 +951,75 @@ async fn selected_graphql_replays_the_typescript_oracle_through_the_gateway() {
     )
     .await;
     assert!(seen.lock().expect("the upstream log").is_empty());
+}
+
+fn storage_launcher(
+    fixture: &Json,
+    uri: &str,
+    database: &str,
+    port: u16,
+    folder: &std::path::Path,
+    rate_limited: bool,
+) -> String {
+    let rate_limits = if rate_limited {
+        format!(r#"{{"requests":{}}}"#, json_text(get(get(fixture, "rateLimited"), "requests")))
+    } else {
+        "false".to_owned()
+    };
+    let extra = format!(
+        r#","storage":{{"path":{},"buckets":{},"backend":{{"kind":"local","root":{}}},"signingMasterKey":{},"partSize":{}}},"cors":{}"#,
+        json_text(get(fixture, "basePath")),
+        json_text(get(fixture, "buckets")),
+        json_text(&Json::String(folder.to_string_lossy().into_owned())),
+        json_text(get(fixture, "signingMasterKey")),
+        storage_replay::number(fixture, "partSize"),
+        json_text(get(fixture, "cors")),
+    );
+    launcher(fixture, uri, database, port, &extra)
+        .replace(r#""rateLimits":false"#, &format!(r#""rateLimits":{rate_limits}"#))
+        .replace(r#""rest":{"#, r#""rest":{"maxBodyBytes":2,"#)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn selected_storage_replays_the_typescript_oracle_through_the_gateway() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("storage").join("fixture.json"));
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let (port, seen) = upstream().await;
+    storage_replay::replay(
+        &client,
+        &fixture,
+        true,
+        async |database, _, folder, rate_limited| {
+            let config = storage_launcher(&fixture, &uri, database, port, folder, rate_limited);
+            Gateway::start(config, Some("storage")).await
+        },
+        async |gateway: &Gateway, request| Some(gateway.send_with_framing(request, true).await),
+    )
+    .await;
+    assert!(seen.lock().expect("the upstream log").is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn image_rendering_is_forwarded_when_storage_is_selected() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("storage").join("fixture.json"));
+    let (port, seen) = upstream().await;
+    let database = common::scratch_name("canopy_gateway_storage_forward");
+    let folder = std::env::temp_dir().join(&database);
+    let render = "/storage/v1/render/image/public/avatars/photo.png?width=64";
+    {
+        let config = storage_launcher(&fixture, &uri, &database, port, &folder, false);
+        let gateway = Gateway::start(config, Some("storage")).await;
+        let response = gateway.send(&canopy_http::Request::new("GET", render)).await;
+        assert_eq!(response.header("x-upstream"), Some("yes"));
+    }
+    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(*seen.lock().expect("the upstream log"), [("GET".to_owned(), render.to_owned())],);
 }

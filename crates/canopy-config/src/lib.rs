@@ -1,6 +1,8 @@
 //! Resolved data plane configuration from the launcher JSON document.
 
 mod graphql;
+mod storage;
+pub use storage::{BucketSettings, StorageBackend, StorageSettings};
 mod trusted_proxy;
 
 pub use graphql::{CollectionSettings, GraphqlSettings, Introspection, PersistedSettings, RelationSettings};
@@ -99,12 +101,24 @@ pub enum DataPlaneRoute {
     Writes,
     /// `GET` and `POST /graphql/v1`, with `OPTIONS` and `405` on that path.
     Graphql,
+    /// The file storage API, except image transformations.
+    Storage,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 9] =
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes", "graphql"];
+    pub const NAMES: [&'static str; 10] = [
+        "find",
+        "count",
+        "distinct",
+        "aggregate",
+        "query",
+        "explain",
+        "document",
+        "writes",
+        "graphql",
+        "storage",
+    ];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -118,6 +132,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Document => "document",
             DataPlaneRoute::Writes => "writes",
             DataPlaneRoute::Graphql => "graphql",
+            DataPlaneRoute::Storage => "storage",
         }
     }
 
@@ -132,6 +147,7 @@ impl DataPlaneRoute {
             "document" => Ok(DataPlaneRoute::Document),
             "writes" => Ok(DataPlaneRoute::Writes),
             "graphql" => Ok(DataPlaneRoute::Graphql),
+            "storage" => Ok(DataPlaneRoute::Storage),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
                 Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
@@ -265,6 +281,8 @@ pub struct GatewayConfig {
     pub rest_limits: RestLimits,
     /// The GraphQL HTTP settings when GraphQL is enabled.
     pub graphql: Option<GraphqlSettings>,
+    /// The file storage API, when configured.
+    pub storage: Option<StorageSettings>,
     /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
     /// `rest.search` lists them.
     pub search_collections: Vec<String>,
@@ -421,7 +439,7 @@ fn data_plane_routes(
             routes.push(route);
         }
     }
-    if !routes.is_empty() && !rest_enabled {
+    if !rest_enabled && routes.iter().any(|route| *route != DataPlaneRoute::Storage) {
         return Err("dataPlane.routes serves the Data API, which rest: false disables".to_owned());
     }
     Ok(routes)
@@ -655,6 +673,10 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
     let rest_enabled = !matches!(doc.get("rest"), Some(Json::Bool(false)));
     let data_plane_routes = data_plane_routes(&doc, fallback.data_plane_routes, rest_enabled)?;
     let rest_limits = rest_limits(&doc)?;
+    let storage = storage::settings(doc.get("storage"))?;
+    if storage.is_none() && data_plane_routes.contains(&DataPlaneRoute::Storage) {
+        return Err("dataPlane.routes selects storage, which requires storage settings".to_owned());
+    }
     let graphql = if rest_enabled { graphql::settings(doc.get("graphql"))? } else { None };
     if graphql.is_none() && data_plane_routes.contains(&DataPlaneRoute::Graphql) {
         return Err("dataPlane.routes selects graphql, which graphql: false disables".to_owned());
@@ -717,6 +739,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         data_plane_routes,
         rest_limits,
         graphql,
+        storage,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
         tracing,
         writes,

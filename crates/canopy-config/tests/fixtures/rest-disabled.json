@@ -53,5 +53,6 @@
   },
   "audit": {
     "dataWrites": false
-  }
+  },
+  "storage": false
 }

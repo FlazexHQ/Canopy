@@ -37,6 +37,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "rest",
             "audit",
             "graphql",
+            "storage",
             "dataPlane",
             "viewTokens"
         ]
@@ -299,11 +300,11 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
             r#""dataPlane":{"routes":"batch"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not batch",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not Find",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not Find",
         ),
         (
             r#""dataPlane":{"routes":["graphql"]},"graphql":false"#,
@@ -316,6 +317,18 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
             "dataPlane.routes serves the Data API, which rest: false disables",
+        ),
+        (
+            r#""dataPlane":{"routes":["storage"]}"#,
+            "dataPlane.routes selects storage, which requires storage settings",
+        ),
+        (
+            r#""dataPlane":{"routes":["storage"]},"storage":false"#,
+            "dataPlane.routes selects storage, which requires storage settings",
+        ),
+        (
+            r#""storage":{"buckets":{},"backend":{"kind":"sensitive-invalid-kind"}}"#,
+            "storage must contain valid settings",
         ),
         (r#""rest":{"defaultLimit":0}"#, "rest.defaultLimit and rest.maxLimit must be at least 1"),
         (r#""rest":{"maxLimit":0.5}"#, "rest.defaultLimit and rest.maxLimit must be at least 1"),
@@ -364,13 +377,13 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     assert_eq!(
         unknown.err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not batch"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not batch"
         )
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
         Some(
-            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes and graphql, not Query"
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain, document, writes, graphql and storage, not Query"
         )
     );
     for route in [
@@ -388,7 +401,18 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     }
     assert_eq!(
         DataPlaneRoute::NAMES,
-        ["find", "count", "distinct", "aggregate", "query", "explain", "document", "writes", "graphql"]
+        [
+            "find",
+            "count",
+            "distinct",
+            "aggregate",
+            "query",
+            "explain",
+            "document",
+            "writes",
+            "graphql",
+            "storage"
+        ]
     );
     Ok(())
 }
@@ -445,7 +469,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
         (
             &["$defs", "dataPlaneRoute", "enum"],
-            r#"["find","count","distinct","aggregate","query","explain","document","writes","graphql"]"#,
+            r#"["find","count","distinct","aggregate","query","explain","document","writes","graphql","storage"]"#,
         ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),
