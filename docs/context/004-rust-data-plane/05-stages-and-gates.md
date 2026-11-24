@@ -136,15 +136,23 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Transfer throughput and memory consumption per upload characterized and verified on GitHub Actions run 45405749630 (`bench/baselines/d4/README.md`).
 
 ### Stage D5: MongoDB Wire Protocol Endpoint
-- **Status:** Planned (parallel with D3 and D4 after D2).
-- **Concrete Work Items:**
-  1. Implement `canopy-wire` crate.
-  2. Implement `OP_MSG` wire listener.
-  3. Implement handshake and driver authentication: `hello`, `MONGODB-OIDC`, and `SCRAM-SHA-256`.
-  4. Implement strict command allowlist (`find`, `count`, `distinct`, `aggregate`, `insert`, `update`, `delete`, `getMore`, `killCursors`).
-  5. Bind server cursors to authenticated caller identity.
-  6. Map change stream commands to subscriptions in `canopy-engine`.
-  7. Route writes through the D2 transactional write path.
+- **Status:** In progress (wire framing, router handshake, MONGODB-OIDC and SCRAM-SHA-256 for user `service`, reads through ReadPath, keyset cursor paging, transactional writes via WritePath, and gateway wire listener completed; retryable writes and DLS equivalence test integration in progress).
+- **Completed Work Items:**
+  1. Crate `canopy-wire` core and framing (commit `1ee5390`): OP_MSG and legacy OP_QUERY framing with CRC32C checksums, hello command answering as a MongoDB 8.0 router.
+  2. Authentication (commit `1ee5390`): MONGODB-OIDC with access tokens (roles extracted from token claims) and SCRAM-SHA-256 for user `service` using configured secret API keys.
+  3. Read commands execution (commits `1ee5390`, `9766e12`): `find`, `count`, `distinct`, `aggregate`, `listCollections`, and `listIndexes` through `ReadPath` applying DLS policies, field rules, read limits, and pipeline sanitization. Per connection cursors with random 64 bit identifiers that expire after 10 minutes.
+  4. Keyset paging for wire find cursors (commit `9766e12`): `getMore` continues through Data API keyset cursor when buffered page runs out, skip applied once, limit counted across pages. Aggregations exceeding document or byte limits refused with BadValue.
+  5. Transactional write commands (commit `549a6ce`): `insert`, `update`, `delete`, and `findAndModify` running each statement in its own majority acknowledged transaction under write policies through `WritePath`. Ordered batches stop at the first write error. Refuses unacknowledged writes (w:0), update pipelines, arrayFilters, and collation. Policy denials answer Unauthorized.
+  6. Gateway wire listener (commit `f66b157`): dedicated TCP port configured by the `wire` setting (`port`, `host`, `maxMessageBytes` 48000000, `maxConnections` 256, `idleTimeoutMs` 60000, optional PEM TLS), oversized frames refused from header, `moreToCome` support, per peer request budgets, shutdown drain, metrics `canopy_wire_connections` and `canopy_wire_commands_total`, launcher `GatewayOverrides.wire`. Verified with official Rust driver over SCRAM and OIDC, reads and writes, on MongoDB 8.0.34 and 9.0.8.
+- **In Progress Work Items:**
+  1. Retryable writes over the wire: mutation IDs derived from lsid, txnNumber, and statement index so drivers no longer need retryWrites=false (which they require today).
+  2. Wire endpoint entry point in `packages/server/test/dls-equivalence.test.ts`: evaluating bypass corpus and S13 denial corpus over the official Node driver, requiring zero bypasses.
+- **Remaining Work Items:**
+  1. Change streams: map `$changeStream` commands to realtime subscriptions in `canopy-engine`.
+  2. Official driver unified spec tests: verify with Node, Python, Go, and Java drivers as planned.
+  3. Stage D5 gate benchmark on GitHub Actions (kept lean).
+  4. OP_COMPRESSED compression support (refused today).
+  5. SCRAM for stored, hashed keys: requires credentials issued by the control plane and moves to Stage D6.
 - **Read cursor behavior:** Wire `find` continues through the Data API keyset cursor, with `skip` applied to the first page and the driver's `limit` applied across the cursor. Each continuation uses a fresh Data API snapshot. Aggregation has no continuation in the Data API, so the wire endpoint returns an error if the aggregation exceeds its document or BSON byte budget.
 - **Conformance and Oracle Deliverables:**
   - Official MongoDB driver unified spec tests passing with Node.js, Python, Go, and Java drivers.
