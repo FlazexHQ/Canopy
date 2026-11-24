@@ -189,16 +189,6 @@ async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
         compressor.unwrap_or(if oidc { "oidc" } else { "scram" })
     );
     let backing = Client::with_uri_str(&uri).await.expect("the backing client");
-    if oidc {
-        backing
-            .database(&database)
-            .run_command(doc! {
-                "create": "notes",
-                "changeStreamPreAndPostImages": { "enabled": true },
-            })
-            .await
-            .expect("enable event images for the watch fixture");
-    }
     backing
         .database(&database)
         .collection("notes")
@@ -281,6 +271,19 @@ async fn wire_driver_reads(oidc: bool, compressor: Option<&str>) {
         assert_eq!(stored, 1);
     }
     if oidc {
+        let ready = canopy_http::Request::new("GET", "/readyz");
+        tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                let status = gateway.send(&ready).await.status;
+                if status == 200 {
+                    break;
+                }
+                assert_eq!(status, 503);
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+        })
+        .await
+        .expect("the gateway opens its change stream");
         wire_driver_watches(&db, &backing.database(&database), &base).await;
     }
     drop(gateway);

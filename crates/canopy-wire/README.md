@@ -44,3 +44,11 @@ The endpoint accepts the default write concern, `w: 1`, or `w: "majority"`, and 
 Policy denials map to Unauthorized (13) without retry labels. DuplicateKey (11000) uses the Data API's sanitized error message. The write path discards raw duplicate key details. DocumentValidationFailure (121) reports collection validator failures. Canopy conflicts are not advertised as retryable WriteConflict errors.
 
 For `findAndModify`, filters and sort may reference readable fields. The requested projection is applied to the policy filtered preimage or postimage inside the same transaction. A document the caller cannot read produces a null image.
+
+## Change streams
+
+When an update needs a document lookup, the watch reports the document as read after the batch,
+like MongoDB's `fullDocument: "updateLookup"`. Several updates to the same document can carry
+the same image. Canopy applies the caller's read policy and field rules to that image. If the
+image no longer matches the policy for a document visible to the watch, Canopy emits a delete.
+If Canopy loses continuity, the cursor ends with ChangeStreamHistoryLost (286).

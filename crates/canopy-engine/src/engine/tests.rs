@@ -582,6 +582,83 @@ fn updates_without_a_post_image_are_looked_up_before_they_are_applied() {
 }
 
 #[test]
+fn batched_watch_updates_use_the_same_latest_image() {
+    let (mut h, conn) = ready_watch();
+    let update = |id, ct, set| {
+        let mut event = event(Op::Update, id, None, ct);
+        event.diff = Some(crate::event::Diff { set: doc(set), unset: Vec::new() });
+        event
+    };
+    let outputs = watch_lookup(
+        &mut h,
+        vec![
+            update(1, 11, r#"{"ownerId":"bob","n":1}"#),
+            update(1, 12, r#"{"ownerId":"alice","n":2}"#),
+            update(3, 13, r#"{"n":1}"#),
+            update(3, 14, r#"{"ownerId":"bob","n":2}"#),
+        ],
+        &[Value::Int32(1), Value::Int32(3)],
+        vec![doc(r#"{"_id":1,"ownerId":"alice","n":2}"#), doc(r#"{"_id":3,"ownerId":"bob","n":2}"#)],
+    );
+    let events: Vec<_> = outputs
+        .into_iter()
+        .map(|output| match output {
+            Output::Watch { conn: target, frame } => {
+                assert_eq!(target, conn);
+                (
+                    frame.ct,
+                    frame.op,
+                    canopy_protocol::bson::decode_document(&frame.image).expect("watch image"),
+                )
+            }
+            other => panic!("unexpected watch output: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        events,
+        vec![
+            (Ct(11), Op::Update, doc(r#"{"id":1,"d":{"_id":1,"ownerId":"alice","n":2}}"#)),
+            (Ct(12), Op::Update, doc(r#"{"id":1,"d":{"_id":1,"ownerId":"alice","n":2}}"#)),
+            (Ct(13), Op::Delete, doc(r#"{"id":3}"#)),
+        ],
+    );
+}
+
+#[test]
+fn a_missing_watch_update_image_requires_resync() {
+    let (mut h, conn) = ready_watch();
+    let outputs = watch_lookup(&mut h, vec![event(Op::Update, 1, None, 11)], &[Value::Int32(1)], Vec::new());
+    assert!(matches!(&outputs[..], [Output::Frame { conn: target, frame }]
+        if *target == conn && frame.text().contains(r#""reason":"missing_update_image""#)));
+    let sid = h.engine.sid_of(conn).expect("watch session");
+    assert!(h.engine.sessions[&sid].subs.is_empty());
+}
+
+fn ready_watch() -> (Harness, ConnId) {
+    let mut h = Harness::new(policies(None));
+    let conn = 1;
+    h.engine.open_watch(conn, None, user("alice", &[]), h.now);
+    h.send(conn, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    assert_eq!(h.reads.len(), 1);
+    h.answer_reads(&seed(), Ct(10));
+    (h, conn)
+}
+
+fn watch_lookup(
+    h: &mut Harness,
+    events: Vec<Event>,
+    expected_ids: &[Value],
+    images: Vec<Document>,
+) -> Vec<Output> {
+    h.events(events);
+    assert_eq!(h.lookups.len(), 1);
+    let (id, coll, ids) = h.lookups.remove(0);
+    assert_eq!(ids, expected_ids);
+    h.engine.lookup_done(id, &coll, Ok(images), h.now);
+    h.engine.take_outputs()
+}
+
+#[test]
 fn the_subscription_limit_is_enforced() {
     let mut h = Harness::new(policies(None));
     h.engine.config.limits.max_subscriptions_per_connection = 1;

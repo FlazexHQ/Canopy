@@ -1762,6 +1762,7 @@ impl Engine {
     fn start_batch(&mut self, events: Vec<Event>, now: u64) {
         let mut lookups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
         let mut touched: HashSet<&str> = HashSet::new();
+        let mut requested: HashSet<&str> = HashSet::new();
         for event in &events {
             let earlier = !touched.insert(&event.key);
             if event.op != Op::Update || !matches!(event.post, Post::Unknown) {
@@ -1770,7 +1771,9 @@ impl Engine {
             if !earlier && self.registry.candidates(event).is_empty() {
                 continue;
             }
-            lookups.entry(event.coll.clone()).or_default().push(event.id.clone());
+            if requested.insert(&event.key) {
+                lookups.entry(event.coll.clone()).or_default().push(event.id.clone());
+            }
         }
         if lookups.is_empty() {
             self.process(events, now);
@@ -1798,30 +1801,23 @@ impl Engine {
         if !pending.lookups.remove(&id) {
             return;
         }
-        let found: HashMap<String, Document> = documents
+        let found: HashMap<String, Arc<Image>> = documents
             .unwrap_or_default()
             .into_iter()
             .filter_map(|document| {
                 let key = document.get("_id").and_then(|id| doc_key(coll, id))?;
-                Some((key, document))
+                Some((key, Arc::new(Image::from_document(document)?)))
             })
             .collect();
-        let mut seen = HashSet::new();
-        let mut duplicates = HashSet::new();
-        for event in pending.events.iter().filter(|event| event.coll == coll) {
-            if !seen.insert(&event.key) {
-                duplicates.insert(event.key.clone());
-            }
-        }
         let mut uncertain = HashSet::new();
         for event in pending.events.iter_mut().filter(|e| e.coll == coll && e.op == Op::Update) {
             if matches!(event.post, Post::Unknown) {
-                let image = found.get(&event.key).cloned().and_then(Image::from_document);
-                if image.is_none() || duplicates.contains(&event.key) {
+                let image = found.get(&event.key).cloned();
+                if image.is_none() {
                     uncertain.extend(self.registry.candidates(event));
                 }
                 event.post = match image {
-                    Some(image) => Post::Doc(Arc::new(image)),
+                    Some(image) => Post::Doc(image),
                     None => Post::Gone,
                 };
             }
