@@ -56,3 +56,15 @@ deployment issues many MongoDB commands.
 When you embed Canopy with your own `MongoClient` (`createCanopy(config, { mongo })`), create it with
 `monitorCommands: true`, or MongoDB commands are not traced. A client Canopy creates itself has it turned on
 whenever tracing is.
+
+### The native gateway
+
+When the native gateway runs (`CANOPY_REALTIME_SERVER=gateway`, or `canopy-gateway` on its own), it records the
+same request, MongoDB command and policy load spans for the requests it answers itself, with no package to
+install: turn it on with the same `telemetry.tracing` (or `CANOPY_TRACING=true`). It exports them over OTLP/HTTP
+with protobuf, configured by the standard variables: `OTEL_EXPORTER_OTLP_ENDPOINT` (or
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`), `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_TRACES_SAMPLER` and
+`OTEL_TRACES_SAMPLER_ARG`, `OTEL_BSP_SCHEDULE_DELAY` and `OTEL_SERVICE_NAME` (by default `canopy`). It refuses
+to start when `OTEL_EXPORTER_OTLP_PROTOCOL` names another protocol, such as `grpc`, and records nothing when
+`OTEL_SDK_DISABLED=true`. Requests it passes on to the server get no gateway span; the server continues the
+caller's trace.

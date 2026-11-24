@@ -68,5 +68,8 @@
   },
   "log": {
     "level": "info"
+  },
+  "telemetry": {
+    "tracing": false
   }
 }

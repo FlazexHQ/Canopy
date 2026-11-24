@@ -89,6 +89,7 @@ pub(crate) fn resolve(json: Option<&str>) -> Result<GatewayConfig, String> {
         log_level: env("CANOPY_LOG_LEVEL"),
         proxy_url: env("CANOPY_GATEWAY_PROXY_URL"),
         data_plane_routes: list("CANOPY_DATA_PLANE_ROUTES"),
+        tracing: env("CANOPY_TRACING"),
     };
     canopy_config::resolve(json, fallback)
 }

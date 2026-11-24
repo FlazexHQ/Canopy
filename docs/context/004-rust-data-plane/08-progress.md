@@ -9,7 +9,7 @@ This document records completed tasks, open issues, and planned work for the Rus
 **Done (2026-11-24): `_query` (find with a body) in Rust**, commit `a30e8fc`. `DataPlaneRoute::Query` (`query`) in `canopy-config` and its schema, `Served::query` in the gateway, and `query` selected by the gateway reads replay, the switch test, the DLS equivalence of the read actions (each filter also sent to `_query`, plus a `_query` projecting the hidden field) and the D1 benchmark (scenario "query page of 20"). Verified: 307 Rust tests on MongoDB 8 and 9, the switch, contract and DLS equivalence suites on both (560 reads through REST and the Rust routes, nothing hidden shown).
 
 **Remaining, in order:**
-1. **Tracing spans on the Rust routes:** waits on the user's decision about OpenTelemetry crates (with an OTLP exporter from the `OTEL_*` variables) in the gateway.
+1. **Tracing spans on the Rust routes: done (2026-11-24).** Decided under the user's standing goal to finish the plan: the OpenTelemetry crates (`opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` 0.33 with `http-proto` and the blocking reqwest client, nine new crates, all Apache 2.0 or MIT, `cargo deny` clean) in `canopy-gateway/src/telemetry.rs`. `telemetry.tracing` (or `CANOPY_TRACING`, passed by the launcher) turns it on; a server span per request a Rust route answers (continuing `traceparent`), a client span per MongoDB command (the driver's command events, parented through the OpenTelemetry context of the request future), `canopy.policy.load` for database policy loads; OTLP/HTTP protobuf only (another `OTEL_EXPORTER_OTLP_PROTOCOL` stops the gateway). Tested end to end against a fake collector in `crates/canopy-gateway/tests/data_plane.rs`. Realtime fan out spans (`canopy.realtime.fanout`) are not recorded by the gateway yet.
 2. **`POST /rest/v1/{coll}/_explain` from Rust: done (2026-11-24).** The route is selectable as `explain`; its oracle is `conformance/http/reads/cases/explain.json` (39 cases: stated callers, roles, filters, counts, context lookups given and resolved, refusals); `canopy_policy::access_report_document` (moved from `canopy-engine`) writes the report for both the route and realtime `o.explain`. Replays 167 of 167 reads on MongoDB 8 and 9.
 3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
 4. **`conformance/errors.json`**, the single source of `CanopyError` codes for both languages.
@@ -26,7 +26,7 @@ Ordered as the work should proceed:
 
 ### Stage D1: Complete REST Reads in Rust
 1. **`_query` route integration:** done (`a30e8fc`).
-2. **Tracing spans on Rust routes:** implement request spans in `canopy-gateway` using the agreed OpenTelemetry crates, continuing `traceparent` headers with low cardinality route names.
+2. **Tracing spans on Rust routes:** done (OTLP/HTTP from `canopy-gateway/src/telemetry.rs`); fan out spans of the realtime engine remain.
 3. **`POST /rest/v1/{coll}/_explain` from Rust:** done, selectable as `explain`.
 4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
 5. **`conformance/errors.json`:** generate canonical error definitions driving TypeScript classes and Rust enums.

@@ -11,6 +11,7 @@ mod log;
 mod proxy;
 mod request_log;
 mod server;
+mod telemetry;
 
 use std::convert::Infallible;
 use std::io::BufRead as _;
@@ -38,6 +39,7 @@ use tokio::sync::Notify;
 use crate::data_plane::{DataPlane, PolicyUpdates};
 use crate::log::Log;
 use crate::server::{Routes, ShardRoutes};
+use crate::telemetry::Telemetry;
 
 const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -]
 
@@ -150,13 +152,22 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
     options.app_name = Some("canopy-gateway".to_owned());
+    let telemetry = if config.tracing { Telemetry::start()? } else { None };
+    if let Some(telemetry) = &telemetry {
+        options.command_event_handler = Some(telemetry.command_handler());
+    }
     let client = mongodb::Client::with_options(options).map_err(|error| error.to_string())?;
     let meta = client.database(&config.meta_database);
     let set = match &config.policies {
         Policies::Stored { collections, contexts } => policies_from_stored(collections, contexts.as_ref())
             .map_err(|error| error.message().to_owned())?,
         Policies::Database { .. } => {
-            load_policies(&meta).await.map_err(|error| error.message().to_owned())?
+            let load = load_policies(&meta);
+            match &telemetry {
+                Some(telemetry) => telemetry.policy_load(load).await,
+                None => load.await,
+            }
+            .map_err(|error| error.message().to_owned())?
         }
     };
     let data_policies = (!config.data_plane_routes.is_empty())
@@ -244,8 +255,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         }
         None => None,
     };
-    let data_plane = data_policies
-        .map(|policies| DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log));
+    let data_plane = data_policies.map(|policies| {
+        DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log, telemetry.clone())
+    });
     let routes = Arc::new(Routes {
         ready: Arc::clone(&stream_open),
         trusted_proxies: config.trusted_proxies.clone(),
@@ -301,7 +313,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .run(diagnostics),
     );
     if let Policies::Database { watch: true } = config.policies {
-        tokio::spawn(watch_policies(meta.clone(), policy_updates.clone(), log));
+        tokio::spawn(watch_policies(meta.clone(), policy_updates.clone(), log, telemetry.clone()));
     }
     let stdin_closed = Arc::new(Notify::new());
     if control {
@@ -364,6 +376,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     }
     realtime.close_http();
     tokio::time::sleep(Duration::from_millis(100)).await;
+    if let Some(telemetry) = telemetry {
+        let _ = tokio::task::spawn_blocking(move || telemetry.shutdown()).await;
+    }
     log.info("stopped", &[]);
     Ok(())
 }
@@ -394,8 +409,18 @@ async fn shutdown_signal(stdin_closed: Arc<Notify>) {
     }
 }
 
-async fn reload_policies(meta: &mongodb::Database, updates: &PolicyUpdates, log: Log) {
-    match load_policies(meta).await {
+async fn reload_policies(
+    meta: &mongodb::Database,
+    updates: &PolicyUpdates,
+    log: Log,
+    telemetry: Option<&Telemetry>,
+) {
+    let load = load_policies(meta);
+    let loaded = match telemetry {
+        Some(telemetry) => telemetry.policy_load(load).await,
+        None => load.await,
+    };
+    match loaded {
         Ok(set) => updates.publish(set),
         Err(error) => {
             log.error("policy reload rejected, keeping the previous policies", &[("err", error.message())]);
@@ -405,17 +430,22 @@ async fn reload_policies(meta: &mongodb::Database, updates: &PolicyUpdates, log:
 
 /// Follows the policies of the meta database. Once the stream is open the policies are read again, so a change
 /// published while the stream was down is applied too: a revoked permission never outlives a broken watch.
-async fn watch_policies(meta: mongodb::Database, updates: PolicyUpdates, log: Log) {
+async fn watch_policies(
+    meta: mongodb::Database,
+    updates: PolicyUpdates,
+    log: Log,
+    telemetry: Option<Telemetry>,
+) {
     let policies = meta.collection::<mongodb::bson::Document>("policies");
     loop {
         match policies.watch().await {
             Ok(mut stream) => {
-                reload_policies(&meta, &updates, log).await;
+                reload_policies(&meta, &updates, log, telemetry.as_ref()).await;
                 while let Some(event) = stream.next().await {
                     if event.is_err() {
                         break;
                     }
-                    reload_policies(&meta, &updates, log).await;
+                    reload_policies(&meta, &updates, log, telemetry.as_ref()).await;
                 }
             }
             Err(error) => log.warn("could not watch the policies", &[("err", &error.to_string())]),

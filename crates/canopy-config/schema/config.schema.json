@@ -167,6 +167,15 @@
     "mutations": { "properties": { "url": { "$ref": "#/$defs/string" } } },
     "proxy": { "properties": { "url": { "$ref": "#/$defs/string" } } },
     "log": { "properties": { "level": { "$ref": "#/$defs/string", "default": "info" } } },
+    "telemetry": {
+      "properties": {
+        "tracing": {
+          "type": "boolean",
+          "default": false,
+          "description": "Records OpenTelemetry traces of the requests the gateway answers itself, their MongoDB commands and the policy loads, exported over OTLP/HTTP as the OTEL_* variables say. Replaces CANOPY_TRACING (true, false, 1 or 0)."
+        }
+      }
+    },
     "rest": {
       "description": "The Data API settings a data plane route needs. Only the literal false disables the Data API, and then dataPlane.routes must be empty. Positive numbers are truncated. The default limit must not exceed the maximum.",
       "properties": {

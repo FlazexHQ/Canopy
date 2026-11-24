@@ -52,6 +52,9 @@
   "log": {
     "level": "info"
   },
+  "telemetry": {
+    "tracing": true
+  },
   "dataPlane": {
     "routes": ["find", "count", "distinct", "aggregate", "query", "explain"]
   }

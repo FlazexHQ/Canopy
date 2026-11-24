@@ -171,11 +171,9 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         assert_eq!((response.status, response.header("allow")), (405, Some("POST")));
         assert!(!rest.owns("POST", &format!("/rest/v1/todos/7/{action}")));
     }
-    for (method, target) in [
-        ("POST", "/rest/v1/todos"),
-        ("GET", "/rest/v1/todos/7"),
-        ("POST", "/rest/v1/_batch"),
-    ] {
+    for (method, target) in
+        [("POST", "/rest/v1/todos"), ("GET", "/rest/v1/todos/7"), ("POST", "/rest/v1/_batch")]
+    {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's");
     }
 

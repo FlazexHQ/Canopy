@@ -49,7 +49,7 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
     - `_query` route implemented in `canopy-http` (replaying 45 query cases byte for byte).
   - What Remains for D1 Gate Completion:
     1. `_query` route integration: done (`a30e8fc`), selectable as `query`.
-    2. OpenTelemetry tracing spans on Rust routes: resolve OpenTelemetry crate choices for the gateway and wire request spans.
+    2. OpenTelemetry tracing spans on Rust routes: done (`canopy-gateway/src/telemetry.rs`, OTLP/HTTP protobuf, `telemetry.tracing`).
     3. `POST /rest/v1/{collection}/_explain` from Rust: done, selectable as `explain`, replaying `conformance/http/reads/cases/explain.json`.
     4. Gate numbers of record: execute D0 and D1 benchmarks on Linux reference hardware and a same region MongoDB Atlas cluster.
     5. `conformance/errors.json`: extract canonical error definitions driving TypeScript classes and Rust enums.

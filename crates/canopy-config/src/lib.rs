@@ -249,6 +249,8 @@ pub struct GatewayConfig {
     /// The collections whose Data API aggregations may start with `$search` or `$vectorSearch`, as
     /// `rest.search` lists them.
     pub search_collections: Vec<String>,
+    /// Whether to record OpenTelemetry traces (`telemetry.tracing`), exported as the `OTEL_*` variables say.
+    pub tracing: bool,
 }
 
 type ConfigResult<T> = Result<T, String>;
@@ -431,6 +433,8 @@ pub struct Fallbacks {
     pub proxy_url: Option<String>,
     /// The Data API routes the gateway serves itself, by name.
     pub data_plane_routes: Option<Vec<String>>,
+    /// Whether to record traces, as `CANOPY_TRACING` spells it: `true`, `false`, `1` or `0`.
+    pub tracing: Option<String>,
 }
 
 /// Parses a launcher document with the built in defaults.
@@ -568,6 +572,15 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         !matches!(get(&doc, &["rest"]), Some(Json::Bool(false))),
     )?;
     let rest_limits = rest_limits(&doc)?;
+    let tracing = match get(&doc, &["telemetry", "tracing"]) {
+        Some(Json::Bool(tracing)) => *tracing,
+        Some(_) => return Err("telemetry.tracing must be true or false".to_owned()),
+        None => match fallback.tracing.as_deref().map(|value| value.trim().to_lowercase()).as_deref() {
+            None | Some("false" | "0") => false,
+            Some("true" | "1") => true,
+            Some(_) => return Err("CANOPY_TRACING must be true, false, 1 or 0".to_owned()),
+        },
+    };
     Ok(GatewayConfig {
         mongodb_uri,
         database,
@@ -616,6 +629,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         data_plane_routes,
         rest_limits,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
+        tracing,
     })
 }
 

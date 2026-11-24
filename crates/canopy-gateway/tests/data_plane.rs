@@ -24,6 +24,11 @@ use hyper::body::{Bytes, Incoming};
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
+use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
+use opentelemetry_proto::tonic::common::v1::{KeyValue, any_value};
+use opentelemetry_proto::tonic::trace::v1::Span;
+use opentelemetry_proto::tonic::trace::v1::span::SpanKind;
+use prost::Message as _;
 
 const GATEWAY: &str = env!("CARGO_BIN_EXE_canopy-gateway");
 
@@ -72,12 +77,23 @@ struct Gateway {
 impl Gateway {
     /// Starts the gateway on `config` (with `routes` from the environment when given) and waits until it listens.
     async fn start(config: String, routes: Option<&str>) -> Gateway {
+        Gateway::start_with(config, routes, &[]).await
+    }
+
+    /// Starts the gateway as [`Gateway::start`] does, with `env` set and no other `OTEL_*` variable.
+    async fn start_with(config: String, routes: Option<&str>, env: &[(&str, &str)]) -> Gateway {
         let mut command = Command::new(GATEWAY);
         command.args(["--config", "-"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
-        command.env_remove("CANOPY_DATA_PLANE_ROUTES");
+        command.env_remove("CANOPY_DATA_PLANE_ROUTES").env_remove("CANOPY_TRACING");
+        for (name, _) in std::env::vars() {
+            if name.starts_with("OTEL_") {
+                command.env_remove(name);
+            }
+        }
         if let Some(routes) = routes {
             command.env("CANOPY_DATA_PLANE_ROUTES", routes);
         }
+        command.envs(env.iter().copied());
         let mut child = command.spawn().expect("the gateway starts");
         let stdin = child.stdin.as_mut().expect("standard input");
         stdin.write_all(format!("{config}\n").as_bytes()).expect("the configuration is written");
@@ -406,6 +422,172 @@ async fn the_requests_the_routes_answer_are_sampled_into_the_request_log() {
     assert!(logged[1].1.is_empty(), "nothing is kept at a rate of 0: {:?}", logged[1].1);
 }
 
+/// What a collector received: every span of every OTLP/HTTP export, with the service name of its resource.
+type Exported = Arc<Mutex<Vec<(String, Span)>>>;
+
+/// An OTLP/HTTP collector that decodes the protobuf exports sent to `/v1/traces`.
+async fn collector() -> (u16, Exported) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("a collector port");
+    let port = listener.local_addr().expect("an address").port();
+    let exported: Exported = Arc::default();
+    let spans = Arc::clone(&exported);
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = listener.accept().await {
+            let spans = Arc::clone(&spans);
+            tokio::spawn(async move {
+                let service = service_fn(move |request: Request<Incoming>| {
+                    let spans = Arc::clone(&spans);
+                    async move {
+                        let path = request.uri().path().to_owned();
+                        let body = request.into_body().collect().await.expect("a body").to_bytes();
+                        if path == "/v1/traces" {
+                            let export = ExportTraceServiceRequest::decode(body).expect("an OTLP export");
+                            let mut spans = spans.lock().expect("the spans");
+                            for resource in export.resource_spans {
+                                let service = resource
+                                    .resource
+                                    .iter()
+                                    .flat_map(|resource| &resource.attributes)
+                                    .find(|attribute| attribute.key == "service.name")
+                                    .map(attribute_text)
+                                    .unwrap_or_default();
+                                for scope in resource.scope_spans {
+                                    spans.extend(scope.spans.into_iter().map(|span| (service.clone(), span)));
+                                }
+                            }
+                        }
+                        let mut response = Response::new(Full::new(Bytes::new()));
+                        response.headers_mut().insert(
+                            "content-type",
+                            "application/x-protobuf".parse().expect("a header value"),
+                        );
+                        Ok::<_, std::convert::Infallible>(response)
+                    }
+                });
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(socket), service)
+                    .await;
+            });
+        }
+    });
+    (port, exported)
+}
+
+fn attribute_text(attribute: &KeyValue) -> String {
+    match attribute.value.as_ref().and_then(|value| value.value.as_ref()) {
+        Some(any_value::Value::StringValue(text)) => text.clone(),
+        Some(any_value::Value::IntValue(number)) => number.to_string(),
+        Some(any_value::Value::BoolValue(flag)) => flag.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+fn attribute(span: &Span, key: &str) -> Option<String> {
+    span.attributes.iter().find(|attribute| attribute.key == key).map(attribute_text)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn traces_continue_the_callers_trace_and_name_only_routes_and_commands() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set to read from");
+        return;
+    };
+    let fixture = fixture();
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopy_gateway_traces_rs");
+    seed(&client.database(&database), &fixture).await;
+    let (upstream_port, seen) = upstream().await;
+    let (collector_port, exported) = collector().await;
+    let endpoint = format!("http://127.0.0.1:{collector_port}");
+    let gateway = Gateway::start_with(
+        launcher(&fixture, &uri, &database, upstream_port, r#","telemetry":{"tracing":true}"#),
+        Some("find,count"),
+        &[("OTEL_EXPORTER_OTLP_ENDPOINT", &endpoint), ("OTEL_BSP_SCHEDULE_DELAY", "50")],
+    )
+    .await;
+    let trace = "4bf92f3577b34da6a3ce929d0e0e4736";
+    let parent = "00f067aa0ba902b7";
+    let find = common::get_as(&fixture, "alice", "/rest/v1/todos?title=eq.todo%201")
+        .with_header("traceparent", format!("00-{trace}-{parent}-01"));
+    let found = gateway.send(&find).await;
+    let mut count = common::get_as(&fixture, "alice", "/rest/v1/todos/_count");
+    count.method = "POST".to_owned();
+    count = count.with_header("content-type", "application/json");
+    count.body = canopy_http::Body::Bytes(b"{}".to_vec());
+    let counted = gateway.send(&count).await;
+    let mut insert = common::get_as(&fixture, "alice", "/rest/v1/todos");
+    insert.method = "POST".to_owned();
+    insert.body = canopy_http::Body::Bytes(b"{}".to_vec());
+    let proxied = gateway.send(&insert.with_header("traceparent", format!("00-{trace}-{parent}-01"))).await;
+    assert_eq!((found.status, counted.status), (200, 200));
+    assert_eq!(proxied.header("x-upstream"), Some("yes"));
+
+    let started = Instant::now();
+    let spans = loop {
+        let spans = exported.lock().expect("the spans").clone();
+        let servers = spans.iter().filter(|(_, span)| span.kind == SpanKind::Server as i32).count();
+        let commands = spans.iter().filter(|(_, span)| span.kind == SpanKind::Client as i32).count();
+        if servers >= 2 && commands >= 2 {
+            break spans;
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "no spans were exported: {spans:?}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    drop(gateway);
+    client.database(&database).drop().await.expect("the scratch database drops");
+
+    let servers: Vec<&Span> =
+        spans.iter().map(|(_, span)| span).filter(|span| span.kind == SpanKind::Server as i32).collect();
+    assert_eq!(servers.len(), 2, "one server span per request a route answers, none for the upstream's");
+    let get = servers.iter().find(|span| span.name == "GET /rest/v1").expect("the find span");
+    assert_eq!(hex(&get.trace_id), trace, "the caller's trace continues");
+    assert_eq!(hex(&get.parent_span_id), parent, "the caller's span is the parent");
+    assert_eq!(attribute(get, "http.request.method").as_deref(), Some("GET"));
+    assert_eq!(attribute(get, "http.route").as_deref(), Some("/rest/v1"));
+    assert_eq!(attribute(get, "url.path").as_deref(), Some("/rest/v1/todos"));
+    assert_eq!(attribute(get, "http.response.status_code").as_deref(), Some("200"));
+    let post = servers.iter().find(|span| span.name == "POST /rest/v1").expect("the count span");
+    assert_ne!(hex(&post.trace_id), trace, "a request without traceparent starts its own trace");
+    assert!(post.parent_span_id.is_empty());
+    assert_eq!(attribute(post, "url.path").as_deref(), Some("/rest/v1/todos/_count"));
+
+    for server in [get, post] {
+        let children: Vec<&Span> = spans
+            .iter()
+            .map(|(_, span)| span)
+            .filter(|span| span.kind == SpanKind::Client as i32 && span.parent_span_id == server.span_id)
+            .collect();
+        let read = children
+            .iter()
+            .find(|span| attribute(span, "db.collection.name").as_deref() == Some("todos"))
+            .unwrap_or_else(|| panic!("{} has no MongoDB span of todos: {children:?}", server.name));
+        assert_eq!(read.trace_id, server.trace_id);
+        assert_eq!(attribute(read, "db.system.name").as_deref(), Some("mongodb"));
+        assert_eq!(attribute(read, "db.namespace").as_deref(), Some(database.as_str()));
+        let operation = attribute(read, "db.operation.name").expect("an operation");
+        assert_eq!(read.name, format!("{operation} {database}.todos"));
+    }
+    for (service, span) in &spans {
+        assert_eq!(service, "canopy");
+        let text = format!("{} {:?}", span.name, span.attributes);
+        for private in ["alice", "todo 1", "canopy_pk", "Bearer"] {
+            assert!(!text.contains(private), "a span carries {private}: {text}");
+        }
+        assert!(
+            !["hello", "isMaster", "ismaster", "ping", "endSessions"]
+                .iter()
+                .any(|quiet| span.name.starts_with(quiet)),
+            "{} is traced",
+            span.name
+        );
+    }
+    assert_eq!(seen.lock().unwrap().len(), 1, "only the insert reached the upstream");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_body_beyond_the_limit_answers_413_and_never_reaches_the_upstream() {
     let fixture = fixture();
@@ -574,13 +756,39 @@ fn refused(config: &str, routes: Option<&str>) -> (Option<i32>, String) {
 }
 
 #[test]
+fn an_export_protocol_the_gateway_does_not_speak_stops_it_at_startup() {
+    let document = r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"server":{"port":0,"metricsPort":0},"telemetry":{"tracing":true}}"#;
+    let mut command = Command::new(GATEWAY);
+    command.args(["--config", "-"]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped());
+    for (name, _) in std::env::vars() {
+        if name.starts_with("OTEL_") || name == "CANOPY_TRACING" {
+            command.env_remove(name);
+        }
+    }
+    command.env("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc");
+    let mut child = command.spawn().expect("the gateway starts");
+    child
+        .stdin
+        .as_mut()
+        .expect("standard input")
+        .write_all(format!("{document}\n").as_bytes())
+        .expect("written");
+    let output = child.wait_with_output().expect("the gateway exits");
+    assert_eq!(output.status.code(), Some(1));
+    let message = String::from_utf8_lossy(&output.stderr);
+    assert!(message.contains("OTEL_EXPORTER_OTLP_PROTOCOL must be http/protobuf, not grpc"), "{message}");
+}
+
+#[test]
 fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
     let document = r#"{"mongodb":{"uri":"mongodb://127.0.0.1:1/app"},"server":{"port":0,"metricsPort":0}}"#;
     for routes in ["batch", "find,insert", "QUERY", "find;count"] {
         let (code, message) = refused(document, Some(routes));
         assert_eq!(code, Some(1), "{routes}");
         assert!(
-            message.contains("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not"),
+            message.contains(
+                "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not"
+            ),
             "{routes}: {message}"
         );
     }

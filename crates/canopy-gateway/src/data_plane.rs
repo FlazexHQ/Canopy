@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use canopy_auth::{Authenticator, BucketSpec, RateLimitOptions, RateLimits};
 
 use crate::request_log::{Logged, RequestLog};
+use crate::telemetry::Telemetry;
 use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
 use canopy_data::{Policies, ReadLimits, ReadPath};
 use canopy_http::{Rest, RestOptions, Served};
@@ -17,12 +18,14 @@ use http_body_util::{BodyExt, LengthLimitError, Limited};
 use hyper::body::{Bytes, Incoming};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
+use opentelemetry::context::FutureExt;
 
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
     rest: Rest,
     rate_limited: Arc<AtomicU64>,
     request_log: Option<Arc<RequestLog>>,
+    telemetry: Option<Telemetry>,
 }
 
 impl DataPlane {
@@ -34,6 +37,7 @@ impl DataPlane {
         auth: Authenticator,
         policies: Policies,
         request_log: Option<Arc<RequestLog>>,
+        telemetry: Option<Telemetry>,
     ) -> DataPlane {
         let limits = ReadLimits {
             default_limit: config.rest_limits.default_limit,
@@ -80,7 +84,7 @@ impl DataPlane {
             });
             rest = rest.with_rate_limits(Arc::new(limits), Some(count));
         }
-        DataPlane { rest, rate_limited, request_log }
+        DataPlane { rest, rate_limited, request_log, telemetry }
     }
 
     /// The Prometheus lines of the routes: the requests the rate limits refused.
@@ -126,7 +130,18 @@ impl DataPlane {
                 Err(_) => canopy_http::Body::Unreadable,
             };
         }
-        let response = match self.rest.serve(&plain).await {
+        let span = self
+            .telemetry
+            .as_ref()
+            .map(|telemetry| telemetry.server(&plain.method, parts.uri.path(), &plain.headers));
+        let answered = match &span {
+            Some(context) => self.rest.serve(&plain).with_context(context.clone()).await,
+            None => self.rest.serve(&plain).await,
+        };
+        if let Some(context) = &span {
+            Telemetry::finish(context, answered.as_ref().map_or(500, |response| response.status));
+        }
+        let response = match answered {
             Some(response) => response,
             None => return full(StatusCode::INTERNAL_SERVER_ERROR, Bytes::from_static(b"Internal error")),
         };

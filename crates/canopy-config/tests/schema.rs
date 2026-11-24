@@ -33,6 +33,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "mutations",
             "proxy",
             "log",
+            "telemetry",
             "rest",
             "dataPlane",
             "viewTokens"
@@ -40,6 +41,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
     );
     for (path, expected) in [
         (&["mongodb", "properties"][..], &["uri", "database", "metaDatabase"][..]),
+        (&["telemetry", "properties"], &["tracing"]),
         (
             &["server", "properties"],
             &[
@@ -418,5 +420,31 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
             assert!(parse(&document).is_ok(), "{key}: {option}");
         }
     }
+    Ok(())
+}
+
+#[test]
+fn tracing_comes_from_the_document_or_canopy_tracing_and_the_document_wins() -> Result<(), String> {
+    let uri = r#""mongodb":{"uri":"mongodb://h/app"}"#;
+    let from_host = |value: &str| Fallbacks { tracing: Some(value.to_owned()), ..Fallbacks::default() };
+    let tracing = |document: &str, fallback: Fallbacks| resolve(Some(document), fallback).map(|c| c.tracing);
+    let plain = format!("{{{uri}}}");
+    assert!(!tracing(&plain, Fallbacks::default())?, "off by default");
+    for (value, expected) in [("true", true), ("1", true), (" TRUE ", true), ("false", false), ("0", false)] {
+        assert_eq!(tracing(&plain, from_host(value))?, expected, "{value}");
+    }
+    assert_eq!(
+        tracing(&plain, from_host("yes")).err().as_deref(),
+        Some("CANOPY_TRACING must be true, false, 1 or 0")
+    );
+    let document = |value: &str| format!(r#"{{{uri},"telemetry":{{"tracing":{value}}}}}"#);
+    assert!(tracing(&document("true"), Fallbacks::default())?);
+    assert!(!tracing(&document("false"), from_host("true"))?, "the document beats the variable");
+    assert!(tracing(&document("true"), from_host("nonsense"))?);
+    assert!(tracing(&format!(r#"{{{uri},"telemetry":{{}}}}"#), from_host("1"))?);
+    assert_eq!(
+        tracing(&document(r#""true""#), Fallbacks::default()).err().as_deref(),
+        Some("telemetry.tracing must be true or false")
+    );
     Ok(())
 }

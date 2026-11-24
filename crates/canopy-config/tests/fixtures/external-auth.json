@@ -54,5 +54,8 @@
   },
   "log": {
     "level": "debug"
+  },
+  "telemetry": {
+    "tracing": false
   }
 }

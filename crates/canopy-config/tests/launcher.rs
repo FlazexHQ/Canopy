@@ -18,6 +18,7 @@ fn reads_minimal_launcher_config() -> Result<(), String> {
     assert_eq!(config.mongodb_uri, "mongodb://db.example.test/app");
     assert_eq!(config.database, "app");
     assert_eq!(config.meta_database, "canopy");
+    assert!(!config.tracing, "tracing is off unless telemetry.tracing says so");
     assert_eq!(config.port, 8080);
     assert_eq!(config.metrics_port, Some(9464));
     assert_eq!(config.metrics_host, "127.0.0.1");
@@ -60,6 +61,7 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
         RestLimits { default_limit: 25, max_limit: 250, max_skip: 10_000, max_body_bytes: 4096 }
     );
     assert_eq!(config.search_collections, ["articles"]);
+    assert!(config.tracing);
     let host = Fallbacks { data_plane_routes: Some(vec!["unknown".to_owned()]), ..Fallbacks::default() };
     assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, config.data_plane_routes);
     Ok(())

@@ -65,6 +65,7 @@ const cases: readonly Fixture[] = [
     input: {
       rest: { defaultLimit: 25, maxLimit: 250, maxBodyBytes: 4096 },
       collections: { articles: { search: true }, notes: {} },
+      telemetry: { tracing: true },
     },
     overrides: { dataPlaneRoutes: ["find", "count", "distinct", "aggregate", "query", "explain"] },
   },

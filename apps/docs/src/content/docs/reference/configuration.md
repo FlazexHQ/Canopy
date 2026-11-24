@@ -108,8 +108,9 @@ Rust, with the same policies, keys and tokens: `find` (`GET /rest/v1/{collection
 `CANOPY_DATA_PLANE_ROUTES=find,count`. Every other request goes to the TypeScript server as before. Unknown route
 names stop the gateway at startup. The Rust routes apply `rateLimits.requests` and
 `rateLimits.failedAuthentications` as the server does, counted by the gateway on its own, so a caller has one
-budget there and one on the server. They write sampled requests to the request log as the server does, but record no
-tracing spans yet.
+budget there and one on the server. They write sampled requests to the request log as the server does, and with
+`CANOPY_TRACING` they record the server's spans, exported over OTLP/HTTP (see
+[metrics and tracing](/operations/tracing/)).
 
 ## `rateLimits`
 
