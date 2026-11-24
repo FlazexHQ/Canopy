@@ -193,7 +193,8 @@ impl ReadPath {
         self.find_page(caller, request, None).await
     }
 
-    /// Reads one bounded snapshot for a transport that batches the result itself.
+    /// Reads one page with a byte budget for buffered BSON and per document overhead.
+    /// A page that reaches the byte budget can be continued with its next cursor.
     /// An omitted limit uses the maximum permitted find limit.
     pub async fn find_bounded(
         &self,
@@ -265,7 +266,7 @@ impl ReadPath {
             collection: name,
             filter: &filter,
             sort: &sort,
-            limit: limit.saturating_add(u32::from(max_bytes.is_none())),
+            limit: limit.saturating_add(1),
             max_bytes,
             skip,
             projection: pushdown.as_ref(),
@@ -274,7 +275,7 @@ impl ReadPath {
         };
         let result = read_page(&self.client, &self.db, read, service).await?;
         let page_len = usize::try_from(limit).unwrap_or(usize::MAX);
-        let more = result.documents.len() > page_len;
+        let more = result.more || result.documents.len() > page_len;
         let mut raws = result.documents;
         raws.truncate(page_len);
         let next = match raws.last() {

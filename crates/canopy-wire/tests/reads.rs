@@ -198,7 +198,7 @@ async fn refuses_out_of_scope_reads_and_unsupported_options() {
         doc! { "find": "notes", "sort": { "secret": 1 }, "$db": db },
         doc! { "find": "notes", "collation": { "locale": "en" }, "$db": db },
         doc! { "find": "notes", "hint": { "_id": 1 }, "$db": db },
-        doc! { "find": "notes", "limit": 1001, "$db": db },
+        doc! { "find": "notes", "limit": -1, "$db": db },
         doc! { "find": "notes", "skip": 10001, "$db": db },
         doc! { "aggregate": "notes", "pipeline": [{ "$out": "target" }], "cursor": {}, "$db": db },
         doc! { "aggregate": "notes", "pipeline": [{ "$merge": "target" }], "cursor": {}, "$db": db },
@@ -209,5 +209,145 @@ async fn refuses_out_of_scope_reads_and_unsupported_options() {
     let changes =
         doc! { "aggregate": "notes", "pipeline": [{ "$changeStream": {} }], "cursor": {}, "$db": db };
     denied(&command(&mut session, changes).await, 59, "CommandNotFound");
+    path.database().drop().await.unwrap();
+}
+
+#[tokio::test]
+async fn find_continues_across_data_api_pages_with_limits_and_skip() {
+    let Some(path) = fixture("pages").await else { return };
+    let db = path.database().name();
+    let max = path.limits().max_limit;
+    let seeded = max + 5;
+    path.database()
+        .collection("notes")
+        .insert_many((0..seeded).flat_map(|index| {
+            let id = 10 + i32::try_from(index).unwrap() * 2;
+            [
+                doc! { "_id": id, "owner": "oidc-user", "tag": "paged", "secret": "hidden" },
+                doc! { "_id": id + 1, "owner": "other", "tag": "paged", "secret": "hidden" },
+            ]
+        }))
+        .await
+        .unwrap();
+    let filter = doc! { "tag": "paged" };
+    let filter = canopy_protocol::bson::decode_document(&filter.to_vec().unwrap()).unwrap();
+    for (subject, offset) in [("oidc-user", 0), ("other", 1)] {
+        let mut session = authenticated(&path, subject).await;
+        let caller = path.caller(session.principal().unwrap(), Some(&["notes"])).await.unwrap();
+        for (limit, skip) in [(None, 0), (Some(3), 0), (Some(max + 2), 1), (None, 3)] {
+            let mut request = FindRequest {
+                collection: "notes".into(),
+                filter: filter.clone(),
+                skip: Some(skip),
+                limit: Some(max),
+                ..FindRequest::default()
+            };
+            let mut expected = Vec::new();
+            loop {
+                let page = path.find(&caller, request.clone()).await.unwrap();
+                expected.extend(
+                    page.documents().unwrap().iter().map(|doc| Bson::Document(to_bson(doc).unwrap())),
+                );
+                let Some(after) = page.next else { break };
+                request.after = Some(after);
+                request.skip = None;
+            }
+            if let Some(limit) = limit {
+                expected.truncate(usize::try_from(limit).unwrap());
+            }
+
+            let mut find = doc! {
+                "find": "notes", "$db": db, "filter": { "tag": "paged" },
+                "skip": i64::try_from(skip).unwrap(), "batchSize": 97,
+            };
+            if let Some(limit) = limit {
+                find.insert("limit", i64::from(limit));
+            }
+            let reply = command(&mut session, find).await;
+            let (mut id, first) = batch(&reply, "firstBatch");
+            assert!(first.len() <= 97);
+            let mut actual = first.to_vec();
+            let mut round_trips = 0;
+            while id != 0 {
+                round_trips += 1;
+                assert!(round_trips < 20);
+                let reply = command(
+                    &mut session,
+                    doc! { "getMore": id, "$db": db, "collection": "notes", "batchSize": 97 },
+                )
+                .await;
+                let (next_id, next) = batch(&reply, "nextBatch");
+                assert!(next_id == 0 || next_id == id);
+                assert!(!next.is_empty() && next.len() <= 97);
+                actual.extend_from_slice(next);
+                id = next_id;
+            }
+            assert_eq!(actual, expected);
+            let skip = u32::try_from(skip).unwrap();
+            let len = limit.unwrap_or(seeded - skip);
+            assert_eq!(actual.len(), usize::try_from(len).unwrap());
+            if len > max {
+                assert!(round_trips > 1);
+            }
+            for (index, document) in (skip..skip + len).zip(actual) {
+                let document = document.as_document().unwrap();
+                assert_eq!(document.get_i32("_id").unwrap(), 10 + i32::try_from(index).unwrap() * 2 + offset);
+                assert_eq!(document.get_str("owner").unwrap(), subject);
+                assert!(!document.contains_key("secret"));
+            }
+        }
+    }
+
+    let mut session = authenticated(&path, "oidc-user").await;
+    let reply =
+        command(&mut session, doc! { "aggregate": "notes", "pipeline": [], "cursor": {}, "$db": db }).await;
+    denied(&reply, 2, "BadValue");
+    assert!(reply.get_str("errmsg").unwrap().contains("add a $limit stage"));
+    path.database().drop().await.unwrap();
+}
+
+#[tokio::test]
+async fn wire_find_continues_after_filling_its_bson_buffer() {
+    let Some(path) = fixture("byte_pages").await else { return };
+    let db = path.database().name();
+    let payload = "x".repeat(9 * 1024 * 1024);
+    for id in 10..14 {
+        path.database()
+            .collection("notes")
+            .insert_one(doc! { "_id": id, "owner": "oidc-user", "payload": &payload })
+            .await
+            .unwrap();
+    }
+    let mut session = authenticated(&path, "oidc-user").await;
+    let mut reply = command(
+        &mut session,
+        doc! {
+            "find": "notes", "$db": db, "filter": { "_id": { "$gte": 10 } }, "batchSize": 10,
+        },
+    )
+    .await;
+    for id in 10..14 {
+        let (cursor, documents) = batch(&reply, if id == 10 { "firstBatch" } else { "nextBatch" });
+        assert!(reply.to_vec().unwrap().len() <= 16 * 1024 * 1024);
+        assert_eq!(documents.len(), 1);
+        let document = documents[0].as_document().unwrap();
+        assert_eq!(document.get_i32("_id").unwrap(), id);
+        assert_eq!(document.get_str("payload").unwrap().len(), payload.len());
+        if id == 13 {
+            assert_eq!(cursor, 0);
+        } else {
+            assert_ne!(cursor, 0);
+            reply = command(
+                &mut session,
+                doc! {
+                    "getMore": cursor, "$db": db, "collection": "notes", "batchSize": 10,
+                },
+            )
+            .await;
+        }
+    }
+    let reply = command(&mut session, doc! { "aggregate": "notes", "pipeline": [], "$db": db }).await;
+    denied(&reply, 2, "BadValue");
+    assert_eq!(reply.get_str("errmsg").unwrap(), "The read exceeds the BSON buffer limit");
     path.database().drop().await.unwrap();
 }

@@ -24,8 +24,32 @@ struct Cursor {
     collection: String,
     documents: VecDeque<(Document, usize)>,
     bytes: usize,
+    find: Option<FindCursor>,
     touched: Instant,
     policy: Arc<PolicyEngine>,
+}
+
+struct FindCursor {
+    request: FindRequest,
+    remaining: Option<u64>,
+    query_bytes: usize,
+}
+
+impl FindCursor {
+    async fn read(&mut self, path: &ReadPath, caller: &canopy_data::Caller) -> Result<Vec<Document>> {
+        let page_limit = path.limits().max_limit;
+        self.request.limit = Some(
+            self.remaining.and_then(|n| u32::try_from(n).ok()).map_or(page_limit, |n| n.min(page_limit)),
+        );
+        let page = path.find_bounded(caller, self.request.clone(), BUFFER_BYTES).await.map_err(mapped)?;
+        let documents = page.documents().map_err(mapped)?;
+        if let Some(remaining) = &mut self.remaining {
+            *remaining = remaining.saturating_sub(documents.len() as u64);
+        }
+        self.request.skip = None;
+        self.request.after = page.next.filter(|_| self.remaining != Some(0));
+        documents.iter().map(to_bson).collect::<std::result::Result<_, _>>().map_err(mapped)
+    }
 }
 
 pub(crate) struct Reads {
@@ -95,17 +119,20 @@ impl Reads {
         } else {
             max_time.min(self.path.limits().max_time_ms)
         };
-        match command {
-            "getMore" => self.get_more(body),
-            "killCursors" => self.kill(body),
-            _ => {
-                let path = Arc::clone(&self.path);
-                let read = self.open(&path, principal, command, body);
-                tokio::time::timeout(Duration::from_millis(max_time), read)
-                    .await
-                    .map_err(|_| error(50, "MaxTimeMSExpired", "The operation took too long"))?
-            }
+        if command == "killCursors" {
+            return self.kill(body);
         }
+        let path = Arc::clone(&self.path);
+        let read = async {
+            if command == "getMore" {
+                self.get_more(principal, body).await
+            } else {
+                self.open(&path, principal, command, body).await
+            }
+        };
+        tokio::time::timeout(Duration::from_millis(max_time), read)
+            .await
+            .map_err(|_| error(50, "MaxTimeMSExpired", "The operation took too long"))?
     }
 
     async fn open(
@@ -127,6 +154,7 @@ impl Reads {
         let scope = (!matches!(command, "aggregate" | "listCollections")).then_some(names.as_slice());
         let caller = path.caller(principal, scope).await.map_err(mapped)?;
         let mut single_batch = false;
+        let mut find = None;
         let (documents, batch_size) = match command {
             "find" => {
                 let batch_size = batch_size(body)?;
@@ -137,25 +165,21 @@ impl Reads {
                     None => canopy_protocol::Document::new(),
                     _ => return Err(bad("filter must be a document")),
                 };
-                let limit = number(body, "limit")?
-                    .filter(|limit| *limit != 0)
-                    .map(|limit| u32::try_from(limit).map_err(|_| bad("limit is too large")))
-                    .transpose()?;
-                let request = FindRequest {
-                    collection: collection.to_owned(),
-                    filter,
-                    sort: value(body, "sort")?,
-                    fields: value(body, "projection")?,
-                    skip: number(body, "skip")?,
-                    limit,
-                    ..FindRequest::default()
+                let mut state = FindCursor {
+                    request: FindRequest {
+                        collection: collection.to_owned(),
+                        filter,
+                        sort: value(body, "sort")?,
+                        fields: value(body, "projection")?,
+                        skip: number(body, "skip")?,
+                        ..FindRequest::default()
+                    },
+                    remaining: number(body, "limit")?.filter(|limit| *limit != 0),
+                    query_bytes: size(body)?,
                 };
-                let page = path.find_bounded(&caller, request, BUFFER_BYTES).await.map_err(mapped)?;
-                let documents = page.documents().map_err(mapped)?;
-                (
-                    documents.iter().map(to_bson).collect::<std::result::Result<_, _>>().map_err(mapped)?,
-                    batch_size,
-                )
+                let documents = state.read(path, &caller).await?;
+                find = Some(state).filter(|state| state.request.after.is_some());
+                (documents, batch_size)
             }
             "count" => {
                 let skip = number(body, "skip")?.unwrap_or(0);
@@ -237,45 +261,37 @@ impl Reads {
             _ => return Err(command_not_found(command)),
         };
         ensure_policy(path, &policy)?;
-        self.first_batch(collection, documents, batch_size, single_batch, policy)
-    }
 
-    fn first_batch(
-        &mut self,
-        collection: &str,
-        documents: Vec<Document>,
-        batch_size: usize,
-        single_batch: bool,
-        policy: Arc<PolicyEngine>,
-    ) -> Result<Document> {
         let mut cursor = Cursor {
             collection: collection.to_owned(),
-            documents: VecDeque::with_capacity(documents.len()),
+            documents: VecDeque::new(),
             bytes: 0,
+            find,
             touched: Instant::now(),
             policy,
         };
-        for document in documents {
-            let bytes = size(&document)? + 16;
-            cursor.bytes = cursor.bytes.saturating_add(bytes);
-            if cursor.bytes > BUFFER_BYTES {
-                return Err(bad("The read exceeds the BSON buffer limit"));
-            }
-            cursor.documents.push_back((document, bytes));
-        }
+        cursor.buffer(documents)?;
         let documents = cursor.batch(batch_size);
-        let id = if single_batch || cursor.documents.is_empty() {
+        let id = if single_batch || cursor.exhausted() {
             0
         } else {
-            let used: usize = self.cursors.values().map(|cursor| cursor.bytes).sum();
-            if self.cursors.len() >= MAX_CURSORS || used + cursor.bytes > BUFFER_BYTES {
-                return Err(error(8000, "TooManyCursors", "The connection has reached its cursor capacity"));
+            if self.cursors.len() >= MAX_CURSORS {
+                return Err(cursor_capacity());
             }
             let id = self.cursor_id()?;
-            self.cursors.insert(id, cursor);
+            self.store(id, cursor)?;
             id
         };
         Ok(self.reply(collection, "firstBatch", id, documents))
+    }
+
+    fn store(&mut self, id: i64, cursor: Cursor) -> Result<()> {
+        let used: usize = self.cursors.values().map(Cursor::retained_bytes).sum();
+        if used.saturating_add(cursor.retained_bytes()) > BUFFER_BYTES {
+            return Err(cursor_capacity());
+        }
+        self.cursors.insert(id, cursor);
+        Ok(())
     }
 
     fn cursor_id(&self) -> Result<i64> {
@@ -290,21 +306,30 @@ impl Reads {
         }
     }
 
-    fn get_more(&mut self, body: &Document) -> Result<Document> {
+    async fn get_more(&mut self, principal: &Principal, body: &Document) -> Result<Document> {
         let collection = string(body, "collection")?;
         let id = cursor_number(body.get("getMore"))?;
-        let size = batch_size(body)?;
-        let cursor = self
-            .cursors
-            .get_mut(&id)
-            .filter(|cursor| cursor.collection == collection)
-            .ok_or_else(cursor_not_found)?;
+        let batch_size = batch_size(body)?;
+        if !self.cursors.get(&id).is_some_and(|cursor| cursor.collection == collection) {
+            return Err(cursor_not_found());
+        }
+        let mut cursor = self.cursors.remove(&id).ok_or_else(cursor_not_found)?;
+        ensure_policy(&self.path, &cursor.policy)?;
+        if batch_size > 0
+            && cursor.documents.is_empty()
+            && let Some(mut find) = cursor.find.take()
+        {
+            let caller = self.path.caller(principal, Some(&[collection])).await.map_err(mapped)?;
+            cursor.buffer(find.read(&self.path, &caller).await?)?;
+            cursor.find = Some(find).filter(|state| state.request.after.is_some());
+        }
+        ensure_policy(&self.path, &cursor.policy)?;
         cursor.touched = Instant::now();
-        let documents = cursor.batch(size);
-        let id = if cursor.documents.is_empty() {
-            self.cursors.remove(&id);
+        let documents = cursor.batch(batch_size);
+        let id = if cursor.exhausted() {
             0
         } else {
+            self.store(id, cursor)?;
             id
         };
         Ok(self.reply(collection, "nextBatch", id, documents))
@@ -337,6 +362,30 @@ impl Reads {
 }
 
 impl Cursor {
+    fn exhausted(&self) -> bool {
+        self.documents.is_empty() && self.find.is_none()
+    }
+
+    fn retained_bytes(&self) -> usize {
+        self.bytes
+            + self
+                .find
+                .as_ref()
+                .map_or(0, |find| find.query_bytes + find.request.after.as_ref().map_or(0, String::len))
+    }
+
+    fn buffer(&mut self, documents: Vec<Document>) -> Result<()> {
+        for document in documents {
+            let bytes = size(&document)? + 16;
+            self.bytes = self.bytes.saturating_add(bytes);
+            if self.bytes > BUFFER_BYTES {
+                return Err(bad("The read exceeds the BSON buffer limit"));
+            }
+            self.documents.push_back((document, bytes));
+        }
+        Ok(())
+    }
+
     fn batch(&mut self, count: usize) -> Vec<Document> {
         let mut batch = Vec::new();
         let mut bytes = 0usize;
@@ -475,6 +524,10 @@ fn unauthorized() -> Document {
 
 fn command_not_found(name: &str) -> Document {
     error(59, "CommandNotFound", format!("no such command: '{name}'"))
+}
+
+fn cursor_capacity() -> Document {
+    error(8000, "TooManyCursors", "The connection has reached its cursor capacity")
 }
 
 fn cursor_not_found() -> Document {

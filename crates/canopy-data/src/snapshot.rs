@@ -32,6 +32,7 @@ pub(crate) struct PageRead<'a> {
 /// What a page read returned: the raw documents, the count, and the cluster time of the snapshot.
 pub(crate) struct PageResult {
     pub(crate) documents: Vec<RawDocumentBuf>,
+    pub(crate) more: bool,
     pub(crate) total: Option<u64>,
     pub(crate) ct: Ct,
 }
@@ -56,7 +57,7 @@ pub(crate) enum Read<'a> {
 
 /// What a read returned.
 pub(crate) enum Output {
-    Page { documents: Vec<RawDocumentBuf>, total: Option<u64> },
+    Page { documents: Vec<RawDocumentBuf>, more: bool, total: Option<u64> },
     Count(u64),
     Values(Vec<Bson>),
     Documents(Vec<RawDocumentBuf>),
@@ -86,6 +87,22 @@ fn push_document(
     Ok(())
 }
 
+fn push_page_document(
+    documents: &mut Vec<RawDocumentBuf>,
+    document: &bson::RawDocument,
+    bytes: &mut usize,
+    max_bytes: Option<usize>,
+) -> Result<bool, DriverError> {
+    if let Some(max) = max_bytes {
+        *bytes = bytes.saturating_add(16);
+        if !documents.is_empty() && bytes.saturating_add(document.as_bytes().len()) > max {
+            return Ok(false);
+        }
+    }
+    push_document(documents, document, bytes, max_bytes)?;
+    Ok(true)
+}
+
 fn millis(duration: Duration) -> i64 {
     i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)
 }
@@ -99,7 +116,7 @@ pub(crate) async fn read_page(
     service: bool,
 ) -> Result<PageResult, CanopyError> {
     match in_snapshot(client, db, &Read::Page(read), service).await? {
-        (Output::Page { documents, total }, ct) => Ok(PageResult { documents, total, ct }),
+        (Output::Page { documents, more, total }, ct) => Ok(PageResult { documents, more, total, ct }),
         _ => Err(internal()),
     }
 }
@@ -205,9 +222,14 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
             let mut cursor = find.await?;
             let mut documents = Vec::new();
             let mut bytes = 0;
+            let mut more = false;
             while cursor.advance(session).await? {
-                push_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)?;
+                if !push_page_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)? {
+                    more = true;
+                    break;
+                }
             }
+            drop(cursor);
             let total = match page.count_filter {
                 Some(filter) => Some(
                     collection
@@ -218,7 +240,7 @@ async fn run(db: &Database, read: &Read<'_>, session: &mut ClientSession) -> Res
                 ),
                 None => None,
             };
-            Ok(Output::Page { documents, total })
+            Ok(Output::Page { documents, more, total })
         }
         Read::Count { collection, filter, max_time } => {
             let collection: Collection<RawDocumentBuf> = db.collection(collection);
@@ -322,14 +344,19 @@ async fn at_cluster_time(db: &Database, read: &Read<'_>, ct: Ct) -> Result<Outpu
             let mut cursor = db.run_cursor_command(command).await?.with_type::<RawDocumentBuf>();
             let mut documents = Vec::new();
             let mut bytes = 0;
+            let mut more = false;
             while cursor.advance().await? {
-                push_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)?;
+                if !push_page_document(&mut documents, cursor.current(), &mut bytes, page.max_bytes)? {
+                    more = true;
+                    break;
+                }
             }
+            drop(cursor);
             let total = match page.count_filter {
                 Some(filter) => Some(count_at(db, page.collection, filter, page.max_time, ct).await?),
                 None => None,
             };
-            Ok(Output::Page { documents, total })
+            Ok(Output::Page { documents, more, total })
         }
         Read::Count { collection, filter, max_time } => {
             Ok(Output::Count(count_at(db, collection, filter, *max_time, ct).await?))
