@@ -1,0 +1,22 @@
+[package]
+name = "canopy-graphql"
+description = "Canopy's GraphQL API in the data plane: the schema each role set sees, generated from the policies and collection schemas, and an executor that turns root fields and relation levels into reads and writes of canopy-data."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+apollo-compiler = "=1.33.1"
+canopy-data = { path = "../canopy-data" }
+canopy-http = { path = "../canopy-http" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+serde_json_bytes = { version = "0.2", features = ["preserve_order"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[lints]
+workspace = true

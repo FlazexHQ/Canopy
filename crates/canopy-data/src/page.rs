@@ -82,6 +82,22 @@ impl FindPage {
         FindPage { documents: Documents::Raw(documents), limit, next, total, ct }
     }
 
+    /// The documents of the page, decoded.
+    pub fn documents(&self) -> Result<Vec<Document>, CanopyError> {
+        match &self.documents {
+            Documents::Owned(values) => Ok(values
+                .iter()
+                .filter_map(|value| match value {
+                    Value::Document(document) => Some(document.clone()),
+                    _ => None,
+                })
+                .collect()),
+            Documents::Raw(documents) => {
+                documents.iter().map(|bytes| Ok(RawDocument::new(bytes)?.to_document())).collect()
+            }
+        }
+    }
+
     /// The JSON text of the page, `{"data":[...],"page":{...}}`, without its cluster time. A validator over
     /// this text stays the same while the page is unchanged, whatever snapshot it was read at.
     pub fn encode(&self, encoding: Encoding) -> Result<String, CanopyError> {

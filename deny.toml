@@ -48,6 +48,11 @@ exceptions = [
   # Runs only at compile time, inside the MongoDB driver's `const-random` macro, and is never linked:
   # `cargo tree -i tiny-keccak -e no-proc-macro -p canopy-mongo` prints nothing.
   { allow = ["CC0-1.0"], crate = "tiny-keccak" },
+  # canopy-graphql: apollo-compiler reaches `psm` through serde_json_bytes, jsonpath-rust, pest and stacker,
+  # and `psm` uses this crate only in its build script, so it is never linked: `cargo tree -i
+  # ar_archive_writer -e normal` prints nothing. The license is Apache 2.0 with the LLVM exception, which only
+  # adds a permission to Apache 2.0.
+  { allow = ["Apache-2.0 WITH LLVM-exception"], crate = "ar_archive_writer" },
 ]
 
 [licenses.private]

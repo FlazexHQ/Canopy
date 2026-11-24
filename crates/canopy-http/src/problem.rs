@@ -104,6 +104,12 @@ const fn help(code: ErrorCode) -> Option<(&'static str, &'static str)> {
     })
 }
 
+/// What to try next after an error of this code and the slug of its docs page under `errors/`, for the codes
+/// callers meet most.
+pub const fn problem_help(code: ErrorCode) -> Option<(&'static str, &'static str)> {
+    help(code)
+}
+
 /// The slug of a code, for example `policy-violation` for `CANOPY_POLICY_VIOLATION`.
 pub fn problem_slug(code: ErrorCode) -> String {
     code.as_str().trim_start_matches("CANOPY_").to_lowercase().replace('_', "-")
