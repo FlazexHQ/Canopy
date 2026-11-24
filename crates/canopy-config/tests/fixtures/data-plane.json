@@ -47,7 +47,15 @@
     "defaultLimit": 25,
     "maxLimit": 250,
     "maxBodyBytes": 4096,
-    "search": ["articles"]
+    "search": ["articles"],
+    "idTypes": {
+      "counters": "number"
+    },
+    "mutationTtlSeconds": 86400,
+    "explainDenials": true
+  },
+  "dataPlane": {
+    "routes": ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
   },
   "log": {
     "level": "info"
@@ -55,7 +63,7 @@
   "telemetry": {
     "tracing": true
   },
-  "dataPlane": {
-    "routes": ["find", "count", "distinct", "aggregate", "query", "explain"]
+  "audit": {
+    "dataWrites": true
   }
 }

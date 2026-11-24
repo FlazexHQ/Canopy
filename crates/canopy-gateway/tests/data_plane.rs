@@ -193,7 +193,7 @@ fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &st
 "policies":{{"stored":{stored},"contexts":{contexts}}},
 "realtime":{{"checkpoints":"off","drainWindowMs":100}},
 "rateLimits":false,
-"rest":{{"defaultLimit":{default},"maxLimit":{max},"maxSkip":{skip}}},
+"rest":{{"defaultLimit":{default},"maxLimit":{max},"maxSkip":{skip},"idTypes":{id_types}}},
 "proxy":{{"url":"http://127.0.0.1:{upstream}"}},
 "log":{{"level":"error"}}{extra}}}"#,
         uri = json_text(&Json::String(uri.to_owned())),
@@ -207,6 +207,7 @@ fn launcher(fixture: &Json, uri: &str, database: &str, upstream: u16, extra: &st
         default = json_text(get(limits, "defaultLimit")),
         max = json_text(get(limits, "maxLimit")),
         skip = json_text(get(limits, "maxSkip")),
+        id_types = json_text(get(fixture, "idTypes")),
     );
     document.replace(['\n', '\r'], "")
 }
@@ -346,6 +347,52 @@ async fn the_selected_read_routes_answer_every_recorded_read_request_through_the
     assert!(failures.is_empty(), "{} of {total} cases differ:\n{}", failures.len(), failures.join("\n"));
     assert_eq!(find.header("x-upstream"), Some("yes"), "find is not selected, so the upstream answers it");
     assert_eq!(*seen.lock().unwrap(), [("GET".to_owned(), "/rest/v1/todos".to_owned())]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_writes_route_answers_every_recorded_write_through_the_gateway() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set to write to");
+        return;
+    };
+    let fixture = common::read_json(&common::directory_of("writes").join("fixture.json"));
+    let client = Client::with_uri_str(&uri).await.expect("a MongoDB client");
+    let database = common::scratch_name("canopy_gateway_writes_rs");
+    let meta = format!("{database}_meta");
+    let (port, seen) = upstream().await;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let gateway = Gateway::start(launcher(&fixture, &uri, &database, port, ""), Some("writes")).await;
+    let cases = common::write_cases();
+    let mut failures = Vec::new();
+    for case in &cases {
+        common::reset_writes(&client, &database, &meta, &fixture).await;
+        for (index, step) in list(case, "steps").iter().enumerate() {
+            let response = gateway.send(&common::write_request_of(&fixture, get(step, "request"))).await;
+            if response.header("x-upstream").is_some() {
+                failures.push(format!("{} step {index}: the upstream answered", text(case, "id")));
+                continue;
+            }
+            failures.extend(common::write_step_problems(case, index, Some(&response)));
+        }
+        failures.extend(common::write_state_problems(&client, &database, &meta, case).await);
+    }
+    let read = gateway.send(&common::get_as(&fixture, "service", "/rest/v1/notes")).await;
+    client.database(&database).drop().await.expect("the scratch database drops");
+    client.database(&meta).drop().await.expect("the meta database drops");
+    assert!(cases.len() > 80, "{} cases", cases.len());
+    assert!(
+        failures.is_empty(),
+        "{} failures in {} cases:
+{}",
+        failures.len(),
+        cases.len(),
+        failures.join(
+            "
+"
+        )
+    );
+    assert_eq!(read.header("x-upstream"), Some("yes"), "find is not selected, so the upstream answers it");
+    assert_eq!(*seen.lock().unwrap(), [("GET".to_owned(), "/rest/v1/notes".to_owned())]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -787,7 +834,7 @@ fn a_route_name_the_gateway_does_not_know_stops_it_at_startup() {
         assert_eq!(code, Some(1), "{routes}");
         assert!(
             message.contains(
-                "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not"
+                "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not"
             ),
             "{routes}: {message}"
         );

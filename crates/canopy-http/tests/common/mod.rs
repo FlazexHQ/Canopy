@@ -8,12 +8,14 @@ use std::path::PathBuf;
 
 use canopy_auth::{Authenticator, JwtConfig};
 use canopy_data::{Policies, ReadLimits, ReadPath};
-use canopy_http::{Body, Request, Rest, RestOptions, Served};
-use canopy_mongo::mongodb::{Client, Database};
+use canopy_http::{Body, Request, Response, Rest, RestOptions, Served};
+use canopy_mongo::mongodb::bson::{Document as BsonDocument, RawDocumentBuf, doc};
+use canopy_mongo::mongodb::{Client, Database, IndexModel};
 use canopy_mongo::{policies_from_stored, to_bson};
 use canopy_policy::PolicyEngine;
-use canopy_protocol::ejson::{DecodeOptions, decode};
-use canopy_protocol::json::{Json, parse_json};
+use canopy_protocol::bson::decode_document;
+use canopy_protocol::ejson::{DecodeOptions, canonical_string, decode};
+use canopy_protocol::json::{Json, parse_json, write_json};
 use canopy_protocol::{Document, Value};
 
 pub fn directory() -> PathBuf {
@@ -427,6 +429,209 @@ pub fn problems_of(case: &Json, response: &canopy_http::Response) -> Vec<String>
         let Json::String(forbidden) = forbidden else { panic!("{id}: neverInBody holds {forbidden:?}") };
         if actual.body.contains(forbidden.as_str()) {
             problems.push(format!("the body contains {forbidden:?}"));
+        }
+    }
+    problems
+}
+
+pub fn json_text(json: &Json) -> String {
+    let mut out = String::new();
+    write_json(&mut out, json);
+    out
+}
+
+pub fn value_of_json(json: &Json) -> Value {
+    decode(json, DecodeOptions::default()).expect("canonical EJSON")
+}
+
+/// Drops the databases of a case and creates its collections, options, indexes and documents again.
+pub async fn reset_writes(client: &Client, database: &str, meta: &str, fixture: &Json) {
+    client.database(database).drop().await.expect("the app database drops");
+    client.database(meta).drop().await.expect("the meta database drops");
+    let db = client.database(database);
+    let setup = get(fixture, "setup");
+    for (name, documents) in entries(fixture, "collections") {
+        let options = setup.get(name);
+        let mut create = doc! { "create": name.as_str() };
+        if let Some(Json::Object(members)) = options.and_then(|options| options.get("options")) {
+            for (key, value) in members {
+                let mut wrapper = Document::new();
+                wrapper.insert("v", value_of_json(value));
+                let value = canopy_mongo::to_bson(&wrapper)
+                    .expect("an option")
+                    .remove("v")
+                    .expect("the option value");
+                create.insert(key.as_str(), value);
+            }
+        }
+        db.run_command(create).await.expect("the collection is created");
+        if let Some(Json::Array(indexes)) = options.and_then(|options| options.get("indexes")) {
+            for index in indexes {
+                let keys =
+                    canopy_mongo::to_bson(&document_of(value_of_json(get(index, "key")))).expect("keys");
+                let unique = matches!(index.get("unique"), Some(Json::Bool(true)));
+                let model = IndexModel::builder()
+                    .keys(keys)
+                    .options(
+                        canopy_mongo::mongodb::options::IndexOptions::builder()
+                            .name(text(index, "name").to_owned())
+                            .unique(unique)
+                            .build(),
+                    )
+                    .build();
+                db.collection::<BsonDocument>(name).create_index(model).await.expect("the index is created");
+            }
+        }
+        let Json::Array(items) = documents else { panic!("documents of {name}") };
+        let docs: Vec<BsonDocument> = items
+            .iter()
+            .map(|item| canopy_mongo::to_bson(&document_of(value_of_json(item))).expect("a document"))
+            .collect();
+        if !docs.is_empty() {
+            db.collection::<BsonDocument>(name).insert_many(docs).await.expect("the documents are inserted");
+        }
+    }
+}
+
+pub async fn canonical_documents(db: &Database, name: &str, projection: Option<BsonDocument>) -> Vec<String> {
+    let collection = db.collection::<RawDocumentBuf>(name);
+    let mut find = collection.find(doc! {}).sort(doc! { "_id": 1 });
+    if let Some(projection) = projection {
+        find = find.projection(projection);
+    }
+    let mut cursor = find.await.expect("a cursor");
+    let mut documents: Vec<RawDocumentBuf> = Vec::new();
+    while cursor.advance().await.expect("a document") {
+        documents.push(cursor.current().to_owned());
+    }
+    documents
+        .iter()
+        .map(|raw| {
+            canonical_string(&Value::Document(decode_document(raw.as_bytes()).expect("BSON"))).expect("EJSON")
+        })
+        .collect()
+}
+
+/// Replaces every cluster time of a body by `<ct>`, as the recorder does.
+pub fn without_ct(body: &str) -> String {
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(at) = rest.find("\"ct\":\"") {
+        let start = at + 6;
+        out.push_str(&rest[..start]);
+        let digits = rest[start..].bytes().take_while(u8::is_ascii_digit).count();
+        if digits > 0 && rest[start + digits..].starts_with('"') {
+            out.push_str("<ct>");
+            rest = &rest[start + digits..];
+        } else {
+            rest = &rest[start..];
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+pub fn text_of(json: &Json) -> String {
+    match json {
+        Json::String(text) => text.clone(),
+        other => panic!("a canonical EJSON string, not {other:?}"),
+    }
+}
+
+/// The request of one recorded write step.
+pub fn write_request_of(fixture: &Json, recorded: &Json) -> Request {
+    let mut request = Request::new(text(recorded, "method"), text(recorded, "target"));
+    let callers = get(fixture, "callers");
+    for (name, value) in entries(callers, text(recorded, "caller")).iter().chain(entries(recorded, "headers"))
+    {
+        let Json::String(value) = value else { panic!("{name} is not a string") };
+        request = request.with_header(name.clone(), value.clone());
+    }
+    if let Some(Json::String(body)) = recorded.get("body") {
+        request.body = Body::Bytes(body.as_bytes().to_vec());
+    }
+    request
+}
+
+/// The response headers a write case pins.
+const WRITE_HEADERS: [&str; 5] = ["allow", "content-type", "location", "x-canopy-ct", "x-request-id"];
+
+/// Every case of `conformance/http/writes`, in file and case order.
+pub fn write_cases() -> Vec<Json> {
+    let dir = directory_of("writes").join("cases");
+    let mut names: Vec<_> = std::fs::read_dir(dir)
+        .expect("the cases")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    names.sort();
+    names.iter().flat_map(|path| list(&read_json(path), "cases").to_vec()).collect()
+}
+
+/// How the response of step `index` of a write case differs from the recorded one: status, pinned headers
+/// and body, cluster times aside.
+pub fn write_step_problems(case: &Json, index: usize, response: Option<&Response>) -> Vec<String> {
+    let id = text(case, "id");
+    let recorded = get(&list(case, "steps")[index], "response");
+    let Some(response) = response else { return vec![format!("{id} step {index}: not served")] };
+    let mut problems = Vec::new();
+    let status = match recorded.get("status") {
+        Some(Json::Number(status)) => *status as u16,
+        _ => 0,
+    };
+    if response.status != status {
+        problems.push(format!("{id} step {index}: status {} instead of {status}", response.status));
+    }
+    let mut headers = BTreeMap::new();
+    for name in WRITE_HEADERS {
+        if let Some(value) = response.header(name) {
+            headers.insert(
+                name.to_owned(),
+                if name == "x-canopy-ct" { "<ct>".to_owned() } else { value.to_owned() },
+            );
+        }
+    }
+    let expected: BTreeMap<String, String> = entries(recorded, "headers")
+        .iter()
+        .map(|(name, value)| {
+            (
+                name.clone(),
+                match value {
+                    Json::String(value) => value.clone(),
+                    other => json_text(other),
+                },
+            )
+        })
+        .collect();
+    if headers != expected {
+        problems.push(format!("{id} step {index}: headers {headers:?} instead of {expected:?}"));
+    }
+    let body = without_ct(&String::from_utf8_lossy(&response.body));
+    if body != text(recorded, "body") {
+        problems
+            .push(format!("{id} step {index}: body\n  {body}\n  instead of\n  {}", text(recorded, "body")));
+    }
+    problems
+}
+
+/// How the documents and idempotency records after a write case differ from the recorded ones.
+pub async fn write_state_problems(client: &Client, database: &str, meta: &str, case: &Json) -> Vec<String> {
+    let id = text(case, "id");
+    let mut problems = Vec::new();
+    let db = client.database(database);
+    for (name, documents) in entries(case, "state") {
+        let Json::Array(expected) = documents else { panic!("state of {name}") };
+        let expected: Vec<String> = expected.iter().map(text_of).collect();
+        let actual = canonical_documents(&db, name, None).await;
+        if actual != expected {
+            problems.push(format!("{id}: {name} holds\n  {actual:?}\n  instead of\n  {expected:?}"));
+        }
+    }
+    if let Some(Json::Array(expected)) = case.get("records") {
+        let expected: Vec<String> = expected.iter().map(text_of).collect();
+        let actual = canonical_documents(&client.database(meta), "mutations", Some(doc! { "at": 0 })).await;
+        if actual != expected {
+            problems.push(format!("{id}: records\n  {actual:?}\n  instead of\n  {expected:?}"));
         }
     }
     problems

@@ -170,6 +170,13 @@ impl WritePath {
         })
     }
 
+    /// Sets how long idempotency records live (one day by default).
+    #[must_use]
+    pub fn with_mutation_ttl(mut self, seconds: u64) -> WritePath {
+        self.ttl_seconds = i64::try_from(seconds.max(1)).unwrap_or(i64::MAX);
+        self
+    }
+
     /// Sets the write limits.
     #[must_use]
     pub fn with_limits(mut self, limits: WriteLimits) -> WritePath {

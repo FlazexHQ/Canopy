@@ -49,5 +49,8 @@
   },
   "telemetry": {
     "tracing": false
+  },
+  "audit": {
+    "dataWrites": false
   }
 }

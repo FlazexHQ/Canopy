@@ -1,6 +1,7 @@
 //! The Data API routes the gateway serves itself: the request is handed to `canopy-http` over plain types and
 //! its answer goes back as a Hyper response. Every request the routes do not own never reaches this module.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -9,6 +10,7 @@ use canopy_auth::{Authenticator, BucketSpec, RateLimitOptions, RateLimits};
 use crate::request_log::{Logged, RequestLog};
 use crate::telemetry::Telemetry;
 use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
+use canopy_data::writes::{IdType, WriteEvent, WritePath};
 use canopy_data::{Policies, ReadLimits, ReadPath};
 use canopy_http::{Rest, RestOptions, Served};
 use canopy_mongo::mongodb::Client;
@@ -19,6 +21,73 @@ use hyper::body::{Bytes, Incoming};
 use hyper::header::{HeaderName, HeaderValue};
 use hyper::{Method, Request, Response, StatusCode};
 use opentelemetry::context::FutureExt;
+
+fn routes_select(config: &GatewayConfig, route: DataPlaneRoute) -> bool {
+    config.data_plane_routes.contains(&route)
+}
+
+/// The `{id}` types of `rest.idTypes`.
+fn id_types(config: &GatewayConfig) -> HashMap<String, IdType> {
+    config
+        .writes
+        .id_types
+        .iter()
+        .filter_map(|(name, kind)| IdType::parse(kind).map(|kind| (name.clone(), kind)))
+        .collect()
+}
+
+/// The write path of the write routes: the app database, idempotency records in the meta database, and when
+/// `audit.dataWrites` is set an audit entry for every committed write, without its documents.
+fn write_path(config: &GatewayConfig, client: Client, policies: Policies) -> Result<WritePath, String> {
+    let meta = client.database(&config.meta_database);
+    let mut writes = WritePath::new(client, &config.database, &config.meta_database, policies)
+        .map_err(|error| error.message().to_owned())?
+        .with_mutation_ttl(config.writes.mutation_ttl_seconds)
+        .with_explained_denials(config.writes.explain_denials);
+    if config.writes.audit {
+        let audit = meta.collection::<canopy_mongo::mongodb::bson::Document>("audit_log");
+        writes = writes.with_observer(Arc::new(move |event: &WriteEvent| {
+            let Ok(entry) = audit_entry(event) else { return };
+            let audit = audit.clone();
+            tokio::spawn(async move {
+                let _ = audit.insert_one(entry).await;
+            });
+        }));
+    }
+    Ok(writes)
+}
+
+/// The audit entry of a committed write, as the server records it: the operation, the caller, the collection
+/// and `_id`s, the roles, the cluster time and the mutation ID.
+fn audit_entry(
+    event: &WriteEvent,
+) -> Result<canopy_mongo::mongodb::bson::Document, canopy_protocol::CanopyError> {
+    use canopy_protocol::{Document, Value};
+    let mut actor = Document::new();
+    actor.insert("type", Value::String("user".to_owned()));
+    actor.insert("id", Value::String(event.subject.clone()));
+    let mut target = Document::new();
+    target.insert("collection", Value::String(event.collection.clone()));
+    target.insert("ids", Value::Array(event.ids.clone()));
+    let mut details = Document::new();
+    details.insert("roles", Value::Array(event.roles.iter().cloned().map(Value::String).collect()));
+    details.insert("ct", Value::String(event.ct.to_string()));
+    if let Some(mutation_id) = &event.mutation_id {
+        details.insert("mutationId", Value::String(mutation_id.clone()));
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis());
+    let mut entry = Document::new();
+    entry.insert("action", Value::String(format!("data.{}", event.op.as_str())));
+    entry.insert("actor", Value::Document(actor));
+    entry.insert("target", Value::Document(target));
+    entry.insert("details", Value::Document(details));
+    entry.insert("_id", Value::ObjectId(canopy_mongo::mongodb::bson::oid::ObjectId::new().bytes()));
+    entry.insert("at", Value::DateTime(i64::try_from(now).unwrap_or(i64::MAX)));
+    entry.insert("outcome", Value::String("ok".to_owned()));
+    canopy_mongo::to_bson(&entry)
+}
 
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
@@ -38,13 +107,16 @@ impl DataPlane {
         policies: Policies,
         request_log: Option<Arc<RequestLog>>,
         telemetry: Option<Telemetry>,
-    ) -> DataPlane {
+    ) -> Result<DataPlane, String> {
         let limits = ReadLimits {
             default_limit: config.rest_limits.default_limit,
             max_limit: config.rest_limits.max_limit,
             max_skip: config.rest_limits.max_skip,
             ..ReadLimits::default()
         };
+        let writes = routes_select(config, DataPlaneRoute::Writes)
+            .then(|| write_path(config, client.clone(), policies.clone()))
+            .transpose()?;
         let reads = ReadPath::new(client, &config.database, policies, limits)
             .with_search(config.search_collections.iter().cloned());
         let cors = config.cors.as_ref().map(|cors| match cors {
@@ -59,7 +131,7 @@ impl DataPlane {
             aggregate: routes.contains(&DataPlaneRoute::Aggregate),
             query: routes.contains(&DataPlaneRoute::Query),
             explain: routes.contains(&DataPlaneRoute::Explain),
-            writes: false,
+            writes: writes.is_some(),
         };
         let options = RestOptions {
             cors,
@@ -68,6 +140,9 @@ impl DataPlane {
             ..RestOptions::default()
         };
         let mut rest = Rest::new(auth, reads, options);
+        if let Some(writes) = writes {
+            rest = rest.with_writes(Arc::new(writes), id_types(config));
+        }
         let rate_limited = Arc::new(AtomicU64::new(0));
         if let Some(rates) = config.request_rates {
             let limits = RateLimits::new(RateLimitOptions {
@@ -85,7 +160,7 @@ impl DataPlane {
             });
             rest = rest.with_rate_limits(Arc::new(limits), Some(count));
         }
-        DataPlane { rest, rate_limited, request_log, telemetry }
+        Ok(DataPlane { rest, rate_limited, request_log, telemetry })
     }
 
     /// The Prometheus lines of the routes: the requests the rate limits refused.
@@ -121,7 +196,7 @@ impl DataPlane {
                 .headers
                 .push((name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
         }
-        if parts.method == Method::POST {
+        if parts.method == Method::POST || parts.method == Method::PATCH || parts.method == Method::PUT {
             let limit = usize::try_from(self.rest.max_body_bytes()).unwrap_or(usize::MAX);
             plain.body = match Limited::new(body, limit).collect().await {
                 Ok(collected) => canopy_http::Body::Bytes(collected.to_bytes().to_vec()),

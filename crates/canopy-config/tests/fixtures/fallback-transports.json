@@ -56,12 +56,18 @@
     "defaultLimit": 100,
     "maxLimit": 1000,
     "maxBodyBytes": 1048576,
-    "search": []
+    "search": [],
+    "idTypes": {},
+    "mutationTtlSeconds": 86400,
+    "explainDenials": true
   },
   "log": {
     "level": "info"
   },
   "telemetry": {
     "tracing": false
+  },
+  "audit": {
+    "dataWrites": false
   }
 }

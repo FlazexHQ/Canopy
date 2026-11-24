@@ -89,11 +89,15 @@ pub enum DataPlaneRoute {
     /// `POST /rest/v1/{collection}/_explain`, how DLS decides an operation for a stated caller, with `OPTIONS`
     /// and `405` on that path.
     Explain,
+    /// The writes: `POST`, `PATCH` and `DELETE /rest/v1/{collection}`, `PATCH`, `PUT` and `DELETE
+    /// /rest/v1/{collection}/{id}` and `POST /rest/v1/_batch`, with `OPTIONS` and `405` on their paths.
+    Writes,
 }
 
 impl DataPlaneRoute {
     /// The route names, as the configuration spells them.
-    pub const NAMES: [&'static str; 6] = ["find", "count", "distinct", "aggregate", "query", "explain"];
+    pub const NAMES: [&'static str; 7] =
+        ["find", "count", "distinct", "aggregate", "query", "explain", "writes"];
 
     /// The name of the route in the configuration.
     pub fn name(self) -> &'static str {
@@ -104,6 +108,7 @@ impl DataPlaneRoute {
             DataPlaneRoute::Aggregate => "aggregate",
             DataPlaneRoute::Query => "query",
             DataPlaneRoute::Explain => "explain",
+            DataPlaneRoute::Writes => "writes",
         }
     }
 
@@ -115,6 +120,7 @@ impl DataPlaneRoute {
             "aggregate" => Ok(DataPlaneRoute::Aggregate),
             "query" => Ok(DataPlaneRoute::Query),
             "explain" => Ok(DataPlaneRoute::Explain),
+            "writes" => Ok(DataPlaneRoute::Writes),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
                 Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
@@ -251,6 +257,73 @@ pub struct GatewayConfig {
     pub search_collections: Vec<String>,
     /// Whether to record OpenTelemetry traces (`telemetry.tracing`), exported as the `OTEL_*` variables say.
     pub tracing: bool,
+    /// The settings of the write routes.
+    pub writes: WriteSettings,
+}
+
+/// The settings of the write routes, from `rest` and `audit`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WriteSettings {
+    /// How the `{id}` of a collection's documents is read (`rest.idTypes`): `objectId`, `uuid`, `string` or
+    /// `number`; collections it does not name read `auto`.
+    pub id_types: Vec<(String, String)>,
+    /// How long idempotency records live, in seconds (`rest.mutationTtlSeconds`).
+    pub mutation_ttl_seconds: u64,
+    /// Whether refused writes explain the policies that decided (`rest.explainDenials`, development only).
+    pub explain_denials: bool,
+    /// Whether every committed write is recorded in the audit log (`audit.dataWrites`).
+    pub audit: bool,
+}
+
+impl Default for WriteSettings {
+    fn default() -> WriteSettings {
+        WriteSettings {
+            id_types: Vec::new(),
+            mutation_ttl_seconds: 86_400,
+            explain_denials: false,
+            audit: false,
+        }
+    }
+}
+
+/// The id types `rest.idTypes` may name.
+const ID_TYPES: [&str; 5] = ["auto", "objectId", "uuid", "string", "number"];
+
+fn write_settings(doc: &Json) -> ConfigResult<WriteSettings> {
+    let defaults = WriteSettings::default();
+    let id_types = match get(doc, &["rest", "idTypes"]) {
+        None => Vec::new(),
+        Some(Json::Object(members)) => {
+            let mut out = Vec::with_capacity(members.len());
+            for (name, kind) in members {
+                match kind {
+                    Json::String(kind) if ID_TYPES.contains(&kind.as_str()) => {
+                        out.push((name.clone(), kind.clone()))
+                    }
+                    _ => {
+                        return Err(format!(
+                            "rest.idTypes.{name} must be auto, objectId, uuid, string or number"
+                        ));
+                    }
+                }
+            }
+            out
+        }
+        Some(_) => return Err("rest.idTypes must be an object".to_owned()),
+    };
+    let flag_of = |path: &[&str]| match get(doc, path) {
+        None => Ok(false),
+        Some(Json::Bool(value)) => Ok(*value),
+        Some(_) => Err(format!("{} must be true or false", path.join("."))),
+    };
+    Ok(WriteSettings {
+        id_types,
+        mutation_ttl_seconds: number(doc, &["rest", "mutationTtlSeconds"])
+            .filter(|seconds| *seconds >= 1.0)
+            .map_or(defaults.mutation_ttl_seconds, whole),
+        explain_denials: flag_of(&["rest", "explainDenials"])?,
+        audit: flag_of(&["audit", "dataWrites"])?,
+    })
 }
 
 type ConfigResult<T> = Result<T, String>;
@@ -572,6 +645,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         !matches!(get(&doc, &["rest"]), Some(Json::Bool(false))),
     )?;
     let rest_limits = rest_limits(&doc)?;
+    let writes = write_settings(&doc)?;
     let tracing = match get(&doc, &["telemetry", "tracing"]) {
         Some(Json::Bool(tracing)) => *tracing,
         Some(_) => return Err("telemetry.tracing must be true or false".to_owned()),
@@ -630,6 +704,7 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         rest_limits,
         search_collections: strings(&doc, &["rest", "search"]).unwrap_or_default(),
         tracing,
+        writes,
     })
 }
 

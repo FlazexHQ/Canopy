@@ -255,9 +255,11 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         }
         None => None,
     };
-    let data_plane = data_policies.map(|policies| {
-        DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log, telemetry.clone())
-    });
+    let data_plane = data_policies
+        .map(|policies| {
+            DataPlane::new(&config, client.clone(), auth.clone(), policies, request_log, telemetry.clone())
+        })
+        .transpose()?;
     let routes = Arc::new(Routes {
         ready: Arc::clone(&stream_open),
         trusted_proxies: config.trusted_proxies.clone(),

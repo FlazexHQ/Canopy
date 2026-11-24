@@ -75,8 +75,12 @@ gateway answers itself instead of passing them to the upstream server. It is emp
 request goes to the upstream. `find` selects `GET /rest/v1/{collection}`, and `count`, `distinct`, `aggregate`,
 `query` and `explain` select `POST /rest/v1/{collection}/_count`, `_distinct`, `_aggregate`, `_query` (a find
 with its parameters in the body) and `_explain` (for secret keys only), each with the `OPTIONS` and `405` answers
-of its path; every other path and method (writes, documents, `_batch`, `openapi.json`, GraphQL, storage) is
-passed on untouched. A name the
+of its path. `writes` selects the write routes: `POST`, `PATCH` (with `Prefer: bulk=true`) and `DELETE` on a
+collection, `PATCH`, `PUT` and `DELETE` on a document and `POST /rest/v1/_batch`, run in the gateway's own
+transactions with the idempotency records in the meta database, the `{id}` types of `rest.idTypes`, records kept
+`rest.mutationTtlSeconds` long, `rest.explainDenials` in development and an audit entry per committed write when
+`audit.dataWrites` is set (the launcher passes all four from the server's configuration). Every other path and
+method (`GET` of a document, `openapi.json`, GraphQL, storage) is passed on untouched. A name the
 gateway does not know stops it at startup, as does `rest: false` in the configuration with a route selected. The route reads with the gateway's own MongoDB
 client, with the keys, JWKS, revocations and policies the realtime sessions use (the policies are read again
 every time the policy watch opens, so a change made while it was down still applies), and it answers as the

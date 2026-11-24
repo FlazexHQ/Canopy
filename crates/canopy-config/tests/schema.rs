@@ -1,6 +1,6 @@
 //! Checks the schema against the standalone JSON parser.
 
-use canopy_config::{DataPlaneRoute, Fallbacks, FullDocument, RestLimits, resolve};
+use canopy_config::{DataPlaneRoute, Fallbacks, FullDocument, RestLimits, WriteSettings, resolve};
 use canopy_config::{Policies, TrustedProxy, parse};
 use canopy_protocol::json::{Json, parse_json};
 
@@ -35,6 +35,7 @@ fn schema_lists_every_input_field() -> Result<(), String> {
             "log",
             "telemetry",
             "rest",
+            "audit",
             "dataPlane",
             "viewTokens"
         ]
@@ -102,7 +103,20 @@ fn schema_lists_every_input_field() -> Result<(), String> {
         (&["log", "properties"], &["level"]),
         (&["viewTokens", "properties"], &["jwk"]),
         (&["viewTokens", "properties", "jwk", "properties"], &["kty", "crv", "x"]),
-        (&["rest", "properties"], &["defaultLimit", "maxLimit", "maxSkip", "maxBodyBytes", "search"]),
+        (
+            &["rest", "properties"],
+            &[
+                "defaultLimit",
+                "maxLimit",
+                "maxSkip",
+                "maxBodyBytes",
+                "search",
+                "idTypes",
+                "mutationTtlSeconds",
+                "explainDenials",
+            ],
+        ),
+        (&["audit", "properties"], &["dataWrites"]),
         (&["dataPlane", "properties"], &["routes"]),
     ] {
         assert_eq!(fields(at(root, path).ok_or_else(|| format!("Missing schema for {path:?}"))?), expected);
@@ -267,11 +281,11 @@ fn parser_preserves_permissive_inputs_and_validation() -> Result<(), String> {
         (r#""realtime":{"coalesceMs":1001}"#, "realtime.coalesceMs must be between 0 and 1000, not 1001"),
         (
             r#""dataPlane":{"routes":"batch"}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not batch",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not batch",
         ),
         (
             r#""dataPlane":{"routes":["find","Find"]}"#,
-            "dataPlane.routes may list find, count, distinct, aggregate, query and explain, not Find",
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not Find",
         ),
         (
             r#""dataPlane":{"routes":["find"]},"rest":false"#,
@@ -323,11 +337,15 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
     let unknown = routes(&format!("{{{uri}}}"), from_host(&["find", "batch"]));
     assert_eq!(
         unknown.err().as_deref(),
-        Some("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not batch")
+        Some(
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not batch"
+        )
     );
     assert_eq!(
         routes(&document(r#"["Query"]"#), Fallbacks::default()).err().as_deref(),
-        Some("dataPlane.routes may list find, count, distinct, aggregate, query and explain, not Query")
+        Some(
+            "dataPlane.routes may list find, count, distinct, aggregate, query, explain and writes, not Query"
+        )
     );
     for route in [
         DataPlaneRoute::Find,
@@ -336,10 +354,14 @@ fn data_plane_routes_come_from_the_document_or_the_host_and_the_document_wins() 
         DataPlaneRoute::Aggregate,
         DataPlaneRoute::Query,
         DataPlaneRoute::Explain,
+        DataPlaneRoute::Writes,
     ] {
         assert_eq!(routes(&document(&format!("{:?}", route.name())), Fallbacks::default())?, [route]);
     }
-    assert_eq!(DataPlaneRoute::NAMES, ["find", "count", "distinct", "aggregate", "query", "explain"]);
+    assert_eq!(
+        DataPlaneRoute::NAMES,
+        ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
+    );
     Ok(())
 }
 
@@ -395,7 +417,7 @@ fn schema_keeps_the_parsers_required_fields_and_constraints() -> Result<(), Stri
         (&["$defs", "transport", "enum"], r#"["websocket","sse","long-poll"]"#),
         (
             &["$defs", "dataPlaneRoute", "enum"],
-            r#"["find","count","distinct","aggregate","query","explain"]"#,
+            r#"["find","count","distinct","aggregate","query","explain","writes"]"#,
         ),
         (&["properties", "rest", "properties", "defaultLimit", "then"], r#"{"minimum":1}"#),
         (&["properties", "rest", "properties", "maxLimit", "then"], r#"{"minimum":1}"#),
@@ -446,5 +468,41 @@ fn tracing_comes_from_the_document_or_canopy_tracing_and_the_document_wins() -> 
         tracing(&document(r#""true""#), Fallbacks::default()).err().as_deref(),
         Some("telemetry.tracing must be true or false")
     );
+    Ok(())
+}
+
+#[test]
+fn write_settings_come_from_rest_and_audit() -> Result<(), String> {
+    let uri = r#""mongodb":{"uri":"mongodb://h/app"}"#;
+    let settings =
+        |extra: &str| resolve(Some(&format!("{{{uri}{extra}}}")), Fallbacks::default()).map(|c| c.writes);
+    assert_eq!(settings("")?, WriteSettings::default());
+    assert_eq!(WriteSettings::default().mutation_ttl_seconds, 86_400);
+    assert_eq!(
+        settings(
+            r#","rest":{"idTypes":{"counters":"number","tags":"string"},"mutationTtlSeconds":3600.9,"explainDenials":true},"audit":{"dataWrites":true}"#
+        )?,
+        WriteSettings {
+            id_types: vec![
+                ("counters".to_owned(), "number".to_owned()),
+                ("tags".to_owned(), "string".to_owned())
+            ],
+            mutation_ttl_seconds: 3600,
+            explain_denials: true,
+            audit: true,
+        }
+    );
+    for (extra, message) in [
+        (
+            r#","rest":{"idTypes":{"a":"int"}}"#,
+            "rest.idTypes.a must be auto, objectId, uuid, string or number",
+        ),
+        (r#","rest":{"idTypes":[]}"#, "rest.idTypes must be an object"),
+        (r#","rest":{"explainDenials":"yes"}"#, "rest.explainDenials must be true or false"),
+        (r#","audit":{"dataWrites":1}"#, "audit.dataWrites must be true or false"),
+    ] {
+        assert_eq!(settings(extra).err().as_deref(), Some(message), "{extra}");
+    }
+    assert_eq!(settings(r#","rest":{"mutationTtlSeconds":0}"#)?.mutation_ttl_seconds, 86_400);
     Ok(())
 }

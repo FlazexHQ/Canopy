@@ -205,6 +205,31 @@
           "$ref": "#/$defs/strings",
           "default": [],
           "description": "The collections whose aggregations may start with $search or $vectorSearch (they need a MongoDB Search index)."
+        },
+        "idTypes": {
+          "type": "object",
+          "additionalProperties": { "enum": ["auto", "objectId", "uuid", "string", "number"] },
+          "default": {},
+          "description": "How the {id} path segment of a collection's documents is read; collections it does not name read auto (24 hexadecimal characters as an ObjectId, anything else as a string)."
+        },
+        "mutationTtlSeconds": {
+          "$ref": "#/$defs/whole",
+          "default": 86400,
+          "description": "How long idempotency records of the write routes live, in seconds."
+        },
+        "explainDenials": {
+          "type": "boolean",
+          "default": false,
+          "description": "Refused writes explain the policies that decided, in details.explain. It reveals the policy structure: development only."
+        }
+      }
+    },
+    "audit": {
+      "properties": {
+        "dataWrites": {
+          "type": "boolean",
+          "default": false,
+          "description": "Records every committed write of the write routes in the audit log of the meta database."
         }
       }
     },
@@ -216,7 +241,7 @@
           "then": { "$ref": "#/$defs/dataPlaneRoute" },
           "items": { "if": { "type": "string" }, "then": { "$ref": "#/$defs/dataPlaneRoute" } },
           "default": [],
-          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}; count, distinct, aggregate, query and explain are POST /rest/v1/{collection}/_count, _distinct, _aggregate, _query and _explain; each with OPTIONS and 405 on its path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
+          "description": "The Data API routes the gateway serves itself. find is GET /rest/v1/{collection}; count, distinct, aggregate, query and explain are POST /rest/v1/{collection}/_count, _distinct, _aggregate, _query and _explain; writes are POST, PATCH and DELETE /rest/v1/{collection}, PATCH, PUT and DELETE /rest/v1/{collection}/{id} and POST /rest/v1/_batch; each with OPTIONS and 405 on its path. Every other request goes to the upstream server. Replaces CANOPY_DATA_PLANE_ROUTES, which takes a comma separated list."
         }
       }
     },
@@ -256,6 +281,8 @@
       }
     },
     "transport": { "enum": ["websocket", "sse", "long-poll"] },
-    "dataPlaneRoute": { "enum": ["find", "count", "distinct", "aggregate", "query", "explain"] }
+    "dataPlaneRoute": {
+      "enum": ["find", "count", "distinct", "aggregate", "query", "explain", "writes"]
+    }
   }
 }

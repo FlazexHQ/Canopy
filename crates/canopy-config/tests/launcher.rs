@@ -1,6 +1,6 @@
 //! Cross language launcher fixtures.
 
-use canopy_config::{Cors, DataPlaneRoute, FullDocument, RequestRates, RestLimits};
+use canopy_config::{Cors, DataPlaneRoute, FullDocument, RequestRates, RestLimits, WriteSettings};
 use canopy_config::{Fallbacks, Policies, TrustedProxy, parse, resolve};
 use canopy_protocol::json::parse_json;
 
@@ -53,7 +53,8 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
             DataPlaneRoute::Distinct,
             DataPlaneRoute::Aggregate,
             DataPlaneRoute::Query,
-            DataPlaneRoute::Explain
+            DataPlaneRoute::Explain,
+            DataPlaneRoute::Writes
         ]
     );
     assert_eq!(
@@ -62,6 +63,15 @@ fn reads_data_plane_launcher_config() -> Result<(), String> {
     );
     assert_eq!(config.search_collections, ["articles"]);
     assert!(config.tracing);
+    assert_eq!(
+        config.writes,
+        WriteSettings {
+            id_types: vec![("counters".to_owned(), "number".to_owned())],
+            mutation_ttl_seconds: 86_400,
+            explain_denials: true,
+            audit: true,
+        }
+    );
     let host = Fallbacks { data_plane_routes: Some(vec!["unknown".to_owned()]), ..Fallbacks::default() };
     assert_eq!(resolve(Some(fixture), host)?.data_plane_routes, config.data_plane_routes);
     Ok(())
