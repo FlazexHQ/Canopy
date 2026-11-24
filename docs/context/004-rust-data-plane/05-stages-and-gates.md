@@ -137,28 +137,27 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Transfer throughput and memory consumption per upload characterized and verified on GitHub Actions run 45449511220 (`bench/baselines/d4/README.md`).
 
 ### Stage D5: MongoDB Wire Protocol Endpoint
-- **Status:** In progress (wire framing, router handshake, MONGODB-OIDC and SCRAM-SHA-256 for user `service`, reads through ReadPath, keyset cursor paging, transactional writes via WritePath, gateway wire listener, retryable writes, wire DLS replay, unified CRUD spec tests, maxTimeMS, the D5 gate benchmark run, change streams over the wire, change stream unified spec tests and DLS coverage, and OP_COMPRESSED completed).
+- **Status:** Done in code (wire framing, router handshake, MONGODB-OIDC, SCRAM-SHA-256 for configured and stored secret keys, reads through ReadPath, keyset cursor paging, transactional writes via WritePath, wire point updates without select, gateway wire listener, retryable writes, wire DLS replay, unified CRUD spec tests, maxTimeMS, D5 gate benchmark run, change streams over the wire, change stream unified spec tests and batch update lookup fix, and OP_COMPRESSED completed).
 - **Completed Work Items:**
   1. Crate `canopy-wire` core and framing (commit `1ee5390`): OP_MSG and legacy OP_QUERY framing with CRC32C checksums, hello command answering as a MongoDB 8.0 router.
-  2. Authentication (commit `1ee5390`): MONGODB-OIDC with access tokens (roles extracted from token claims) and SCRAM-SHA-256 for user `service` using configured secret API keys.
+  2. Authentication (commits `1ee5390`, `bf93ad7`, `50265bd`): MONGODB-OIDC with access tokens (roles extracted from token claims), SCRAM-SHA-256 for user `service` using configured secret keys, and SCRAM-SHA-256 for stored secret keys (verifier stored next to key hash, key id as username, revocations read from primary on handshake, decoy for unknown users).
   3. Read commands execution (commits `1ee5390`, `9766e12`): `find`, `count`, `distinct`, `aggregate`, `listCollections`, and `listIndexes` through `ReadPath` applying DLS policies, field rules, read limits, and pipeline sanitization. Per connection cursors with random 64 bit identifiers that expire after 10 minutes.
   4. Keyset paging for wire find cursors (commit `9766e12`): `getMore` continues through Data API keyset cursor when buffered page runs out, skip applied once, limit counted across pages. Aggregations exceeding document or byte limits refused with BadValue.
   5. Transactional write commands (commit `549a6ce`): `insert`, `update`, `delete`, and `findAndModify` running each statement in its own majority acknowledged transaction under write policies through `WritePath`. Ordered batches stop at the first write error. Refuses unacknowledged writes (w:0), update pipelines, arrayFilters, and collation. Policy denials answer Unauthorized.
-  6. Gateway wire listener (commit `f66b157`): dedicated TCP port configured by the `wire` setting (`port`, `host`, `maxMessageBytes` 48000000, `maxConnections` 256, `idleTimeoutMs` 60000, optional PEM TLS), oversized frames refused from header, `moreToCome` support, per peer request budgets, shutdown drain, metrics `canopy_wire_connections` and `canopy_wire_commands_total`, launcher `GatewayOverrides.wire`. Verified with official Rust driver over SCRAM and OIDC, reads and writes, on MongoDB 8.0.34 and 9.0.8.
-  7. Retryable writes over the wire (commit `dd4064f`): accepts retryable writes with mutation IDs derived as `wire_<session uuid hex>_<txnNumber>_<stmtId>`. `findAndModify` images are kept in the idempotency record and replayed only while the policy version and claims are unchanged; client transactions are still refused.
-  8. Wire DLS replay and equivalence (commit `b97de08`): bypass corpus, hidden field filters, sorts and projections, the 16 aggregation leak pipelines and hidden value write oracles over the official Node driver: 657 wire commands per run, nothing hidden shown, the wire refuses exactly what REST refuses; 18 tests pass on Node 26 and Bun with MongoDB 8.0.34 and 9.0.8.
-  9. Unified CRUD spec tests (commit `832a82f`): Node driver over SCRAM (19 files, 61 passed, 10 refused with BadValue for arrayFilters, write hints, collation, let and pipeline updates, 3 skipped by version requirements); Python, Go, and Java over OIDC each passed the shared 7 cases; tested on MongoDB 8.0.34 and 9.0.8 across Node 26 and Bun.
-  10. Wire writes accept `maxTimeMS`: write commands accept and enforce timeout limits.
-  11. Stage D5 gate benchmark on Actions (run 45453474230, `bench/baselines/d5/README.md`): characterized wire throughput against Rust Data API and direct MongoDB floor across Node 26 and Bun with MongoDB 8.0.34 and 9.0.8. Wire find by `_id` reaches 1.21 to 1.30 times Data API requests per CPU second, count reaches 1.41 to 1.54 times, insertOne reaches 1.13 to 1.16 times, find 20 documents is on par at 0.92 to 0.99 times, and updateOne reaches 0.67 to 0.70 times due to retryable write documents. Idle wire memory confirmed at 19.50 to 22.74 KiB per authenticated connection across 200 connections.
-- **In Progress Work Items:**
-  1. Change streams over the wire: map `$changeStream` commands to realtime subscriptions in `canopy-engine`.
+  6. Wire point updates without select (commit `6160e84`): updates and single deletes by `_id` execute without a prior find select, dropping retryable update by `_id` from 6 to 3 MongoDB commands, and raising local smoke ratio to REST from 0.56 to 0.90.
+  7. Gateway wire listener (commit `f66b157`): dedicated TCP port configured by the `wire` setting (`port`, `host`, `maxMessageBytes` 48000000, `maxConnections` 256, `idleTimeoutMs` 60000, optional PEM TLS), oversized frames refused from header, `moreToCome` support, per peer request budgets, shutdown drain, metrics `canopy_wire_connections` and `canopy_wire_commands_total`, launcher `GatewayOverrides.wire`. Verified with official Rust driver over SCRAM and OIDC, reads and writes, on MongoDB 8.0.34 and 9.0.8.
+  8. Retryable writes over the wire (commit `dd4064f`): accepts retryable writes with mutation IDs derived as `wire_<session uuid hex>_<txnNumber>_<stmtId>`. `findAndModify` images are kept in the idempotency record and replayed only while the policy version and claims are unchanged; client transactions are still refused.
+  9. Wire DLS replay and equivalence (commit `b97de08`): bypass corpus, hidden field filters, sorts and projections, the 16 aggregation leak pipelines and hidden value write oracles over the official Node driver: 657 wire commands per run, nothing hidden shown, the wire refuses exactly what REST refuses; 18 tests pass on Node 26 and Bun with MongoDB 8.0.34 and 9.0.8.
+  10. Unified CRUD spec tests (commit `832a82f`): Node driver over SCRAM (19 files, 61 passed, 10 refused with BadValue for arrayFilters, write hints, collation, let and pipeline updates, 3 skipped by version requirements); Python, Go, and Java over OIDC each passed the shared 7 cases; tested on MongoDB 8.0.34 and 9.0.8 across Node 26 and Bun.
+  11. Wire writes accept `maxTimeMS` (commit `832a82f`): a nonnegative value is accepted and validated; the transaction keeps its own configured deadlines.
+  12. Stage D5 gate benchmark on Actions (run 45453474230, `bench/baselines/d5/README.md`): characterized wire throughput against Rust Data API and direct MongoDB floor across Node 26 and Bun with MongoDB 8.0.34 and 9.0.8. Wire find by `_id` reaches 1.21 to 1.30 times Data API requests per CPU second, count reaches 1.41 to 1.54 times, insertOne reaches 1.13 to 1.16 times, find 20 documents is on par at 0.92 to 0.99 times, and updateOne reaches 0.67 to 0.70 times due to retryable write documents. Idle wire memory confirmed at 19.50 to 22.74 KiB per authenticated connection across 200 connections.
+  13. Change streams over wire (commits `f11bf8a`, `0a9e54a`, `7b8c3a3`): watch served by realtime engine, change stream unified spec tests and DLS coverage, batch updateLookup keeping wire change streams open across repeated updates to one document in a single batch.
+  14. OP_COMPRESSED (commit `01ea940`): snappy, zlib and zstd in pure Rust.
 - **Remaining Work Items:**
-  1. Change stream unified spec tests once change streams land.
-  2. OP_COMPRESSED: done in commit `01ea940` (snappy, zlib and zstd in pure Rust).
-  3. SCRAM for stored, hashed keys: requires credentials issued by the control plane and moves to Stage D6.
+  1. Wire update scenario throughput characterization vs Data API.
 - **Read cursor behavior:** Wire `find` continues through the Data API keyset cursor, with `skip` applied to the first page and the driver's `limit` applied across the cursor. Each continuation uses a fresh Data API snapshot. Aggregation has no continuation in the Data API, so the wire endpoint returns an error if the aggregation exceeds its document or BSON byte budget.
 - **Conformance and Oracle Deliverables:**
-  - Official MongoDB driver unified spec tests passing with Node.js, Python, Go, and Java drivers (CRUD complete in commit `832a82f`; change streams remain).
+  - Official MongoDB driver unified spec tests passing with Node.js, Python, Go, and Java drivers (CRUD complete in commit `832a82f`; change streams complete).
   - Wire protocol query denial attack corpus passing with 0 bypasses.
 - **Gate Criteria:**
   - Allowlisted unified spec tests pass with official drivers.
@@ -166,30 +165,34 @@ Stages D1 and D2 form the critical path. Once D2 lands, D3, D4, and D5 can proce
   - Concurrency, write throughput, and change stream resumption fully validated.
 
 ### Stage D6: Control Plane Split
-- **Status:** Started (groundwork landed in commit `f048d0a`: `CANOPY_ROLE=control`).
+- **Status:** Started, in progress (groundwork landed in commit `f048d0a`: `CANOPY_ROLE=control`; split container stack and images integration landed in commits `849c4e9`, `1fc80ad`, and `0108ec4`; D6 gate remains open due to images job failure in CI run 45466670974).
 - **Completed Work Items:**
   1. Control role groundwork (commit `f048d0a`): `CANOPY_ROLE=control` serves only built in auth, the JWKS, the admin API and health, keeps webhooks, and refuses every data path through an allowlist.
+  2. Standalone Rust data plane binary renamed to `canopyd` (`crates/canopyd`).
+  3. Control plane service extracted to `packages/control` with its own Dockerfile `deploy/docker/canopy-control.Dockerfile`.
+  4. Split container stack in Docker Compose (`deploy/compose/split.yaml`), Helm (`split.enabled`), and Kubernetes manifests (`deploy/kubernetes/split.yaml`), running the control plane from `canopy-control` image with policies published at startup (`0108ec4`).
+  5. Control plane resilience test (`520794b`) and probe mode `canopyd --probe` (`3927295`).
 - **Remaining Work Items:**
-  1. Extract `packages/control`: move Better Auth, admin API, meta database migrations, policy publishing, and webhooks into an independent TypeScript service with its own container image.
-  2. Rename `canopy-gateway` to `canopyd` as the standalone Rust data plane binary.
-  3. Update Docker Compose, Helm charts, and Kubernetes manifests (the split container stack).
-  4. Control plane resilience test: verify data plane routes continue serving without interruption during control plane downtime.
-  5. Verification: verify with `sdk-e2e`, Studio, and `todo-react` Playwright suites against the new stack.
+  1. Resolve smoke test failure in `Docker images and compose stack` where realtime answered plain GET with 503 instead of a 4xx refusal, allowing the split stack smoke that stops control, sdk-e2e, Studio Playwright, and todo-react Playwright suites to run and pass through the split edge.
 - **Conformance and Oracle Deliverables:**
-  - Verification through `sdk-e2e`, Studio, and `todo-react` Playwright suites.
+  - Verification through `sdk-e2e`, Studio, and `todo-react` Playwright suites against the split edge.
   - Control plane failure resilience verification.
 - **Gate Criteria:**
   - The container stack passes `sdk-e2e`, Studio, and `todo-react` Playwright suites.
   - A crash or failure of the control plane leaves data plane routes serving without interruption.
+  - Gate status: unclosed. In GitHub Actions run 45466670974, `Docker images and compose stack` failed on `Smoke test the stack, then the native gateway as the realtime service`, so Stage D6 remains in progress.
 
 ### Stage D7: Defaults and Embedded Mode
-- **Status:** Started (final stage; groundwork landed in commit `dcfe7a5`: `all` in `dataPlane.routes`).
+- **Status:** Started, in progress (groundwork landed in commit `dcfe7a5`: `all` in `dataPlane.routes`; default flip landed in commit `750ca82`).
 - **Completed Work Items:**
   1. Route selection groundwork (commit `dcfe7a5`): `all` in `dataPlane.routes` selects every Data API route plus graphql and storage when configured.
+  2. Default flip (commit `750ca82`): `canopyd` and the front door default to `all`, serving every Data API route plus GraphQL and storage when configured; an empty list or empty `CANOPY_DATA_PLANE_ROUTES` opts out; the sidecar and filtered front doors keep passing HTTP routes upstream.
+  3. Export cleanup (commit `446a360`): removed unused test helper exports flagged by Knip.
 - **Remaining Work Items:**
-  1. Make the Rust data plane the default for all promoted routes.
-  2. Consolidate TypeScript data packages (`packages/rest`, `packages/realtime`, `packages/graphql`, `packages/storage`, `packages/node-http`) into a single frozen `packages/embedded` package for Node.js apps.
-  3. Resolve open question Q17 regarding post-1.0 embedded mode support.
+  1. Consolidate TypeScript data packages (`packages/rest`, `packages/realtime`, `packages/graphql`, `packages/storage`, `packages/node-http`) into a single frozen `packages/embedded` package for Node.js apps.
+  2. Image transforms in storage (waiting on a library decision).
+  3. Formal resolution of open question Q17 regarding post-1.0 embedded mode support.
+  4. Zero P0 or P1 bugs open against the Rust data plane for one full release cycle.
 - **Gate Criteria:**
   - Zero P0 or P1 bugs open against the Rust data plane for one full release cycle.
   - Formal resolution of open question Q17.
