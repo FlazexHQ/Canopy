@@ -321,3 +321,46 @@ fn selects_r2_storage_with_rest_disabled_and_uses_storage_defaults() -> Result<(
     assert_eq!(jurisdiction.as_deref(), Some("eu"));
     Ok(())
 }
+
+#[test]
+fn all_selects_every_route_whose_surface_is_configured() -> Result<(), String> {
+    use DataPlaneRoute::{
+        Aggregate, Count, Distinct, Document, Explain, Find, Graphql, Query, Storage, Writes,
+    };
+    let rest = [Find, Count, Distinct, Aggregate, Query, Explain, Document, Writes];
+    let storage = r#""storage":{"buckets":{},"backend":{"kind":"local","root":"files"}}"#;
+    let with = |extra: &str| {
+        parse(&format!(
+            r#"{{"mongodb":{{"uri":"mongodb://db.example.test/app"}},"dataPlane":{{"routes":["all"]}}{extra}}}"#
+        ))
+    };
+
+    let everything = with(&format!(",{storage}"))?;
+    assert_eq!(everything.data_plane_routes, [&rest[..], &[Graphql, Storage]].concat());
+
+    let without_storage = with("")?;
+    assert_eq!(without_storage.data_plane_routes, [&rest[..], &[Graphql]].concat());
+
+    let without_graphql = with(r#","graphql":false"#)?;
+    assert_eq!(without_graphql.data_plane_routes, rest);
+
+    let storage_only = with(&format!(r#","rest":false,{storage}"#))?;
+    assert_eq!(storage_only.data_plane_routes, [Storage]);
+
+    let nothing = with(r#","rest":false"#)?;
+    assert!(nothing.data_plane_routes.is_empty());
+
+    let repeated = parse(
+        r#"{"mongodb":{"uri":"mongodb://db.example.test/app"},"dataPlane":{"routes":["writes","all","find"]}}"#,
+    )?;
+    assert_eq!(
+        repeated.data_plane_routes,
+        [&[Writes, Find, Count, Distinct, Aggregate, Query, Explain, Document][..], &[Graphql]].concat()
+    );
+
+    let host = Fallbacks { data_plane_routes: Some(vec!["all".to_owned()]), ..Fallbacks::default() };
+    let from_env =
+        resolve(Some(r#"{"mongodb":{"uri":"mongodb://db.example.test/app"},"graphql":false}"#), host)?;
+    assert_eq!(from_env.data_plane_routes, rest);
+    Ok(())
+}

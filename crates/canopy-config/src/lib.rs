@@ -107,7 +107,24 @@ pub enum DataPlaneRoute {
     Storage,
 }
 
+/// The `dataPlane.routes` entry that selects every route whose surface is configured.
+pub const ALL_ROUTES: &str = "all";
+
 impl DataPlaneRoute {
+    /// Every route, in the order of [`DataPlaneRoute::NAMES`].
+    pub const ALL: [DataPlaneRoute; 10] = [
+        DataPlaneRoute::Find,
+        DataPlaneRoute::Count,
+        DataPlaneRoute::Distinct,
+        DataPlaneRoute::Aggregate,
+        DataPlaneRoute::Query,
+        DataPlaneRoute::Explain,
+        DataPlaneRoute::Document,
+        DataPlaneRoute::Writes,
+        DataPlaneRoute::Graphql,
+        DataPlaneRoute::Storage,
+    ];
+
     /// The route names, as the configuration spells them.
     pub const NAMES: [&'static str; 10] = [
         "find",
@@ -152,7 +169,10 @@ impl DataPlaneRoute {
             "storage" => Ok(DataPlaneRoute::Storage),
             other => {
                 let (last, first) = DataPlaneRoute::NAMES.split_last().unwrap_or((&"", &[]));
-                Err(format!("dataPlane.routes may list {} and {last}, not {other}", first.join(", ")))
+                Err(format!(
+                    "dataPlane.routes may list {ALL_ROUTES}, {} and {last}, not {other}",
+                    first.join(", ")
+                ))
             }
         }
     }
@@ -430,19 +450,43 @@ fn full_document(value: Option<String>) -> ConfigResult<FullDocument> {
     }
 }
 
+/// What `all` in `dataPlane.routes` selects besides the Data API routes: GraphQL and storage when they are
+/// configured.
+struct Configured {
+    rest: bool,
+    graphql: bool,
+    storage: bool,
+}
+
 fn data_plane_routes(
     doc: &Json,
     fallback: Option<Vec<String>>,
-    rest_enabled: bool,
+    configured: &Configured,
 ) -> ConfigResult<Vec<DataPlaneRoute>> {
     let names = strings(doc, &["dataPlane", "routes"]).or(fallback).unwrap_or_default();
     let mut routes = Vec::new();
-    for name in &names {
-        let route = DataPlaneRoute::parse(name)?;
+    let mut add = |route: DataPlaneRoute| {
         if !routes.contains(&route) {
             routes.push(route);
         }
+    };
+    for name in &names {
+        if name != ALL_ROUTES {
+            add(DataPlaneRoute::parse(name)?);
+            continue;
+        }
+        for route in DataPlaneRoute::ALL {
+            let wanted = match route {
+                DataPlaneRoute::Graphql => configured.graphql,
+                DataPlaneRoute::Storage => configured.storage,
+                _ => configured.rest,
+            };
+            if wanted {
+                add(route);
+            }
+        }
     }
+    let rest_enabled = configured.rest;
     if !rest_enabled && routes.iter().any(|route| *route != DataPlaneRoute::Storage) {
         return Err("dataPlane.routes serves the Data API, which rest: false disables".to_owned());
     }
@@ -675,13 +719,15 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
         }
     };
     let rest_enabled = !matches!(doc.get("rest"), Some(Json::Bool(false)));
-    let data_plane_routes = data_plane_routes(&doc, fallback.data_plane_routes, rest_enabled)?;
     let rest_limits = rest_limits(&doc)?;
     let storage = storage::settings(doc.get("storage"))?;
+    let graphql = if rest_enabled { graphql::settings(doc.get("graphql"))? } else { None };
+    let configured =
+        Configured { rest: rest_enabled, graphql: graphql.is_some(), storage: storage.is_some() };
+    let data_plane_routes = data_plane_routes(&doc, fallback.data_plane_routes, &configured)?;
     if storage.is_none() && data_plane_routes.contains(&DataPlaneRoute::Storage) {
         return Err("dataPlane.routes selects storage, which requires storage settings".to_owned());
     }
-    let graphql = if rest_enabled { graphql::settings(doc.get("graphql"))? } else { None };
     if graphql.is_none() && data_plane_routes.contains(&DataPlaneRoute::Graphql) {
         return Err("dataPlane.routes selects graphql, which graphql: false disables".to_owned());
     }
