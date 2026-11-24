@@ -264,6 +264,45 @@
       }
     },
     {
+      "id": "insert-existing-id-service-keyed",
+      "title": "A keyed insert reports no duplicated key, even to service",
+      "steps": [
+        {
+          "request": {
+            "method": "POST",
+            "target": "/rest/v1/notes",
+            "query": [],
+            "caller": "service",
+            "headers": {
+              "content-type": "application/json",
+              "idempotency-key": "conformance-key-1",
+              "x-request-id": "insert.insert-existing-id-service-keyed.0"
+            },
+            "body": "{\"_id\":\"n1\",\"ownerId\":\"alice\"}"
+          },
+          "response": {
+            "status": 409,
+            "headers": {
+              "content-type": "application/problem+json",
+              "x-request-id": "insert.insert-existing-id-service-keyed.0"
+            },
+            "body": "{\"type\":\"urn:canopy:error:duplicate-key\",\"title\":\"Duplicate key\",\"status\":409,\"code\":\"CANOPY_DUPLICATE_KEY\",\"detail\":\"A document with the same unique key exists\",\"instance\":\"/rest/v1/notes\",\"requestId\":\"insert.insert-existing-id-service-keyed.0\"}"
+          }
+        }
+      ],
+      "state": {
+        "notes": [
+          "{\"_id\":\"n1\",\"ownerId\":\"alice\",\"title\":\"note 1\",\"done\":false,\"n\":{\"$numberInt\":\"1\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767225600000\"}},\"secret\":\"secret-1\"}",
+          "{\"_id\":\"n2\",\"ownerId\":\"alice\",\"title\":\"note 2\",\"done\":true,\"n\":{\"$numberInt\":\"2\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767312000000\"}},\"secret\":\"secret-2\"}",
+          "{\"_id\":\"n3\",\"ownerId\":\"alice\",\"title\":\"note 3\",\"done\":false,\"n\":{\"$numberInt\":\"3\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767398400000\"}},\"secret\":\"secret-3\"}",
+          "{\"_id\":\"n4\",\"ownerId\":\"alice\",\"title\":\"note 4\",\"done\":true,\"n\":{\"$numberInt\":\"4\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767484800000\"}},\"secret\":\"secret-4\"}",
+          "{\"_id\":\"n5\",\"ownerId\":\"bob\",\"title\":\"note 5\",\"done\":false,\"n\":{\"$numberInt\":\"5\"},\"tags\":[\"a\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767571200000\"}},\"secret\":\"secret-5\"}",
+          "{\"_id\":\"n6\",\"ownerId\":\"bob\",\"title\":\"note 6\",\"done\":true,\"n\":{\"$numberInt\":\"6\"},\"tags\":[\"a\",\"b\"],\"createdAt\":{\"$date\":{\"$numberLong\":\"1767657600000\"}},\"secret\":\"secret-6\"}"
+        ]
+      },
+      "records": []
+    },
+    {
       "id": "insert-validator",
       "title": "The collection validator refuses the document",
       "steps": [

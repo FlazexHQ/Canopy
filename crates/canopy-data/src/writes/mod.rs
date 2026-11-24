@@ -1481,6 +1481,37 @@ fn write_code(error: &DriverError) -> Option<i32> {
     }
 }
 
+/// The duplicated key the server reported for a refused write: the `keyValue` of the reply, or of its first
+/// duplicate key write error.
+fn key_value(error: &DriverError) -> Option<bson::Document> {
+    let reply = bson::Document::try_from(error.server_response()?.as_ref()).ok()?;
+    if let Ok(key) = reply.get_document("keyValue") {
+        return Some(key.clone());
+    }
+    reply.get_array("writeErrors").ok()?.iter().find_map(|write| {
+        let write = write.as_document()?;
+        (write.get_i32("code").ok()? == DUPLICATE_KEY)
+            .then(|| write.get_document("keyValue").ok().cloned())?
+    })
+}
+
+/// A duplicate key refusal; only `service` callers see the duplicated key, because it can reveal documents
+/// they could not otherwise read.
+fn duplicate_key_error(key: Option<bson::Document>, service: bool) -> CanopyError {
+    let duplicate = CanopyError::new(ErrorCode::DuplicateKey, "A document with the same unique key exists");
+    match key.filter(|_| service).and_then(|key| details_of("keyValue", key)) {
+        Some(details) => duplicate.with_details(details),
+        None => duplicate,
+    }
+}
+
+/// `{"<name>": value}` as canonical EJSON, the details a `service` caller sees.
+fn details_of(name: &str, value: bson::Document) -> Option<String> {
+    let raw = bson::RawDocumentBuf::try_from(&doc! { name: value }).ok()?;
+    let details = canopy_protocol::bson::decode_document(raw.as_bytes()).ok()?;
+    canopy_protocol::ejson::stringify(&Value::Document(details)).ok()
+}
+
 /// Converts the failure of a write into a [`CanopyError`]: the error it carries, a duplicate key, a validator
 /// refusal (whose reason only `service` callers see), or the read path's mapping.
 fn write_error(error: &DriverError, service: bool) -> CanopyError {
@@ -1498,9 +1529,7 @@ fn write_error(error: &DriverError, service: bool) -> CanopyError {
         }
     }
     match write_code(error) {
-        Some(DUPLICATE_KEY) => {
-            CanopyError::new(ErrorCode::DuplicateKey, "A document with the same unique key exists")
-        }
+        Some(DUPLICATE_KEY) => duplicate_key_error(key_value(error), service),
         Some(DOCUMENT_VALIDATION_FAILURE) => {
             let failure = CanopyError::named(
                 ErrorCode::ValidationFailed,
@@ -1516,20 +1545,9 @@ fn write_error(error: &DriverError, service: bool) -> CanopyError {
                     .and_then(|e| e.details.clone()),
                 _ => None,
             };
-            match reason {
-                Some(reason) if service => {
-                    let details = bson::RawDocumentBuf::try_from(&doc! { "reason": reason })
-                        .ok()
-                        .and_then(|raw| canopy_protocol::bson::decode_document(raw.as_bytes()).ok())
-                        .and_then(|details| {
-                            canopy_protocol::ejson::stringify(&Value::Document(details)).ok()
-                        });
-                    match details {
-                        Some(details) => failure.with_details(details),
-                        None => failure,
-                    }
-                }
-                _ => failure,
+            match reason.filter(|_| service).and_then(|reason| details_of("reason", reason)) {
+                Some(details) => failure.with_details(details),
+                None => failure,
             }
         }
         _ => from_driver_error(error, service),
