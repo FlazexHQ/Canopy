@@ -12,9 +12,11 @@ use crate::telemetry::Telemetry;
 use canopy_config::{Cors, DataPlaneRoute, GatewayConfig};
 use canopy_data::writes::{IdType, WriteEvent, WritePath};
 use canopy_data::{Policies, ReadLimits, ReadPath};
+use canopy_engine::{MutationOutcome, MutationRequest};
 use canopy_http::{Rest, RestOptions, Served};
 use canopy_mongo::mongodb::Client;
 use canopy_policy::{PolicyEngine, PolicySet};
+use canopy_protocol::CanopyError;
 use canopy_realtime::{Body, EngineSender, full};
 use http_body_util::{BodyExt, LengthLimitError, Limited};
 use hyper::body::{Bytes, Incoming};
@@ -92,6 +94,7 @@ fn audit_entry(
 /// The routes of `dataPlane.routes` and the policies they read under.
 pub(crate) struct DataPlane {
     rest: Rest,
+    serves_writes: bool,
     rate_limited: Arc<AtomicU64>,
     request_log: Option<Arc<RequestLog>>,
     telemetry: Option<Telemetry>,
@@ -160,7 +163,12 @@ impl DataPlane {
             });
             rest = rest.with_rate_limits(Arc::new(limits), Some(count));
         }
-        Ok(DataPlane { rest, rate_limited, request_log, telemetry })
+        Ok(DataPlane { rest, serves_writes: served.writes, rate_limited, request_log, telemetry })
+    }
+
+    /// The routes, for realtime mutations when the writes are served here.
+    pub(crate) fn writes(&self) -> Option<&Rest> {
+        self.serves_writes.then_some(&self.rest)
     }
 
     /// The Prometheus lines of the routes: the requests the rate limits refused.
@@ -271,4 +279,18 @@ impl PolicyUpdates {
         }
         self.engine.set_policies(set);
     }
+}
+
+/// Runs a write in the gateway's own write path, as the TypeScript write path would run it when forwarded:
+/// the same policies, transaction and idempotency record.
+pub(crate) async fn mutate(rest: &Rest, request: &MutationRequest) -> Result<MutationOutcome, CanopyError> {
+    let mutated = rest
+        .mutate(
+            &request.principal,
+            &crate::forward::operation(request),
+            &request.mutation.id,
+            request.mutation.op.is_bulk(),
+        )
+        .await?;
+    Ok(crate::forward::outcome_of_entry(request, mutated.ct, mutated.replayed, &mutated.entry))
 }

@@ -27,3 +27,4 @@ pub use params::{FindParams, PageLimits, find_params_from_body, find_params_from
 pub use problem::{DEFAULT_PROBLEM_TYPE_BASE, PROBLEM_MEDIA_TYPE, Problem, problem_response, problem_slug};
 pub use request::{Body, Request, Response};
 pub use routes::{Cors, DEFAULT_MAX_BODY_BYTES, Rest, RestOptions, Served, request_path};
+pub use writes::Mutated;

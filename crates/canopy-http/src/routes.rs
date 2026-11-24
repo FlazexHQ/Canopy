@@ -151,7 +151,7 @@ enum Route {
 /// The Data API routes served by the Rust data plane.
 pub struct Rest {
     authenticator: Authenticator,
-    reads: ReadPath,
+    pub(crate) reads: ReadPath,
     pub(crate) base_path: String,
     pub(crate) problem_type_base: String,
     cors: Option<Cors>,

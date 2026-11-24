@@ -6,7 +6,7 @@ use canopy_data::writes::{
     BatchItem, IdType, Outcome, WriteOp, WriteOptions, WriteRequest, WriteResult, merge_patch_to_update,
     parse_id,
 };
-use canopy_engine::Ct;
+use canopy_engine::{Ct, Principal};
 use canopy_protocol::ejson::{DecodeOptions, canonical_string, parse, stringify};
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
 
@@ -462,6 +462,41 @@ impl Rest {
         Ok(Response::new(200)
             .with_header("content-type", content_type(encoding))
             .with_body(encode(&Value::Document(out), encoding)?))
+    }
+}
+
+/// What a realtime mutation committed: the cluster time, whether it was a replay, and the first entry of the
+/// `data` of the atomic batch that ran it, as the `_batch` route answers it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Mutated {
+    /// The cluster time of the commit.
+    pub ct: Ct,
+    /// Whether the outcome is the stored one of an earlier write with the same mutation ID.
+    pub replayed: bool,
+    /// The result of the operation: `data`, and `matched`, `upserted` or `ids` as its kind has them.
+    pub entry: Document,
+}
+
+impl Rest {
+    /// Runs the write of a realtime `mut` frame as the `_batch` route runs an atomic batch of that one
+    /// operation (`{op, c, ...}`, the mutation ID as its idempotency key), so its idempotency record is the
+    /// one a forwarded mutation writes. Fails as that batch fails, with the error of the operation.
+    pub async fn mutate(
+        &self,
+        principal: &Principal,
+        operation: &Value,
+        mutation_id: &str,
+        bulk: bool,
+    ) -> Result<Mutated, CanopyError> {
+        let caller = self.reads.caller(principal, None).await?;
+        let (request, _) = batch_request(operation, 0, bulk)?;
+        let options = WriteOptions { mutation_id: Some(mutation_id.to_owned()), skip_documents: false };
+        let result = self.writes()?.execute_batch(&caller, std::slice::from_ref(&request), &options).await?;
+        let outcome = result
+            .outcomes
+            .first()
+            .ok_or_else(|| CanopyError::new(ErrorCode::Internal, "The write has no outcome"))?;
+        Ok(Mutated { ct: result.ct, replayed: result.replayed, entry: operation_body(request.op(), outcome) })
     }
 }
 

@@ -43,6 +43,19 @@ on the fast path produced 74 correlation failures in a 400 mutation run.
 | 8.0.34 (single node replica set) | 100,000 | 0 | 0 | 0 | 110 s |
 | 7.0.45 (single node replica set) | 100,000 | 0 | 0 | 0 | about 100 s |
 
+The Rust write path of the data plane (`canopy_data::writes`, stage D2 of plan 004) is held to the same rule by
+`crates/canopy-data/tests/echo_correlation.rs`, a port of the suite with the same mix, workers and checks
+(`CANOPY_ECHO_MUTATIONS` scales it too). On 2026-11-24, release build, single node replica sets on Windows:
+
+| MongoDB | Mutations | Applied | Ordering violations | Missing exact correlations | Early resolutions | Orphan replays | Time |
+|---|---|---|---|---|---|---|---|
+| 8.0.34 | 100,000 | 94,044 | 0 | 0 | 0 | 0 | 148 s |
+| 9.0.8 | 100,000 | 94,050 | 0 | 0 | 0 | 0 | 152 s |
+
+The Rust suite fails when it should: reporting the session time after one more command on the session, instead
+of the write's own time, produced 163 missing correlations in a 400 mutation run. Reads after a fast write run
+outside its session there, so the session's time stays the write's own.
+
 Findings:
 
 - **Transactions:** every event of a committed transaction carries the commit's cluster time, and the

@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use canopy_auth::{ApiKeys, Authenticator, Revocations};
-use canopy_config::{GatewayConfig, Policies};
+use canopy_config::{DataPlaneRoute, GatewayConfig, Policies};
 use canopy_engine::{Config, Engine, Limits, MutationRequest};
 use canopy_mongo::{Checkpoints, Reader, load_policies, mongodb, policies_from_stored};
 use canopy_policy::{PolicyEngine, PolicySet};
@@ -138,7 +138,8 @@ fn engine_config(config: &GatewayConfig) -> Config {
         node_id: config.node_id.clone(),
         heartbeat_ms: config.heartbeat_ms,
         resume_window_ms: config.resume_window_ms,
-        mutations: config.mutations_url.is_some(),
+        mutations: config.mutations_url.is_some()
+            || config.data_plane_routes.contains(&DataPlaneRoute::Writes),
         messages: config.messages.map(config::message_rate),
         seed: seed(),
         limits: Limits::default(),
@@ -275,11 +276,23 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         LogLevel::Warn => log.warn(message, fields),
         LogLevel::Error => log.error(message, fields),
     };
-    let write = config.mutations_url.clone().map(|url| {
+    let local = routes.data_plane.as_ref().is_some_and(|plane| plane.writes().is_some());
+    let write = (local || config.mutations_url.is_some()).then(|| {
+        let routes = Arc::clone(&routes);
+        let url = config.mutations_url.clone();
         move |request: Box<MutationRequest>| {
-            let (http, url) = (http.clone(), url.clone());
+            let (routes, http, url) = (Arc::clone(&routes), http.clone(), url.clone());
             async move {
-                let result = forward::forward(&http, &url, &request).await;
+                let result = match routes.data_plane.as_ref().and_then(DataPlane::writes) {
+                    Some(rest) => data_plane::mutate(rest, &request).await,
+                    None => match url {
+                        Some(url) => forward::forward(&http, &url, &request).await,
+                        None => Err(canopy_protocol::CanopyError::new(
+                            canopy_protocol::ErrorCode::Unavailable,
+                            "The write path is unavailable",
+                        )),
+                    },
+                };
                 (request, result)
             }
         }

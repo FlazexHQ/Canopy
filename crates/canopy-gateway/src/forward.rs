@@ -21,18 +21,9 @@ fn number(value: Option<&Value>) -> u64 {
 
 /// The body of an atomic `_batch` holding the one write of a `mut` frame.
 pub(crate) fn batch_body(request: &MutationRequest) -> Result<String, CanopyError> {
-    let mutation = &request.mutation;
-    let mut op = Document::new();
-    op.insert("op", Value::String(mutation.op.as_str().to_owned()));
-    op.insert("c", Value::String(mutation.c.clone()));
-    for (key, value) in mutation.args.iter() {
-        if key != "bulk" {
-            op.insert(key, value.clone());
-        }
-    }
     let mut body = Document::new();
     body.insert("atomic", Value::Bool(true));
-    body.insert("ops", Value::Array(vec![Value::Document(op)]));
+    body.insert("ops", Value::Array(vec![operation(request)]));
     let mut out = String::new();
     write_json(&mut out, &to_canonical(&Value::Document(body))?);
     Ok(out)
@@ -66,6 +57,17 @@ pub(crate) fn outcome(
         Some(Value::Array(items)) => items.first().and_then(Value::as_document).cloned().unwrap_or_default(),
         _ => Document::new(),
     };
+    Ok(outcome_of_entry(request, ct, replayed, &entry))
+}
+
+/// What the engine needs for the `ack` from the result of the one operation of the batch: the cluster time,
+/// whether it was replayed, and the operation's entry of the batch's `data`.
+pub(crate) fn outcome_of_entry(
+    request: &MutationRequest,
+    ct: Ct,
+    replayed: bool,
+    entry: &Document,
+) -> MutationOutcome {
     let data = entry.get("data");
     let args = &request.mutation.args;
     let mut result = MutationOutcome { ct, replayed, ..MutationOutcome::default() };
@@ -108,7 +110,21 @@ pub(crate) fn outcome(
             result.documents = Some(data.and_then(Value::as_document).cloned().into_iter().collect());
         }
     }
-    Ok(result)
+    result
+}
+
+/// The `{op, c, ...}` operation of a `mut` frame, as an atomic `_batch` holds it.
+pub(crate) fn operation(request: &MutationRequest) -> Value {
+    let mutation = &request.mutation;
+    let mut op = Document::new();
+    op.insert("op", Value::String(mutation.op.as_str().to_owned()));
+    op.insert("c", Value::String(mutation.c.clone()));
+    for (key, value) in mutation.args.iter() {
+        if key != "bulk" {
+            op.insert(key, value.clone());
+        }
+    }
+    Value::Document(op)
 }
 
 /// Forwards a write to the TypeScript write path with the caller's own credentials, so its policies, its
