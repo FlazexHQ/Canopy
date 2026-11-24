@@ -43,7 +43,7 @@ use crate::log::Log;
 use crate::server::{Routes, ShardRoutes};
 use crate::telemetry::Telemetry;
 
-const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -]
+const USAGE: &str = "Usage: canopy-gateway [--config <file> | --config -] [--probe]
 
 Runs Canopy's native realtime server. With --config -, the first line of standard input is the configuration as
 JSON (the canopy launcher writes it), the bound port is reported on standard output as {\"t\":\"listening\",
@@ -51,6 +51,9 @@ JSON (the canopy launcher writes it), the bound port is reported on standard out
 and stops the server. Without --config, the variables of canopy-realtime apply: MONGODB_URI, CANOPY_DB,
 CANOPY_META_DB, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS, CANOPY_JWT_*, PORT, METRICS_PORT and the others,
 with policies read from the meta database.
+
+--probe asks the gateway listening on PORT (8080 by default) on this host for /readyz and exits 0 when it
+answers 200, so a container without a shell can check its own readiness.
 ";
 
 fn seed() -> [u8; 32] {
@@ -86,7 +89,31 @@ fn read_config() -> Result<(Option<String>, bool), String> {
     }
 }
 
+/// Asks the local gateway for `/readyz` over plain HTTP; true when it answers 200 within two seconds.
+fn probe() -> bool {
+    use std::io::{Read as _, Write as _};
+    let port = std::env::var("PORT").ok().and_then(|port| port.trim().parse::<u16>().ok()).unwrap_or(8080);
+    let timeout = Some(std::time::Duration::from_secs(2));
+    let address = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut stream) = std::net::TcpStream::connect_timeout(&address, std::time::Duration::from_secs(2))
+    else {
+        return false;
+    };
+    if stream.set_read_timeout(timeout).is_err() || stream.set_write_timeout(timeout).is_err() {
+        return false;
+    }
+    let request = format!("GET /readyz HTTP/1.1\r\nhost: 127.0.0.1:{port}\r\nconnection: close\r\n\r\n");
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+    let mut status = [0u8; 12];
+    stream.read_exact(&mut status).is_ok() && status.starts_with(b"HTTP/1.") && &status[8..12] == b" 200"
+}
+
 fn main() -> ExitCode {
+    if std::env::args().skip(1).eq(["--probe"]) {
+        return if probe() { ExitCode::SUCCESS } else { ExitCode::from(1) };
+    }
     let (text, control) = match read_config() {
         Ok(found) => found,
         Err(message) if message.is_empty() => {

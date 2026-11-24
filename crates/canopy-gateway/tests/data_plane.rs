@@ -1529,3 +1529,37 @@ async fn every_data_route_keeps_serving_while_the_control_plane_is_down() {
         );
     }
 }
+
+/// `--probe` lets a container without a shell check readiness: 0 when the gateway on `PORT` answers `/readyz`
+/// with 200, 1 when nothing listens there.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_probe_reports_whether_the_local_gateway_is_ready() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let gateway = Gateway::start(wire_config(&uri, "gateway_probe", "false", "null"), None).await;
+    let probe = |port: u16| {
+        Command::new(GATEWAY)
+            .arg("--probe")
+            .env("PORT", port.to_string())
+            .status()
+            .expect("the probe runs")
+            .code()
+    };
+    let mut ready = probe(gateway.port);
+    for _ in 0..50 {
+        if ready == Some(0) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        ready = probe(gateway.port);
+    }
+    let closed = {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a probe port");
+        listener.local_addr().expect("an address").port()
+    };
+    assert_eq!(ready, Some(0));
+    assert_eq!(probe(closed), Some(1));
+    drop(gateway);
+}
