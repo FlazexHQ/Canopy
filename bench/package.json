@@ -21,6 +21,7 @@
     "rest:check": "node workloads/rest/check.ts",
     "d0": "node --conditions=@canopy/source workloads/d0/run.ts",
     "d1": "node --conditions=@canopy/source workloads/d1/find.ts",
+    "d2": "node --conditions=@canopy/source workloads/d2/writes.ts",
     "test": "vitest run",
     "wire": "node --conditions=@canopy/source workloads/wire/s13-wire.ts"
   },

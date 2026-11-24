@@ -124,6 +124,11 @@ fn main() -> ExitCode {
     }
 }
 
+/// The connection pool of the gateway's MongoDB client when the connection string sets none: the Node driver's
+/// default, which the TypeScript server runs with. The Rust driver's own default of 10 queues requests behind
+/// each other once a few dozen are in flight.
+const DEFAULT_MAX_POOL_SIZE: u32 = 100;
+
 fn stored_policies(line: &Json) -> Result<PolicySet, String> {
     let collections = match line.get("stored") {
         Some(Json::Array(items)) => items.clone(),
@@ -153,6 +158,9 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
     options.app_name = Some("canopy-gateway".to_owned());
+    if options.max_pool_size.is_none() {
+        options.max_pool_size = Some(DEFAULT_MAX_POOL_SIZE);
+    }
     let telemetry = if config.tracing { Telemetry::start()? } else { None };
     if let Some(telemetry) = &telemetry {
         options.command_event_handler = Some(telemetry.command_handler());

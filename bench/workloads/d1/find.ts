@@ -1,5 +1,4 @@
-import { type ChildProcess, execFileSync, spawn } from "node:child_process"
-import { readFileSync } from "node:fs"
+import { type ChildProcess, spawn } from "node:child_process"
 import { writeFile } from "node:fs/promises"
 import { cpus, platform } from "node:os"
 import { fileURLToPath } from "node:url"
@@ -10,6 +9,7 @@ import { MongoClient } from "mongodb"
 import { runtimeName } from "../d0/target.ts"
 import { percentile } from "../rest/harness.ts"
 import { type Order, OWNERS, STATUSES, seedTo } from "../rest/scenarios.ts"
+import { cpuMillis, waitFor } from "../server-process.ts"
 
 /**
  * The D1 gate of plan 004 for the reads: the same `find`, `_query`, `_count`, `_distinct` and `_aggregate` requests on
@@ -48,50 +48,6 @@ function credentials(tokens: readonly string[], owner: number): Record<string, s
 
 function log(text: string): void {
   process.stderr.write(`${text}\n`)
-}
-
-/** CPU milliseconds a process has used so far, from the operating system. */
-function cpuMillis(pid: number): number {
-  const os = platform()
-  if (os === "linux") {
-    const fields = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.split(" ") ?? []
-    const ticks = Number(fields[11]) + Number(fields[12])
-    const hertz = Number(execFileSync("getconf", ["CLK_TCK"]).toString().trim())
-    return (ticks * 1000) / hertz
-  }
-  if (os === "win32") {
-    const text = execFileSync(
-      "powershell",
-      [
-        "-NoProfile",
-        "-Command",
-        `[int64](Get-Process -Id ${pid}).TotalProcessorTime.TotalMilliseconds`,
-      ],
-      { windowsHide: true },
-    )
-    return Number(text.toString().trim())
-  }
-  const time = execFileSync("ps", ["-o", "time=", "-p", String(pid)])
-    .toString()
-    .trim()
-  const [rest, fraction] = time.split(".")
-  const parts = (rest ?? "").split(/[-:]/).map(Number)
-  let seconds = 0
-  for (const part of parts) seconds = seconds * 60 + part
-  return (seconds + Number(`0.${fraction ?? "0"}`)) * 1000
-}
-
-/** Reads lines from a child's stdout until `pattern` matches one. */
-function waitFor(child: ChildProcess, pattern: RegExp): Promise<RegExpExecArray> {
-  return new Promise((resolve, reject) => {
-    let pending = ""
-    child.stdout?.on("data", (chunk: Buffer) => {
-      pending += chunk.toString()
-      const match = pattern.exec(pending)
-      if (match !== null) resolve(match)
-    })
-    child.once("exit", (code) => reject(new Error(`a server exited with ${code}`)))
-  })
 }
 
 interface Scenario {
