@@ -7,13 +7,13 @@ This folder contains the complete technical context gathered for implementing [0
 An engineer continuing the implementation of Plan 004 should read the context documents in the following sequence:
 
 1. [08-progress.md](08-progress.md)
-   **Start here.** The Checkpoint at the top records the exact current status of the codebase, in progress work on the `_query` route, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D1 through D7.
+   **Start here.** The Checkpoint at the top records the completion of stages D1 and D2, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D3 through D7.
 
 2. [02-current-rust-workspace.md](02-current-rust-workspace.md)
-   **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the new data plane crates: `canopy-data` (reads execution), `canopy-http` (Data API routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
+   **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the data plane crates: `canopy-data` (reads and transactional writes execution), `canopy-http` (Data API read, document, and write routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
 
 3. [03-typescript-reference-implementations.md](03-typescript-reference-implementations.md)
-   **Identify what to port.** Specifies the exact TypeScript files, functions, and classes that define the behavioral contract for each remaining stage: completing D1 (`_query`, `_explain`, tracing spans, numeric id deferral), D2 transactional writes (`WritePath`, atomic fast path, transactions, idempotency documents, echo before ack), D3 GraphQL, D4 storage, D5 wire protocol, D6 control plane split, and D7 embedded mode.
+   **Identify what to port.** Specifies the exact TypeScript files, functions, and classes that define the behavioral contract for each remaining stage: D3 GraphQL, D4 storage, D5 wire protocol, D6 control plane split, and D7 embedded mode.
 
 4. [05-stages-and-gates.md](05-stages-and-gates.md)
    **Review gate criteria and deliverables.** Details the execution status of stages D0 through D7, concrete work items for each remaining stage, language neutral conformance oracles in `conformance/`, and performance gate thresholds required before route promotion.
@@ -56,6 +56,7 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [conformance/README.md](../../../conformance/README.md)
   - [conformance/http/find/](../../../conformance/http/find/)
   - [conformance/http/reads/](../../../conformance/http/reads/)
+  - [conformance/http/writes/](../../../conformance/http/writes/)
   - [conformance/cursor/](../../../conformance/cursor/)
   - [conformance/policy/pipeline.json](../../../conformance/policy/pipeline.json)
   - [conformance/auth/rate-limits.json](../../../conformance/auth/rate-limits.json)
@@ -63,3 +64,4 @@ An engineer continuing the implementation of Plan 004 should read the context do
   - [bench/README.md](../../../bench/README.md)
   - [bench/baselines/d0/README.md](../../../bench/baselines/d0/README.md)
   - [bench/baselines/d1/README.md](../../../bench/baselines/d1/README.md)
+  - [bench/baselines/d2/README.md](../../../bench/baselines/d2/README.md)

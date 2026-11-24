@@ -1,0 +1,192 @@
+{
+  "format": "canopy-d2-writes/1",
+  "measuredAt": "2026-11-24T05:56:11.720Z",
+  "runtime": "bun 1.4.4",
+  "os": "linux",
+  "cpu": {
+    "model": "AMD EPYC 7763 64-Core Processor",
+    "count": 4
+  },
+  "mongodb": "8.0.34",
+  "config": {
+    "owners": 200,
+    "seconds": 8,
+    "concurrency": 32,
+    "rounds": 3,
+    "deletable": 400
+  },
+  "gate": {
+    "requires": 1.5,
+    "measure": "write requests per CPU second of the server process"
+  },
+  "scenarios": [
+    {
+      "scenario": "insert one",
+      "typescript": {
+        "requests": 9686,
+        "errors": 0,
+        "perSecond": 1201,
+        "serverCpuSeconds": 10.67,
+        "requestsPerCpuSecond": 908,
+        "cpuMillisPerRequest": 1.102,
+        "p50": 25.8,
+        "p99": 46.11
+      },
+      "rust": {
+        "requests": 16746,
+        "errors": 0,
+        "perSecond": 2085,
+        "serverCpuSeconds": 7.78,
+        "requestsPerCpuSecond": 2152,
+        "cpuMillisPerRequest": 0.465,
+        "p50": 14.72,
+        "p99": 29.61
+      },
+      "rustOverTypescriptPerCpu": 2.3711085939104857
+    },
+    {
+      "scenario": "update by id",
+      "typescript": {
+        "requests": 10710,
+        "errors": 0,
+        "perSecond": 1331,
+        "serverCpuSeconds": 9.43,
+        "requestsPerCpuSecond": 1136,
+        "cpuMillisPerRequest": 0.88,
+        "p50": 23.62,
+        "p99": 37.33
+      },
+      "rust": {
+        "requests": 17766,
+        "errors": 0,
+        "perSecond": 2213,
+        "serverCpuSeconds": 7.71,
+        "requestsPerCpuSecond": 2304,
+        "cpuMillisPerRequest": 0.434,
+        "p50": 13.56,
+        "p99": 28.24
+      },
+      "rustOverTypescriptPerCpu": 2.0288853284504462
+    },
+    {
+      "scenario": "replace by id",
+      "typescript": {
+        "requests": 9843,
+        "errors": 0,
+        "perSecond": 1221,
+        "serverCpuSeconds": 8.5,
+        "requestsPerCpuSecond": 1158,
+        "cpuMillisPerRequest": 0.864,
+        "p50": 25.58,
+        "p99": 43.93
+      },
+      "rust": {
+        "requests": 14720,
+        "errors": 0,
+        "perSecond": 1834,
+        "serverCpuSeconds": 7.34,
+        "requestsPerCpuSecond": 2005,
+        "cpuMillisPerRequest": 0.499,
+        "p50": 16.57,
+        "p99": 33.73
+      },
+      "rustOverTypescriptPerCpu": 1.7318217541283714
+    },
+    {
+      "scenario": "delete by id",
+      "typescript": {
+        "requests": 16163,
+        "errors": 0,
+        "perSecond": 2013,
+        "serverCpuSeconds": 9.08,
+        "requestsPerCpuSecond": 1780,
+        "cpuMillisPerRequest": 0.562,
+        "p50": 15.76,
+        "p99": 26.62
+      },
+      "rust": {
+        "requests": 26697,
+        "errors": 0,
+        "perSecond": 3329,
+        "serverCpuSeconds": 6.77,
+        "requestsPerCpuSecond": 3943,
+        "cpuMillisPerRequest": 0.254,
+        "p50": 8.98,
+        "p99": 20.19
+      },
+      "rustOverTypescriptPerCpu": 2.2153261214157727
+    },
+    {
+      "scenario": "insert with an idempotency key",
+      "typescript": {
+        "requests": 7858,
+        "errors": 0,
+        "perSecond": 973,
+        "serverCpuSeconds": 9.05,
+        "requestsPerCpuSecond": 868,
+        "cpuMillisPerRequest": 1.152,
+        "p50": 31.61,
+        "p99": 53.98
+      },
+      "rust": {
+        "requests": 10784,
+        "errors": 0,
+        "perSecond": 1341,
+        "serverCpuSeconds": 7.94,
+        "requestsPerCpuSecond": 1358,
+        "cpuMillisPerRequest": 0.736,
+        "p50": 22.86,
+        "p99": 46.99
+      },
+      "rustOverTypescriptPerCpu": 1.5642131460630218
+    },
+    {
+      "scenario": "atomic batch of 4",
+      "typescript": {
+        "requests": 3878,
+        "errors": 0,
+        "perSecond": 476,
+        "serverCpuSeconds": 8.64,
+        "requestsPerCpuSecond": 449,
+        "cpuMillisPerRequest": 2.228,
+        "p50": 64.24,
+        "p99": 110.74
+      },
+      "rust": {
+        "requests": 5956,
+        "errors": 0,
+        "perSecond": 738,
+        "serverCpuSeconds": 8.15,
+        "requestsPerCpuSecond": 731,
+        "cpuMillisPerRequest": 1.368,
+        "p50": 41.42,
+        "p99": 80.65
+      },
+      "rustOverTypescriptPerCpu": 1.628182258263541
+    },
+    {
+      "scenario": "batch of 4, not atomic",
+      "typescript": {
+        "requests": 7313,
+        "errors": 0,
+        "perSecond": 908,
+        "serverCpuSeconds": 8.75,
+        "requestsPerCpuSecond": 836,
+        "cpuMillisPerRequest": 1.196,
+        "p50": 34.57,
+        "p99": 54.37
+      },
+      "rust": {
+        "requests": 10953,
+        "errors": 0,
+        "perSecond": 1363,
+        "serverCpuSeconds": 7.68,
+        "requestsPerCpuSecond": 1426,
+        "cpuMillisPerRequest": 0.701,
+        "p50": 22.64,
+        "p99": 44.45
+      },
+      "rustOverTypescriptPerCpu": 1.706413770853275
+    }
+  ]
+}

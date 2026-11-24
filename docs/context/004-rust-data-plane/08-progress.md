@@ -2,33 +2,38 @@
 
 This document records completed tasks, open issues, and planned work for the Rust data plane defined in [004-rust-data-plane.md](../../plans/004-rust-data-plane.md).
 
-## Checkpoint (2026-11-23): where to continue
+## Checkpoint (2026-11-24): where to continue
 
-**State.** Branch `bench/d1-gate` (commits `504e5fe`, `4d2cc93`, `6c3a263`, then this checkpoint) is merged into `master`. Stage D1 is nearly done: `find`, `_count`, `_distinct` and `_aggregate` are served in Rust behind `CANOPY_DATA_PLANE_ROUTES` and pass the D1 throughput gate on Linux CI in all 28 measurements (`bench/baselines/d1/README.md`), with the reads oracle byte identical on MongoDB 8 and 9, DLS equivalence and the bypass corpus green, request rate limits, failed authentication limits and the request log in parity with TypeScript.
+**State.** Stages D1 and D2 are done. All read routes (`find`, `count`, `distinct`, `aggregate`, `query`, `explain`, `document`) and all write routes (`writes`: insert, insertMany, update, replace, delete, bulk update and delete, `_batch` atomic and not) are served in Rust behind `CANOPY_DATA_PLANE_ROUTES`. The D1 and D2 throughput gates pass on Linux CI across all scenarios (`bench/baselines/d1/README.md`, `bench/baselines/d2/README.md`), with the reads and writes oracles byte identical on MongoDB 8 and 9, cross version idempotency and DLS property tests passing, and OpenTelemetry tracing spans in place.
 
-**Done (2026-11-24): `_query` (find with a body) in Rust**, commit `a30e8fc`. `DataPlaneRoute::Query` (`query`) in `canopy-config` and its schema, `Served::query` in the gateway, and `query` selected by the gateway reads replay, the switch test, the DLS equivalence of the read actions (each filter also sent to `_query`, plus a `_query` projecting the hidden field) and the D1 benchmark (scenario "query page of 20"). Verified: 307 Rust tests on MongoDB 8 and 9, the switch, contract and DLS equivalence suites on both (560 reads through REST and the Rust routes, nothing hidden shown).
+**Done (2026-11-24): D2 (writes) in Rust.** Stage D2 is complete with the following evidence:
+- **Oracle conformance:** `conformance/http/writes/` (100 cases across 7 groups: insert, update, replace, delete, bulk, batch, idempotency) replays byte for byte (cluster times aside), documents and idempotency records included, on MongoDB 8.0.34 and 9.0.8 in `crates/canopy-http/tests/writes_conformance.rs` and through the gateway binary in `crates/canopy-gateway/tests/data_plane.rs`.
+- **Cross version idempotency and DLS equivalence:** `packages/server/test/data-plane-switch.test.ts` records keys through TypeScript and replays them through Rust and back, verifying reused keys conflict across versions. The DLS property test (`packages/server/test/dls-equivalence.test.ts`) sends inserts and updates through Rust write routes and requires TypeScript's exact decisions. Both pass on MongoDB 8 and 9.
+- **Realtime mutations in process:** with `writes` selected, the gateway executes realtime mutations in process via `Rest::mutate` (`crates/canopy-http/src/writes.rs`), executing the same single operation atomic batch without loopback HTTP forwarding.
+- **S7 echo before ack suite ported:** `crates/canopy-data/tests/echo_correlation.rs` passes 100,000 mutations across concurrent workers with 0 violations on MongoDB 8.0.34 and 9.0.8 (`docs/spikes/S7-echo-before-ack.md`).
+- **D2 throughput gate passed:** GitHub Actions run 45335688043 passes 28 of 28 measurements on Linux across Node 26 and Bun with MongoDB 8.0.34 and 9.0.8, reaching 1.56 to 2.97 times TypeScript write requests per server CPU second (`bench/baselines/d2/README.md`).
+- **Fast paths:**
+  - Direct replace: prechecks with constant filters evaluate on the replacement via `$unionWith` on the target collection, executing with `replaceOne` without a transaction (`crates/canopy-data/src/writes/plan.rs`).
+  - Deferred read backs in atomic batches: read backs of documents that need no check and cannot be modified by later operations wait for the end of the transaction and run as one find per collection (`crates/canopy-data/tests/read_backs.rs`).
+  - Grouped batches: consecutive single document writes of batches that are not atomic are grouped into an ordered client `bulkWrite` on MongoDB 8 and later (`WritePath.execute_each`).
+  - Write sent with its idempotency record: a single insert or an update by `_id` with an idempotency key runs as one ordered client `bulkWrite` combining the write and its idempotency document inside the transaction (`crates/canopy-data/tests/record_with_write.rs`).
+- **New route `document`:** `GET /rest/v1/{collection}/{id}` is selectable as `document` in `DataPlaneRoute`, reading a document by its `_id` through the read policy and field rules in a snapshot session (`ReadPath::find_by_id`); 22 recorded cases in `conformance/http/reads/cases/document.json` replay byte for byte on MongoDB 8 and 9.
+- **TypeScript fixes found on the way:**
+  - An update naming `_id` previously answered 500; it now correctly answers 400 (`6f79fc4`).
+  - A keyed one operation batch kept an incorrect stored outcome when matching or changing nothing; the correction now properly updates results for batches (`c09eef7`).
+- **Known differences, documented:**
+  - A duplicate key refusal carries no `details.keyValue` for service callers in Rust because the Rust driver does not expose it.
+  - Realtime mutations run in process skip the HTTP request rate limit that the forwarded `_batch` met; the engine's message rate limit continues to apply.
+  - Each process keeps its own rate limit budget while routes are split between the gateway and TypeScript.
+  - The gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
 
 **Remaining, in order:**
-1. **Tracing spans on the Rust routes: done (2026-11-24).** Decided under the user's standing goal to finish the plan: the OpenTelemetry crates (`opentelemetry`, `opentelemetry_sdk`, `opentelemetry-otlp` 0.33 with `http-proto` and the blocking reqwest client, nine new crates, all Apache 2.0 or MIT, `cargo deny` clean) in `canopy-gateway/src/telemetry.rs`. `telemetry.tracing` (or `CANOPY_TRACING`, passed by the launcher) turns it on; a server span per request a Rust route answers (continuing `traceparent`), a client span per MongoDB command (the driver's command events, parented through the OpenTelemetry context of the request future), `canopy.policy.load` for database policy loads; OTLP/HTTP protobuf only (another `OTEL_EXPORTER_OTLP_PROTOCOL` stops the gateway). Tested end to end against a fake collector in `crates/canopy-gateway/tests/data_plane.rs`. Realtime fan out spans (`canopy.realtime.fanout`) are not recorded by the gateway yet.
-2. **`POST /rest/v1/{coll}/_explain` from Rust: done (2026-11-24).** The route is selectable as `explain`; its oracle is `conformance/http/reads/cases/explain.json` (39 cases: stated callers, roles, filters, counts, context lookups given and resolved, refusals); `canopy_policy::access_report_document` (moved from `canopy-engine`) writes the report for both the route and realtime `o.explain`. Replays 167 of 167 reads on MongoDB 8 and 9.
-3. **Reference hardware and same region Atlas runs** of D0 and D1, the gate numbers of record (the CI runs are the evidence so far).
-4. **`conformance/errors.json`: done (2026-11-24).** Written by hand as the one source of the codes (name, status, title, slug, TypeScript class, hint, docs page); `packages/protocol/test/conformance-errors.test.ts`, `packages/rest/test/conformance-errors.test.ts`, `crates/canopy-protocol/tests/errors.rs` and `crates/canopy-http/tests/errors.rs` fail on any drift. Checked rather than generated, so the universal `@canopy/protocol` (vendored by Canopy.js) keeps its hand written module.
-5. **Numeric id deferral in atomic batches: done (2026-11-24).** `packages/rest/src/write-defer.ts` defers Int32, Long and Double ids too, compared by value with the `idKey` of `write-group.ts`; Decimal128 and other ids without a key are never deferred and a later one on the collection rules deferral out; `ReadBacks.readMany` matches found documents by the same key, so a `Long(1)` read back finds an Int32 `_id`. Tests in `packages/rest/test/write-readbacks.test.ts` (the differential batch test now draws Long, Double, Decimal128 and NaN ids too); the `@canopy/rest` suite passes on MongoDB 8 and 9.
-6. **D2 (writes), in progress (2026-11-24).** Done so far:
-   - The oracle `conformance/http/writes/` (100 cases in 7 groups: insert, update, replace, delete, bulk, batch, idempotency), recorded by `bun run vectors:http-writes` from the TypeScript handler, each case on a freshly seeded database, with the documents left and the idempotency records (fingerprints included). `packages/rest/test/conformance-writes.test.ts` keeps it current. Recording it found and fixed a TypeScript bug: an update naming `_id` answered `500`, now `400` (`6f79fc4`).
-   - `canopy_data::writes`: `WritePath` (`execute`, `execute_batch`, `execute_each`), `WriteRequest` (the TypeScript request object, member order kept for the fingerprint), plans for every operation, `Scope` (grants, field rules, immutable fields, `$facet` checks and read backs, `$documents` prechecks on the target collection), transactions with transient error retries, idempotency records (`fingerprint`, record, replay, read back of replayed documents), `explainDenials` details, a write observer (`WriteEvent`) for realtime echoes.
-   - `canopy-http` write routes (`src/writes.rs`): insert and insertMany, update (operators or merge patch), replace with upsert, delete, bulk update and delete (`Prefer: bulk=true`, filters and shorthand), `_batch` atomic and not, `Location`, `return=minimal`, `Idempotency-Key`; `Served::writes` with `Rest::with_writes`.
-   - `crates/canopy-http/tests/writes_conformance.rs` replays the 100 cases byte for byte (cluster times aside), documents and records included, on MongoDB 8 and 9.
-
-   - The gateway selects them as `writes` (`DataPlaneRoute::Writes`), with `rest.idTypes`, `rest.mutationTtlSeconds`, `rest.explainDenials` and `audit.dataWrites` from the launcher (`WriteSettings` in `canopy-config`); `crates/canopy-gateway/tests/data_plane.rs` replays the 100 cases through the gateway process on MongoDB 8 and 9.
-
-   - Cross version idempotency: `packages/server/test/data-plane-switch.test.ts` records a key through TypeScript and replays it through Rust and back, and a reused key is a conflict across versions. The DLS property test (`packages/server/test/dls-equivalence.test.ts`) sends its inserts and updates through the Rust write routes too and requires TypeScript's decisions. Both pass on MongoDB 8 and 9.
-
-   - Realtime mutations: with `writes` selected the gateway runs `mut` frames in process (`Rest::mutate`, the same one operation atomic batch the forwarder sent, so idempotency records stay the same) instead of forwarding them to TypeScript; the DLS property test covers inserts and updates over the gateway's realtime too. Echo before ack: `crates/canopy-data/tests/echo_correlation.rs` (the S7 suite ported) passes 100,000 mutations with 0 violations on MongoDB 8.0.34 and 9.0.8 (`docs/spikes/S7-echo-before-ack.md`). Realtime mutations run in process skip the HTTP request rate limit the forwarded `_batch` met; the engine's message rate limit still applies.
-
-   **Next, in order:** the fast paths TypeScript has beyond the plain ones (replace `direct`, deferred read backs of atomic batches, grouped `bulkWrite` of batches that are not atomic, the record sent with its write), which change only command counts; the D2 write throughput gate; `GET /{collection}/{id}`. Known difference: a duplicate key refusal does not carry `details.keyValue` for `service` callers (the Rust driver does not expose it). Then D3 to D7.
-
-**Known differences, documented:** each process keeps its own rate limit budget while routes are split between the gateway and TypeScript; the gateway reads a `POST` body up to the limit before checking credentials (TypeScript checks credentials first).
+1. **D1 gate runs of record on reference hardware and Atlas:** execute formal benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster (the CI runs are the evidence so far).
+2. **D3 GraphQL:** port schema synthesis, query execution and subscriptions to `canopy-graphql` over `canopy-data` reads and writes, starting with spike S15 library selection.
+3. **D4 Storage:** implement `canopy-storage` for file storage policies on `storage.objects` with GridFS and S3 backends, signed URLs and resumable uploads.
+4. **D5 Wire endpoint:** implement `canopy-wire` with `OP_MSG` listener, driver authentication, command allowlist and streaming subscriptions.
+5. **D6 Control plane split:** extract Better Auth, admin API, meta migrations and webhooks into `packages/control`, renaming `canopy-gateway` to `canopyd`.
+6. **D7 Defaults:** make the Rust data plane default for all routes, consolidating TypeScript data packages into frozen `packages/embedded`.
 
 **Environment notes:** the replica sets are MongoDB 8.0.34 on `localhost:37017` and 9.0.8 on `localhost:37090` (data in `%TEMP%/canopy-review-mongo` and `%TEMP%/canopy-review-mongo9`; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`, which reuses the data). The 9.0.8 server stopped once during this session and was restarted that way. Never touch the standalone `mongod` on 27017. Node 22 is first on PATH: run Node 26 with `fnm exec --using=26`. Generated vector files are excluded from `bun fmt` and Biome (`bunfig.toml`, `biome.json`); add any new `conformance/` folder there too.
 
@@ -40,18 +45,22 @@ Ordered as the work should proceed:
 1. **`_query` route integration:** done (`a30e8fc`).
 2. **Tracing spans on Rust routes:** done (OTLP/HTTP from `canopy-gateway/src/telemetry.rs`); fan out spans of the realtime engine remain.
 3. **`POST /rest/v1/{coll}/_explain` from Rust:** done, selectable as `explain`.
-4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster.
+4. **Gate runs of record:** execute formal D0 and D1 benchmark measurements on Linux reference hardware and a same region MongoDB Atlas cluster (the CI runs are the evidence so far).
 5. **`conformance/errors.json`:** done; both languages are checked against it.
 6. **Numeric ID deferral in atomic batches:** done.
+7. **Document route `GET /rest/v1/{collection}/{id}`:** done, selectable as `document`, replaying 22 cases in `conformance/http/reads/cases/document.json`.
 
 ### Stage D2: Transactional Writes in Rust
-1. **Write execution core in `canopy-data`:** port `WritePath` methods (`insert`, `patch`, `replace`, `delete`, `executeBatch`, `executeEach`, `explainDenials`).
-2. **Single document fast paths:** insert precheck and replace precheck via `$unionWith` on the target collection, fast path patch when checks compile to all documents.
-3. **Multi-document transactions:** execute writes in transactions with majority concerns, capturing commit cluster time.
-4. **Idempotency records:** store idempotency documents in `canopy.mutations` with request fingerprints, replaying stored outcomes on duplicate keys.
-5. **HTTP write routes in `canopy-http`:** handle `POST`, `PATCH`, `PUT`, `DELETE`, and `POST /_batch`.
-6. **Native socket mutations in `canopy-realtime`:** process realtime mutations directly in process without loopback forwarding.
-7. **Verification and oracle:** record `conformance/http/writes/`, run S7 echo before ack harness (100,000 mutations with zero violations), and verify 1.5x write throughput gate.
+- **Status:** Done (2026-11-24).
+1. **Write execution core in `canopy-data`:** done; `WritePath` (`execute`, `execute_batch`, `execute_each`, `explain_denials`, `merge_patch_to_update`, `parse_id`).
+2. **Single document fast paths:** done; direct replace without transaction, fast path patch, single write with its idempotency record (`crates/canopy-data/tests/record_with_write.rs`).
+3. **Multi-document transactions:** done; writes executed in MongoDB transactions with majority read and write concerns, transient error retries, commit cluster time captured from session `operationTime`.
+4. **Idempotency records:** done; stored in `canopy.mutations` with request fingerprints, replaying stored outcomes on duplicate keys with cross version idempotency verified (`packages/server/test/data-plane-switch.test.ts`).
+5. **HTTP write routes in `canopy-http`:** done; routes for `POST`, `PATCH`, `PUT`, `DELETE`, and `POST /_batch`, supporting `application/json`, `application/ejson`, and `application/merge-patch+json`, replaying 100 cases of `conformance/http/writes/` byte for byte in `crates/canopy-http/tests/writes_conformance.rs` and through the gateway binary.
+6. **Native socket mutations in `canopy-realtime`:** done; processed in process via `Rest::mutate`.
+7. **Echo before ack:** done; `crates/canopy-data/tests/echo_correlation.rs` passes 100,000 mutations across concurrent workers with 0 violations on MongoDB 8.0.34 and 9.0.8 (`docs/spikes/S7-echo-before-ack.md`).
+8. **Batch optimizations:** done; deferred read backs in atomic batches (`crates/canopy-data/tests/read_backs.rs`) and grouped client `bulkWrite` for batches that are not atomic.
+9. **D2 throughput gate:** done; 28 of 28 pass on Linux CI run 45335688043 (1.56 to 2.97 times TypeScript, `bench/baselines/d2/README.md`).
 
 ### Stage D3: GraphQL Schema and Execution
 1. **Spike S15 library selection:** select the Rust GraphQL library.
@@ -98,6 +107,7 @@ Ordered as the work should proceed:
 | 8 | D1 | The oracle of the D1 `find` gate (`conformance/http/find/`, fixture, 214 cases, replay test, and recorder) | Done | `conformance/http/find/`, `packages/rest/test/conformance/find/`, `packages/rest/test/conformance-find.test.ts`, `packages/testing/scripts/http-find-vectors.ts` |
 | 9 | D1 | Settle find contract before Rust port (symbol encoding, regex cursor docs, explain removed, oracle 227 cases) | Done | `docs/design/06-data-api.md`, `packages/protocol/src/ejson.ts`, `crates/canopy-protocol/src/ejson.rs`, `packages/rest/src/cursor.ts`, `conformance/http/find/` |
 | 10 | D1 | End to end find in Rust: canopy-data read execution, canopy-http plain routes, and conformance replay | Done | `crates/canopy-data/`, `crates/canopy-http/`, `crates/canopy-http/tests/find_conformance.rs`, `crates/canopy-http/tests/page_commands.rs`, `crates/canopy-http/tests/fail_closed.rs`, `crates/canopy-data/tests/cursor.rs` |
+| D2 | D2 | Transactional writes in Rust: canopy-data write execution, canopy-http write routes, in process realtime mutations, fast paths, and D2 throughput gate | Done | `crates/canopy-data/src/writes/`, `crates/canopy-http/src/writes.rs`, `crates/canopy-gateway/src/data_plane.rs`, `conformance/http/writes/`, `crates/canopy-data/tests/`, `bench/baselines/d2/` |
 
 ### Task 1 Details (Stage D0: The `dns-resolver` Build)
 
