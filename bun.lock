@@ -320,6 +320,23 @@
         "vitest": "catalog:",
       },
     },
+    "packages/embedded": {
+      "name": "@canopy/embedded",
+      "version": "0.0.0",
+      "dependencies": {
+        "@canopy/config": "workspace:*",
+        "@canopy/node-http": "workspace:*",
+        "@canopy/server": "workspace:*",
+      },
+      "devDependencies": {
+        "@canopy/policy": "workspace:*",
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "mongodb": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/graphql": {
       "name": "@canopy/graphql",
       "version": "0.0.0",
@@ -908,6 +925,8 @@
     "@canopy/control": ["@canopy/control@workspace:packages/control"],
 
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
+
+    "@canopy/embedded": ["@canopy/embedded@workspace:packages/embedded"],
 
     "@canopy/example-auth-notes": ["@canopy/example-auth-notes@workspace:examples/auth-notes"],
 

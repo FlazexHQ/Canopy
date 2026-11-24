@@ -53,6 +53,8 @@
     { "path": "packages/server/test" },
     { "path": "packages/control" },
     { "path": "packages/control/test" },
+    { "path": "packages/embedded" },
+    { "path": "packages/embedded/test" },
     { "path": "packages/studio" },
     { "path": "packages/studio/test" },
     { "path": "packages/cli" },
