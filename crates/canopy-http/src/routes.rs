@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -260,11 +261,21 @@ impl Rest {
     /// a safe token, or a minted UUIDv7. Never fails: failures become Problem Details responses. Returns `None`
     /// for a route this crate does not serve, which the caller passes on to the TypeScript handler.
     pub async fn serve(&self, request: &Request) -> Option<Response> {
-        let response = self.answer(request).await?;
+        self.serve_with_body(request, std::future::ready(None)).await
+    }
+
+    /// Serves a request whose transport supplies the body after the route authenticates its caller.
+    /// A body reader returning `None` leaves the body already present on the request in place.
+    pub async fn serve_with_body(
+        &self,
+        request: &Request,
+        body: impl Future<Output = Option<Body>>,
+    ) -> Option<Response> {
+        let response = self.answer(request, body).await?;
         Some(self.with_cors(response, request))
     }
 
-    async fn answer(&self, request: &Request) -> Option<Response> {
+    async fn answer(&self, request: &Request, body: impl Future<Output = Option<Body>>) -> Option<Response> {
         let request_id = request_id_of(request);
         let target = request.target.as_str();
         let Some(url) = parse_target(target) else {
@@ -273,7 +284,7 @@ impl Rest {
             return Some(with_request_id(problem_response(&problem, None), &request_id));
         };
         let instance = url.path().to_owned();
-        let response = match self.dispatch(request, &url, &request_id).await {
+        let response = match self.dispatch(request, &url, &request_id, body).await {
             Ok(Some(response)) => response,
             Ok(None) => return None,
             Err(error) => {
@@ -289,6 +300,7 @@ impl Rest {
         request: &Request,
         url: &url::Url,
         request_id: &str,
+        body: impl Future<Output = Option<Body>>,
     ) -> Result<Option<Response>, CanopyError> {
         let segments = segments_of(url.path(), &self.base_path)?
             .ok_or_else(|| CanopyError::new(ErrorCode::NotFound, "Not found"))?;
@@ -314,22 +326,40 @@ impl Rest {
             return Ok(Some(problem_response(&problem, None).with_header("allow", allow.join(", "))));
         };
         let collection = segments.first().map_or("", String::as_str);
+        if route == Route::Unserved {
+            return Ok(None);
+        }
+        let scope = [collection];
+        let caller = self
+            .caller(
+                request,
+                match route {
+                    Route::Aggregate | Route::Batch => None,
+                    _ => Some(&scope),
+                },
+            )
+            .await?;
+        let mut request = Cow::Borrowed(request);
+        if let Some(body) = body.await {
+            request.to_mut().body = body;
+        }
+        let request = request.as_ref();
         match route {
             Route::Unserved => Ok(None),
-            Route::Find => self.find(request, url, collection).await.map(Some),
-            Route::Count => self.count(request, collection).await.map(Some),
-            Route::Distinct => self.distinct(request, collection).await.map(Some),
-            Route::Aggregate => self.aggregate(request, collection).await.map(Some),
-            Route::Query => self.query(request, collection).await.map(Some),
-            Route::Explain => self.explain(request, collection).await.map(Some),
-            Route::Document => self.document(request, url, collection, &segments[1]).await.map(Some),
-            Route::Insert => self.insert(request, collection).await.map(Some),
-            Route::UpdateMany => self.update_many(request, collection).await.map(Some),
-            Route::DeleteMany => self.delete_many(request, collection).await.map(Some),
-            Route::Update => self.update(request, collection, &segments[1]).await.map(Some),
-            Route::Replace => self.replace(request, collection, &segments[1]).await.map(Some),
-            Route::Delete => self.remove(request, collection, &segments[1]).await.map(Some),
-            Route::Batch => self.batch(request, request_id, url.path()).await.map(Some),
+            Route::Find => self.find(request, &caller, url, collection).await.map(Some),
+            Route::Count => self.count(request, &caller, collection).await.map(Some),
+            Route::Distinct => self.distinct(request, &caller, collection).await.map(Some),
+            Route::Aggregate => self.aggregate(request, &caller, collection).await.map(Some),
+            Route::Query => self.query(request, &caller, collection).await.map(Some),
+            Route::Explain => self.explain(request, &caller, collection).await.map(Some),
+            Route::Document => self.document(request, &caller, url, collection, &segments[1]).await.map(Some),
+            Route::Insert => self.insert(request, &caller, collection).await.map(Some),
+            Route::UpdateMany => self.update_many(request, &caller, collection).await.map(Some),
+            Route::DeleteMany => self.delete_many(request, &caller, collection).await.map(Some),
+            Route::Update => self.update(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Replace => self.replace(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Delete => self.remove(request, &caller, collection, &segments[1]).await.map(Some),
+            Route::Batch => self.batch(request, &caller, request_id, url.path()).await.map(Some),
         }
     }
 
@@ -442,31 +472,42 @@ impl Rest {
         Ok(Response::new(200).with_header("content-type", content_type(encoding)).with_body(text))
     }
 
-    async fn count(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn count(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = match self.body(request)? {
             None | Some(Value::Null) => Value::Document(Document::new()),
             Some(input) => input,
         };
         let input = Rest::fields(&input, "count", &["filter"])?;
         let mode = preferences_of(request).count.unwrap_or(CountMode::Exact);
-        let result = self.reads.count(&caller, collection, input.get("filter"), mode).await?;
+        let result = self.reads.count(caller, collection, input.get("filter"), mode).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
-    async fn distinct(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn distinct(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = self.body(request)?.unwrap_or(Value::Undefined);
         let input = Rest::fields(&input, "distinct", &["field", "filter"])?;
-        let result =
-            self.reads.distinct(&caller, collection, input.get("field"), input.get("filter")).await?;
+        let result = self.reads.distinct(caller, collection, input.get("field"), input.get("filter")).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
     /// A find whose parameters are a body. The page carries its cluster time in the body only: no `ETag`, no
     /// `X-Canopy-Ct`, as the TypeScript handler answers it.
-    async fn query(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn query(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = match self.body(request)? {
             None | Some(Value::Null) => Value::Document(Document::new()),
             Some(input) => input,
@@ -477,15 +518,19 @@ impl Rest {
             PageLimits { max_limit: limits.max_limit, max_skip: limits.max_skip },
             preferences_of(request).count,
         )?;
-        let page = self.reads.find(&caller, find_request(collection, params)).await?;
+        let page = self.reads.find(caller, find_request(collection, params)).await?;
         Rest::json(request, |encoding| Ok(page.with_ct(&page.encode(encoding)?)))
     }
 
     /// Explains how DLS decides an operation for the caller stated in the body, with the policies and context
     /// lookups of real requests. The report shows the policy structure and resolved claim values, so only
     /// `service` callers may ask.
-    async fn explain(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    async fn explain(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         if !caller.context.roles.contains(Role::SERVICE) {
             return Err(CanopyError::named(
                 ErrorCode::Forbidden,
@@ -546,7 +591,7 @@ impl Rest {
         let mut data = access_report_document(&report)?;
         if count && op != Operation::Insert {
             let effective = Value::Document(report.effective.to_filter());
-            let counted = self.reads.count(&caller, collection, Some(&effective), CountMode::Exact).await?;
+            let counted = self.reads.count(caller, collection, Some(&effective), CountMode::Exact).await?;
             #[allow(clippy::cast_precision_loss)]
             data.insert("count", Value::from_js_number(counted.count as f64));
         }
@@ -557,11 +602,15 @@ impl Rest {
         })
     }
 
-    async fn aggregate(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, None).await?;
+    async fn aggregate(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         let input = self.body(request)?.unwrap_or(Value::Undefined);
         let input = Rest::fields(&input, "aggregate", &["pipeline"])?;
-        let result = self.reads.aggregate(&caller, collection, input.get("pipeline")).await?;
+        let result = self.reads.aggregate(caller, collection, input.get("pipeline")).await?;
         Rest::json(request, |encoding| result.encode(encoding))
     }
 
@@ -581,10 +630,10 @@ impl Rest {
     async fn find(
         &self,
         request: &Request,
+        caller: &Caller,
         url: &url::Url,
         collection: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let pairs: Vec<(String, String)> =
             url.query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
         let limits = self.reads.limits();
@@ -598,7 +647,7 @@ impl Rest {
                 return Err(CanopyError::invalid_query(format!("{name} only applies to writes")));
             }
         }
-        let page = self.reads.find(&caller, find_request(collection, params)).await?;
+        let page = self.reads.find(caller, find_request(collection, params)).await?;
         let encoding = negotiate(request.header("accept").as_deref());
         let text = page.encode(encoding)?;
         let tag = validator(encoding, &text);

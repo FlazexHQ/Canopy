@@ -1302,6 +1302,63 @@ async fn traces_continue_the_callers_trace_and_name_only_routes_and_commands() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn count_rejects_invalid_credentials_before_reading_the_body() {
+    use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set, so there is no replica set");
+        return;
+    };
+    let fixture = fixture();
+    let oracle = common::read_json(&common::directory_of("reads").join("cases/count.json"));
+    let case = list(&oracle, "cases").iter().find(|case| text(case, "id") == "count-no-key").unwrap();
+    let database = common::scratch_name("canopyd_auth_before_body");
+    let (port, seen) = upstream().await;
+    let config =
+        launcher(&fixture, &uri, &database, port, "").replace(r#""rest":{"#, r#""rest":{"maxBodyBytes":64,"#);
+    let gateway = Gateway::start(config, Some("count")).await;
+    let oversized = format!(r#"{{"filter":{{"title":"{}"}}}}"#, "x".repeat(128));
+    for key in [None, Some("unknown-key")] {
+        let mut request = request_of(&fixture, case).with_body(oversized.as_bytes());
+        let mut key_header = String::new();
+        if let Some(key) = key {
+            request = request.with_header("apikey", key);
+            key_header = format!("apikey: {key}\r\n");
+        }
+        let response = gateway.send(&request).await;
+        assert!(problems_of(case, &response).is_empty(), "{response:?}");
+
+        let socket = tokio::net::TcpStream::connect(("127.0.0.1", gateway.port)).await.unwrap();
+        let mut socket = tokio::io::BufReader::new(socket);
+        socket
+            .write_all(
+                format!(
+                    "POST {} HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: {}\r\nContent-Type: application/json\r\n{key_header}\r\n",
+                    request.target,
+                    oversized.len()
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        let mut status = String::new();
+        tokio::time::timeout(Duration::from_secs(5), socket.read_line(&mut status))
+            .await
+            .expect("the server answers before the client sends the body")
+            .unwrap();
+        assert_eq!(status, "HTTP/1.1 401 Unauthorized\r\n");
+    }
+
+    let service = common::get_as(&fixture, "service", "/");
+    let mut request =
+        canopy_http::Request::new("POST", "/rest/v1/todos/_count").with_body(oversized.into_bytes());
+    request.headers = service.headers;
+    let request = request.with_header("content-type", "application/json");
+    assert_eq!(gateway.send(&request).await.status, 413);
+    assert!(seen.lock().unwrap().is_empty());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_body_beyond_the_limit_answers_413_and_never_reaches_the_upstream() {
     let fixture = fixture();
     let (port, seen) = upstream().await;

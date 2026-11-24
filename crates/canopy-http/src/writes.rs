@@ -1,11 +1,11 @@
 //! The write routes of the Data API: `POST`, `PATCH`, `PUT` and `DELETE` on a collection or a document, and
 //! `POST /_batch`, answered as the TypeScript `@canopy/rest` handler answers them.
 
-use canopy_data::Encoding;
 use canopy_data::writes::{
     BatchItem, IdType, Outcome, WriteOp, WriteOptions, WriteRequest, WriteResult, merge_patch_to_update,
     parse_id,
 };
+use canopy_data::{Caller, Encoding};
 use canopy_engine::{Ct, Principal};
 use canopy_protocol::ejson::{DecodeOptions, canonical_string, parse, stringify};
 use canopy_protocol::{CanopyError, Document, ErrorCode, Value};
@@ -183,11 +183,11 @@ impl Rest {
     pub(crate) async fn document(
         &self,
         request: &Request,
+        caller: &Caller,
         url: &url::Url,
         collection: &str,
         segment: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let params: Vec<(String, String)> =
             url.query_pairs().map(|(name, value)| (name.into_owned(), value.into_owned())).collect();
         Rest::allow_only(&params, &["fields"])?;
@@ -205,7 +205,7 @@ impl Rest {
             }
         };
         let id = self.id_of(collection, segment)?;
-        let Some(found) = self.reads.find_by_id(&caller, collection, &id, fields).await? else {
+        let Some(found) = self.reads.find_by_id(caller, collection, &id, fields).await? else {
             return Err(not_found());
         };
         let encoding = negotiate(request.header("accept").as_deref());
@@ -214,15 +214,19 @@ impl Rest {
             .with_body(found.encode(encoding)?))
     }
 
-    pub(crate) async fn insert(&self, request: &Request, collection: &str) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
+    pub(crate) async fn insert(
+        &self,
+        request: &Request,
+        caller: &Caller,
+        collection: &str,
+    ) -> Result<Response, CanopyError> {
         Rest::allow_only(&Rest::params(request), &[])?;
         let (value, _) = self.required(request, &JSON_BODY)?;
         let minimal = crate::negotiate::preferences_of(request).minimal;
         let options = Rest::options_of(request, minimal);
         if let Value::Array(_) = value {
             let write = WriteRequest::new(WriteOp::InsertMany, collection).with("docs", value);
-            let result = self.writes()?.execute(&caller, &write, &options).await?;
+            let result = self.writes()?.execute(caller, &write, &options).await?;
             let mut body = Document::new();
             body.insert(
                 "data",
@@ -240,7 +244,7 @@ impl Rest {
             return Rest::written(request, minimal, result.ct, result.replayed, body, 201, None);
         }
         let write = WriteRequest::new(WriteOp::Insert, collection).with("doc", value);
-        let result = self.writes()?.execute(&caller, &write, &options).await?;
+        let result = self.writes()?.execute(caller, &write, &options).await?;
         let location = result.outcome.inserted_ids.first().map(|id| self.location(collection, id));
         let mut body = Document::new();
         body.insert("data", document_or_null(result.outcome.documents.as_ref()));
@@ -250,10 +254,10 @@ impl Rest {
     pub(crate) async fn update(
         &self,
         request: &Request,
+        caller: &Caller,
         collection: &str,
         segment: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let params = Rest::params(request);
         Rest::allow_only(&params, &["where"])?;
         let (value, media_type) = self.required(request, &PATCH_BODY)?;
@@ -264,7 +268,7 @@ impl Rest {
             .with("update", update)
             .with("where", condition);
         let minimal = crate::negotiate::preferences_of(request).minimal;
-        let result = self.writes()?.execute(&caller, &write, &Rest::options_of(request, minimal)).await?;
+        let result = self.writes()?.execute(caller, &write, &Rest::options_of(request, minimal)).await?;
         if result.outcome.matched == 0 {
             return Err(not_found());
         }
@@ -276,10 +280,10 @@ impl Rest {
     pub(crate) async fn replace(
         &self,
         request: &Request,
+        caller: &Caller,
         collection: &str,
         segment: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let params = Rest::params(request);
         Rest::allow_only(&params, &["where", "upsert"])?;
         let upsert = params.iter().find(|(name, _)| name == "upsert").map(|(_, value)| value.as_str());
@@ -294,7 +298,7 @@ impl Rest {
             .with("upsert", Value::Bool(upsert == Some("true")))
             .with("where", condition);
         let minimal = crate::negotiate::preferences_of(request).minimal;
-        let result = self.writes()?.execute(&caller, &write, &Rest::options_of(request, minimal)).await?;
+        let result = self.writes()?.execute(caller, &write, &Rest::options_of(request, minimal)).await?;
         let mut body = Document::new();
         body.insert("data", document_or_null(result.outcome.documents.as_ref()));
         if result.outcome.upserted_id.is_some() {
@@ -309,10 +313,10 @@ impl Rest {
     pub(crate) async fn remove(
         &self,
         request: &Request,
+        caller: &Caller,
         collection: &str,
         segment: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let params = Rest::params(request);
         Rest::allow_only(&params, &["where"])?;
         let condition = Rest::where_of(&params)?;
@@ -320,7 +324,7 @@ impl Rest {
             .with("id", self.id_of(collection, segment)?)
             .with("where", condition);
         let minimal = crate::negotiate::preferences_of(request).minimal;
-        let result = self.writes()?.execute(&caller, &write, &Rest::options_of(request, minimal)).await?;
+        let result = self.writes()?.execute(caller, &write, &Rest::options_of(request, minimal)).await?;
         if result.outcome.deleted == 0 {
             return Err(not_found());
         }
@@ -356,9 +360,9 @@ impl Rest {
     pub(crate) async fn update_many(
         &self,
         request: &Request,
+        caller: &Caller,
         collection: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let filter = Rest::bulk_filter(request, &Rest::params(request))?;
         let (value, media_type) = self.required(request, &PATCH_BODY)?;
         let update = if media_type == MERGE_PATCH { merge_patch_to_update(&value)? } else { value };
@@ -367,7 +371,7 @@ impl Rest {
             .with("update", update)
             .with("bulk", Value::Bool(true));
         let minimal = crate::negotiate::preferences_of(request).minimal;
-        let result = self.writes()?.execute(&caller, &write, &Rest::options_of(request, minimal)).await?;
+        let result = self.writes()?.execute(caller, &write, &Rest::options_of(request, minimal)).await?;
         let mut data = Document::new();
         data.insert("matched", number(result.outcome.matched));
         data.insert("modified", number(result.outcome.modified));
@@ -379,15 +383,15 @@ impl Rest {
     pub(crate) async fn delete_many(
         &self,
         request: &Request,
+        caller: &Caller,
         collection: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, Some(&[collection])).await?;
         let filter = Rest::bulk_filter(request, &Rest::params(request))?;
         let write = WriteRequest::new(WriteOp::DeleteMany, collection)
             .with("filter", Value::Document(filter))
             .with("bulk", Value::Bool(true));
         let minimal = crate::negotiate::preferences_of(request).minimal;
-        let result = self.writes()?.execute(&caller, &write, &Rest::options_of(request, minimal)).await?;
+        let result = self.writes()?.execute(caller, &write, &Rest::options_of(request, minimal)).await?;
         let mut data = Document::new();
         data.insert("deleted", number(result.outcome.deleted));
         let mut body = Document::new();
@@ -398,10 +402,10 @@ impl Rest {
     pub(crate) async fn batch(
         &self,
         request: &Request,
+        caller: &Caller,
         request_id: &str,
         instance: &str,
     ) -> Result<Response, CanopyError> {
-        let caller = self.caller(request, None).await?;
         Rest::allow_only(&Rest::params(request), &[])?;
         let (value, _) = self.required(request, &JSON_BODY)?;
         let Value::Document(body) = value else { return invalid("A batch must be a document") };
@@ -430,7 +434,7 @@ impl Rest {
                 }
             }
             let options = Rest::options_of(request, preferences.minimal);
-            let result = writes.execute_batch(&caller, &requests, &options).await?;
+            let result = writes.execute_batch(caller, &requests, &options).await?;
             if preferences.minimal {
                 return Ok(Response::new(204).with_header("x-canopy-ct", result.ct.to_string()));
             }
@@ -463,7 +467,7 @@ impl Rest {
             .filter_map(|entry| entry.as_ref().ok())
             .map(|(request, mid)| BatchItem { request: request.clone(), mutation_id: mid.clone() })
             .collect();
-        let mut executed = writes.execute_each(&caller, &items, false).await.into_iter();
+        let mut executed = writes.execute_each(caller, &items, false).await.into_iter();
         let mut results = Vec::with_capacity(parsed.len());
         for entry in &parsed {
             let outcome: Result<(WriteOp, WriteResult), CanopyError> = match entry {

@@ -521,17 +521,20 @@ impl DataPlane {
                 .headers
                 .push((name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()));
         }
-        if parts.method == Method::POST || parts.method == Method::PATCH || parts.method == Method::PUT {
-            let limit = storage.map_or_else(
-                || self.rest.max_body_bytes(),
-                |storage| storage.body_limit(&parts.method, parts.uri.path()),
-            );
-            let declared_too_large = storage.is_some()
-                && plain
-                    .header("content-length")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .is_some_and(|length| length > limit);
-            plain.body = if declared_too_large {
+        let limit = storage.map_or_else(
+            || self.rest.max_body_bytes(),
+            |storage| storage.body_limit(&parts.method, parts.uri.path()),
+        );
+        let declared_too_large = storage.is_some()
+            && plain
+                .header("content-length")
+                .and_then(|value| value.parse::<u64>().ok())
+                .is_some_and(|length| length > limit);
+        let read_body = async move {
+            if !matches!(parts.method, Method::POST | Method::PATCH | Method::PUT) {
+                return None;
+            }
+            Some(if declared_too_large {
                 canopy_http::Body::TooLarge
             } else {
                 match Limited::new(body, usize::try_from(limit).unwrap_or(usize::MAX)).collect().await {
@@ -541,8 +544,8 @@ impl DataPlane {
                     }
                     Err(_) => canopy_http::Body::Unreadable,
                 }
-            };
-        }
+            })
+        };
         let (surface, counter) = if storage.is_some() {
             ("storage", &self.storage_rate_limited)
         } else if graphql.is_some() {
@@ -560,14 +563,19 @@ impl DataPlane {
         });
         let serve = async {
             if let Some(storage) = storage {
-                return storage.handler.serve(&mut plain).await.map(storage_response);
+                return storage.handler.serve_with_body(&mut plain, read_body).await.map(storage_response);
             }
             match graphql {
-                Some(graphql) => graphql.serve_answer(&plain).await.map(|answer| match answer {
-                    Answer::Response(response) => response_of(response),
-                    Answer::Events(events) => events_of(events),
-                }),
-                None => self.rest.serve(&plain).await.map(response_of),
+                Some(graphql) => {
+                    if let Some(body) = read_body.await {
+                        plain.body = body;
+                    }
+                    graphql.serve_answer(&plain).await.map(|answer| match answer {
+                        Answer::Response(response) => response_of(response),
+                        Answer::Events(events) => events_of(events),
+                    })
+                }
+                None => self.rest.serve_with_body(&plain, read_body).await.map(response_of),
             }
         };
         let answered = match &span {

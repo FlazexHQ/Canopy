@@ -382,6 +382,16 @@ impl StorageHandler {
     /// Answers a request; `None` for a target the handler does not own. An upload's body is moved out of the
     /// request, so it is stored without copying it.
     pub async fn serve(&self, request: &mut Request) -> Option<StorageAnswer> {
+        self.serve_with_body(request, std::future::ready(None)).await
+    }
+
+    /// Serves a request with a transport body reader. Upload routes call it after authenticating.
+    /// A body reader returning `None` leaves the body already present on the request in place.
+    pub async fn serve_with_body(
+        &self,
+        request: &mut Request,
+        body: impl Future<Output = Option<Body>>,
+    ) -> Option<StorageAnswer> {
         if !self.owns(&request.target) {
             return None;
         }
@@ -397,7 +407,7 @@ impl StorageHandler {
                 {
                     return Some(StorageAnswer::Response(preflight(cors, request)));
                 }
-                self.route(request, query, &segments).await
+                self.route(request, query, &segments, body).await
             }
             Ok(None) => Err(route_not_found()),
             Err(error) => Err(error),
@@ -460,6 +470,7 @@ impl StorageHandler {
         request: &mut Request,
         query: &str,
         segments: &[String],
+        body: impl Future<Output = Option<Body>>,
     ) -> Result<StorageAnswer, CanopyError> {
         let storage = &self.storage;
         let Some((area, rest)) = segments.split_first() else { return Err(route_not_found()) };
@@ -476,6 +487,9 @@ impl StorageHandler {
                 }
                 if method == "POST" || method == "PUT" {
                     let caller = self.caller(request).await?;
+                    if let Some(body) = body.await {
+                        request.body = body;
+                    }
                     let body = bytes_of(request, storage.bucket(&bucket)?.max_file_size)?;
                     let metadata = metadata_of(request.header("x-metadata"))?;
                     let options = UploadOptions {
@@ -524,6 +538,9 @@ impl StorageHandler {
             }
             "sign" if method == "POST" => {
                 let (bucket, path) = split(rest)?;
+                if let Some(body) = body.await {
+                    request.body = body;
+                }
                 let body = json_body(request)?;
                 let caller = self.caller(request).await?;
                 let (token, expires_at) =
@@ -575,6 +592,9 @@ impl StorageHandler {
             }
             "upload" if method == "POST" => {
                 let (bucket, path) = split(rest)?;
+                if let Some(body) = body.await {
+                    request.body = body;
+                }
                 let body = json_body(request)?;
                 let metadata = match body.get("metadata") {
                     None => None,
@@ -611,6 +631,9 @@ impl StorageHandler {
                     }
                     Some(part) if is_part_number(part) && method == "PUT" => {
                         let status = storage.upload_status(&caller, &id).await?;
+                        if let Some(body) = body.await {
+                            request.body = body;
+                        }
                         let body = bytes_of(request, status.part_size)?;
                         let part = part.parse::<f64>().unwrap_or(f64::NAN);
                         return Ok(status_json(&storage.put_part(&caller, &id, part, body).await?, 200));
