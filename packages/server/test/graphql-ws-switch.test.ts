@@ -625,20 +625,24 @@ describe.skipIf(MONGODB_URI === undefined || GATEWAY === undefined)(
             ])
           })
 
-          await write("PATCH", "visible", { $set: { title: "After abort" } })
           await compareHttp({ query: LIVE }, SSE, async (reference, candidate) => {
             compareMetadata(reference, candidate, 200)
-            const [direct, rust] = await Promise.all([
-              new EventReader(reference).take(2),
-              new EventReader(candidate).take(2),
-            ])
-            expect.soft(direct).toEqual([
-              OPEN,
-              nextEvent({
-                liveTodos: [selected("visible", "After abort"), selected("backup", "Backup")],
-              }),
-            ])
-            expect(rust).toEqual(direct)
+            const direct = new EventReader(reference)
+            const rust = new EventReader(candidate)
+            const snapshot = (title: string) =>
+              nextEvent({ liveTodos: [selected("visible", title), selected("backup", "Backup")] })
+            const [directInitial, rustInitial] = await Promise.all([direct.take(2), rust.take(2)])
+            expect
+              .soft(directInitial, "TypeScript after reconnect")
+              .toEqual([OPEN, snapshot("Visible again")])
+            expect.soft(rustInitial, "Rust after reconnect").toEqual(directInitial)
+
+            await write("PATCH", "visible", { $set: { title: "After abort" } })
+            const [directUpdate, rustUpdate] = await Promise.all([direct.take(1), rust.take(1)])
+            expect
+              .soft(directUpdate, "TypeScript after the reconnect write")
+              .toEqual([snapshot("After abort")])
+            expect(rustUpdate, "Rust after the reconnect write").toEqual(directUpdate)
           })
         } finally {
           await todos.deleteOne({ _id: added._id })
