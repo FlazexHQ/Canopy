@@ -267,6 +267,8 @@ async fn unsupported_write_options_leave_documents_and_idempotency_unchanged() {
         (doc! { "txnNumber": 1_i64, "lsid": retry_session(), "startTransaction": true }, 20),
         (doc! { "txnNumber": 1_i64, "lsid": retry_session(), "autocommit": false }, 20),
         (doc! { "bypassDocumentValidation": true }, 2),
+        (doc! { "maxTimeMS": -1 }, 2),
+        (doc! { "maxTimeMS": "5000" }, 2),
     ] {
         let mut request = doc! { "insert": "notes", "$db": target.db.name(), "documents": [{ "_id": 3, "owner": "oidc-user" }] };
         request.extend(options);
@@ -282,6 +284,21 @@ async fn unsupported_write_options_leave_documents_and_idempotency_unchanged() {
     assert_error(first_error(&reply), 2);
     assert_eq!(documents(&target).await, initial);
     assert_eq!(mutation_count(&target).await, 0);
+    drop_fixture(&target).await;
+}
+
+#[tokio::test]
+async fn write_accepts_driver_max_time_ms() {
+    let Some(target) = fixture("max_time").await else { return };
+    let mut session = authenticated(&target, true).await;
+    let document = doc! { "_id": 3, "owner": "oidc-user" };
+    let reply = command(
+        &mut session,
+        doc! { "insert": "notes", "$db": target.db.name(), "maxTimeMS": 5000_i64, "documents": [document.clone()] },
+    )
+    .await;
+    assert_eq!(reply.get_i32("n").unwrap(), 1);
+    assert!(documents(&target).await.contains(&document));
     drop_fixture(&target).await;
 }
 

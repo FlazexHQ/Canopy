@@ -256,3 +256,25 @@ tests next to the pairs.
 
 Add new language neutral data as another folder here, keep its file names stable, and update this table and the
 readers in the same change.
+
+## MongoDB wire unified CRUD
+
+[Vendored CRUD fixtures](wire/unified/crud/) come from the
+[MongoDB Node driver v7.7.0 mirror](https://github.com/mongodb/node-mongodb-native/tree/v7.7.0/test/spec/crud/unified)
+under the [Apache License 2.0](wire/unified/LICENSE.txt). Their decoded JSON matches MongoDB's specifications at revision
+[`2a20bd509e2ad4ee354b552145094ecdf434ee9d`](https://github.com/mongodb/specifications/tree/2a20bd509e2ad4ee354b552145094ecdf434ee9d/source/crud/tests/unified).
+Two descriptions use JSON escapes for punctuation, with identical decoded names.
+[Case decisions](wire/unified/cases.json) classify every fixture. The runner checks refusals
+by wire error code and confirms that the underlying collection is unchanged.
+
+Build with `cargo build -j 2 -p canopy-gateway` and set `CANOPY_GATEWAY_BIN` to the resulting
+binary. Set `CANOPY_TEST_MONGODB_URI` to a test replica set. Run the server Vitest project
+with the `wire-unified.test.ts` filter to exercise the Node driver over SCRAM-SHA-256.
+The wire endpoint accepts a nonnegative `maxTimeMS` on writes. Transaction timing uses
+Canopy's configured limits.
+
+For the seven shared OIDC cases, run `node bench/workloads/wire/run-unified-drivers.ts`.
+Install PyMongo for the selected Python, Go for the pinned driver module, and Java 21 with
+the BSON, driver core and sync driver 5.6.4 JARs. Set `CANOPY_WIRE_DRIVER_TOOLS` to the JAR
+directory, which may also hold a Python target install in its `python` subdirectory. Set
+`CANOPY_WIRE_GO` or `CANOPY_WIRE_JAVA` to executable paths when they are outside PATH.

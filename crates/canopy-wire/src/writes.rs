@@ -53,8 +53,22 @@ async fn dispatch(
         body,
         1,
         options,
-        &["$db", "lsid", "$clusterTime", "comment", "writeConcern", "txnNumber", "stmtId", "stmtIds"],
+        &[
+            "$db",
+            "lsid",
+            "$clusterTime",
+            "comment",
+            "writeConcern",
+            "txnNumber",
+            "stmtId",
+            "stmtIds",
+            "maxTimeMS",
+        ],
     )?;
+    // The transactional write path owns its deadline and commit retry handling.
+    if body.contains_key("maxTimeMS") && !body.get("maxTimeMS").and_then(integer).is_some_and(|ms| ms >= 0) {
+        return Err(bad("maxTimeMS must be a nonnegative integer"));
+    }
     let collection = body.get_str(command).map_err(|_| bad("The collection name must be a string"))?;
     validate_collection_name(collection).map_err(mapped)?;
     let caller = reads.caller(principal, Some(&[collection])).await.map_err(mapped)?;
