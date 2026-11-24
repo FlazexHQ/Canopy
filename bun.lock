@@ -300,6 +300,26 @@
         "vitest": "catalog:",
       },
     },
+    "packages/control": {
+      "name": "@canopy/control",
+      "version": "0.0.0",
+      "bin": {
+        "canopy-control": "./dist/bin/canopy-control.js",
+      },
+      "dependencies": {
+        "@canopy/config": "workspace:*",
+        "@canopy/node-http": "workspace:*",
+        "@canopy/policy": "workspace:*",
+        "@canopy/realtime": "workspace:*",
+        "@canopy/server": "workspace:*",
+      },
+      "devDependencies": {
+        "@canopy/testing": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/graphql": {
       "name": "@canopy/graphql",
       "version": "0.0.0",
@@ -544,6 +564,7 @@
         "@canopy/storage": "workspace:*",
         "@canopy/studio": "workspace:*",
         "canopy.js": "0.0.0",
+        "jose": "catalog:",
         "mongodb": "catalog:",
       },
       "devDependencies": {
@@ -556,7 +577,6 @@
         "@types/node": "catalog:",
         "@types/ws": "catalog:",
         "fast-check": "catalog:",
-        "jose": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
         "ws": "catalog:",
@@ -884,6 +904,8 @@
     "@canopy/cli": ["@canopy/cli@workspace:packages/cli"],
 
     "@canopy/config": ["@canopy/config@workspace:packages/config"],
+
+    "@canopy/control": ["@canopy/control@workspace:packages/control"],
 
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
 

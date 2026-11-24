@@ -113,6 +113,8 @@ export interface CreateCanopyOptions {
   readonly logger?: Logger
   /** Bring the meta database up to date on start. @default true */
   readonly migrate?: boolean
+  /** Runs after meta database setup and before the server loads policies or starts workers. */
+  readonly afterMigrate?: (mongo: MongoClient) => Promise<void>
   /** Serve the admin API under `/admin/v1`. @default true */
   readonly admin?: boolean
   /**
@@ -336,6 +338,12 @@ async function connect(
   }
   const meta = mongo.db(config.mongodb.metaDatabase)
   if (options.migrate !== false) await diagnosed(() => migrateMeta(meta, { logger }))
+  try {
+    await options.afterMigrate?.(mongo)
+  } catch (error: unknown) {
+    if (ownsMongo) await mongo.close()
+    throw error
+  }
   return {
     mongo,
     db: mongo.db(config.mongodb.database),

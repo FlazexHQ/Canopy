@@ -406,6 +406,7 @@ export interface CreateCanopyOptions {
     readonly policies?: PolicySet;
     readonly logger?: Logger;
     readonly migrate?: boolean;
+    readonly afterMigrate?: (mongo: MongoClient) => Promise<void>;
     readonly admin?: boolean;
     readonly studio?: FetchHandler | false;
     readonly onSetupToken?: ((token: string) => void) | false;
@@ -473,6 +474,11 @@ export interface LagSamplerOptions {
     readonly intervalMs?: number;
     readonly capacity?: number;
     readonly now?: () => number;
+}
+
+export interface Listening {
+    readonly port: number;
+    stop(): Promise<void>;
 }
 
 export interface LoginResult {
@@ -749,7 +755,7 @@ class SecretBox {
   isCurrent(sealed: string, context: string): boolean
 }
 
-export type ServerRole = "all" | "api" | "realtime";
+export type ServerRole = "all" | "api" | "realtime" | "control";
 
 export interface Settings {
     readonly auditRetentionDays: number | null;
@@ -825,6 +831,8 @@ function hashContexts(lookups: ContextDefinitions): string
 function hotp(secret: Uint8Array, counter: number, options?: { readonly digits?: number; readonly algorithm?: TotpAlgorithm; }): string
 
 function isAdminRole(value: unknown): value is AdminRole
+
+function listenCanopy(canopy: Canopy, port: number, hostname?: string): Promise<Listening>
 
 function migrateMeta(meta: Db, options?: MigrateOptions): Promise<MigrateResult>
 
