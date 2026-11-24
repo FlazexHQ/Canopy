@@ -1,0 +1,29 @@
+[package]
+name = "canopy-wire"
+description = "MongoDB wire sessions and policy enforced reads for Canopy."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64 = "0.22"
+canopy-auth = { path = "../canopy-auth" }
+canopy-data = { path = "../canopy-data" }
+canopy-engine = { path = "../canopy-engine" }
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+ring = "0.17"
+stringprep = "0.1"
+subtle = "2"
+tokio = { version = "1", features = ["rt", "time"] }
+
+[dev-dependencies]
+reqwest = { version = "0.13", default-features = false }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["io-util", "macros", "net"] }
+
+[lints]
+workspace = true

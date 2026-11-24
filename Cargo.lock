@@ -420,6 +420,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-wire"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "canopy-auth",
+ "canopy-data",
+ "canopy-engine",
+ "canopy-mongo",
+ "canopy-policy",
+ "canopy-protocol",
+ "reqwest",
+ "ring",
+ "rustls",
+ "stringprep",
+ "subtle",
+ "tokio",
+]
+
+[[package]]
 name = "cc"
 version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

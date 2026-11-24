@@ -254,6 +254,17 @@ impl Authenticator {
         })
     }
 
+    /// Verifies an access token for a transport that has no API key field.
+    pub async fn authenticate_access_token(&self, token: &str) -> Result<Principal, CanopyError> {
+        let Some(jwt) = &self.jwt else { return Err(unauthorized("User tokens are not accepted")) };
+        jwt.verify(token, self.revocations.as_deref()).await
+    }
+
+    /// Returns the configured plaintext service keys for challenge response authentication.
+    pub fn configured_service_keys(&self) -> &[String] {
+        self.secret.as_slice()
+    }
+
     /// Authenticates a `hello` or `auth`. An empty token gives `anon`; a secret key gives `service`.
     pub async fn authenticate(&self, key: &str, token: Option<&str>) -> Result<Principal, CanopyError> {
         if self.secret.iter().any(|secret| secret == key) {
@@ -281,8 +292,7 @@ impl Authenticator {
                 principal.key_id = stored.map(|stored| stored.id);
                 return Ok(principal);
             }
-            let Some(jwt) = &self.jwt else { return Err(unauthorized("User tokens are not accepted")) };
-            jwt.verify(token, self.revocations.as_deref()).await?
+            self.authenticate_access_token(token).await?
         } else {
             Principal::anon()
         };

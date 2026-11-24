@@ -91,6 +91,17 @@ impl CountResult {
 }
 
 impl DistinctResult {
+    /// Returns the distinct values in BSON without converting through JSON.
+    pub fn into_values(self) -> Result<Vec<Bson>, CanopyError> {
+        match self.values.get("values").map_err(|_| internal())? {
+            Some(canopy_mongo::mongodb::bson::RawBsonRef::Array(values)) => values
+                .into_iter()
+                .map(|value| value.map_err(|_| internal())?.try_into().map_err(|_| internal()))
+                .collect(),
+            _ => Err(internal()),
+        }
+    }
+
     /// The number of values.
     pub fn len(&self) -> usize {
         self.values.as_ref().iter().count()
@@ -112,6 +123,11 @@ impl DistinctResult {
 }
 
 impl AggregateResult {
+    /// Returns the aggregation documents as BSON.
+    pub fn into_documents(self) -> Vec<RawDocumentBuf> {
+        self.documents
+    }
+
     /// The number of documents.
     pub fn len(&self) -> usize {
         self.documents.len()
@@ -261,6 +277,27 @@ impl ReadPath {
         collection: &str,
         pipeline: Option<&Value>,
     ) -> Result<AggregateResult, CanopyError> {
+        self.aggregate_read(caller, collection, pipeline, None).await
+    }
+
+    /// Runs the Data API aggregation with an additional limit on the buffered BSON bytes.
+    pub async fn aggregate_bounded(
+        &self,
+        caller: &Caller,
+        collection: &str,
+        pipeline: Option<&Value>,
+        max_bytes: usize,
+    ) -> Result<AggregateResult, CanopyError> {
+        self.aggregate_read(caller, collection, pipeline, Some(max_bytes)).await
+    }
+
+    async fn aggregate_read(
+        &self,
+        caller: &Caller,
+        collection: &str,
+        pipeline: Option<&Value>,
+        max_bytes: Option<usize>,
+    ) -> Result<AggregateResult, CanopyError> {
         let planned = self.plan(caller, collection)?;
         let max = self.limits.max_aggregate_results;
         let search = self.search.contains(collection);
@@ -290,6 +327,7 @@ impl ReadPath {
             pipeline: &secured,
             max_time: self.max_time(),
             allow_disk_use: planned.service,
+            max_bytes,
         };
         let result = if searching {
             at_latest(&self.client, &self.db, &read, planned.service).await?

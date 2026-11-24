@@ -190,6 +190,27 @@ impl ReadPath {
     /// filter and sort. Fails with an invalid query error for malformed queries, references to unreadable
     /// fields and cursors of another query, and with `CANOPY_NOT_FOUND` for unknown collections.
     pub async fn find(&self, caller: &Caller, request: FindRequest) -> Result<FindPage, CanopyError> {
+        self.find_page(caller, request, None).await
+    }
+
+    /// Reads one bounded snapshot for a transport that batches the result itself.
+    /// An omitted limit uses the maximum permitted find limit.
+    pub async fn find_bounded(
+        &self,
+        caller: &Caller,
+        mut request: FindRequest,
+        max_bytes: usize,
+    ) -> Result<FindPage, CanopyError> {
+        request.limit = request.limit.or(Some(self.limits.max_limit));
+        self.find_page(caller, request, Some(max_bytes)).await
+    }
+
+    async fn find_page(
+        &self,
+        caller: &Caller,
+        request: FindRequest,
+        max_bytes: Option<usize>,
+    ) -> Result<FindPage, CanopyError> {
         let engine = self.policies.current();
         let ctx = &caller.context;
         let name = request.collection.as_str();
@@ -244,7 +265,8 @@ impl ReadPath {
             collection: name,
             filter: &filter,
             sort: &sort,
-            limit: limit.saturating_add(1),
+            limit: limit.saturating_add(u32::from(max_bytes.is_none())),
+            max_bytes,
             skip,
             projection: pushdown.as_ref(),
             max_time: Duration::from_millis(self.limits.max_time_ms),
@@ -321,6 +343,7 @@ impl ReadPath {
             filter: &filter,
             sort: &sort,
             limit: 1,
+            max_bytes: None,
             skip: 0,
             projection: pushdown.as_ref(),
             max_time: Duration::from_millis(self.limits.max_time_ms),
