@@ -1,0 +1,183 @@
+{
+  "format": "canopy-d5-wire/1",
+  "measuredAt": "2026-11-24T18:06:05.578Z",
+  "runtime": "bun 1.4.4",
+  "os": "linux",
+  "cpu": {
+    "model": "AMD EPYC 7763 64-Core Processor",
+    "count": 4
+  },
+  "mongodb": "8.0.34",
+  "config": {
+    "seconds": 12,
+    "concurrency": 8,
+    "rounds": 2
+  },
+  "gate": {
+    "requires": null,
+    "measure": "Requests per server CPU second, latency in milliseconds and idle wire RSS",
+    "cpuScope": {
+      "wire": "gateway",
+      "rest": "gateway",
+      "direct": "mongod"
+    }
+  },
+  "scenarios": [
+    {
+      "scenario": "findById",
+      "wire": {
+        "requests": 44531,
+        "perSecond": 3710,
+        "serverCpuSeconds": 9.879999999999999,
+        "requestsPerCpuSecond": 4507,
+        "p50": 1.9812440000023344,
+        "p95": 3.6796460000041407,
+        "p99": 5.2962120000011055
+      },
+      "rest": {
+        "requests": 47715,
+        "perSecond": 3976,
+        "serverCpuSeconds": 12.84,
+        "requestsPerCpuSecond": 3716,
+        "p50": 1.8531530000000203,
+        "p95": 3.269353999996383,
+        "p99": 5.064585000000079
+      },
+      "direct": {
+        "requests": 66817,
+        "perSecond": 5568,
+        "serverCpuSeconds": 11.76,
+        "requestsPerCpuSecond": 5682,
+        "p50": 1.123490000005404,
+        "p95": 2.453776000002108,
+        "p99": 3.887715000000753
+      }
+    },
+    {
+      "scenario": "find20",
+      "wire": {
+        "requests": 32898,
+        "perSecond": 2741,
+        "serverCpuSeconds": 11.5,
+        "requestsPerCpuSecond": 2861,
+        "p50": 2.642550000004121,
+        "p95": 5.111850000001141,
+        "p99": 7.7127049999980954
+      },
+      "rest": {
+        "requests": 40494,
+        "perSecond": 3374,
+        "serverCpuSeconds": 13.27,
+        "requestsPerCpuSecond": 3052,
+        "p50": 2.2406169999885606,
+        "p95": 3.6705549999896903,
+        "p99": 4.926682999997865
+      },
+      "direct": {
+        "requests": 41363,
+        "perSecond": 3446,
+        "serverCpuSeconds": 12.3,
+        "requestsPerCpuSecond": 3363,
+        "p50": 1.800496000010753,
+        "p95": 4.156993999989936,
+        "p99": 7.255237999997917
+      }
+    },
+    {
+      "scenario": "count",
+      "wire": {
+        "requests": 36381,
+        "perSecond": 3031,
+        "serverCpuSeconds": 7.6899999999999995,
+        "requestsPerCpuSecond": 4731,
+        "p50": 2.444301000010455,
+        "p95": 4.425369000004139,
+        "p99": 6.074447999999393
+      },
+      "rest": {
+        "requests": 35060,
+        "perSecond": 2921,
+        "serverCpuSeconds": 10.43,
+        "requestsPerCpuSecond": 3361,
+        "p50": 2.561893999998574,
+        "p95": 4.419838000001619,
+        "p99": 6.017382999998517
+      },
+      "direct": {
+        "requests": 69596,
+        "perSecond": 5799,
+        "serverCpuSeconds": 15.879999999999999,
+        "requestsPerCpuSecond": 4383,
+        "p50": 1.2921659999992698,
+        "p95": 2.306349999998929,
+        "p99": 3.828741999997874
+      }
+    },
+    {
+      "scenario": "insertOne",
+      "wire": {
+        "requests": 13100,
+        "perSecond": 1091,
+        "serverCpuSeconds": 8.47,
+        "requestsPerCpuSecond": 1547,
+        "p50": 6.969391999999061,
+        "p95": 10.733791999999085,
+        "p99": 13.845451000001049
+      },
+      "rest": {
+        "requests": 14226,
+        "perSecond": 1185,
+        "serverCpuSeconds": 10.38,
+        "requestsPerCpuSecond": 1371,
+        "p50": 6.397002999990946,
+        "p95": 9.930199000024004,
+        "p99": 13.349015999992844
+      },
+      "direct": {
+        "requests": 42964,
+        "perSecond": 3579,
+        "serverCpuSeconds": 23.53,
+        "requestsPerCpuSecond": 1826,
+        "p50": 2.011251000018092,
+        "p95": 3.703015000006417,
+        "p99": 5.665776999987429
+      }
+    },
+    {
+      "scenario": "updateOne",
+      "wire": {
+        "requests": 9653,
+        "perSecond": 803,
+        "serverCpuSeconds": 8.280000000000001,
+        "requestsPerCpuSecond": 1166,
+        "p50": 9.333522000000812,
+        "p95": 14.548548999999184,
+        "p99": 19.81227699998999
+      },
+      "rest": {
+        "requests": 19250,
+        "perSecond": 1604,
+        "serverCpuSeconds": 11.030000000000001,
+        "requestsPerCpuSecond": 1745,
+        "p50": 4.668016000010539,
+        "p95": 7.425420000014128,
+        "p99": 10.686893999984022
+      },
+      "direct": {
+        "requests": 40526,
+        "perSecond": 3376,
+        "serverCpuSeconds": 24.04,
+        "requestsPerCpuSecond": 1686,
+        "p50": 2.1118790000036824,
+        "p95": 3.829961999988882,
+        "p99": 6.18674900001497
+      }
+    }
+  ],
+  "memory": {
+    "authenticatedConnections": 200,
+    "baselineRssBytes": 14790656,
+    "idleRssBytes": 19447808,
+    "increaseBytesPerConnection": 23285.76
+  }
+}
