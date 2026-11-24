@@ -159,7 +159,15 @@ async fn answers_to_an_allowed_origin_expose_the_headers_a_browser_needs() {
 
 #[tokio::test]
 async fn each_read_action_is_served_here_only_when_enabled() {
-    let all = Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
+    let all = Served {
+        find: true,
+        count: true,
+        distinct: true,
+        aggregate: true,
+        query: true,
+        explain: true,
+        writes: false,
+    };
     let rest = rest_with(RestOptions { served: all, ..RestOptions::default() }).await;
     for action in ["_count", "_distinct", "_aggregate", "_query", "_explain"] {
         let target = format!("/rest/v1/todos/{action}");
@@ -177,8 +185,15 @@ async fn each_read_action_is_served_here_only_when_enabled() {
         assert!(!rest.owns(method, target), "{method} {target} is the TypeScript handler's");
     }
 
-    let count_only =
-        Served { find: false, count: true, distinct: false, aggregate: false, query: false, explain: false };
+    let count_only = Served {
+        find: false,
+        count: true,
+        distinct: false,
+        aggregate: false,
+        query: false,
+        explain: false,
+        writes: false,
+    };
     let rest = rest_with(RestOptions { served: count_only, ..RestOptions::default() }).await;
     assert!(rest.owns("POST", "/rest/v1/todos/_count"));
     assert!(rest.owns("OPTIONS", "/rest/v1/todos/_count"));

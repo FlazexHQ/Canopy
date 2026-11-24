@@ -67,11 +67,15 @@ fn unquote(text: &str) -> &str {
     text.strip_suffix('"').unwrap_or(text)
 }
 
-/// The `Prefer` header preferences that change a find response.
+/// The `Prefer` header preferences that change a response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Preferences {
     /// `count=exact` or `count=estimated`.
     pub count: Option<CountMode>,
+    /// `return=minimal`: a write answers `204` without the documents.
+    pub minimal: bool,
+    /// `bulk=true`: a write may touch many documents.
+    pub bulk: bool,
 }
 
 /// Reads `Prefer: return=minimal, count=exact, bulk=true`. Unknown preferences are ignored.
@@ -82,12 +86,13 @@ pub fn preferences_of(request: &Request) -> Preferences {
         let mut parts = token.split('=');
         let key = parts.next().unwrap_or_default().trim().to_lowercase();
         let value = parts.next().map(|value| unquote(value.trim()).to_lowercase());
-        if key == "count" {
-            match value.as_deref() {
-                Some("exact") => out.count = Some(CountMode::Exact),
-                Some("estimated") => out.count = Some(CountMode::Estimated),
-                _ => {}
-            }
+        match (key.as_str(), value.as_deref()) {
+            ("count", Some("exact")) => out.count = Some(CountMode::Exact),
+            ("count", Some("estimated")) => out.count = Some(CountMode::Estimated),
+            ("return", Some("minimal")) => out.minimal = true,
+            ("return", Some("representation")) => out.minimal = false,
+            ("bulk", Some("true")) => out.bulk = true,
+            _ => {}
         }
     }
     out

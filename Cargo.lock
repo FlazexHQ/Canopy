@@ -145,6 +145,7 @@ dependencies = [
 name = "canopy-data"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "canopy-engine",
  "canopy-matcher",
  "canopy-mongo",
@@ -152,6 +153,7 @@ dependencies = [
  "canopy-protocol",
  "canopy-query",
  "futures-util",
+ "ring",
  "tokio",
 ]
 

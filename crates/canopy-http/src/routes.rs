@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use canopy_auth::{Authenticator, RateLimits, rate_limit_error};
+use canopy_data::writes::{IdType, WritePath};
 use canopy_data::{Caller, CountMode, Encoding, FindRequest, ReadPath};
 use canopy_policy::{
     ExplainRequest, Operation, Role, access_report_document, explain_access, explain_context,
@@ -61,11 +63,22 @@ pub struct Served {
     pub query: bool,
     /// `POST /{collection}/_explain`, how DLS decides an operation for a stated caller (service callers only).
     pub explain: bool,
+    /// The writes: `POST`, `PATCH` and `DELETE /{collection}`, `PATCH`, `PUT` and `DELETE
+    /// /{collection}/{id}`, and `POST /_batch`. They need a write path ([`Rest::with_writes`]).
+    pub writes: bool,
 }
 
 impl Default for Served {
     fn default() -> Served {
-        Served { find: true, count: false, distinct: false, aggregate: false, query: false, explain: false }
+        Served {
+            find: true,
+            count: false,
+            distinct: false,
+            aggregate: false,
+            query: false,
+            explain: false,
+            writes: false,
+        }
     }
 }
 
@@ -117,6 +130,20 @@ enum Route {
     Query,
     /// `POST /{collection}/_explain`, served here.
     Explain,
+    /// `POST /{collection}`.
+    Insert,
+    /// `PATCH /{collection}` with `Prefer: bulk=true`.
+    UpdateMany,
+    /// `DELETE /{collection}` with `Prefer: bulk=true`.
+    DeleteMany,
+    /// `PATCH /{collection}/{id}`.
+    Update,
+    /// `PUT /{collection}/{id}`.
+    Replace,
+    /// `DELETE /{collection}/{id}`.
+    Delete,
+    /// `POST /_batch`.
+    Batch,
     /// A route the TypeScript handler serves.
     Unserved,
 }
@@ -125,13 +152,15 @@ enum Route {
 pub struct Rest {
     authenticator: Authenticator,
     reads: ReadPath,
-    base_path: String,
-    problem_type_base: String,
+    pub(crate) base_path: String,
+    pub(crate) problem_type_base: String,
     cors: Option<Cors>,
     served: Served,
     max_body_bytes: u64,
     rate_limits: Option<Arc<RateLimits>>,
     on_rate_limited: Option<Arc<dyn Fn() + Send + Sync>>,
+    pub(crate) writes: Option<Arc<WritePath>>,
+    pub(crate) id_types: HashMap<String, IdType>,
 }
 
 impl Rest {
@@ -147,7 +176,18 @@ impl Rest {
             max_body_bytes: options.max_body_bytes,
             rate_limits: None,
             on_rate_limited: None,
+            writes: None,
+            id_types: HashMap::new(),
         }
+    }
+
+    /// Serves the writes through `writes`, reading the `{id}` of a collection's documents as `id_types` says
+    /// (`auto` for collections it does not name).
+    #[must_use]
+    pub fn with_writes(mut self, writes: Arc<WritePath>, id_types: HashMap<String, IdType>) -> Rest {
+        self.writes = Some(writes);
+        self.id_types = id_types;
+        self
     }
 
     /// Applies request rate limits, as the TypeScript handler does with `rateLimits`: an address that has used
@@ -190,15 +230,17 @@ impl Rest {
 
     /// Whether the path belongs to a route served here.
     fn serves_path(&self, segments: &[String]) -> bool {
+        let writes = self.served.writes && self.writes.is_some();
         match segments {
-            [name] => name != "_batch" && name != "openapi.json" && self.served.find,
+            [name] if name == "_batch" => writes,
+            [name] => name != "openapi.json" && (self.served.find || writes),
             [_, action] => match action.as_str() {
                 "_count" => self.served.count,
                 "_distinct" => self.served.distinct,
                 "_aggregate" => self.served.aggregate,
                 "_query" => self.served.query,
                 "_explain" => self.served.explain,
-                _ => false,
+                _ => writes,
             },
             _ => false,
         }
@@ -248,7 +290,8 @@ impl Rest {
         if !self.serves_path(&segments) {
             return Ok(None);
         }
-        let (route, allow) = resolve(&segments, &request.method, self.served);
+        let served = Served { writes: self.served.writes && self.writes.is_some(), ..self.served };
+        let (route, allow) = resolve(&segments, &request.method, served);
         if request.method == "OPTIONS" && !allow.is_empty() {
             let methods = allow.iter().copied().chain(["OPTIONS"]).collect::<Vec<_>>().join(", ");
             return Ok(Some(match &self.cors {
@@ -274,12 +317,23 @@ impl Rest {
             Route::Aggregate => self.aggregate(request, collection).await.map(Some),
             Route::Query => self.query(request, collection).await.map(Some),
             Route::Explain => self.explain(request, collection).await.map(Some),
+            Route::Insert => self.insert(request, collection).await.map(Some),
+            Route::UpdateMany => self.update_many(request, collection).await.map(Some),
+            Route::DeleteMany => self.delete_many(request, collection).await.map(Some),
+            Route::Update => self.update(request, collection, &segments[1]).await.map(Some),
+            Route::Replace => self.replace(request, collection, &segments[1]).await.map(Some),
+            Route::Delete => self.remove(request, collection, &segments[1]).await.map(Some),
+            Route::Batch => self.batch(request, request_id, url.path()).await.map(Some),
         }
     }
 
     /// The caller of a request: its credentials verified and the context lookups the policies of `collections`
     /// need resolved (every collection when `None`).
-    async fn caller(&self, request: &Request, collections: Option<&[&str]>) -> Result<Caller, CanopyError> {
+    pub(crate) async fn caller(
+        &self,
+        request: &Request,
+        collections: Option<&[&str]>,
+    ) -> Result<Caller, CanopyError> {
         let credentials = credentials_from_headers(request)?;
         let authenticate = self.authenticator.authenticate(&credentials.key, credentials.token.as_deref());
         let Some(limits) = &self.rate_limits else {
@@ -318,6 +372,15 @@ impl Rest {
     /// `CANOPY_PAYLOAD_TOO_LARGE` beyond the limit, and with an invalid query error for other media types, text
     /// that is not UTF-8 and malformed JSON.
     fn body(&self, request: &Request) -> Result<Option<Value>, CanopyError> {
+        Ok(self.body_of(request, &JSON_TYPES)?.map(|(value, _)| value))
+    }
+
+    /// Reads and decodes an EJSON request body of one of the `accepted` media types, with its media type.
+    pub(crate) fn body_of(
+        &self,
+        request: &Request,
+        accepted: &[&str],
+    ) -> Result<Option<(Value, String)>, CanopyError> {
         let too_large = || {
             CanopyError::new(
                 ErrorCode::PayloadTooLarge,
@@ -340,16 +403,16 @@ impl Rest {
         };
         let media_type = request.header("content-type").unwrap_or_default();
         let media_type = media_type.split(';').next().unwrap_or_default().trim().to_lowercase();
-        if !JSON_TYPES.contains(&media_type.as_str()) {
+        if !accepted.contains(&media_type.as_str()) {
             return Err(CanopyError::invalid_query(format!(
                 "The request body must be one of: {}",
-                JSON_TYPES.join(", ")
+                accepted.join(", ")
             )));
         }
         let text = std::str::from_utf8(bytes)
             .map_err(|_| CanopyError::invalid_query("The request body is not valid UTF-8"))?;
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        Ok(Some(js_property_order(&parse(text, DecodeOptions::default())?)))
+        Ok(Some((js_property_order(&parse(text, DecodeOptions::default())?), media_type)))
     }
 
     /// Checks a body document against the fields a route takes.
@@ -607,7 +670,7 @@ fn append_header(response: &mut Response, name: &str, value: &str) {
     response.set_header(name, joined);
 }
 
-fn content_type(encoding: Encoding) -> &'static str {
+pub(crate) fn content_type(encoding: Encoding) -> &'static str {
     match encoding {
         Encoding::Canonical => "application/ejson",
         Encoding::Relaxed => "application/json; charset=utf-8",
@@ -628,9 +691,20 @@ fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>,
     let second = segments.get(1).map(String::as_str);
     let (table, own): (&[&'static str], Option<Route>) = match segments.len() {
         0 => (&["GET"], None),
-        1 if first == Some("_batch") => (&["POST"], None),
+        1 if first == Some("_batch") => {
+            (&["POST"], (served.writes && method == "POST").then_some(Route::Batch))
+        }
         1 if first == Some("openapi.json") => (&["GET"], None),
-        1 => (&["GET", "POST", "PATCH", "DELETE"], (served.find && method == "GET").then_some(Route::Find)),
+        1 => (
+            &["GET", "POST", "PATCH", "DELETE"],
+            match method {
+                "GET" if served.find => Some(Route::Find),
+                "POST" if served.writes => Some(Route::Insert),
+                "PATCH" if served.writes => Some(Route::UpdateMany),
+                "DELETE" if served.writes => Some(Route::DeleteMany),
+                _ => None,
+            },
+        ),
         2 if second.is_some_and(|name| ACTIONS.contains(&name)) => {
             let action = match second {
                 Some("_count") if served.count => Some(Route::Count),
@@ -642,7 +716,15 @@ fn resolve(segments: &[String], method: &str, served: Served) -> (Option<Route>,
             };
             (&["POST"], action.filter(|_| method == "POST"))
         }
-        2 => (&["GET", "PATCH", "PUT", "DELETE"], None),
+        2 => (
+            &["GET", "PATCH", "PUT", "DELETE"],
+            match method {
+                "PATCH" if served.writes => Some(Route::Update),
+                "PUT" if served.writes => Some(Route::Replace),
+                "DELETE" if served.writes => Some(Route::Delete),
+                _ => None,
+            },
+        ),
         _ => (&[], None),
     };
     let route = table.contains(&method).then(|| own.unwrap_or(Route::Unserved));
@@ -690,8 +772,15 @@ mod tests {
 
     #[test]
     fn the_read_actions_are_served_only_when_enabled() {
-        let all =
-            Served { find: true, count: true, distinct: true, aggregate: true, query: true, explain: true };
+        let all = Served {
+            find: true,
+            count: true,
+            distinct: true,
+            aggregate: true,
+            query: true,
+            explain: true,
+            writes: false,
+        };
         for (action, route) in [
             ("_count", Route::Count),
             ("_distinct", Route::Distinct),

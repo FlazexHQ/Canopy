@@ -18,6 +18,7 @@ mod page;
 mod policies;
 mod reads;
 mod snapshot;
+pub mod writes;
 
 pub use caller::Caller;
 pub use contexts::ContextResolver;

@@ -19,6 +19,7 @@ mod paths;
 mod problem;
 mod request;
 mod routes;
+mod writes;
 
 pub use credentials::{Credentials, credentials_from_headers};
 pub use negotiate::{Preferences, negotiate, preferences_of, request_id_of, uuid_v7};

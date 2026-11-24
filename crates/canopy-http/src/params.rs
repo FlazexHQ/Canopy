@@ -4,7 +4,7 @@ use canopy_protocol::json::{Json, parse_json};
 use canopy_protocol::{CanopyError, Document, Value};
 
 /// Query parameters with a meaning of their own; every other parameter is a shorthand filter.
-const RESERVED_PARAMS: [&str; 9] =
+pub(crate) const RESERVED_PARAMS: [&str; 9] =
     ["filter", "sort", "fields", "limit", "after", "skip", "count", "where", "upsert"];
 
 const MAX_PARAM_LENGTH: usize = 64 * 1024;
@@ -47,7 +47,7 @@ fn utf16_len(text: &str) -> usize {
 }
 
 /// Parses EJSON text from a parameter into a value.
-fn parse_ejson_param(name: &str, text: &str) -> Result<Value, CanopyError> {
+pub(crate) fn parse_ejson_param(name: &str, text: &str) -> Result<Value, CanopyError> {
     if utf16_len(text) > MAX_PARAM_LENGTH {
         return fail(format!("{name} is too long"));
     }
@@ -230,7 +230,7 @@ fn shorthand_condition(path: &str, raw: &str) -> Result<Document, CanopyError> {
 }
 
 /// Builds the filter of the shorthand parameters. Several conditions on one path are combined.
-fn shorthand_filter(params: &[(String, String)]) -> Result<Document, CanopyError> {
+pub(crate) fn shorthand_filter(params: &[(String, String)]) -> Result<Document, CanopyError> {
     let mut out = Document::new();
     for (path, raw) in params {
         if RESERVED_PARAMS.contains(&path.as_str()) {
@@ -320,7 +320,7 @@ fn single<'a>(params: &'a [(String, String)], name: &str) -> Result<Option<&'a s
 }
 
 /// Joins two filters with `$and`, leaving out empty ones.
-fn combine_filters(a: Document, b: Document) -> Document {
+pub(crate) fn combine_filters(a: Document, b: Document) -> Document {
     if a.is_empty() {
         return b;
     }
