@@ -296,7 +296,7 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - uses: ./.github/actions/canopy-js
-      - uses: actions/setup-node@949feb2413d6458794dcd3491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Install Rust toolchain
@@ -319,7 +319,7 @@ jobs:
           mkdir -p bench-results
           { uname -a; nproc; free -m; lscpu | grep -E 'Model name|^CPU\(s\)'; bun --version; node --version; docker compose -f deploy/compose/dev.yaml exec -T mongo mongod --version; } | tee bench-results/machine.txt
       - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d32962f4752f3646cd9 # v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bench-d3-mongo${{ matrix.mongo }}
           path: bench-results/
