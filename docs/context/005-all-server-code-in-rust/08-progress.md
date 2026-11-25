@@ -3,6 +3,55 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): account linking, error page, native /admin/v1/users, test replica sets recreated
+
+### Commits since 6135ea14
+
+- `2191a195` (`feat(auth): link and unlink provider accounts and serve the error page in Rust`):
+  `/link-social` (the callback links only while the session that started the flow is live, its token
+  encrypted in the flow state as Better Auth stores it, and the provider verified the same address; refuses
+  an account another user owns), `/unlink-account` (fresh session; refuses the last account, also under
+  concurrent unlinks), `/auth/v1/error` (Better Auth's error page with escaped values, or a redirect home with
+  the error in production; `AuthOptions.production`, which `canopyd` sets from `CANOPY_ENV`). The social and
+  OIDC oracle groups gained these cases: 44 cases pass on MongoDB 8.0 and 9.0. `bunfig.toml` excludes the
+  vendored error page HTML from formatting because it must stay byte exact.
+- `9ed38c26` (`feat(control): serve /admin/v1/users from the Rust control plane`):
+  `/admin/v1/users` served natively by `canopyd` (control and all roles, `CANOPY_AUTH_ENGINE=rust`): 204
+  recorded steps across four admin roles, plus an auth side effects oracle.
+- `963df093` (`perf(matcher): stop copying the update while applying it`):
+  Committed earlier today (recorded in the R2 checkpoint below without its commit hash), made the in process
+  updater about 40 % faster natively.
+
+### Test servers recreated and process rules
+
+On 2026-11-25 around 20:09 a cleanup step stopped every mongod process on the machine, and the earlier test
+servers' files under `%TEMP%` were gone. The test replica sets were recreated natively: MongoDB 8.0.34 on port
+37017 and 9.0.8 on 37090, binaries and data under `target/mongo/8.0` and `target/mongo/9.0` (git ignored),
+started with `packages/testing/scripts/mongod.ts`.
+Rule for every agent from now on: stop only processes you started, by process id; never stop mongod processes
+you did not start; keep temporary files and cargo output under the repository's `target/` folder, never `%TEMP%`
+or a drive root. (Also recorded in [README.md](README.md)).
+
+### SDK auth suite against Rust auth (rerun on committed HEAD 9be856e2 era)
+
+4 of 5 pass on Bun and Node 26; only the claims hook test fails because the HTTPS claims hook is not built.
+
+### In progress (uncommitted)
+
+- The HTTPS claims hook (`claudeAgent`).
+- ID token sign in and provider token refresh (`codex`).
+- Fix for `mongod.ts` failing to install MongoDB 9.0.8 on Windows ("archive has no mongod"; the archive
+  layout is fine, the extraction of the large archive fails).
+- R2 (uncommitted, waiting on a quiet machine to measure; see the R2 checkpoints below).
+
+### What remains of plan 005
+
+- R5 remaining: R5.3 leftovers now only ID token sign in and provider token refresh (in progress);
+  `/admin/v1/users` done; the claims hook in progress; then switching the stacks and the CI split job to
+  Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
+  init, doctor, type generation, platform packages and launcher.
+
 ## Checkpoint (2026-11-25): R2 re-measured after the BSON crossing and the deferred sort; gates still missed
 
 The maintainer chose "fix, then re-measure" after the first R2 measurement (the checkpoint "R2 Canopy.js runs
@@ -94,11 +143,12 @@ JavaScript.
 
 ### Follow up: a faster updater (maintainer's choice, 2026-11-25)
 
-- Committed: `perf(matcher)`, `canopy_matcher::update::apply_update` borrows operands, paths and path
-  segments from the update (and the `$rename` source from the document) instead of owning copies, and reads
-  the current value by reference, moving an array out only for the array operators. Natively, a two field
-  update on a six field document went from 3.17 to 1.74 µs at `opt-level = 3` and from 3.88 to 2.43 µs at
-  `"z"`; `canopy-matcher` and `canopy-policy` tests and the MongoDB update vectors pass on 8.0 and 9.0.
+- Committed: `963df093` (`perf(matcher): stop copying the update while applying it`),
+  `canopy_matcher::update::apply_update` borrows operands, paths and path segments from the update (and the
+  `$rename` source from the document) instead of owning copies, and reads the current value by reference,
+  moving an array out only for the array operators. Natively, a two field update on a six field document went
+  from 3.17 to 1.74 µs at `opt-level = 3` and from 3.88 to 2.43 µs at `"z"` (about 40 % faster natively);
+  `canopy-matcher` and `canopy-policy` tests and the MongoDB update vectors pass on 8.0 and 9.0.
 - Not committed: `packages/wasm/scripts/build.ts` builds the transforms module at `opt-level = 3` with
   `wasm-opt -O3` (the client module keeps `"z"` and is unchanged at 81,646 Brotli bytes). Transforms grows
   to 134,580 Brotli bytes and its wasm2js translation to 289,514; neither is size gated, but both add to
@@ -139,7 +189,7 @@ Run by hand against `canopyd` with `CANOPY_AUTH_ENGINE=rust` on MongoDB 8.0: all
 2. `canopyd` refused `auth.anonymous` although the router implements it. Fixed in `9be856e2`: the setting turns the router's anonymous sign in on (off by default).
 3. The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not built.
 
-With a pre verified user, password sign in, `/token`, the 80 % access token reuse, sign out and session revocation with realtime all behaved as TypeScript.
+With a pre verified user, password sign in, `/token`, the 80 % access token reuse, sign out and session revocation with realtime all behaved as TypeScript. Rerun on committed HEAD `9be856e2` era: 4 of 5 pass on Bun and Node 26; only the claims hook test fails because the HTTPS claims hook is not built.
 
 ### In progress (uncommitted)
 
@@ -162,8 +212,11 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 
 ### What remains of plan 005
 
-- R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), the HTTPS claims hook, switching the stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review.
-- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher.
+- R5 remaining: R5.3 leftovers now only ID token sign in and provider token refresh (in progress);
+  `/admin/v1/users` done; the claims hook in progress; then switching the stacks and the CI split job to
+  Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
+  init, doctor, type generation, platform packages and launcher.
 
 ## Checkpoint (2026-11-25): R5.3 social and OIDC sign in in Rust (commit 34e64c65)
   
@@ -240,10 +293,9 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 
 ### What remains
 
-- Not built: `/link-social`, `/unlink-account`, ID token sign in (`idToken` in the body answers 404
-  `ID_TOKEN_NOT_SUPPORTED`), refresh of provider access tokens, the `/auth/v1/error` page (the browser lands
-  on a 404 there), Microsoft's profile photo, encrypted provider tokens. A flow started by TypeScript for
-  linking (`link` in its state) is refused with `unable_to_link_account`.
+- `/link-social`, `/unlink-account`, and `/auth/v1/error` built in `2191a195`.
+- Still not built: ID token sign in (`idToken` in the body answers 404 `ID_TOKEN_NOT_SUPPORTED`), refresh of
+  provider access tokens (both in progress), Microsoft profile photo, encrypted provider tokens.
 - Apple, Microsoft and Discord have no recorded oracle; they follow Better Auth 1.7.18's provider code.
 
 ## Checkpoint (2026-11-25): R4 Rust CLI groundwork (commits d6258983 and e5b1cba4)
@@ -801,7 +853,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), HTTPS claims hook, `/admin/v1/users`, switching stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review | R5 | Big | `claudeAgent` |
+| 1 | R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh, in progress), HTTPS claims hook (in progress), switching the stacks and the CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, external review | R5 | Big | `claudeAgent` |
 | 2 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
 | 3 | R1 leftovers: providers document from config in `canopyd`, server error logging | R1 | Small | Codex |
 | 4 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |

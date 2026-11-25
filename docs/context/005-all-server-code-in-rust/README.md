@@ -21,6 +21,9 @@ the repository: read the files below, then open only the source files your brief
   licenses MIT, Apache 2.0, BSD or ISC. Other agents may share the checkout: touch only the files of your task.
 - **Report** the files changed, the commands run with their results, and what is left, then the context agent
   records it in `08-progress.md`.
+- **Process and filesystem discipline:** stop only processes you started, by process id; never stop mongod
+  processes you did not start; keep temporary files and cargo output under the repository's `target/` folder,
+  never `%TEMP%` or a drive root.
 
 ## Agent roster
 
@@ -61,8 +64,8 @@ Gemini (`antigravity_sudhan_s_antigravity`, gemini-3.8-flash) for tests and cont
 ## Environment
 
 - MongoDB replica sets: 8.0.34 on `mongodb://localhost:37017/?replicaSet=rs0` and 9.0.8 on
-  `mongodb://localhost:37090/?replicaSet=rs0` (data in `%TEMP%/canopy-review-mongo` and
-  `%TEMP%/canopy-review-mongo9`; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`).
+  `mongodb://localhost:37090/?replicaSet=rs0` (binaries and data under `target/mongo/8.0` and `target/mongo/9.0`,
+  git ignored; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`).
   Never touch the standalone `mongod` on port 27017.
 - Node 22 is first on PATH: run Node 26 with `fnm exec --using=26 -- <command>`.
 - Cargo builds use `-j 2` on this machine (a full parallel test build runs out of paging file memory).

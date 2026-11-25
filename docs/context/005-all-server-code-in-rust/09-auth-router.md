@@ -102,7 +102,7 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
 
 ## Known gap and mounting status
 
-- **HTTPS claims hook gap:** The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not yet built.
+- **HTTPS claims hook gap:** The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not yet built (in progress by `claudeAgent`).
 - **Account linking:** `POST /auth/v1/link-social` starts a social or generic OIDC provider redirect for a signed in user.
   The callback requires the initiating session to remain live, a verified email from the provider and a
   matching local email. Linking an account again refreshes its tokens and merges its scopes. Linking does
@@ -111,5 +111,5 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
   younger than 15 minutes. It refuses to remove the last account.
 - **OAuth errors:** `GET /auth/v1/error` serves Better Auth's HTML with escaped descriptions and security
   headers. With `NODE_ENV=production`, it redirects to the home path with the error query.
-- **R5.3 leftovers:** Direct ID token sign in and provider token refresh remain outstanding.
-- **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users` until the stacks and `sdk-e2e` switch to Rust auth.
+- **R5.3 leftovers:** Direct ID token sign in and provider token refresh remain outstanding (in progress by `codex`).
+- **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. With that setting `canopyd` now serves app user administration (`/admin/v1/users`) natively under the `control` and `all` roles. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1` and `/.well-known/jwks.json` until the stacks and `sdk-e2e` switch to Rust auth.
