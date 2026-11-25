@@ -54,3 +54,16 @@ One agent at a time per account.
 | R5 | `packages/auth-builtin/src/`, `packages/auth/src/` (`imported-hash.ts`, `rate-limit.ts`, `revocations.ts`), `packages/server/src/builtin-auth.ts`, `admin/routes/users.ts` | `crates/canopy-auth` (verification, JWKS, rate limits) and the new auth crate |
 | R6 | `packages/studio/src/` | `crates/canopyd` |
 | R7 | Everything listed in plan 005 §9 | CI workflows, `knip.json`, `biome.json`, `tsconfig.json`, `tools/repo-check` |
+
+## Environment
+
+- MongoDB replica sets: 8.0.34 on `mongodb://localhost:37017/?replicaSet=rs0` and 9.0.8 on
+  `mongodb://localhost:37090/?replicaSet=rs0` (data in `%TEMP%/canopy-review-mongo` and
+  `%TEMP%/canopy-review-mongo9`; restart with `bun packages/testing/scripts/mongod.ts --version <v> --dir <that folder> --port <port>`).
+  Never touch the standalone `mongod` on port 27017.
+- Node 22 is first on PATH: run Node 26 with `fnm exec --using=26 -- <command>`.
+- Cargo builds use `-j 2` on this machine (a full parallel test build runs out of paging file memory).
+- Generated vector folders under `conformance/` are excluded from `bun fmt` and Biome (`bunfig.toml`,
+  `biome.json`); add any new folder there too.
+- Recording scripts follow the existing pattern: `packages/testing/scripts/http-*-vectors.ts` with `--check`,
+  recorders in the owning package's `test/conformance/`, the TypeScript engine only (`CANOPY_TEST_ENGINE` unset).
