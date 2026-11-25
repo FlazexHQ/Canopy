@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises"
-import { generateTypes, type ObjectShape } from "@canopy/schema"
+import { type CollectionSchema, generateTypes } from "@canopy/schema"
 import { type CanopyClient, type ClientOptions, ObjectId } from "canopy.js"
+import { collectionSchemaDocument } from "canopy.js/emit"
 import { afterEach, describe, expect, it } from "vitest"
 import { Server, ServerSocket } from "./support.ts"
 
@@ -42,10 +43,12 @@ describe("the migration fixture", () => {
 
   it("types the generated consumer with what canopy gen types emits for the schema file", async () => {
     const module: unknown = await import(new URL("canopy.schema.ts", folder("registered")).href)
-    const { todos } = module as { todos: { name: string; shape: ObjectShape } }
+    if (typeof module !== "object" || module === null || !("schema" in module))
+      throw new Error("The registered fixture exports no schema")
+    const declared = collectionSchemaDocument(module.schema)
     const generated = await readFile(new URL("canopy.gen.ts", folder("generated")), "utf8")
     expect(generated.replace(/\r\n/g, "\n")).toBe(
-      generateTypes([{ name: todos.name, shape: todos.shape, source: "validator" }]),
+      generateTypes(declared.collections as readonly CollectionSchema[]),
     )
   })
 

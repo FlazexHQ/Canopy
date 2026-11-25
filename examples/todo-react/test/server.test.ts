@@ -1,8 +1,8 @@
 import { generateKeyPairSync } from "node:crypto"
 import type { AddressInfo } from "node:net"
 import { loadSchema } from "@canopy/rest"
-import { toCollectionSchemas } from "@canopy/schema/define"
 import { MONGODB_URI } from "@canopy/testing"
+import { collectionSchemaDocument } from "canopy.js/emit"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { createTodoServer, type TodoServer } from "../src/app.ts"
@@ -136,11 +136,12 @@ suite("todo-react server", () => {
   })
 
   it("declares the todos collection in web/canopy.schema.ts as its validator does", async () => {
-    const declared = toCollectionSchemas(schema)
+    const declared = collectionSchemaDocument(schema)
     const enforced = await loadSchema(mongo.db(database), "todos")
     expect(enforced.source).toBe("validator")
-    expect(declared.map((collection) => collection.name)).toEqual(["todos"])
-    expect(declared[0]?.shape.fields).toEqual(enforced.shape.fields)
+    expect(declared.collections).toHaveLength(1)
+    expect(declared.collections[0]).toMatchObject({ name: "todos", source: "config" })
+    expect(declared.collections[0]).toHaveProperty("shape.fields", enforced.shape.fields)
   })
 
   it("refuses WebSockets on the blocked server but still serves the SSE transport", async () => {

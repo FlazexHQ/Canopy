@@ -13,7 +13,7 @@ import {
   type Shape,
   toValidator,
 } from "@canopy/schema"
-import { type SchemaDefinition, toCollectionSchemas } from "@canopy/schema/define"
+import { collectionSchemaDocument } from "canopy.js/emit"
 import { type Db, MongoClient } from "mongodb"
 import { loadCollectionSchemas } from "./collection-schemas.ts"
 import { appTarget, type Configured } from "./invocation.ts"
@@ -25,7 +25,7 @@ function plainObject(value: unknown): value is Record<string, unknown> {
   return prototype === null || prototype === Object.prototype
 }
 
-function isSchema(value: unknown): value is SchemaDefinition {
+function isSchema(value: unknown): boolean {
   return (
     plainObject(value) &&
     Object.values(value).every(
@@ -76,7 +76,7 @@ async function readDeclared(file: string, cwd: string, fresh = false) {
         ErrorCode.ConfigInvalid,
         "Expected a schema export containing collection definitions with a name and an object shape",
       )
-    return toCollectionSchemas(module.schema)
+    return collectionSchemaDocument(module.schema).collections as readonly CollectionSchema[]
   } catch (error: unknown) {
     throw new CanopyError(ErrorCode.ConfigInvalid, `Cannot load ${file}: ${messageOf(error)}`, {
       cause: error,
@@ -139,7 +139,7 @@ export function roleReport(
 }
 
 async function compareDeclared(
-  declared: CollectionSchema[],
+  declared: readonly CollectionSchema[],
   client: MongoClient,
   options: SchemaOptions,
 ): Promise<SchemaDifference[]> {
@@ -250,7 +250,11 @@ export async function watchSchemaDrift(
   }
 }
 
-async function push(call: Configured, db: Db, declared: CollectionSchema[]): Promise<number> {
+async function push(
+  call: Configured,
+  db: Db,
+  declared: readonly CollectionSchema[],
+): Promise<number> {
   const { out } = call
   const changes = []
   for (const { name, shape } of declared) {
