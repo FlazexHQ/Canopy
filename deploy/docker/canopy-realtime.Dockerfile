@@ -27,7 +27,7 @@ COPY --from=canopyjs . /Canopy.js
 COPY package.json bun.lock bunfig.toml tsconfig*.json ./
 COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts \
-    && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json /Canopy.js/src/tsconfig.emit.json && bun /Canopy.js/scripts/sync-wasm.ts --dist \
+    && (cd /Canopy.js && bun install --frozen-lockfile --ignore-scripts && bun run build) \
     && bun install --frozen-lockfile --ignore-scripts
 RUN bunx tsc -b packages/realtime
 RUN bun install --frozen-lockfile --production --ignore-scripts
