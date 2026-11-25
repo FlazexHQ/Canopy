@@ -76,11 +76,9 @@ suite("@canopy/client/auth against built in auth", () => {
         const file = process.env["CANOPY_SPLIT_E2E_CONTROL_LOG"]
         const logs = file
           ? readFileSync(file, "utf8")
-          : execFileSync(
-              "docker",
-              ["compose", "logs", "--no-color", "--no-log-prefix", "control"],
-              { encoding: "utf8" },
-            )
+          : execFileSync("docker", ["compose", "logs", "--no-color", "--no-log-prefix", "auth"], {
+              encoding: "utf8",
+            })
         for (const line of logs.split(/\r?\n/)) {
           if (!line.startsWith("{") || !line.endsWith("}")) continue
           const mail = JSON.parse(line) as { to?: string; body?: string }

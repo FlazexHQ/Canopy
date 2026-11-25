@@ -146,10 +146,6 @@ jobs:
           bun --filter @canopy/wasm build:native
       - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
         run: cargo build --release --locked -p canopyd
-      - name: Rust auth against the TypeScript server it replaces (passwords, secrets, cookies, tokens)
-        env:
-          CANOPY_TEST_TYPESCRIPT: "1"
-        run: cargo test --locked -p canopy-authn
       - name: Save the Cargo registry and build output
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -181,6 +177,10 @@ jobs:
         with:
           path: ${{ runner.temp }}/mongodb/binaries/8.0.34
           key: ${{ steps.mongodb-cache.outputs.cache-primary-key }}
+      - name: Rust auth against the TypeScript server it replaces and the recorded auth answers
+        env:
+          CANOPY_TEST_TYPESCRIPT: "1"
+        run: cargo test --locked -p canopy-authn
       - name: The suites, the bypass corpus and the invariants on the native engine (Bun)
         shell: bash
         run: bun --bun vitest run $SUITES
