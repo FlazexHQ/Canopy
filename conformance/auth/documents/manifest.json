@@ -1,0 +1,156 @@
+{
+  "secret": "canopy auth oracle secret 0123456789abcdef",
+  "publicUrl": "https://auth.canopy.test",
+  "appOrigin": "https://app.canopy.test",
+  "writtenAt": "2031-01-01T00:00:00.000Z",
+  "proofClock": "2031-01-01T01:00:00.000Z",
+  "passwords": [
+    {
+      "email": "native@example.com",
+      "password": "native password 1",
+      "hash": "argon2id (native)"
+    },
+    {
+      "email": "scrypt@example.com",
+      "password": "scrypt password 1",
+      "hash": "better-auth-scrypt"
+    },
+    {
+      "email": "bcrypt@example.com",
+      "password": "bcrypt password 1",
+      "hash": "imported bcrypt"
+    },
+    {
+      "email": "pbkdf2-sha1@example.com",
+      "password": "pbkdf2-sha1 password 1",
+      "hash": "imported pbkdf2-sha1"
+    },
+    {
+      "email": "pbkdf2-sha256@example.com",
+      "password": "pbkdf2-sha256 password 1",
+      "hash": "imported pbkdf2-sha256"
+    },
+    {
+      "email": "pbkdf2-sha512@example.com",
+      "password": "pbkdf2-sha512 password 1",
+      "hash": "imported pbkdf2-sha512"
+    },
+    {
+      "email": "firebase@example.com",
+      "password": "user1password",
+      "hash": "imported firebase-scrypt"
+    },
+    {
+      "email": "argon2@example.com",
+      "password": "argon2 password 1",
+      "hash": "imported argon2id"
+    },
+    {
+      "email": "totp@example.com",
+      "password": "totp password 1",
+      "hash": "argon2id (native)"
+    },
+    {
+      "email": "passkey@example.com",
+      "password": "passkey password 1",
+      "hash": "argon2id (native)"
+    }
+  ],
+  "sessions": [
+    {
+      "email": "native@example.com",
+      "via": "sign-in/email",
+      "cookieName": "__Secure-canopy.session_token",
+      "token": "stuzMchbuv9vxcUwUqxBkIncOTjnjx5h",
+      "cookie": "stuzMchbuv9vxcUwUqxBkIncOTjnjx5h.ZBl3kp+eKudLA4ny/m8VkPqr78mBBB2VdTqYDhPbhjk="
+    },
+    {
+      "email": "native@example.com",
+      "via": "verify-email",
+      "cookieName": "__Secure-canopy.session_token",
+      "token": "ZFqyyb8RoFzQjMKY6ykRHAWIAIka6rqz",
+      "cookie": "ZFqyyb8RoFzQjMKY6ykRHAWIAIka6rqz.zDU4Ytcie4R6g+bS7aXJwE1iie41Nrx0f9+acWMf5ec="
+    }
+  ],
+  "twoFactor": [
+    {
+      "email": "totp@example.com",
+      "totpSecret": "tl2XX3JXnI9Fo2ZtDcuar4BYWzP9tnkt",
+      "totpSecretBase32": "ORWDEWCYGNFFQ3SJHFDG6MS2ORCGG5LBOI2EEWKXPJIDS5DONN2A",
+      "backupCodes": [
+        "oD631-VJ7Nv",
+        "VQmVq-mPQ30",
+        "kQ0SY-454NI",
+        "gWzWO-nDzbZ",
+        "17Mo7-gilj4",
+        "c1BnK-SAbHw",
+        "VXpW9-6jbv4",
+        "Z74Rf-NWWdz",
+        "c5tlX-MczUf",
+        "zYULl-tNc5Y"
+      ]
+    }
+  ],
+  "passkeys": [
+    {
+      "email": "passkey@example.com",
+      "name": "Phone",
+      "authenticator": {
+        "name": "synced",
+        "algorithm": "ES256",
+        "attestation": "none",
+        "seed": "canopy auth oracle synced passkey",
+        "credentialId": "01ZdvPMh8cQ86dPBwToldg",
+        "aaguid": "bea2c46024d0d92726a744023a524e86",
+        "counting": false,
+        "backedUp": true,
+        "jwk": {
+          "kty": "EC",
+          "crv": "P-256",
+          "x": "bavQrySWrPw4p3w8WnFov9-MUSzziapUuq3Apgbga-Q",
+          "y": "Iz5d_icXklSM_MlLL_zuxENJ3bpupXeelWvMmM7xuSg",
+          "d": "j_vlWLqNcOVYtkXtG00dl5NdBojAHWn9V5kUqnPZ3BM"
+        }
+      }
+    },
+    {
+      "email": "passkey@example.com",
+      "name": "Laptop",
+      "authenticator": {
+        "name": "device",
+        "algorithm": "EdDSA",
+        "attestation": "packed",
+        "seed": "canopy auth oracle device passkey",
+        "credentialId": "ohnou-KmkpUvVkQK5J-HMA",
+        "aaguid": "3a6935b860970b9d3e79d467b7af77b6",
+        "counting": true,
+        "backedUp": false,
+        "jwk": {
+          "kty": "OKP",
+          "crv": "Ed25519",
+          "x": "-4CiNxPO7j1lY0zd8FTZvdBq_3Q4Pwoa08Os2EfEAtM",
+          "d": "_NGZV2aLZ95348X2OUFrl_-TfLsXmn8TBYTp2pL_cXs"
+        }
+      }
+    }
+  ],
+  "socialAccounts": [
+    {
+      "provider": "github",
+      "sub": "4242",
+      "email": "github@example.com"
+    },
+    {
+      "provider": "google",
+      "sub": "1093",
+      "email": "google@example.com"
+    },
+    {
+      "provider": "acme",
+      "sub": "idp-user-7",
+      "email": "oidc@example.com"
+    }
+  ],
+  "anonymous": 1,
+  "signingKeys": "every key in signing_keys.json; privateKey is decrypted with the secret"
+}

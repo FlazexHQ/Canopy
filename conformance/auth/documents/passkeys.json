@@ -1,0 +1,48 @@
+[
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0ba"
+    },
+    "name": "Phone",
+    "publicKey": "pQECAyYgASFYIG2r0K8klqz8OKd8PFpxaL/fjFEs84mqVLqtwKYG4GvkIlggIz5d/icXklSM/MlLL/zuxENJ3bpupXeelWvMmM7xuSg=",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0b1"
+    },
+    "credentialID": "01ZdvPMh8cQ86dPBwToldg",
+    "counter": {
+      "$numberInt": "0"
+    },
+    "deviceType": "multiDevice",
+    "backedUp": true,
+    "transports": "internal",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "aaguid": "bea2c460-24d0-d927-26a7-44023a524e86"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0bd"
+    },
+    "name": "Laptop",
+    "publicKey": "pAEBAycgBiFYIPuAojcTzu49ZWNM3fBU2b3Qav90OD8KGtPDrNhHxALT",
+    "userId": {
+      "$oid": "72bd0c0018742ad08ebbf0b1"
+    },
+    "credentialID": "ohnou-KmkpUvVkQK5J-HMA",
+    "counter": {
+      "$numberInt": "1"
+    },
+    "deviceType": "singleDevice",
+    "backedUp": false,
+    "transports": "internal",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "aaguid": "3a6935b8-6097-0b9d-3e79-d467b7af77b6"
+  }
+]

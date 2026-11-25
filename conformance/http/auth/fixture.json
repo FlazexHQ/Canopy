@@ -1,0 +1,161 @@
+{
+  "publicUrl": "https://auth.canopy.test",
+  "appOrigin": "https://app.canopy.test",
+  "secret": "canopy auth oracle secret 0123456789abcdef",
+  "clock": "2031-01-01T00:00:00.000Z",
+  "startupSeed": "canopy auth oracle startup",
+  "options": {
+    "publicUrl": "https://auth.canopy.test",
+    "secret": "canopy auth oracle secret 0123456789abcdef",
+    "appName": "Canopy Oracle",
+    "redirectUrls": [
+      "https://app.canopy.test"
+    ],
+    "magicLink": true,
+    "emailOtp": true,
+    "anonymous": true,
+    "twoFactor": true,
+    "passkeys": true,
+    "socialProviders": {
+      "github": {
+        "clientId": "github-client",
+        "clientSecret": "github-secret"
+      },
+      "google": {
+        "clientId": "google-client",
+        "clientSecret": "google-secret"
+      }
+    },
+    "oidcProviders": [
+      {
+        "id": "acme",
+        "discoveryUrl": "https://idp.canopy.test/.well-known/openid-configuration",
+        "clientId": "acme-client",
+        "clientSecret": "acme-secret"
+      }
+    ],
+    "keyRotation": {
+      "refreshMs": 3600000
+    }
+  },
+  "startup": {
+    "EdDSA": {
+      "signingKeys": [
+        {
+          "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+          "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+          "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+          "alg": "EdDSA",
+          "crv": "Ed25519",
+          "createdAt": {
+            "$date": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          "expiresAt": {
+            "$date": {
+              "$numberLong": "1927584000000"
+            }
+          }
+        },
+        {
+          "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+          "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+          "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+          "alg": "EdDSA",
+          "crv": "Ed25519",
+          "createdAt": {
+            "$date": {
+              "$numberLong": "1927584000000"
+            }
+          },
+          "expiresAt": {
+            "$date": {
+              "$numberLong": "1930176000000"
+            }
+          }
+        }
+      ],
+      "jwks": {
+        "keys": [
+          {
+            "crv": "Ed25519",
+            "kty": "OKP",
+            "x": "0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0",
+            "kid": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "alg": "EdDSA",
+            "use": "sig"
+          },
+          {
+            "crv": "Ed25519",
+            "kty": "OKP",
+            "x": "xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw",
+            "kid": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "alg": "EdDSA",
+            "use": "sig"
+          }
+        ]
+      }
+    },
+    "ES256": {
+      "signingKeys": [
+        {
+          "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+          "publicKey": "{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"xeNMZqDsprMTbd8pLNGscNIbpRFlhGdZ2ujmbpXYzAE\",\"y\":\"jExCJ0JquRLLJ0siOGNynyP7mHSzoYr9YiDVs_ZaO4Y\"}",
+          "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee6997d240d3623359a9884a3041c9396b8d131b6c16172853abe7b64e78b08787d6fc40aaf997d623992bb1c989c3e8dfc8f8b520241c43f3a1ea91c216201bef7b694c6ab6571192e407198a846f5cc5ee2e138ff86e42bed2ae053dd62934538af33313666aba5f7e5170e0eead7616765ec74267ccf939e40c26cb8e445048fee3e99e0a193bf31aa028c51a964ee7e9256a6f953e6161e45843268e50286a4ee3a4c4e5792cc885384b504e986233edc572b60e4c4d6fe\"",
+          "alg": "ES256",
+          "crv": "P-256",
+          "createdAt": {
+            "$date": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          "expiresAt": {
+            "$date": {
+              "$numberLong": "1927584000000"
+            }
+          }
+        },
+        {
+          "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+          "publicKey": "{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"Okynh3nEHN5VeptQfaAfPI1wrAAyTqhyZbVg9bVmuCs\",\"y\":\"otpPHqSsNanoatlj-c3iQhWYnNlmX4LW-FMB0FQq3Hk\"}",
+          "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2583e67319cd8ed72ea5d9ddc5e10c74acba4d6d046a8da3d28d43e366645be6e55552151b9b0dea11bc2484d6b7414ccbc954f2f38521b7a0e6070bdc11f71b2916aad28d17bab955bff54714ffd5971b4995051c4a3fab9dcecfe863d6d129702af04066308eb3604ffaabcde56cbc89e825f26972f8625b802cf4da8056473100089ea18855662a92d72e93cdffe4df6f9e7de2915194125c8648cef05b71b31d2a94508e8d8b51090c605e01979196239c2d58792ebe9d\"",
+          "alg": "ES256",
+          "crv": "P-256",
+          "createdAt": {
+            "$date": {
+              "$numberLong": "1927584000000"
+            }
+          },
+          "expiresAt": {
+            "$date": {
+              "$numberLong": "1930176000000"
+            }
+          }
+        }
+      ],
+      "jwks": {
+        "keys": [
+          {
+            "crv": "P-256",
+            "kty": "EC",
+            "x": "Okynh3nEHN5VeptQfaAfPI1wrAAyTqhyZbVg9bVmuCs",
+            "y": "otpPHqSsNanoatlj-c3iQhWYnNlmX4LW-FMB0FQq3Hk",
+            "kid": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "alg": "ES256",
+            "use": "sig"
+          },
+          {
+            "crv": "P-256",
+            "kty": "EC",
+            "x": "xeNMZqDsprMTbd8pLNGscNIbpRFlhGdZ2ujmbpXYzAE",
+            "y": "jExCJ0JquRLLJ0siOGNynyP7mHSzoYr9YiDVs_ZaO4Y",
+            "kid": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "alg": "ES256",
+            "use": "sig"
+          }
+        ]
+      }
+    }
+  }
+}

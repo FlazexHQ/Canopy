@@ -1,0 +1,339 @@
+[
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf083"
+    },
+    "name": "native@example.com",
+    "email": "native@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf08c"
+    },
+    "name": "Scrypt",
+    "email": "scrypt@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf08f"
+    },
+    "name": "",
+    "email": "bcrypt@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf092"
+    },
+    "name": "",
+    "email": "pbkdf2-sha1@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf095"
+    },
+    "name": "",
+    "email": "pbkdf2-sha256@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf098"
+    },
+    "name": "",
+    "email": "pbkdf2-sha512@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf09b"
+    },
+    "name": "",
+    "email": "firebase@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf09e"
+    },
+    "name": "",
+    "email": "argon2@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": [],
+    "appMetadata": "{}",
+    "userMetadata": "{}"
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0a2"
+    },
+    "name": "totp@example.com",
+    "email": "totp@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": true,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0b1"
+    },
+    "name": "passkey@example.com",
+    "email": "passkey@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0c2"
+    },
+    "name": "github",
+    "email": "github@example.com",
+    "emailVerified": true,
+    "image": "https://avatars.example.com/u/4242",
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0ca"
+    },
+    "name": "google",
+    "email": "google@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d2"
+    },
+    "name": "acme",
+    "email": "oidc@example.com",
+    "emailVerified": true,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": false,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  },
+  {
+    "_id": {
+      "$oid": "72bd0c0018742ad08ebbf0d8"
+    },
+    "name": "Anonymous",
+    "email": "temp-zhxfbuiemfhtqj2h8dslao2zb5yfqzc7@anonymous.canopy.invalid",
+    "emailVerified": false,
+    "createdAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "updatedAt": {
+      "$date": {
+        "$numberLong": "1924992000000"
+      }
+    },
+    "isAnonymous": true,
+    "role": "user",
+    "banned": false,
+    "twoFactorEnabled": false,
+    "roles": []
+  }
+]
