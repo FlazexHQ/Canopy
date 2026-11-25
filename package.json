@@ -113,6 +113,7 @@
     "vectors:policy": "bun --conditions=@canopy/source packages/testing/scripts/policy-vectors.ts",
     "vectors:pipeline": "bun --conditions=@canopy/source packages/testing/scripts/pipeline-vectors.ts",
     "vectors:schema": "bun --conditions=@canopy/source packages/testing/scripts/schema-vectors.ts",
+    "vectors:typegen": "bun --conditions=@canopy/source packages/testing/scripts/typegen-vectors.ts",
     "vectors:graphql-schema": "bun --conditions=@canopy/source packages/testing/scripts/graphql-schema-vectors.ts",
     "vectors:rate-limits": "bun --conditions=@canopy/source packages/testing/scripts/rate-limit-vectors.ts",
     "vectors:http": "bun --conditions=@canopy/source packages/testing/scripts/http-find-vectors.ts",

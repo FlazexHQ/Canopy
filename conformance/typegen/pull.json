@@ -1,0 +1,2322 @@
+{
+  "fixture": {
+    "notes": {
+      "validator": {
+        "$jsonSchema": {
+          "bsonType": "object",
+          "required": [
+            "_id",
+            "body"
+          ],
+          "properties": {
+            "_id": {
+              "bsonType": "int"
+            },
+            "body": {
+              "bsonType": "string"
+            },
+            "tags": {
+              "bsonType": "array",
+              "items": {
+                "bsonType": "string"
+              }
+            }
+          }
+        }
+      },
+      "index": {
+        "body": 1
+      },
+      "documents": [
+        {
+          "_id": 1,
+          "body": "fixture",
+          "ignoredByValidator": true
+        }
+      ]
+    },
+    "todo-items": {
+      "index": {
+        "status": 1
+      },
+      "documents": [
+        {
+          "_id": 0,
+          "status": "open"
+        },
+        {
+          "_id": 1,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 2,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 3,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 4,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 5,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 6,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 7,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 8,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 9,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 10,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 11,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 12,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 13,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 14,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 15,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 16,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 17,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 18,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 19,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 20,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 21,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 22,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 23,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 24,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 25,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 26,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 27,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 28,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 29,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 30,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 31,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 32,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 33,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 34,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 35,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 36,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 37,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 38,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 39,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 40,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 41,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 42,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 43,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 44,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 45,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 46,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 47,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 48,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 49,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 50,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 51,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 52,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 53,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 54,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 55,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 56,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 57,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 58,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 59,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 60,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 61,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 62,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 63,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 64,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 65,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 66,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 67,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 68,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 69,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 70,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 71,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 72,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 73,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 74,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 75,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 76,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 77,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 78,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 79,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 80,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 81,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 82,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 83,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 84,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 85,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 86,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 87,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 88,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 89,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 90,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 91,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 92,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 93,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 94,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 95,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 96,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 97,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 98,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 99,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 100,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 101,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 102,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 103,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 104,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 105,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 106,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 107,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 108,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 109,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 110,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 111,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 112,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 113,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 114,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 115,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 116,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 117,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 118,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 119,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 120,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 121,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 122,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 123,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 124,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 125,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 126,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 127,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 128,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 129,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 130,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 131,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 132,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 133,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 134,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 135,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 136,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 137,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 138,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 139,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 140,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 141,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 142,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 143,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 144,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 145,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 146,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 147,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 148,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 149,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 150,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 151,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 152,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 153,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 154,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 155,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 156,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 157,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 158,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 159,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 160,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 161,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 162,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 163,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 164,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 165,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 166,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 167,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 168,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 169,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 170,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 171,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 172,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 173,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 174,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 175,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 176,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 177,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 178,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 179,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 180,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 181,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 182,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 183,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 184,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 185,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 186,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 187,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 188,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 189,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 190,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 191,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 192,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 193,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 194,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 195,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 196,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 197,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 198,
+          "status": "open",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        },
+        {
+          "_id": 199,
+          "status": "done",
+          "detail": {
+            "due": null,
+            "labels": [
+              "review"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "substitutions": {
+    "<MONGODB_URI>": "Replica set connection string supplied to the recorder",
+    "<DATABASE>": "Unique scratch database name",
+    "cwd": "Temporary project path omitted; file paths are relative to it",
+    "eol": "File text uses LF in the vector; eol marks physical CRLF in the input"
+  },
+  "examples": [
+    {
+      "name": "write TypeScript",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>"
+      ],
+      "before": [],
+      "stdout": "wrote canopy.schema.ts (2 collections)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": [
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ]
+    },
+    {
+      "name": "already current with LF",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ],
+      "stdout": "canopy.schema.ts is up to date\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": []
+    },
+    {
+      "name": "already current with CRLF",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        }
+      ],
+      "stdout": "canopy.schema.ts is up to date\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": []
+    },
+    {
+      "name": "write JavaScript with inferred enums",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--js",
+        "--infer-enums"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        }
+      ],
+      "stdout": "wrote canopy.schema.js (2 collections)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        }
+      ]
+    },
+    {
+      "name": "sample one document",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--out",
+        "nested/app.ts",
+        "--collection",
+        "todo-items",
+        "--sample",
+        "1"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        },
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        }
+      ],
+      "stdout": "wrote nested/app.ts (1 collections)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": [
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const schema = defineSchema(todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ]
+    },
+    {
+      "name": "append validator schema",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--out",
+        "nested/app.ts",
+        "--collection",
+        "notes"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        },
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        },
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const schema = defineSchema(todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ],
+      "stdout": "added notes to nested/app.ts\n",
+      "stderr": "",
+      "exitCode": 0,
+      "filesWritten": [
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const schema = defineSchema(todoItems, notes)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ]
+    },
+    {
+      "name": "reject duplicate collection",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--out",
+        "nested/app.ts",
+        "--collection",
+        "notes"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        },
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        },
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const schema = defineSchema(todoItems, notes)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ],
+      "stdout": "",
+      "stderr": "nested/app.ts already declares notes\n",
+      "exitCode": 1,
+      "filesWritten": []
+    },
+    {
+      "name": "reject missing collection",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--out",
+        "nested/app.ts",
+        "--collection",
+        "missing"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        },
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        },
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const schema = defineSchema(todoItems, notes)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ],
+      "stdout": "",
+      "stderr": "Collection missing does not exist in the database\n",
+      "exitCode": 1,
+      "filesWritten": []
+    },
+    {
+      "name": "reject invalid sample",
+      "args": [
+        "pull",
+        "--mongodb-uri",
+        "<MONGODB_URI>",
+        "--database",
+        "<DATABASE>",
+        "--sample",
+        "0"
+      ],
+      "before": [
+        {
+          "path": "canopy.schema.js",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.enum([\"done\", \"open\"]), // TODO(canopy pull): inferred from sampled documents, review\n})\n\nexport const schema = defineSchema(notes, todoItems)\n",
+          "eol": "LF"
+        },
+        {
+          "path": "canopy.schema.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }).optional(), // TODO(canopy pull): inferred from sampled documents, review\n  status: t.string(),\n})\n\nexport const schema = defineSchema(notes, todoItems)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "CRLF"
+        },
+        {
+          "path": "nested/app.ts",
+          "text": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const todoItems = collection(\"todo-items\", {\n  _id: t.int(),\n  detail: t.object({\n    due: t.any(), // TODO(canopy pull): null has no builder\n    labels: t.array(t.string()),\n  }),\n  status: t.string(),\n})\n\nexport const notes = collection(\"notes\", {\n  _id: t.int(),\n  body: t.string(),\n  tags: t.array(t.string()).optional(),\n})\n\nexport const schema = defineSchema(todoItems, notes)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n",
+          "eol": "LF"
+        }
+      ],
+      "stdout": "",
+      "stderr": "--sample needs a positive integer\n",
+      "exitCode": 1,
+      "filesWritten": []
+    }
+  ]
+}

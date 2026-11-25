@@ -1,0 +1,1373 @@
+{
+  "sources": {
+    "inferred": [
+      {
+        "name": "empty",
+        "docs": [],
+        "options": {}
+      },
+      {
+        "name": "bson-and-field-order",
+        "docs": [
+          {
+            "2": true,
+            "10": true,
+            "z": [],
+            "allScalars": [
+              {
+                "$maxKey": 1
+              },
+              {
+                "$minKey": 1
+              },
+              {
+                "$code": "return x",
+                "$scope": {
+                  "x": {
+                    "$numberInt": "1"
+                  }
+                }
+              },
+              {
+                "$code": "return 1"
+              },
+              {
+                "$regularExpression": {
+                  "pattern": "abc",
+                  "options": "i"
+                }
+              },
+              {
+                "$timestamp": {
+                  "t": 8,
+                  "i": 3
+                }
+              },
+              {
+                "$date": {
+                  "$numberLong": "0"
+                }
+              },
+              {
+                "$binary": {
+                  "base64": "AQI=",
+                  "subType": "00"
+                }
+              },
+              {
+                "$binary": {
+                  "base64": "AAECAwQFBgcICQoLDA0ODw==",
+                  "subType": "04"
+                }
+              },
+              {
+                "$oid": "507f1f77bcf86cd799439011"
+              },
+              {
+                "$symbol": "legacy"
+              },
+              "string",
+              {
+                "$numberDecimal": "42.00"
+              },
+              {
+                "$numberDouble": "1.0"
+              },
+              {
+                "$numberLong": "1"
+              },
+              {
+                "$numberInt": "1"
+              },
+              true,
+              null,
+              {
+                "$undefined": true
+              },
+              {
+                "nested": true
+              },
+              []
+            ],
+            "pointer": {
+              "$dbPointer": {
+                "$ref": "example",
+                "$id": {
+                  "$oid": "507f1f77bcf86cd799439011"
+                }
+              }
+            },
+            "é": true,
+            "𐀀": true,
+            "": true,
+            "optional": {
+              "a": "",
+              "common": false
+            },
+            "skipped": {
+              "$undefined": true
+            },
+            "undefinedArray": [
+              {
+                "$undefined": true
+              }
+            ],
+            "undefinedField": {
+              "$undefined": true
+            }
+          },
+          {
+            "optional": {
+              "b": [],
+              "common": {
+                "$numberDouble": "NaN"
+              }
+            },
+            "nested": [
+              [
+                {
+                  "a": true
+                },
+                {
+                  "b": true
+                }
+              ],
+              [
+                false,
+                []
+              ]
+            ],
+            "undefinedField": true,
+            "z": null
+          }
+        ],
+        "options": {}
+      },
+      {
+        "name": "enums-custom",
+        "docs": [
+          {
+            "val": [
+              {
+                "$symbol": "z"
+              },
+              "é"
+            ]
+          },
+          {
+            "val": [
+              "z",
+              null,
+              "é"
+            ]
+          }
+        ],
+        "options": {
+          "enums": {
+            "maxValues": 2,
+            "minSamples": 4
+          }
+        }
+      }
+    ],
+    "validator": {
+      "$jsonSchema": {
+        "bsonType": "object",
+        "required": [
+          "_id",
+          "labels",
+          "secret"
+        ],
+        "properties": {
+          "_id": {
+            "bsonType": "objectId"
+          },
+          "labels": {
+            "bsonType": "array",
+            "items": {
+              "bsonType": "object",
+              "required": [
+                "name",
+                "secret"
+              ],
+              "properties": {
+                "name": {
+                  "bsonType": "string"
+                },
+                "secret": {
+                  "bsonType": "string"
+                }
+              }
+            }
+          },
+          "secret": {
+            "bsonType": "binData"
+          },
+          "display.name": {
+            "bsonType": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "configured": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "count",
+        "status"
+      ],
+      "properties": {
+        "count": {
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "new",
+            "in \"review\"",
+            null
+          ]
+        },
+        "matrix": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            }
+          }
+        },
+        "choice": {
+          "oneOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        },
+        "opaque": true
+      }
+    }
+  },
+  "examples": [
+    {
+      "name": "no collections",
+      "schemas": [],
+      "options": {},
+      "typescript": "// Generated by canopy gen types. Do not edit.\nexport interface Database {\n}\n"
+    },
+    {
+      "name": "all sources and BSON types",
+      "schemas": [
+        {
+          "name": "items\"\\雪",
+          "source": "validator",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "_id": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "objectId"
+                },
+                "required": true
+              },
+              "display.name": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "labels": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "object",
+                    "fields": {
+                      "name": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": true
+                      },
+                      "secret": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    },
+                    "open": true
+                  }
+                },
+                "required": true
+              },
+              "secret": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "binData"
+                },
+                "required": true
+              }
+            },
+            "open": true
+          }
+        },
+        {
+          "name": "empty",
+          "shape": {
+            "kind": "object",
+            "fields": {},
+            "open": true
+          },
+          "source": "inferred",
+          "sampled": 0
+        },
+        {
+          "name": "bson-and-field-order",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "2": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              },
+              "10": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              },
+              "allScalars": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "union",
+                    "of": [
+                      {
+                        "kind": "scalar",
+                        "type": "null"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "bool"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "int"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "long"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "double"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "decimal"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "string"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "objectId"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "uuid"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "binData"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "date"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "timestamp"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "regex"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "javascript"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "minKey"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "maxKey"
+                      },
+                      {
+                        "kind": "object",
+                        "fields": {
+                          "nested": {
+                            "shape": {
+                              "kind": "scalar",
+                              "type": "bool"
+                            },
+                            "required": true
+                          }
+                        },
+                        "open": true
+                      },
+                      {
+                        "kind": "array",
+                        "items": {
+                          "kind": "any"
+                        }
+                      }
+                    ]
+                  }
+                },
+                "required": false
+              },
+              "nested": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "union",
+                      "of": [
+                        {
+                          "kind": "scalar",
+                          "type": "bool"
+                        },
+                        {
+                          "kind": "object",
+                          "fields": {
+                            "a": {
+                              "shape": {
+                                "kind": "scalar",
+                                "type": "bool"
+                              },
+                              "required": false
+                            },
+                            "b": {
+                              "shape": {
+                                "kind": "scalar",
+                                "type": "bool"
+                              },
+                              "required": false
+                            }
+                          },
+                          "open": true
+                        },
+                        {
+                          "kind": "array",
+                          "items": {
+                            "kind": "any"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "required": false
+              },
+              "optional": {
+                "shape": {
+                  "kind": "object",
+                  "fields": {
+                    "a": {
+                      "shape": {
+                        "kind": "scalar",
+                        "type": "string"
+                      },
+                      "required": false
+                    },
+                    "b": {
+                      "shape": {
+                        "kind": "array",
+                        "items": {
+                          "kind": "any"
+                        }
+                      },
+                      "required": false
+                    },
+                    "common": {
+                      "shape": {
+                        "kind": "union",
+                        "of": [
+                          {
+                            "kind": "scalar",
+                            "type": "bool"
+                          },
+                          {
+                            "kind": "scalar",
+                            "type": "double"
+                          }
+                        ]
+                      },
+                      "required": true
+                    }
+                  },
+                  "open": true
+                },
+                "required": true
+              },
+              "pointer": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "undefinedArray": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "scalar",
+                    "type": "null"
+                  }
+                },
+                "required": false
+              },
+              "undefinedField": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              },
+              "z": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    },
+                    {
+                      "kind": "array",
+                      "items": {
+                        "kind": "any"
+                      }
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "é": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              },
+              "𐀀": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              },
+              "": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "bool"
+                },
+                "required": false
+              }
+            },
+            "open": true
+          },
+          "source": "inferred",
+          "sampled": 2
+        },
+        {
+          "name": "enums-custom",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "val": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "union",
+                    "of": [
+                      {
+                        "kind": "scalar",
+                        "type": "null"
+                      },
+                      {
+                        "kind": "scalar",
+                        "type": "string",
+                        "values": [
+                          "z",
+                          "é"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": true
+              }
+            },
+            "open": true
+          },
+          "source": "inferred",
+          "sampled": 2
+        },
+        {
+          "name": "preferences",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        }
+      ],
+      "options": {},
+      "typescript": "// Generated by canopy gen types. Do not edit.\nimport type { Binary, BSONRegExp, Decimal128, Long, MaxKey, MinKey, ObjectId, Timestamp } from \"canopy.js\"\n\nexport interface Database {\n  \"bson-and-field-order\": {\n    Document: {\n      \"10\"?: boolean\n      \"2\"?: boolean\n      allScalars?: (null | boolean | number | Long | Decimal128 | string | ObjectId | Binary | Date | Timestamp | BSONRegExp | unknown | MinKey | MaxKey | {\n        nested: boolean\n      } | unknown[])[]\n      nested?: ((boolean | {\n        a?: boolean\n        b?: boolean\n      } | unknown[])[])[]\n      optional: {\n        a?: string\n        b?: unknown[]\n        common: boolean | number\n      }\n      pointer?: unknown\n      undefinedArray?: null[]\n      undefinedField?: boolean\n      z: null | unknown[]\n      \"é\"?: boolean\n      \"𐀀\"?: boolean\n      \"\"?: boolean\n    }\n    Insert: {\n      \"10\"?: boolean\n      \"2\"?: boolean\n      allScalars?: (null | boolean | number | Long | Decimal128 | string | ObjectId | Binary | Date | Timestamp | BSONRegExp | unknown | MinKey | MaxKey | {\n        nested: boolean\n      } | unknown[])[]\n      nested?: ((boolean | {\n        a?: boolean\n        b?: boolean\n      } | unknown[])[])[]\n      optional: {\n        a?: string\n        b?: unknown[]\n        common: boolean | number\n      }\n      pointer?: unknown\n      undefinedArray?: null[]\n      undefinedField?: boolean\n      z: null | unknown[]\n      \"é\"?: boolean\n      \"𐀀\"?: boolean\n      \"\"?: boolean\n    }\n  }\n  empty: {\n    Document: Record<string, unknown>\n    Insert: Record<string, unknown>\n  }\n  \"enums-custom\": {\n    Document: {\n      val: (null | \"z\" | \"é\")[]\n    }\n    Insert: {\n      val: (null | \"z\" | \"é\")[]\n    }\n  }\n  \"items\\\"\\\\雪\": {\n    Document: {\n      _id: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret: string\n      })[]\n      secret: Binary\n    }\n    Insert: {\n      _id?: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret: string\n      })[]\n      secret: Binary\n    }\n  }\n  preferences: {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n}\n\nexport type BsonAndFieldOrder = Database[\"bson-and-field-order\"][\"Document\"]\nexport type Empty = Database[\"empty\"][\"Document\"]\nexport type EnumsCustom = Database[\"enums-custom\"][\"Document\"]\nexport type Items = Database[\"items\\\"\\\\雪\"][\"Document\"]\nexport type Preferences = Database[\"preferences\"][\"Document\"]\n"
+    },
+    {
+      "name": "role visibility and generator options",
+      "schemas": [
+        {
+          "name": "items\"\\雪",
+          "source": "validator",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "_id": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "objectId"
+                },
+                "required": true
+              },
+              "display.name": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "labels": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "object",
+                    "fields": {
+                      "name": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": true
+                      },
+                      "secret": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": false
+                      }
+                    },
+                    "open": false
+                  }
+                },
+                "required": true
+              },
+              "secret": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "binData"
+                },
+                "required": false
+              }
+            },
+            "open": false
+          }
+        }
+      ],
+      "options": {
+        "importFrom": "custom/\"bson",
+        "note": "Readable fields for viewer"
+      },
+      "typescript": "// Generated by canopy gen types. Do not edit.\n// Readable fields for viewer\nimport type { Binary, ObjectId } from \"custom/\\\"bson\"\n\nexport interface Database {\n  \"items\\\"\\\\雪\": {\n    Document: {\n      _id: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret?: string\n      })[]\n      secret?: Binary\n    }\n    Insert: {\n      _id?: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret?: string\n      })[]\n      secret?: Binary\n    }\n  }\n}\n\nexport type Items = Database[\"items\\\"\\\\雪\"][\"Document\"]\n"
+    },
+    {
+      "name": "escaping and aliases",
+      "schemas": [
+        {
+          "name": "items\"\\雪",
+          "source": "validator",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "_id": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "objectId"
+                },
+                "required": true
+              },
+              "display.name": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "labels": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "object",
+                    "fields": {
+                      "name": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": true
+                      },
+                      "secret": {
+                        "shape": {
+                          "kind": "scalar",
+                          "type": "string"
+                        },
+                        "required": true
+                      }
+                    },
+                    "open": true
+                  }
+                },
+                "required": true
+              },
+              "secret": {
+                "shape": {
+                  "kind": "scalar",
+                  "type": "binData"
+                },
+                "required": true
+              }
+            },
+            "open": true
+          }
+        },
+        {
+          "name": "two_words",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        },
+        {
+          "name": "two-words",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        },
+        {
+          "name": "database",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        },
+        {
+          "name": "42 numbers",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        },
+        {
+          "name": "雪",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        },
+        {
+          "name": "one word",
+          "source": "config",
+          "shape": {
+            "kind": "object",
+            "fields": {
+              "choice": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "double"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "required": false
+              },
+              "count": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "int"
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "long"
+                    }
+                  ]
+                },
+                "required": true
+              },
+              "matrix": {
+                "shape": {
+                  "kind": "array",
+                  "items": {
+                    "kind": "array",
+                    "items": {
+                      "kind": "scalar",
+                      "type": "bool"
+                    }
+                  }
+                },
+                "required": false
+              },
+              "opaque": {
+                "shape": {
+                  "kind": "any"
+                },
+                "required": false
+              },
+              "status": {
+                "shape": {
+                  "kind": "union",
+                  "of": [
+                    {
+                      "kind": "scalar",
+                      "type": "string",
+                      "values": [
+                        "in \"review\"",
+                        "new"
+                      ]
+                    },
+                    {
+                      "kind": "scalar",
+                      "type": "null"
+                    }
+                  ]
+                },
+                "required": true
+              }
+            },
+            "open": false
+          }
+        }
+      ],
+      "options": {},
+      "typescript": "// Generated by canopy gen types. Do not edit.\nimport type { Binary, Long, ObjectId } from \"canopy.js\"\n\nexport interface Database {\n  \"42 numbers\": {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n  database: {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n  \"items\\\"\\\\雪\": {\n    Document: {\n      _id: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret: string\n      })[]\n      secret: Binary\n    }\n    Insert: {\n      _id?: ObjectId\n      \"display.name\"?: string | null\n      labels: ({\n        name: string\n        secret: string\n      })[]\n      secret: Binary\n    }\n  }\n  \"one word\": {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n  \"two-words\": {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n  two_words: {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n  \"雪\": {\n    Document: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n    Insert: {\n      choice?: number | string\n      count: number | Long\n      matrix?: (boolean[])[]\n      opaque?: unknown\n      status: \"in \\\"review\\\"\" | \"new\" | null\n    }\n  }\n}\n\nexport type Items = Database[\"items\\\"\\\\雪\"][\"Document\"]\nexport type OneWord = Database[\"one word\"][\"Document\"]\n"
+    }
+  ],
+  "role": {
+    "name": "viewer",
+    "read": {
+      "kind": "only",
+      "paths": [
+        "labels.name"
+      ]
+    },
+    "mode": "optional"
+  }
+}
