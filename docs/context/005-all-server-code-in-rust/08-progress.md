@@ -3,7 +3,14 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
-## Checkpoint (2026-11-26): R3b Rust bundle consumer, `canopy build`, publishing and policy commands (not committed)
+## Checkpoint (2026-11-26): commits since the decisions
+
+- Commits: bbb00fcf (auth import firebase, auth0, cognito), ad1f616e (Microsoft profile photo on redirect sign in; provider tokens stay unencrypted, as TypeScript stores them), 8b8be881 (Rust type generation and pull writers in canopy-schema), 6a7e0272 (canopy binary in the platform packages), 78efa0a2 (schema diff and push planning), 52468fca (index advice in canopy-policy), 49e889fc (CLI replay substitutes the resolved project path for macOS), c2553ee6 (the progress notes no longer quote the test credential URL), 7bffa277 (auth oracle checks the response floor on a controlled clock; fixes the identifier-limit heldForTheFloor flake), a49760a9 (fuzz lock), 4293707b (matcher speedup: equality 47 to 80 down to 14 to 16 ns per document, dotted path 130 to 144 down to 58 to 64, natively; it grew the client Wasm module from 81,646 to 82,630 Brotli bytes, over the 81,920 gate, being fixed by Codex).
+- The maintainer accepted the red Security check on PR #6 (the fake credential URL in the commit message of 4692950d and in the notes of 225925c9 stays in history; later commits are clean).
+- d2d2d28d: the wire unified replay enables change stream pre and post images on its watched collections. Without them, the update lookup of the change stream fixture could run after the delete under load, and Canopy rightly ended the watch with ChangeStreamHistoryLost (`missing_update_image`) instead of dropping the change.
+- In progress: Codex on the client module size; Codex on removing the TypeScript core copies and `sync-core.ts` from Canopy.js (R2 exit); claudeAgent on R4 (wiring pull, schema, indexes, type generation, init, doctor, dev, the real emitter in the golden replay, the usage text).
+
+## Checkpoint (2026-11-26): R3b Canopy 3c71a8f3 (CLI project loading, build, policies, config print)
 
 The Rust half of R3, built against the R3a contract below. `canopy.js/emit` does not exist yet, so every
 replay loads the project through a stand in emitter (a small ES module given by `CANOPY_EMITTER`, run by the
@@ -103,7 +110,7 @@ detected runtime) or through `--bundle` files built from the R0 authoring vector
 - Not done: `policies push`/`pull` remote paths (`--env`) are implemented but not replayed; `canopy dev`,
   `doctor`, `init`, `schema`, `pull`, `indexes` and type generation stay R4.
 
-## Checkpoint (2026-11-26): R3a bundle format and emit protocol (in progress, not committed)
+## Checkpoint (2026-11-26): R3a Canopy 0c115669 (canopy-authoring crate and the Wasm authoring module) plus Canopy.js f28b873 on refactor/rust-core (canopy.js/emit, schema DSL, where(filter))
 
 Written early by the R3a task (Canopy.js builders and `canopy.js/emit`) so R3b can build against it. This
 section is the contract; anything not written here is not promised.
@@ -1333,11 +1340,11 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5 remaining: confirm the switched split stack in CI (images job: Rust auth smoke, TypeScript fallback smoke, SDK auth through the claims relay), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review; then drop `split-auth-typescript.yaml` and the `canopy-control` image build | R5 | Medium | `claudeAgent` |
-| 2 | R2: update gate accepted; matching and wasm2js gates open | R2 | Big | `claudeAgent` |
-| 3 | R3 in progress: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 4 | R4: config dependent commands come with R3b; remaining: dev, init, doctor, type generation, pull and schema commands, indexes, platform packages (in progress, Codex) and launcher | R4 | Big | `claudeAgent` |
-| 5 | R7: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
+| 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
+| 2 | R2: update gate accepted; matching gate to re-measure after the matcher speedup and the size fix; wasm2js gate open | R2 | Big | `claudeAgent` |
+| 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 4 | R4 in progress: wiring pull, schema, indexes, type generation, init, doctor, dev, the real emitter in the golden replay, the usage text | R4 | Big | `claudeAgent` |
+| 5 | R7 not started: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
 
 ## Done
 
