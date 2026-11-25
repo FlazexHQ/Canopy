@@ -130,7 +130,10 @@ jobs:
           echo "$BINARYEN_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP"
           echo "$RUNNER_TEMP/$directory/bin" >> "$GITHUB_PATH"
-      - run: bun packages/wasm/scripts/build.ts --split
+      - name: Build and measure the split WebAssembly modules
+        run: |
+          unset CARGO_PROFILE_RELEASE_LTO CARGO_PROFILE_RELEASE_CODEGEN_UNITS
+          bun packages/wasm/scripts/build.ts --split
 
   native:
     name: Rust engine (${{ matrix.os }})
