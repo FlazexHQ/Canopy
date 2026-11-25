@@ -273,6 +273,6 @@ mod tests {
         assert!(!allowed("http://hooks.example.test/claims", false));
         assert!(!allowed("http://10.0.0.1/claims", false));
         assert!(!allowed("ftp://hooks.example.test/claims", false));
-        assert!(!allowed("https://user:pass@hooks.example.test/claims", false));
+        assert!(!allowed("https://user:pass@hooks.example.test/claims", false)); // trufflehog:ignore
     }
 }
