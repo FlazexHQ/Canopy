@@ -14,6 +14,7 @@ canopy-http = { path = "../canopy-http" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
+canopy-sigv4 = { path = "../canopy-sigv4" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 image = { version = "=0.25.9", default-features = false, features = ["avif", "bmp", "gif", "jpeg", "png", "webp"] }

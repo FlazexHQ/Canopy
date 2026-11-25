@@ -27,6 +27,7 @@
       "!!conformance/auth",
       "!!conformance/webhooks",
       "!!conformance/migrations",
+      "!!conformance/mail",
       "!!conformance/cli",
       "!!conformance/typegen",
       "!!.changeset/*.md",

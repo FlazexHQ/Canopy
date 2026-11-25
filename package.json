@@ -125,6 +125,7 @@
     "vectors:http-studio": "bun --conditions=@canopy/source packages/testing/scripts/http-studio-vectors.ts",
     "vectors:http-writes": "bun --conditions=@canopy/source packages/testing/scripts/http-writes-vectors.ts",
     "vectors:webhooks": "bun --conditions=@canopy/source packages/testing/scripts/webhooks-vectors.ts",
+    "vectors:mail": "bun --conditions=@canopy/source packages/testing/scripts/mail-vectors.ts",
     "vectors:migrations": "bun --conditions=@canopy/source packages/testing/scripts/migrations-vectors.ts",
     "vectors:http-graphql": "bun --conditions=@canopy/source packages/testing/scripts/http-graphql-vectors.ts",
     "vectors:http-storage": "bun --conditions=@canopy/source packages/testing/scripts/http-storage-vectors.ts",

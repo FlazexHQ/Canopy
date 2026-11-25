@@ -1,0 +1,234 @@
+[
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "Confirm your email for Canopy",
+      "text": "Follow this link to confirm your email address for Canopy:\n\n\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to confirm your email address for Canopy:</p><p><a href=\"\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "Confirm your email for Café & <Canopy> \" ' {app} $  Confirm your email for ",
+      "text": "Follow this link to confirm your email address for Café & <Canopy> \" ' {app} $ : Follow this link to confirm your email address for :\n\nhttps://example.com/?a=\"&b=<token>\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to confirm your email address for Café &amp; &lt;Canopy&gt; &quot; &#39; {app} $ : Follow this link to confirm your email address for :</p><p><a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "magic_link",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "Your sign in link for Canopy",
+      "text": "Follow this link to sign in to Canopy:\n\n\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to sign in to Canopy:</p><p><a href=\"\">Sign in</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "magic_link",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "Your sign in link for Café & <Canopy> \" ' {app} $  Your sign in link for ",
+      "text": "Follow this link to sign in to Café & <Canopy> \" ' {app} $ : Follow this link to sign in to :\n\nhttps://example.com/?a=\"&b=<token>\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to sign in to Café &amp; &lt;Canopy&gt; &quot; &#39; {app} $ : Follow this link to sign in to :</p><p><a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">Sign in</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "otp",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "Your Canopy code is ",
+      "text": "Your one time code for Canopy is . It expires in a few minutes.\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Your one time code for Canopy is</p><p><strong></strong></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "otp",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "Your Café & <Canopy> \" ' $& $$ $' $` code is <482913>&",
+      "text": "Your one time code for Café & <Canopy> \" ' $& $$ $' $` is <482913>&. It expires in a few minutes.\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Your one time code for Café &amp; &lt;Canopy&gt; &quot; &#39; $&amp; $$ $&#39; $` is</p><p><strong>&lt;482913&gt;&amp;</strong></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "reset_password",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "Reset your password for Canopy",
+      "text": "Follow this link to choose a new password for Canopy:\n\n\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to choose a new password for Canopy:</p><p><a href=\"\">Reset password</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "reset_password",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "Reset your password for Café & <Canopy> \" ' {app} $  Reset your password for ",
+      "text": "Follow this link to choose a new password for Café & <Canopy> \" ' {app} $ : Follow this link to choose a new password for :\n\nhttps://example.com/?a=\"&b=<token>\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to choose a new password for Café &amp; &lt;Canopy&gt; &quot; &#39; {app} $ : Follow this link to choose a new password for :</p><p><a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">Reset password</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "invite",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "You are invited to Canopy",
+      "text": "You have been invited to Canopy. Follow this link to accept and sign in:\n\n\n\nIf you were not expecting this invite, you can ignore this email.\n",
+      "html": "<p>You have been invited to Canopy. Follow this link to accept and sign in:</p><p><a href=\"\">Accept invite</a></p><p>If you were not expecting this invite, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "invite",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "You are invited to Café & <Canopy> \" ' {app} $  You are invited to ",
+      "text": "You have been invited to Café & <Canopy> \" ' {app} $ . Follow this link to accept and sign in: You have been invited to . Follow this link to accept and sign in:\n\nhttps://example.com/?a=\"&b=<token>\n\nIf you were not expecting this invite, you can ignore this email.\n",
+      "html": "<p>You have been invited to Café &amp; &lt;Canopy&gt; &quot; &#39; {app} $ . Follow this link to accept and sign in: You have been invited to . Follow this link to accept and sign in:</p><p><a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">Accept invite</a></p><p>If you were not expecting this invite, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "email_change",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "expected": {
+      "subject": "Confirm your email change for Canopy",
+      "text": "Follow this link to confirm changing your Canopy email to a new address:\n\n\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to confirm changing your Canopy email to a new address:</p><p><a href=\"\">Confirm change</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "email_change",
+    "data": {
+      "appName": "Café & <Canopy> \" ' $& $$ $' $`",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "expected": {
+      "subject": "Confirm your email change for Café & <Canopy> \" ' $& $$ $' $`",
+      "text": "Follow this link to confirm changing your Café & <Canopy> \" ' $& $$ $' $` email to ada+change@example.com:\n\nhttps://example.com/?a=\"&b=<token>\n\nIf you did not ask for this, you can ignore this email.\n",
+      "html": "<p>Follow this link to confirm changing your Café &amp; &lt;Canopy&gt; &quot; &#39; $&amp; $$ $&#39; $` email to ada+change@example.com:</p><p><a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">Confirm change</a></p><p>If you did not ask for this, you can ignore this email.</p>"
+    }
+  },
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "template": {
+      "subject": "Message for {{ appName }}\r\n\n{{email}}",
+      "text": "{{url}}\n{{otp}}\n{{newEmail}}\n{{unknown}}\n{{app_name}}\n{{﻿email }}",
+      "html": "<a href=\"{{url}}\">{{ appName }}</a><strong>{{otp}}</strong>{{newEmail}}"
+    },
+    "expected": {
+      "subject": "Message for Canopy ada@example.com",
+      "text": "\n\n\n\n{{app_name}}\nada@example.com",
+      "html": "<a href=\"\">Canopy</a><strong></strong>"
+    }
+  },
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "Canopy",
+      "email": "ada@example.com"
+    },
+    "template": {
+      "subject": "{{appName}}",
+      "text": "{{email}} {{url}} {{otp}}"
+    },
+    "expected": {
+      "subject": "Canopy",
+      "text": "ada@example.com  "
+    }
+  },
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "First\r\nSecond\nThird",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "template": {
+      "subject": "Message for {{ appName }}\r\n\n{{email}}",
+      "text": "{{url}}\n{{otp}}\n{{newEmail}}\n{{unknown}}\n{{app_name}}\n{{﻿email }}",
+      "html": "<a href=\"{{url}}\">{{ appName }}</a><strong>{{otp}}</strong>{{newEmail}}"
+    },
+    "expected": {
+      "subject": "Message for First Second Third ada@example.com",
+      "text": "https://example.com/?a=\"&b=<token>\n<482913>&\nada+change@example.com\n\n{{app_name}}\nada@example.com",
+      "html": "<a href=\"https://example.com/?a=&quot;&amp;b=&lt;token&gt;\">First\r\nSecond\nThird</a><strong>&lt;482913&gt;&amp;</strong>ada+change@example.com"
+    }
+  },
+  {
+    "kind": "verification",
+    "data": {
+      "appName": "First\r\nSecond\nThird",
+      "email": "ada@example.com",
+      "url": "https://example.com/?a=\"&b=<token>",
+      "otp": "<482913>&",
+      "newEmail": "ada+change@example.com"
+    },
+    "template": {
+      "subject": "{{appName}}",
+      "text": "{{email}} {{url}} {{otp}}"
+    },
+    "expected": {
+      "subject": "First Second Third",
+      "text": "ada@example.com https://example.com/?a=\"&b=<token> <482913>&"
+    }
+  }
+]
