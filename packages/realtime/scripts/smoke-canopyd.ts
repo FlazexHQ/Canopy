@@ -1,17 +1,16 @@
+import { match } from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { readTarball } from "../../native/scripts/verify.ts"
 import { hostTarget } from "../../native/src/targets.ts"
 import { gatewayPackage, packagedGateway } from "../src/gateway-package.ts"
 
 /**
- * Unpacks the `canopyd` platform package of this machine from the tarballs `pack-canopyd.ts` wrote into a
- * scratch `node_modules` (without permission bits, as a package manager may), finds it the way the CLI does
- * and runs `canopyd --help`. Runs on Node.js (24 or newer, which strips the types), so it also runs where Bun
- * does not, such as a plain Alpine container:
+ * Installs this machine's platform tarball from `pack-canopyd.ts` with npm and checks help for both
+ * binaries and the CLI version. Runs on Node.js 24 or newer, including on Alpine Linux:
  *
  *   node packages/realtime/scripts/smoke-canopyd.ts [packs folder]
  */
@@ -29,25 +28,50 @@ const name = gatewayPackage(target)
 const packed = packs.find((entry) => entry.name === name)
 if (packed === undefined) throw new Error(`${folder} has no ${name}`)
 
-const scratch = mkdtempSync(join(tmpdir(), "canopyd-smoke-"))
-try {
-  const home = join(scratch, "node_modules", ...name.split("/"))
-  for (const [path, body] of readTarball(join(folder, packed.file))) {
-    if (!path.startsWith("package/")) continue
-    const file = join(home, path.slice("package/".length))
-    mkdirSync(dirname(file), { recursive: true })
-    writeFileSync(file, body)
-  }
-  const binary = packagedGateway(target, scratch)
-  if (binary === undefined) throw new Error(`${name} does not resolve from ${scratch}`)
-  const result = spawnSync(binary, ["--help"], { encoding: "utf8" })
+function run(binary: string, flag: string): string {
+  const result = spawnSync(binary, [flag], { encoding: "utf8" })
   if (result.status !== 0)
     throw new Error(
-      `${binary} --help exited with ${String(result.status ?? result.error)}\n${result.stderr}`,
+      `${binary} ${flag} exited with ${String(result.status ?? result.error)}\n${result.stderr}`,
     )
-  process.stdout.write(
-    `${name} resolves and runs on ${process.platform} ${process.arch}${target.libc === undefined ? "" : ` (${target.libc})`}\n`,
+  return result.stdout + result.stderr
+}
+
+const scratch = mkdtempSync(join(tmpdir(), "canopyd-smoke-"))
+try {
+  const manifest = join(scratch, "package.json")
+  writeFileSync(manifest, '{"private":true}\n')
+  const npm = process.platform === "win32" ? process.execPath : "npm"
+  const npmArgs =
+    process.platform === "win32"
+      ? [join(dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js")]
+      : []
+  const install = spawnSync(
+    npm,
+    [
+      ...npmArgs,
+      "install",
+      "--offline",
+      "--ignore-scripts",
+      "--no-audit",
+      "--no-fund",
+      "--no-save",
+      "--cache",
+      join(scratch, "npm-cache"),
+      join(folder, packed.file),
+    ],
+    { cwd: scratch, stdio: "inherit" },
   )
+  if (install.error !== undefined) throw install.error
+  if (install.status !== 0) throw new Error(`npm install failed with ${String(install.status)}`)
+  const binary = packagedGateway(target, scratch)
+  if (binary === undefined) throw new Error(`${name} does not resolve from ${scratch}`)
+  const cli = createRequire(manifest).resolve(`${name}/canopy`)
+  if (process.platform !== "win32") chmodSync(cli, 0o755)
+  match(run(binary, "--help"), /Usage: canopyd\b/)
+  match(run(cli, "--version").trim(), /^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/)
+  match(run(cli, "--help"), /Usage: canopy\s/)
+  process.stdout.write(`${name} passed canopy --version, canopy --help and canopyd --help\n`)
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }

@@ -29,7 +29,7 @@
  * WebAssembly.
  *
  * With `--canopyd-packs`, installs the assembled realtime launcher and checks that only the host's
- * optional executable package is installed and that the launcher finds and runs it in every layout.
+ * optional executable package is installed, then resolves and runs both executables in every layout.
  */
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
@@ -664,7 +664,7 @@ const INSTALL: Readonly<Record<Manager, readonly string[]>> = {
 function gatewayScript({ host, platforms }: GatewayRelease, pnp: boolean): string {
   return `import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { existsSync, readdirSync, realpathSync } from "node:fs"
+import { chmodSync, existsSync, readdirSync, realpathSync } from "node:fs"
 import { createRequire } from "node:module"
 import { basename, dirname, join } from "node:path"
 
@@ -706,6 +706,17 @@ const result = spawnSync(binary, ["--help"], { encoding: "utf8" })
 assert.ifError(result.error)
 assert.equal(result.status, 0, result.stderr)
 assert.match(result.stdout + result.stderr, /Usage: canopyd/)
+const cli = launcher.resolve(host + "/canopy")
+if (process.platform !== "win32") chmodSync(cli, 0o755)
+for (const [flag, pattern] of [
+  ["--version", /^\\d+\\.\\d+\\.\\d+(?:[-+][\\w.+-]+)?$/],
+  ["--help", /Usage: canopy\\s/],
+]) {
+  const checked = spawnSync(cli, [flag], { encoding: "utf8" })
+  assert.ifError(checked.error)
+  assert.equal(checked.status, 0, checked.stderr)
+  assert.match((checked.stdout + checked.stderr).trim(), pattern)
+}
 process.stdout.write(host + " resolves and runs\\n")
 `
 }

@@ -5,6 +5,19 @@ import { FORMAT, linkProblems, machineOf, readTarball } from "../../native/scrip
 import type { NativeTarget } from "../../native/src/targets.ts"
 import { gatewayExecutable, gatewayPackage } from "../src/gateway-package.ts"
 
+function cliExecutable(os: NativeTarget["os"]): string {
+  return os === "win32" ? "canopy.exe" : "canopy"
+}
+
+function platformExports(target: NativeTarget): Record<string, string> {
+  const gateway = gatewayExecutable(target.os)
+  return {
+    "./package.json": "./package.json",
+    "./canopy": `./${cliExecutable(target.os)}`,
+    [`./${gateway}`]: `./${gateway}`,
+  }
+}
+
 /** The version and license every `canopyd` platform package takes from `@canopy/realtime`. */
 export interface Release {
   readonly version: string
@@ -19,11 +32,12 @@ export function platformManifest(target: NativeTarget, release: Release): Record
     version: release.version,
     license: release.license,
     repository: release.repository,
-    description: `canopyd, the Canopy data plane, prebuilt for ${target.triple}`,
+    description: `The Canopy CLI and data plane, prebuilt for ${target.triple}`,
     os: [target.os],
     cpu: [target.cpu],
     ...(target.libc === undefined ? {} : { libc: [target.libc] }),
-    files: [gatewayExecutable(target.os)],
+    files: [gatewayExecutable(target.os), cliExecutable(target.os)],
+    exports: platformExports(target),
     preferUnplugged: true,
   }
 }
@@ -32,20 +46,20 @@ function readme(target: NativeTarget): string {
   const platform = `${target.os} ${target.cpu}${target.libc === undefined ? "" : ` with ${target.libc}`}`
   return `# ${gatewayPackage(target)}
 
-\`canopyd\`, the Canopy data plane, prebuilt for \`${target.triple}\`. Package managers install it only on
-${platform}, as an optional dependency of \`@canopy/realtime\`, and the Canopy CLI and server run it from
-there. It has nothing to import.
+The \`canopy\` CLI and \`canopyd\` data plane, prebuilt for \`${target.triple}\`. Package managers install this
+package only on ${platform}, as an optional dependency of \`@canopy/realtime\`. Resolve the \`./canopy\`
+export to locate the CLI executable.
 `
 }
 
 /**
  * Writes the platform package for `target` into `folder`, replacing what was there: its `package.json` (with
- * `os`, `cpu` and, on Linux, `libc`, so package managers install only the matching one), the `binary` as
- * `canopyd` (executable) or `canopyd.exe`, and a README.
+ * `os`, `cpu` and, on Linux, `libc`, so package managers install only the matching one), both executables,
+ * and a README.
  */
 export function stagePlatformPackage(
   target: NativeTarget,
-  binary: string,
+  binaries: { readonly gateway: string; readonly cli: string },
   folder: string,
   release: Release,
 ): void {
@@ -55,9 +69,14 @@ export function stagePlatformPackage(
     join(folder, "package.json"),
     `${JSON.stringify(platformManifest(target, release), null, 2)}\n`,
   )
-  const executable = join(folder, gatewayExecutable(target.os))
-  copyFileSync(binary, executable)
-  if (target.os !== "win32") chmodSync(executable, 0o755)
+  for (const [source, name] of [
+    [binaries.gateway, gatewayExecutable(target.os)],
+    [binaries.cli, cliExecutable(target.os)],
+  ] as const) {
+    const executable = join(folder, name)
+    copyFileSync(source, executable)
+    if (target.os !== "win32") chmodSync(executable, 0o755)
+  }
   writeFileSync(join(folder, "README.md"), readme(target))
 }
 
@@ -90,6 +109,7 @@ interface Manifest {
   readonly os?: unknown
   readonly cpu?: unknown
   readonly libc?: unknown
+  readonly exports?: unknown
   readonly optionalDependencies?: unknown
 }
 
@@ -105,8 +125,8 @@ function expect(problems: string[], label: string, actual: unknown, expected: un
 
 /**
  * Checks the tarball of the platform package for `target`: its name, version and `os`, `cpu` and `libc`
- * fields, and that the executable inside is a program for that operating system and processor, with its
- * execute bits set outside Windows. With `glibcBaseline`, a glibc build must need no glibc newer than the
+ * fields, its exports, and both executables' format, processor and execute bits outside Windows.
+ * With `glibcBaseline`, a glibc build must need no glibc newer than the
  * baseline of the native addons, and a musl build must not reference glibc at all.
  */
 export function verifyPlatformTarball(
@@ -125,10 +145,13 @@ export function verifyPlatformTarball(
   expect(problems, "os", manifest.os, [target.os])
   expect(problems, "cpu", manifest.cpu, [target.cpu])
   expect(problems, "libc", manifest.libc, target.libc === undefined ? undefined : [target.libc])
-  const file = gatewayExecutable(target.os)
-  const binary = files.get(`package/${file}`)
-  if (binary === undefined) problems.push(`${file} is missing`)
-  else {
+  expect(problems, "exports", manifest.exports, platformExports(target))
+  for (const file of [gatewayExecutable(target.os), cliExecutable(target.os)]) {
+    const binary = files.get(`package/${file}`)
+    if (binary === undefined) {
+      problems.push(`${file} is missing`)
+      continue
+    }
     expect(problems, file, machineOf(binary, [2, 3]), {
       format: FORMAT[target.os],
       cpu: target.cpu,

@@ -3,8 +3,8 @@ name: Native release builds
 # Builds every platform package of @canopy/native on its own runner, assembles the release (the nine platform
 # packages and the root package naming them all), checks it, installs it with every package manager and loads
 # each addon where the hardware exists. It assembles the checked tarballs as the native-release artifact.
-# The gateway archives are separate artifacts named by Rust target, and the gateway is
-# also packed as one npm package per platform (@canopy/canopyd-<suffix>) plus the @canopy/realtime tarball
+# Each Rust target gets an archive containing the gateway and CLI. Both binaries also ship
+# in one npm package per platform (@canopy/canopyd-<suffix>) plus the @canopy/realtime tarball
 # whose optionalDependencies name them all, as the canopyd-npm-release artifact.
 on:
   pull_request:
@@ -17,6 +17,7 @@ on:
       - "packages/realtime/scripts/**"
       - "packages/realtime/src/gateway-package.ts"
       - "packages/realtime/src/gateway.ts"
+      - "packages/realtime/test/canopyd-packages.test.ts"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -112,41 +113,45 @@ jobs:
           bun packages/native/scripts/build.ts --target "$RUST_TARGET" --pack \
             ${{ runner.os == 'Linux' && '--cross' || '' }} ${{ !matrix.wasm && '--native-only' || '' }}
       - if: env.SIGN_RELEASE == 'true'
-        name: Generate the CycloneDX SBOM for the gateway
+        name: Generate CycloneDX SBOMs for the gateway and CLI
         shell: bash
         run: |
-          cargo install --locked --version 0.5.10 cargo-cyclonedx
-          cargo cyclonedx --manifest-path crates/canopyd/Cargo.toml --target "$RUST_TARGET" \
-            --format json --spec-version 1.6 --override-filename canopyd
-      - name: Build and archive the gateway
+          cargo install -j 2 --locked --version 0.5.10 cargo-cyclonedx
+          cargo cyclonedx --target "$RUST_TARGET" --format json --spec-version 1.6
+      - name: Build and archive the gateway and CLI
         shell: bash
         run: |
           case "$RUST_TARGET" in
             *-linux-musl)
-              RUSTFLAGS="-C target-feature=+crt-static" cargo zigbuild --release --locked -p canopyd --target "$RUST_TARGET"
-              headers=$(readelf -l -d "target/$RUST_TARGET/release/canopyd")
-              if grep -E 'INTERP|NEEDED' <<< "$headers"; then
-                echo "The musl gateway must be statically linked" >&2
-                exit 1
-              fi
+              RUSTFLAGS="-C target-feature=+crt-static" cargo zigbuild -j 2 --release --locked -p canopyd -p canopy-cli --target "$RUST_TARGET"
+              for binary in canopyd canopy; do
+                headers=$(readelf -l -d "target/$RUST_TARGET/release/$binary")
+                if grep -E 'INTERP|NEEDED' <<< "$headers"; then
+                  echo "$binary must be statically linked on musl" >&2
+                  exit 1
+                fi
+              done
               ;;
             *-linux-gnu)
-              cargo zigbuild --release --locked -p canopyd --target "$RUST_TARGET.2.17"
+              cargo zigbuild -j 2 --release --locked -p canopyd -p canopy-cli --target "$RUST_TARGET.2.17"
               ;;
             *)
-              cargo build --release --locked -p canopyd --target "$RUST_TARGET"
+              cargo build -j 2 --release --locked -p canopyd -p canopy-cli --target "$RUST_TARGET"
               ;;
           esac
 
           staging="$RUNNER_TEMP/gateway-archive"
           mkdir gateway-pack "$staging"
-          gateway=canopyd
-          if [[ "$RUNNER_OS" == Windows ]]; then gateway="$gateway.exe"; fi
-          cp "target/$RUST_TARGET/release/$gateway" "$staging/"
-          members=("$gateway")
+          suffix=
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
+          members=("canopyd$suffix" "canopy$suffix")
+          for binary in "${members[@]}"; do
+            cp "target/$RUST_TARGET/release/$binary" "$staging/"
+          done
           if [[ "$SIGN_RELEASE" == true ]]; then
-            cp crates/canopyd/canopyd.json "$staging/canopyd.cdx.json"
-            members+=(canopyd.cdx.json)
+            cp crates/canopyd/canopyd.cdx.json "$staging/canopyd.cdx.json"
+            cp crates/canopy-cli/canopy-cli.cdx.json "$staging/canopy.cdx.json"
+            members+=(canopyd.cdx.json canopy.cdx.json)
           fi
           archive="$PWD/gateway-pack/canopyd-$RUST_TARGET"
           cd "$staging"
@@ -164,13 +169,14 @@ jobs:
           else
             sha256sum "$archive" > "$archive.sha256"
           fi
-      - name: Pack and check the gateway as the npm package of this platform
+      - name: Pack and check both executables in the npm package of this platform
         shell: bash
         run: |
-          gateway=canopyd
-          if [[ "$RUNNER_OS" == Windows ]]; then gateway="$gateway.exe"; fi
+          suffix=
+          if [[ "$RUNNER_OS" == Windows ]]; then suffix=.exe; fi
           bun packages/realtime/scripts/pack-canopyd.ts --target "$RUST_TARGET" \
-            --binary "target/$RUST_TARGET/release/$gateway" ${{ runner.os == 'Linux' && '--glibc-baseline' || '' }}
+            --binary "target/$RUST_TARGET/release/canopyd$suffix" \
+            --cli-binary "target/$RUST_TARGET/release/canopy$suffix" ${{ runner.os == 'Linux' && '--glibc-baseline' || '' }}
       - if: env.SIGN_RELEASE == 'true'
         name: Build standalone executables with the native addon and gateway
         shell: bash
@@ -267,7 +273,7 @@ jobs:
         run: |
           rustup toolchain install
           bun --filter @canopy/wasm build:native
-      - name: Install and check the native addon, WebAssembly fallback and canopyd across package managers
+      - name: Install and check the addon, WebAssembly fallback, gateway and CLI across package managers
         run: bun packages/testing/scripts/install-test.ts --build --canopyd-packs packages/realtime/packs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -282,7 +288,7 @@ jobs:
           compression-level: 0
 
   smoke:
-    name: Smoke test the released addon, gateway and gateway package (${{ matrix.target }})
+    name: Smoke test the released addon, gateway and CLI (${{ matrix.target }})
     needs: assemble
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
@@ -315,7 +321,7 @@ jobs:
         with:
           name: canopyd-npm-release
           path: packages/realtime/packs
-      - name: Resolve and run the gateway of this runner from its npm package
+      - name: Resolve and run the gateway and CLI of this runner from their npm package
         run: node packages/realtime/scripts/smoke-canopyd.ts packages/realtime/packs
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -346,7 +352,7 @@ jobs:
           name: canopyd-${{ matrix.musl }}
           path: gateway-musl-pack
       - if: matrix.musl
-        name: Load the musl addon and run the musl gateway, from its archive and its npm package, on Alpine Linux
+        name: Load the musl addon and run the musl gateway and CLI on Alpine Linux
         env:
           ARCHIVE: canopyd-${{ matrix.musl }}.tar.gz
         run: |

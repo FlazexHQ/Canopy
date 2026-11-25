@@ -107,6 +107,7 @@ async function platformTarball(
   options: {
     readonly manifest?: Record<string, unknown>
     readonly binary?: Buffer
+    readonly cli?: Buffer
     readonly mode?: number
   } = {},
 ): Promise<string> {
@@ -125,6 +126,11 @@ async function platformTarball(
         body: options.binary ?? releaseBuild(forTarget),
         mode: options.mode ?? 0o755,
       },
+      {
+        path: forTarget.os === "win32" ? "package/canopy.exe" : "package/canopy",
+        body: options.cli ?? releaseBuild(forTarget),
+        mode: 0o755,
+      },
     ]),
   )
   return file
@@ -142,91 +148,107 @@ describe("platformManifest", () => {
         os: ["win32"],
         cpu: ["x64"],
         libc: undefined,
-        files: ["canopyd.exe"],
+        files: ["canopyd.exe", "canopy.exe"],
       },
       {
         name: "@canopy/canopyd-win32-arm64-msvc",
         os: ["win32"],
         cpu: ["arm64"],
         libc: undefined,
-        files: ["canopyd.exe"],
+        files: ["canopyd.exe", "canopy.exe"],
       },
       {
         name: "@canopy/canopyd-darwin-x64",
         os: ["darwin"],
         cpu: ["x64"],
         libc: undefined,
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
       {
         name: "@canopy/canopyd-darwin-arm64",
         os: ["darwin"],
         cpu: ["arm64"],
         libc: undefined,
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
       {
         name: "@canopy/canopyd-linux-x64-gnu",
         os: ["linux"],
         cpu: ["x64"],
         libc: ["glibc"],
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
       {
         name: "@canopy/canopyd-linux-x64-musl",
         os: ["linux"],
         cpu: ["x64"],
         libc: ["musl"],
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
       {
         name: "@canopy/canopyd-linux-arm64-gnu",
         os: ["linux"],
         cpu: ["arm64"],
         libc: ["glibc"],
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
       {
         name: "@canopy/canopyd-linux-arm64-musl",
         os: ["linux"],
         cpu: ["arm64"],
         libc: ["musl"],
-        files: ["canopyd"],
+        files: ["canopyd", "canopy"],
       },
     ])
   })
 
-  it("takes the version and license of the release, exports nothing and asks Yarn to unplug it", () => {
+  it("takes release metadata, exposes executable paths and asks Yarn to unplug it", () => {
     const manifest = platformManifest(target("darwin", "arm64"), RELEASE)
     expect(manifest["version"]).toBe("1.2.3")
     expect(manifest["license"]).toBe("UNLICENSED")
     expect(manifest["preferUnplugged"]).toBe(true)
     expect(manifest["main"]).toBeUndefined()
     expect(manifest["bin"]).toBeUndefined()
+    expect(manifest["exports"]).toEqual({
+      "./package.json": "./package.json",
+      "./canopy": "./canopy",
+      "./canopyd": "./canopyd",
+    })
+    expect(platformManifest(target("win32", "arm64"), RELEASE)["exports"]).toEqual({
+      "./package.json": "./package.json",
+      "./canopy": "./canopy.exe",
+      "./canopyd.exe": "./canopyd.exe",
+    })
     expect(manifest["description"]).toContain("aarch64-apple-darwin")
     expect("libc" in manifest).toBe(false)
   })
 })
 
 describe("stagePlatformPackage", () => {
-  it("writes the manifest, the executable and a README for every target", async () => {
+  it("writes the manifest, both executables and a README for every target", async () => {
     const binary = join(dir, "built")
+    const cli = join(dir, "built-cli")
     await writeFile(binary, "canopyd build")
+    await writeFile(cli, "canopy build")
     for (const each of NATIVE_TARGETS) {
       const folder = join(dir, "staging", each.suffix)
-      stagePlatformPackage(each, binary, folder, RELEASE)
+      const cliFile = each.os === "win32" ? "canopy.exe" : "canopy"
+      stagePlatformPackage(each, { gateway: binary, cli }, folder, RELEASE)
       expect((await readdir(folder)).sort()).toEqual(
-        ["README.md", gatewayExecutable(each.os), "package.json"].sort(),
+        ["README.md", cliFile, gatewayExecutable(each.os), "package.json"].sort(),
       )
       expect(JSON.parse(await readFile(join(folder, "package.json"), "utf8"))).toEqual(
         platformManifest(each, RELEASE),
       )
       expect(await readFile(join(folder, gatewayExecutable(each.os)), "utf8")).toBe("canopyd build")
+      expect(await readFile(join(folder, cliFile), "utf8")).toBe("canopy build")
       const readme = await readFile(join(folder, "README.md"), "utf8")
       expect(readme).toContain(`# ${gatewayPackage(each)}`)
       expect(readme).toContain(each.triple)
-      if (process.platform !== "win32" && each.os !== "win32")
+      if (process.platform !== "win32" && each.os !== "win32") {
         expect((await stat(join(folder, "canopyd"))).mode & 0o777).toBe(0o755)
+        expect((await stat(join(folder, cliFile))).mode & 0o777).toBe(0o755)
+      }
     }
   })
 
@@ -234,9 +256,19 @@ describe("stagePlatformPackage", () => {
     const binary = join(dir, "built")
     await writeFile(binary, "")
     const folder = join(dir, "staging")
-    stagePlatformPackage(target("win32", "x64"), binary, folder, RELEASE)
-    stagePlatformPackage(target("linux", "arm64", "musl"), binary, folder, RELEASE)
-    expect((await readdir(folder)).sort()).toEqual(["README.md", "canopyd", "package.json"])
+    stagePlatformPackage(target("win32", "x64"), { gateway: binary, cli: binary }, folder, RELEASE)
+    stagePlatformPackage(
+      target("linux", "arm64", "musl"),
+      { gateway: binary, cli: binary },
+      folder,
+      RELEASE,
+    )
+    expect((await readdir(folder)).sort()).toEqual([
+      "README.md",
+      "canopy",
+      "canopyd",
+      "package.json",
+    ])
   })
 })
 
@@ -279,9 +311,9 @@ describe("verifyPlatformTarball", () => {
 
   it("refuses an executable for another processor or operating system", async () => {
     const arm = target("darwin", "arm64")
-    const intel = await platformTarball(arm, { binary: executable("darwin", "x64") })
+    const intel = await platformTarball(arm, { cli: executable("darwin", "x64") })
     expect(verifyPlatformTarball(intel, arm, RELEASE, false)).toEqual([
-      `${intel}: canopyd is {"format":"macho","cpu":"x64"}, not {"format":"macho","cpu":"arm64"}`,
+      `${intel}: canopy is {"format":"macho","cpu":"x64"}, not {"format":"macho","cpu":"arm64"}`,
     ])
     const win = target("win32", "x64")
     const elf = await platformTarball(win, { binary: executable("linux", "x64") })
@@ -305,10 +337,10 @@ describe("verifyPlatformTarball", () => {
   it("checks the glibc a Linux build links against only with the baseline check", async () => {
     const gnu = target("linux", "x64", "glibc")
     const newer = await platformTarball(gnu, {
-      binary: executable("linux", "x64", "GLIBC_2.17\0GLIBC_2.34\0"),
+      cli: executable("linux", "x64", "GLIBC_2.17\0GLIBC_2.34\0"),
     })
     expect(verifyPlatformTarball(newer, gnu, RELEASE, true)).toEqual([
-      `${newer}: canopyd needs glibc 2.34, newer than 2.17`,
+      `${newer}: canopy needs glibc 2.34, newer than 2.17`,
     ])
     expect(verifyPlatformTarball(newer, gnu, RELEASE, false)).toEqual([])
     const musl = target("linux", "arm64", "musl")
@@ -320,7 +352,7 @@ describe("verifyPlatformTarball", () => {
     ])
   })
 
-  it("reports a missing executable", async () => {
+  it("reports missing executables", async () => {
     const darwin = target("darwin", "x64")
     const file = join(dir, "empty.tgz")
     await writeFile(
@@ -335,6 +367,7 @@ describe("verifyPlatformTarball", () => {
     )
     expect(verifyPlatformTarball(file, darwin, RELEASE, true)).toEqual([
       `${file}: canopyd is missing`,
+      `${file}: canopy is missing`,
     ])
   })
 })
@@ -389,7 +422,7 @@ describe("pack", () => {
       const binary = join(dir, "built")
       await writeFile(binary, releaseBuild(host))
       const folder = join(dir, "staging")
-      stagePlatformPackage(host, binary, folder, RELEASE)
+      stagePlatformPackage(host, { gateway: binary, cli: binary }, folder, RELEASE)
       const packs = join(dir, "packs")
       pack(bun, folder, packs)
       const file = join(packs, tarballName(gatewayPackage(host), RELEASE.version))

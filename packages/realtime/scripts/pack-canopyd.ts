@@ -3,6 +3,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
@@ -23,12 +24,12 @@ import {
 } from "./canopyd-packages.ts"
 
 /**
- * Packs the prebuilt `canopyd` executables as npm packages. Run with Bun:
+ * Packs the prebuilt `canopyd` and `canopy` executables as npm packages. Run with Bun:
  *
- *   bun packages/realtime/scripts/pack-canopyd.ts --target <triple> --binary <file> [--glibc-baseline]
+ *   bun packages/realtime/scripts/pack-canopyd.ts --target <triple> --binary <file> --cli-binary <file> [--glibc-baseline] [--out <dir>]
  *   bun packages/realtime/scripts/pack-canopyd.ts --assemble <dir> [--partial]
  *
- * The first form packs the release build `<file>` of one target into `packs/` as `@canopy/canopyd-<suffix>`
+ * The first form packs the release builds of one target into `packs/` (or `--out <dir>`) as `@canopy/canopyd-<suffix>`
  * (the suffixes of `@canopy/native`), checks the tarball (with `--glibc-baseline`, also the glibc version a
  * Linux build links against) and lists it in `packs/packs.json`.
  *
@@ -58,7 +59,7 @@ interface Packed {
 
 function usage(message: string): never {
   throw new Error(
-    `${message}\nUsage: pack-canopyd.ts --target <triple> --binary <file> [--glibc-baseline]\n       pack-canopyd.ts --assemble <dir> [--partial]`,
+    `${message}\nUsage: pack-canopyd.ts --target <triple> --binary <file> --cli-binary <file> [--glibc-baseline] [--out <dir>]\n       pack-canopyd.ts --assemble <dir> [--partial]`,
   )
 }
 
@@ -66,23 +67,44 @@ function fail(problems: readonly string[]): void {
   if (problems.length > 0) throw new Error(`Packing failed:\n${problems.join("\n")}`)
 }
 
-function packTarget(triple: string, binary: string, glibcBaseline: boolean): void {
+function packTarget(
+  triple: string,
+  gateway: string,
+  cli: string,
+  glibcBaseline: boolean,
+  destination: string,
+): void {
   const target =
     NATIVE_TARGETS.find((candidate) => candidate.triple === triple) ??
     usage(`No canopyd target ${triple}`)
-  if (!existsSync(binary)) usage(`No file ${binary}`)
-  rmSync(packs, { recursive: true, force: true })
-  const staging = join(packs, "staging", target.suffix)
-  stagePlatformPackage(target, resolve(binary), staging, release)
-  pack(process.execPath, staging, packs)
-  rmSync(join(packs, "staging"), { recursive: true, force: true })
+  for (const binary of [gateway, cli]) {
+    if (!existsSync(binary)) usage(`No file ${binary}`)
+  }
   const packed: Packed = {
     name: gatewayPackage(target),
     file: tarballName(gatewayPackage(target), release.version),
   }
-  fail(verifyPlatformTarball(join(packs, packed.file), target, release, glibcBaseline))
-  writeFileSync(join(packs, "packs.json"), `${JSON.stringify([packed], null, 2)}\n`)
-  process.stdout.write(`packed ${packed.name} into ${packs}\n`)
+  const list = join(destination, "packs.json")
+  const tarball = join(destination, packed.file)
+  rmSync(list, { force: true })
+  rmSync(tarball, { force: true })
+  mkdirSync(destination, { recursive: true })
+  const staging = mkdtempSync(join(destination, "canopyd-stage-"))
+  const packageFolder = join(staging, "package")
+  try {
+    stagePlatformPackage(
+      target,
+      { gateway: resolve(gateway), cli: resolve(cli) },
+      packageFolder,
+      release,
+    )
+    pack(process.execPath, packageFolder, destination)
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
+  }
+  fail(verifyPlatformTarball(tarball, target, release, glibcBaseline))
+  writeFileSync(list, `${JSON.stringify([packed], null, 2)}\n`)
+  process.stdout.write(`packed ${packed.name} into ${destination}\n`)
 }
 
 function run(command: string, commandArgs: readonly string[]): void {
@@ -170,6 +192,8 @@ function assemble(folder: string, partial: boolean): void {
 const argv = process.argv.slice(2)
 let triple: string | undefined
 let binary: string | undefined
+let cliBinary: string | undefined
+let out: string | undefined
 let folder: string | undefined
 let glibcBaseline = false
 let partial = false
@@ -177,16 +201,24 @@ for (let index = 0; index < argv.length; index += 1) {
   const flag = argv[index]
   if (flag === "--glibc-baseline") glibcBaseline = true
   else if (flag === "--partial") partial = true
-  else if (flag === "--target" || flag === "--binary" || flag === "--assemble") {
+  else if (["--target", "--binary", "--cli-binary", "--out", "--assemble"].includes(flag ?? "")) {
     index += 1
     const value = argv[index] ?? usage(`${flag} needs a value`)
     if (flag === "--target") triple = value
     else if (flag === "--binary") binary = value
+    else if (flag === "--cli-binary") cliBinary = value
+    else if (flag === "--out") out = value
     else folder = value
   } else usage(`Unexpected argument ${flag ?? ""}`)
 }
 if (folder !== undefined) {
-  if (triple !== undefined || binary !== undefined || glibcBaseline)
+  if (
+    triple !== undefined ||
+    binary !== undefined ||
+    cliBinary !== undefined ||
+    out !== undefined ||
+    glibcBaseline
+  )
     usage("--assemble takes no target options")
   assemble(folder, partial)
 } else {
@@ -194,6 +226,8 @@ if (folder !== undefined) {
   packTarget(
     triple ?? usage("--target is required"),
     binary ?? usage("--binary is required"),
+    cliBinary ?? usage("--cli-binary is required"),
     glibcBaseline,
+    out === undefined ? packs : resolve(out),
   )
 }
