@@ -17,6 +17,9 @@ use tokio::time::{Instant, sleep};
 /// The latest supported meta database version.
 pub const LATEST_VERSION: i32 = steps::NAMES.len() as i32;
 
+/// The name of each migration, in version order: the first is version 1.
+pub const MIGRATION_NAMES: [&str; 6] = steps::NAMES;
+
 /// Configures the target version and migration lease.
 #[derive(Clone, Debug)]
 pub struct MigrationOptions {

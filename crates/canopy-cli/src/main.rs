@@ -3,11 +3,12 @@
 mod credentials;
 mod invocation;
 mod login;
+mod meta;
 mod remote;
 mod tokens;
 
 use std::fmt;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal as _, Write};
 use std::process::ExitCode;
 
 const USAGE: &str = include_str!("usage.txt");
@@ -45,6 +46,7 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
         ("admin tokens create" | "admin tokens list" | "admin tokens revoke", _) => {
             tokens::run(name, args, &call)
         }
+        ("migrate" | "keys list" | "keys create" | "keys revoke", _) => meta::run(name, args, &call),
         ("dev", _) => {
             let errors = ["port", "mongo-port"]
                 .into_iter()
@@ -67,6 +69,20 @@ fn output(line: fmt::Arguments<'_>) -> Result<(), String> {
 fn prompt(text: &str) -> Result<(), String> {
     let mut stdout = io::stdout().lock();
     stdout.write_all(text.as_bytes()).and_then(|()| stdout.flush()).map_err(|error| error.to_string())
+}
+
+fn confirmed(question: &str) -> Result<bool, String> {
+    if !io::stdin().is_terminal() {
+        return Err("Not applied: no terminal to confirm on. Pass --yes to apply without a prompt.".into());
+    }
+    prompt(&format!("{question} [y/N] "))?;
+    let mut answer = String::new();
+    io::stdin().read_line(&mut answer).map_err(|error| error.to_string())?;
+    let accepted = matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes");
+    if !accepted {
+        output(format_args!("Not applied."))?;
+    }
+    Ok(accepted)
 }
 
 fn storage_error(message: String, debug: bool) -> String {

@@ -39,6 +39,7 @@ use canopy_mongo::mongodb::bson::{Document, doc};
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_protocol::CanopyError;
 
+pub use crate::api_keys::{ApiKeyStore, KeyKind};
 pub use crate::auth_keys::{Algorithm as SigningAlgorithm, SigningKeyOptions, SigningKeyRoutes};
 pub use crate::core::{Actor, Clock, RequestOrigin, system_clock};
 pub use crate::data::DataRoutes;
@@ -53,7 +54,6 @@ pub use crate::templates::TemplateRoutes;
 pub use crate::users::{UserOptions, UserRoutes};
 
 use crate::accounts::AdminAccounts;
-use crate::api_keys::ApiKeyStore;
 use crate::core::AuditLog;
 use crate::secrets::SecretBox;
 use crate::settings::SettingsStore;

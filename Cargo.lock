@@ -460,7 +460,13 @@ dependencies = [
 name = "canopy-cli"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
+ "bson",
+ "canopy-control",
+ "canopy-migrations",
+ "canopy-mongo",
  "canopy-protocol",
+ "futures-util",
  "indexmap",
  "reqwest",
  "rpassword",
@@ -470,6 +476,7 @@ dependencies = [
  "strsim",
  "tempfile",
  "time",
+ "tokio",
  "url",
 ]
 

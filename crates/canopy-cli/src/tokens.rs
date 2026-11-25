@@ -1,5 +1,4 @@
 use std::fmt::Write;
-use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 
 use indexmap::IndexMap;
@@ -10,7 +9,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::invocation::Invocation;
 use crate::remote::{self, AdminClient, AdminError, string_field};
-use crate::{output, prompt, storage_error};
+use crate::{confirmed, output, storage_error};
 
 struct Entry<'a> {
     id: &'a str,
@@ -43,7 +42,7 @@ impl<'a> Entry<'a> {
 fn date(value: Option<&Value>) -> Option<String> {
     let value = value?;
     let value = value.get("$date").unwrap_or(value);
-    let timestamp = if let Some(millis) = value.get("$numberLong") {
+    let at = if let Some(millis) = value.get("$numberLong") {
         let millis: i64 = millis.as_str()?.parse().ok()?;
         OffsetDateTime::from_unix_timestamp_nanos(i128::from(millis) * 1_000_000).ok()?
     } else {
@@ -53,7 +52,11 @@ fn date(value: Option<&Value>) -> Option<String> {
             .ok()?
     }
     .to_offset(UtcOffset::UTC);
-    Some(format!(
+    Some(timestamp(at))
+}
+
+pub(crate) fn timestamp(timestamp: OffsetDateTime) -> String {
+    format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
         timestamp.year(),
         u8::from(timestamp.month()),
@@ -62,7 +65,7 @@ fn date(value: Option<&Value>) -> Option<String> {
         timestamp.minute(),
         timestamp.second(),
         timestamp.millisecond()
-    ))
+    )
 }
 
 fn refused(error: AdminError) -> String {
@@ -153,19 +156,10 @@ fn list(client: &AdminClient, all: bool) -> Result<ExitCode, String> {
 }
 
 fn revoke(client: &AdminClient, id: &str, yes: bool) -> Result<ExitCode, String> {
-    if !yes {
-        if !io::stdin().is_terminal() {
-            return Err(
-                "Not applied: no terminal to confirm on. Pass --yes to apply without a prompt.".into()
-            );
-        }
-        prompt(&format!("Revoke the admin API token {id}? Jobs that use it stop working at once. [y/N] "))?;
-        let mut answer = String::new();
-        io::stdin().read_line(&mut answer).map_err(|error| error.to_string())?;
-        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
-            output(format_args!("Not applied."))?;
-            return Ok(ExitCode::FAILURE);
-        }
+    if !yes
+        && !confirmed(&format!("Revoke the admin API token {id}? Jobs that use it stop working at once."))?
+    {
+        return Ok(ExitCode::FAILURE);
     }
     let mut path = String::from("/tokens/");
     for byte in id.bytes() {

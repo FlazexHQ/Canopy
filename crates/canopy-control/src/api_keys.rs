@@ -22,13 +22,16 @@ const SCRAM_ITERATIONS: u32 = 15_000;
 
 /// The kind of an API key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum KeyKind {
+pub enum KeyKind {
+    /// A key meant for client code, stored in full.
     Publishable,
+    /// A key kept on servers, stored only as hashes.
     Secret,
 }
 
 impl KeyKind {
-    pub(crate) fn parse(text: &str) -> Option<KeyKind> {
+    /// Reads `publishable` or `secret`.
+    pub fn parse(text: &str) -> Option<KeyKind> {
         match text {
             "publishable" => Some(KeyKind::Publishable),
             "secret" => Some(KeyKind::Secret),
@@ -36,7 +39,8 @@ impl KeyKind {
         }
     }
 
-    pub(crate) fn as_str(self) -> &'static str {
+    /// The stored name of the kind.
+    pub fn as_str(self) -> &'static str {
         match self {
             KeyKind::Publishable => "publishable",
             KeyKind::Secret => "secret",
@@ -122,23 +126,19 @@ fn info(document: &Document) -> Document {
 }
 
 /// The API keys of the meta database.
-pub(crate) struct ApiKeyStore {
+pub struct ApiKeyStore {
     collection: Collection<Document>,
     now: Clock,
 }
 
 impl ApiKeyStore {
-    pub(crate) fn new(collection: Collection<Document>, now: Clock) -> ApiKeyStore {
+    /// A store over the `api_keys` collection of the meta database, with the clock that stamps changes.
+    pub fn new(collection: Collection<Document>, now: Clock) -> ApiKeyStore {
         ApiKeyStore { collection, now }
     }
 
     /// Creates a key. The returned `key` is the only time a secret key is ever available in full.
-    pub(crate) async fn create(
-        &self,
-        kind: KeyKind,
-        name: &str,
-        created_by: &str,
-    ) -> Result<Document, CanopyError> {
+    pub async fn create(&self, kind: KeyKind, name: &str, created_by: &str) -> Result<Document, CanopyError> {
         let key = generate(kind)?;
         let prefix: String = key.chars().skip(kind.prefix().len()).take(DISPLAY_LENGTH).collect();
         let mut stored = doc! {
@@ -161,7 +161,8 @@ impl ApiKeyStore {
         Ok(doc! { "key": key, "info": info(&stored) })
     }
 
-    pub(crate) async fn list(&self) -> Result<Vec<Document>, CanopyError> {
+    /// Every key, newest first, without its hash or secret material.
+    pub async fn list(&self) -> Result<Vec<Document>, CanopyError> {
         let found = collect(
             self.collection.find(Document::new()).sort(doc! { "createdAt": -1 }).await.map_err(mongo)?,
         )
@@ -169,12 +170,13 @@ impl ApiKeyStore {
         Ok(found.iter().map(info).collect())
     }
 
-    pub(crate) async fn get(&self, id: &str) -> Result<Option<Document>, CanopyError> {
+    /// One key by id, without its hash or secret material.
+    pub async fn get(&self, id: &str) -> Result<Option<Document>, CanopyError> {
         Ok(self.collection.find_one(doc! { "_id": id }).await.map_err(mongo)?.as_ref().map(info))
     }
 
     /// Revokes a key for good. Revoking a revoked key keeps the first revocation.
-    pub(crate) async fn revoke(&self, id: &str, revoked_by: &str) -> Result<Document, CanopyError> {
+    pub async fn revoke(&self, id: &str, revoked_by: &str) -> Result<Document, CanopyError> {
         let now = DateTime::from_millis((self.now)());
         let update = vec![doc! { "$set": {
             "revokedAt": { "$ifNull": ["$revokedAt", now] },

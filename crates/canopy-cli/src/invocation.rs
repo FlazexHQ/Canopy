@@ -1,4 +1,5 @@
 use crate::USAGE;
+use canopy_control::KeyKind;
 
 const GLOBAL_FLAGS: &[&str] = &["help", "version", "debug", "config", "dir", "mongodb-uri", "database"];
 const BOOLEAN_FLAGS: &[&str] = &[
@@ -130,6 +131,13 @@ impl Invocation {
 
     pub(crate) fn text(&self, flag: &str) -> Option<&str> {
         self.flags.iter().find(|(name, _)| name == flag)?.1.as_deref()
+    }
+
+    pub(crate) fn key_create_options(&self) -> Result<(KeyKind, &str), String> {
+        match (self.text("kind").and_then(KeyKind::parse), self.text("name")) {
+            (Some(kind), Some(name)) => Ok((kind, name)),
+            _ => Err("keys create needs --kind publishable|secret and --name <name>".into()),
+        }
     }
 
     pub(crate) fn validate(&self) -> Result<(&'static str, &[String]), String> {
