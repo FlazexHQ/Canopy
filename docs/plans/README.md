@@ -12,6 +12,7 @@ Work plans moved here from the repository root `plans/` on 2026-11-22, so that e
 | [002](002-product-gaps.md) | Designs for the product gaps F1, F2, F3, F5 and F6 of workstream F | Status per item in §8 |
 | [003](003-sdk-dx-and-canopy-rest/README.md) | SDK contracts and the Canopy REST client | Closeout recorded; the REST exercise and a registry install are pending |
 | [004](004-rust-data-plane.md) | The Rust data plane (option C, [ADR-0017](../adr/0017-rust-data-plane.md)): stages D0 to D7 and the proposed repository layout | Decided 2026-11-22; D0 recorded locally; D1 in progress: `find`, `count`, `distinct` and `aggregate` served in Rust and past the gate on Linux CI, `_query` half done; checkpoint in `docs/context/004-rust-data-plane/08-progress.md` |
+| [005](005-all-server-code-in-rust.md) | All server code in Rust, one shared core ([ADR-0018](../adr/0018-all-server-code-in-rust.md)): control plane, auth, CLI and Studio's server in Rust, the Rust core as WebAssembly in Canopy.js, embedded mode removed; stages R0 to R7 | Decided 2026-11-25; not started; checkpoint in `docs/context/005-all-server-code-in-rust/08-progress.md` |
 
 The rest of this file is the improvement plan as written on 2026-11-12, with its status kept current in §8.
 

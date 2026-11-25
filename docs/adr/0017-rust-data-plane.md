@@ -1,7 +1,8 @@
 # ADR-0017: A Rust data plane for every data path
 
 - **Status:** Accepted (the maintainer chose option C of [plan 004](../plans/004-rust-data-plane.md) on
-  2026-11-22). Amends [ADR-0014](0014-rust-native-core.md), [ADR-0016](0016-canopy-js-and-container-services.md)
+  2026-11-22); partly superseded by [ADR-0018](0018-all-server-code-in-rust.md) on 2026-11-25 (the TypeScript
+  control plane and developer surface, and embedded mode). Amends [ADR-0014](0014-rust-native-core.md), [ADR-0016](0016-canopy-js-and-container-services.md)
   and [ADR-0001](0001-typescript-6-and-bun.md).
 - **Date:** 2026-11-22
 - **Deciders:** maintainers

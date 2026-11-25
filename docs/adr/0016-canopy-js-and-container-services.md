@@ -2,7 +2,9 @@
 
 - **Status:** Accepted; amended by [ADR-0017](0017-rust-data-plane.md) on 2026-11-22: after Phase 5b the `api`
   and `realtime` roles are roles of the Rust data plane, and a TypeScript `control` service takes built in
-  auth, the admin API and webhooks from the `api` role
+  auth, the admin API and webhooks from the `api` role; partly superseded by
+  [ADR-0018](0018-all-server-code-in-rust.md) on 2026-11-25 (the vendored core in Canopy.js, the
+  `canopy-control` and `canopy-studio` images, embedding with `CANOPY_ROLE=all`)
 - **Date:** 2026-11-22
 - **Deciders:** project maintainers
 - **Related:** [01 §2](../design/01-architecture.md#2-components), [01 §4](../design/01-architecture.md#4-deployment-modes),
