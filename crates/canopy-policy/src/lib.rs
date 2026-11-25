@@ -6,6 +6,7 @@
 //! during evaluation yields DENY.
 
 mod aggregate;
+mod canonical;
 mod context;
 mod dates;
 mod engine;
@@ -20,6 +21,7 @@ mod values;
 mod variables;
 
 pub use aggregate::{DEFAULT_PIPELINE_LIMITS, PipelineLimits, SecurePipelineOptions, secure_pipeline};
+pub use canonical::parse_policy_set;
 pub use context::{ContextQuery, context_names, context_query, lookup_values, select_values, ttl_ms};
 pub use engine::{
     Clause, Compiled, EngineHooks, ExplainedPolicy, Explanation, NoHooks, PolicyEngine, PolicySet,
@@ -42,7 +44,7 @@ pub use model::{
 pub use search::{SEARCH_STAGES, SearchScope, secure_search_stage};
 pub use stored::{
     CONTEXT_DOCUMENT_ID, StoredCollectionPolicies, StoredMeta, StoredPolicy, contexts_from_stored,
-    from_stored, hash_collection, hash_policy_set, read_stored, to_stored,
+    contexts_value, from_stored, hash_collection, hash_contexts, hash_policy_set, read_stored, to_stored,
 };
 pub use validate::{
     POLICY_LIMITS, PolicyLimits, policy_validation_error, validate_collection_policies, validate_contexts,

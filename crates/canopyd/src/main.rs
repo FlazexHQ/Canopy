@@ -196,6 +196,15 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
     }
     let client = mongodb::Client::with_options(options).map_err(|error| error.to_string())?;
     let meta = client.database(&config.meta_database);
+    if let Some(path) = std::env::var_os("CANOPY_POLICY_BUNDLE") {
+        if !matches!(config.policies, Policies::Database { .. }) {
+            return Err("CANOPY_POLICY_BUNDLE requires database policies".to_owned());
+        }
+        canopy_mongo::publish::PolicyPublisher::new(&meta)
+            .publish_startup_file(std::path::Path::new(&path))
+            .await
+            .map_err(|error| error.message().to_owned())?;
+    }
     let set = match &config.policies {
         Policies::Stored { collections, contexts } => policies_from_stored(collections, contexts.as_ref())
             .map_err(|error| error.message().to_owned())?,

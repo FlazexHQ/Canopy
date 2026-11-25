@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { isDeepStrictEqual } from "node:util"
 import * as serverPolicy from "@canopy/policy"
-import { ErrorCode, isDocument } from "@canopy/protocol"
+import { canonicalString, ErrorCode, isDocument } from "@canopy/protocol"
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js"
 import * as policy from "canopy.js/policy"
 import * as testing from "canopy.js/policy/testing"
@@ -234,4 +234,18 @@ export async function recordAuthoringPolicy(): Promise<string> {
     throw new Error(`Expected ${name} to fail at ${path}`)
   })
   return `${JSON.stringify({ sets, suites, filterTests, invalid }, null, 2)}\n`
+}
+
+/** Captures the TypeScript publishing output of the authoring sets. */
+export function recordAuthoringPublishing(): string {
+  const meta = { version: 7, updatedAt: new Date("2026-01-01T00:00:00Z"), updatedBy: "fixture" }
+  const publishing = sources().sets.map(({ name, source }) => {
+    const input = evaluate<PolicyInput>(source, serverPolicy)
+    const set = serverPolicy.createPolicySet(input.collections, input.contexts)
+    const stored = [...set.collections.values()].map((definition) =>
+      JSON.parse(canonicalString(serverPolicy.toStored(definition, meta))),
+    )
+    return { name, bundleHash: set.version, stored }
+  })
+  return `${JSON.stringify(publishing, null, 2)}\n`
 }

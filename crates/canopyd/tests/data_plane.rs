@@ -2076,3 +2076,312 @@ async fn the_probe_reports_whether_the_local_gateway_is_ready() {
     assert_eq!(probe(closed), Some(1));
     drop(gateway);
 }
+
+fn publishing_definition(body: &Json) -> canopy_policy::CollectionPolicies {
+    let Json::Object(mut definition) = get(body, "definition").clone() else { unreachable!() };
+    definition.push(("collection".to_owned(), Json::String("notes".to_owned())));
+    let bundle = format!(
+        r#"{{"version":1,"collections":[{}],"contexts":{{}}}}"#,
+        json_text(&Json::Object(definition))
+    );
+    canopy_policy::parse_policy_set(&bundle).unwrap().collections()[0].clone()
+}
+
+fn publication_state(document: &canopy_mongo::mongodb::bson::Document, canonical: bool) -> Json {
+    let raw = canopy_mongo::mongodb::bson::serialize_to_raw_document_buf(document).unwrap();
+    let value =
+        canopy_protocol::Value::Document(canopy_protocol::bson::decode_document(raw.as_bytes()).unwrap());
+    if canonical {
+        canopy_protocol::ejson::to_canonical(&value).unwrap()
+    } else {
+        canopy_protocol::ejson::encode(&value).unwrap()
+    }
+}
+
+fn match_publication(actual: &Json, expected: &Json, names: &mut std::collections::HashMap<String, String>) {
+    match (actual, expected) {
+        (Json::Object(actual), Json::Object(expected)) => {
+            assert_eq!(actual.len(), expected.len(), "{actual:?} vs {expected:?}");
+            for (key, expected) in expected {
+                let actual = actual.iter().find(|(field, _)| field == key).unwrap();
+                match_publication(&actual.1, expected, names);
+            }
+        }
+        (Json::Array(actual), Json::Array(expected)) => {
+            assert_eq!(actual.len(), expected.len());
+            for (actual, expected) in actual.iter().zip(expected) {
+                match_publication(actual, expected, names);
+            }
+        }
+        (Json::String(actual), Json::String(expected)) if expected.starts_with("<") => {
+            if expected.starts_with("<stored-secret:") {
+                assert!(actual.starts_with("sha256:") && actual.len() == 71, "{actual}");
+            } else if expected.starts_with("<object-id:") {
+                assert!(
+                    actual.len() == 24 && actual.bytes().all(|byte| byte.is_ascii_hexdigit()),
+                    "{actual}"
+                );
+            } else if expected.starts_with("<time+") {
+                if let Ok(time) = actual.parse::<i64>() {
+                    assert!(time > 0);
+                } else {
+                    assert!(canopy_protocol::ejson::parse_iso_date(actual).is_some(), "{actual}");
+                    return;
+                }
+                return;
+            } else {
+                assert_eq!(actual, expected);
+            }
+            assert_eq!(names.entry(expected.clone()).or_insert_with(|| actual.clone()), actual);
+        }
+        _ => assert_eq!(actual, expected),
+    }
+}
+
+#[tokio::test]
+async fn publishing_replays_admin_policy_and_context_state() {
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set");
+        return;
+    };
+    let client = Client::with_uri_str(&uri).await.unwrap();
+    for (role, id, source) in [
+        ("owner", "<id:1>", include_str!("../../../conformance/http/admin/owner.json")),
+        ("admin", "<id:2>", include_str!("../../../conformance/http/admin/admin.json")),
+        ("developer", "<id:2>", include_str!("../../../conformance/http/admin/developer.json")),
+    ] {
+        replay_publications(&client, role, id, source).await;
+    }
+}
+
+async fn replay_publications(client: &Client, role: &str, actor_id: &str, source: &str) {
+    use canopy_mongo::mongodb::bson::{Document, doc};
+    use canopy_mongo::publish::{PolicyPublisher, Publication};
+    use futures_util::TryStreamExt as _;
+
+    let meta = client.database(&common::scratch_name("canopyd_publish_oracle"));
+    let publisher = PolicyPublisher::new(&meta);
+    let oracle = canopy_protocol::json::parse_json(source).unwrap();
+    let mut snapshots: std::collections::HashMap<&str, Vec<Json>> = std::collections::HashMap::new();
+    let mut names = std::collections::HashMap::new();
+    let mut restored = None;
+    let mut replayed = 0;
+    for step in list(&oracle, "steps") {
+        let id = text(step, "id");
+        if !matches!(
+            id,
+            "policy-publish"
+                | "policy-conflict"
+                | "collection-update"
+                | "policy-history"
+                | "policy-rollback"
+                | "context-publish"
+                | "context-history"
+                | "context-rollback"
+        ) {
+            continue;
+        }
+        replayed += 1;
+        let request = get(step, "request");
+        let response = canopy_protocol::json::parse_json(text(get(step, "response"), "body")).unwrap();
+        let body = request
+            .get("body")
+            .map(|_| canopy_protocol::json::parse_json(text(request, "body")).unwrap())
+            .unwrap_or(Json::Null);
+        let number = |field| match body.get(field) {
+            Some(Json::Number(number)) => number.to_string().parse::<i64>().unwrap(),
+            _ => 0,
+        };
+        let input = Publication {
+            expected_version: number("expectedVersion"),
+            actor: doc! { "type": "admin", "id": actor_id, "email": format!("{role}@example.test"), "role": role },
+            comment: body.get("comment").map(|_| text(&body, "comment").to_owned()),
+            commit_sha: None,
+            origin: Some(doc! { "ip": "127.0.0.1", "requestId": id }),
+        };
+        match id {
+            "policy-publish" => {
+                let definition = publishing_definition(&body);
+                publisher.publish(definition.clone(), &input).await.unwrap();
+                restored = Some(definition);
+            }
+            "policy-conflict" => {
+                let error = publisher.publish(publishing_definition(&body), &input).await.unwrap_err();
+                assert_eq!(error.message(), text(&response, "detail"));
+                assert_eq!(error.code().as_str(), text(&response, "code"));
+                let details = canopy_protocol::json::parse_json(error.details().unwrap()).unwrap();
+                match_publication(&details, get(&response, "details"), &mut names);
+            }
+            "collection-update" => {
+                let mut definition = restored.clone().unwrap();
+                definition.realtime = false;
+                publisher.publish_collection_update(definition, &input).await.unwrap();
+            }
+            "policy-history" | "context-history" => {
+                let collection = if id == "policy-history" { "notes" } else { "_context" };
+                let entries = publisher.versions(collection, 50, None).await.unwrap();
+                let data = Json::Array(entries.iter().map(|doc| publication_state(doc, false)).collect());
+                match_publication(&data, get(&response, "data"), &mut names);
+            }
+            "policy-rollback" => {
+                publisher.rollback("notes", number("version"), &input).await.unwrap();
+            }
+            "context-publish" => {
+                publisher.publish_contexts(Vec::new(), &input).await.unwrap();
+            }
+            "context-rollback" => {
+                publisher.rollback_contexts(number("version"), &input).await.unwrap();
+            }
+            _ => unreachable!(),
+        }
+        for collection in ["policies", "policy_history", "audit_log"] {
+            let snapshot = snapshots.entry(collection).or_default();
+            if let Some(delta) = step.get("state").and_then(|state| state.get(collection)) {
+                for removed in list(delta, "removed") {
+                    let Json::String(removed) = removed else { unreachable!() };
+                    let removed = canopy_protocol::json::parse_json(removed).unwrap();
+                    let position = snapshot.iter().position(|existing| *existing == removed).unwrap();
+                    snapshot.remove(position);
+                }
+                for written in list(delta, "written") {
+                    let Json::String(written) = written else { unreachable!() };
+                    snapshot.push(canopy_protocol::json::parse_json(written).unwrap());
+                }
+            }
+            let actual: Vec<Document> = meta
+                .collection(collection)
+                .find(doc! {})
+                .sort(doc! {"_id": 1})
+                .await
+                .unwrap()
+                .try_collect()
+                .await
+                .unwrap();
+            assert_eq!(actual.len(), snapshot.len(), "{id} in {collection}");
+            let mut expected = snapshot.iter().collect::<Vec<_>>();
+            if collection == "policies" {
+                expected.sort_by_key(|doc| text(doc, "_id"));
+            }
+            for (actual, expected) in actual.iter().zip(expected) {
+                match_publication(&publication_state(actual, true), expected, &mut names);
+            }
+        }
+    }
+    assert_eq!(replayed, 8);
+    let hashes: std::collections::HashSet<_> = names
+        .iter()
+        .filter(|(label, _)| label.starts_with("<stored-secret:"))
+        .map(|(_, value)| value)
+        .collect();
+    assert_eq!(hashes.len(), 2);
+    meta.drop().await.unwrap();
+}
+
+#[tokio::test]
+async fn publishing_startup_bundle_is_enforced_by_canopyd() {
+    use canopy_mongo::mongodb::bson::{Document, doc};
+
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set");
+        return;
+    };
+    let client = Client::with_uri_str(&uri).await.unwrap();
+    let name = common::scratch_name("canopyd_published_read");
+    let app = client.database(&name);
+    let meta = client.database(&format!("{name}_meta"));
+    app.collection::<Document>("notes")
+        .insert_many([
+            doc! { "_id": "visible", "public": true, "secret": "field rule" },
+            doc! { "_id": "hidden", "public": false },
+        ])
+        .await
+        .unwrap();
+    let path = std::env::temp_dir().join(format!("{name}.json"));
+    std::fs::write(&path, r#"{"version":1,"collections":[{"collection":"notes","exposed":true,"realtime":false,"policies":[{"name":"public notes","kind":"permissive","ops":["read"],"roles":["anon"],"using":{"public":true}}],"fields":{"read":{"default":{"omit":["secret"]}}}}],"contexts":{}}"#).unwrap();
+    let uri = json_text(&Json::String(uri));
+    let config = format!(
+        r#"{{"mongodb":{{"uri":{uri},"database":"{name}","metaDatabase":"{name}_meta"}},"server":{{"host":"127.0.0.1","port":0,"metricsPort":0,"shards":1}},"policies":{{"watch":false}},"realtime":{{"checkpoints":"off"}},"rateLimits":false}}"#
+    );
+    let env = [("CANOPY_POLICY_BUNDLE", path.to_str().unwrap())];
+    for _ in 0..2 {
+        let gateway = Gateway::start_with(config.clone(), Some("find"), &env).await;
+        let response = gateway.send(&canopy_http::Request::new("GET", "/rest/v1/notes")).await;
+        let body = std::str::from_utf8(&response.body).unwrap();
+        assert_eq!(response.status, 200, "{body}");
+        let parsed = canopy_protocol::json::parse_json(body).unwrap();
+        let data = list(&parsed, "data");
+        assert_eq!(data.len(), 1, "{body}");
+        assert_eq!(text(&data[0], "_id"), "visible");
+        assert!(data[0].get("secret").is_none());
+    }
+    assert_eq!(meta.collection::<Document>("policy_history").count_documents(doc! {}).await.unwrap(), 1);
+    assert_eq!(meta.collection::<Document>("audit_log").count_documents(doc! {}).await.unwrap(), 1);
+    std::fs::remove_file(path).unwrap();
+    meta.drop().await.unwrap();
+    app.drop().await.unwrap();
+}
+
+#[tokio::test]
+async fn publishing_serializes_first_publish_and_backfills_legacy_history() {
+    use canopy_mongo::mongodb::bson::{Document, doc};
+    use canopy_mongo::publish::{PolicyPublisher, Publication};
+    use canopy_protocol::ErrorCode;
+
+    let Some(uri) = mongodb_uri() else {
+        eprintln!("skipped: CANOPY_TEST_MONGODB_URI is not set");
+        return;
+    };
+    let client = Client::with_uri_str(&uri).await.unwrap();
+    let meta = client.database(&common::scratch_name("canopyd_publish_race"));
+    let publisher = PolicyPublisher::new(&meta);
+    let input = Publication {
+        expected_version: 0,
+        actor: doc! { "type": "system", "id": "test" },
+        comment: None,
+        commit_sha: None,
+        origin: None,
+    };
+    let definition = canopy_policy::CollectionPolicies::new("notes");
+    let (left, right) = tokio::join!(
+        publisher.publish(definition.clone(), &input),
+        publisher.publish(definition.clone(), &input),
+    );
+    let (first, refused) = match (left, right) {
+        (Ok(first), Err(refused)) | (Err(refused), Ok(first)) => (first, refused),
+        other => panic!("expected one winner and one conflict, got {other:?}"),
+    };
+    assert_eq!(refused.code(), ErrorCode::Conflict);
+    assert_eq!(first.get_i32("version").unwrap(), 1);
+    let history = meta.collection::<Document>("policy_history");
+    assert_eq!(history.count_documents(doc! {}).await.unwrap(), 1);
+    assert_eq!(
+        history.delete_one(doc! { "collection": "notes", "version": 1 }).await.unwrap().deleted_count,
+        1
+    );
+
+    let update = Publication { expected_version: 1, ..input };
+    let error = publisher.rollback("notes", 99, &update).await.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::NotFound);
+    assert_eq!(error.message(), "'notes' has no version 99 in its history");
+    let mut unsafe_definition = definition.clone();
+    unsafe_definition.policies.push(canopy_policy::PolicyDefinition {
+        name: "public delete".to_owned(),
+        kind: canopy_policy::PolicyKind::Permissive,
+        ops: vec![canopy_policy::Operation::Delete],
+        roles: vec!["anon".to_owned()],
+        using: None,
+        check: None,
+    });
+    let error = publisher.publish(unsafe_definition, &update).await.unwrap_err();
+    assert_eq!(error.code(), ErrorCode::ValidationFailed);
+    assert!(error.details().unwrap().contains("public-allow-all"));
+    assert_eq!(history.count_documents(doc! {}).await.unwrap(), 0);
+
+    publisher.publish(definition, &update).await.unwrap();
+    let versions = publisher.versions("notes", 50, Some(2)).await.unwrap();
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0].get_document("document").unwrap(), &first);
+    assert_eq!(versions[0].get_str("publishedBy").unwrap(), "system:test");
+    assert_eq!(meta.collection::<Document>("audit_log").count_documents(doc! {}).await.unwrap(), 2,);
+    meta.drop().await.unwrap();
+}
