@@ -1,0 +1,18 @@
+{
+  "users": [
+    {
+      "localId": "firebase-fixture",
+      "email": "firebase@example.com",
+      "emailVerified": true,
+      "displayName": "Firebase Fixture",
+      "createdAt": "1700000000000",
+      "passwordHash": "lSrfV15cpx95/sZS2W9c9Kp6i/LVgQNDNC/qzrCnh1SAyZvqmZqAjTdn3aoItz+VHjoZilo78198JAdRuid5lQ==",
+      "salt": "42xEC+ixf3L2lw==",
+      "providerUserInfo": [
+        { "providerId": "google.com", "rawId": "firebase-google" },
+        { "providerId": "github.com", "rawId": 123 },
+        { "providerId": "unknown", "rawId": "ignored" }
+      ]
+    }
+  ]
+}

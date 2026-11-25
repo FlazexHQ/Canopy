@@ -22,9 +22,8 @@ use tokio::task::JoinHandle;
 
 pub(crate) const ADMIN_ID: &str = "adm_remote_cli_fixture";
 pub(crate) const TOKEN: &str = "canopy_admin_cli_fixture";
-pub(crate) const USER_AGENT: &str = concat!("canopy-cli/", env!("CARGO_PKG_VERSION"));
 
-struct NoMail;
+pub(crate) struct NoMail;
 
 impl AuthMail for NoMail {
     fn send<'a>(

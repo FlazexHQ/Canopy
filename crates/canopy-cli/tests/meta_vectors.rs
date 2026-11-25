@@ -442,7 +442,7 @@ fn normalize_document(value: &mut Value, key: &Bindings) {
                 (key.admin_id.as_str(), "<admin-id:1>"),
                 (key.imported_id.as_str(), "<object-id:12>"),
                 (admin_api::ADMIN_ID, "<admin-id:2>"),
-                (admin_api::USER_AGENT, "<runtime-user-agent>"),
+                (concat!("canopy-cli/", env!("CARGO_PKG_VERSION")), "<runtime-user-agent>"),
                 (&key.password_hash, "<password-hash>"),
                 (key.id.as_str(), "<key-id>"),
                 (&key.prefix, "<key-prefix>"),
