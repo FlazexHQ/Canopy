@@ -172,23 +172,34 @@ async function main(): Promise<void> {
   const mongod = await install(version, dir)
   const log = join(dir, "mongod.log")
   const output = openSync(join(dir, "mongod.out"), "a")
-  const child = spawn(
-    mongod,
-    [
-      "--replSet",
-      "rs0",
-      "--port",
-      String(port),
-      "--ipv6",
-      "--bind_ip",
-      "127.0.0.1,::1",
-      "--dbpath",
-      data,
-      "--logpath",
-      log,
-    ],
-    { detached: true, stdio: ["ignore", output, output] },
-  )
+  const args = [
+    "--replSet",
+    "rs0",
+    "--port",
+    String(port),
+    "--ipv6",
+    "--bind_ip",
+    "127.0.0.1,::1",
+    "--dbpath",
+    data,
+    "--logpath",
+    log,
+  ]
+  // macOS starts processes with a soft limit of 256 open files, which a test run that creates many
+  // databases exhausts, so the server starts from a shell that raises its own limit first.
+  const child =
+    process.platform === "win32"
+      ? spawn(mongod, args, { detached: true, stdio: ["ignore", output, output] })
+      : spawn(
+          "/bin/sh",
+          [
+            "-c",
+            'ulimit -n 64000 2>/dev/null || ulimit -n 24576 2>/dev/null || ulimit -n 10240 2>/dev/null; exec "$0" "$@"',
+            mongod,
+            ...args,
+          ],
+          { detached: true, stdio: ["ignore", output, output] },
+        )
   child.unref()
   if (child.pid !== undefined) writeFileSync(join(dir, "mongod.pid"), `${child.pid}\n`)
   let exited: number | null | undefined
