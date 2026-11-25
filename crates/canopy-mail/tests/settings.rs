@@ -1,7 +1,10 @@
 //! Integration with the current meta database template settings.
 
+use std::sync::{Arc, Mutex};
+
 use canopy_mail::{
-    EmailKind, MailSettings, Mailer, Recipient, Template, TemplateEdit, TemplateSettings, TemplateStore,
+    EmailKind, LoggedMail, MailSettings, Mailer, Recipient, Template, TemplateEdit, TemplateSettings,
+    TemplateStore,
 };
 use canopy_mongo::mongodb::{
     Client, Database,
@@ -64,6 +67,55 @@ async fn loads_current_templates_from_meta_settings() -> TestResult {
     let client = Client::with_uri_str(uri).await?;
     let meta = client.database(&format!("canopy_mail_test_{}", ObjectId::new().to_hex()));
     let result = check_settings(&meta).await;
+    let cleanup = meta.drop().await;
+    result?;
+    cleanup?;
+    Ok(())
+}
+
+async fn check_log_sink(meta: &Database) -> TestResult {
+    let logged: Arc<Mutex<Vec<(String, String, String)>>> = Arc::default();
+    let sink = Arc::clone(&logged);
+    let mailer = Mailer::open(meta.clone(), "Example".into(), Some(MailSettings::default())).await?.with_log(
+        Arc::new(move |mail: &LoggedMail<'_>| {
+            if let Ok(mut logged) = sink.lock() {
+                logged.push((mail.to.to_owned(), mail.subject.to_owned(), mail.body.to_owned()));
+            }
+        }),
+    );
+    let recipient = Recipient {
+        email: "ada@example.com",
+        url: Some("https://example.com/?token=abc"),
+        ..Default::default()
+    };
+    let expected = mailer.render(EmailKind::Verification, &recipient).await?;
+    mailer.send(EmailKind::Verification, &recipient).await;
+    mailer
+        .deliver(
+            "grace@example.com",
+            Template { subject: "Hello".into(), text: "Body".into(), html: Some("<p>Body</p>".into()) },
+        )
+        .await?;
+    let logged = logged.lock().map_err(|_| "poisoned")?.clone();
+    assert_eq!(
+        logged,
+        vec![
+            ("ada@example.com".to_owned(), expected.subject, expected.text),
+            ("grace@example.com".to_owned(), "Hello".to_owned(), "Body".to_owned()),
+        ]
+    );
+    assert!(logged[0].2.contains("https://example.com/?token=abc"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_log_transport_hands_each_email_to_the_host_log() -> TestResult {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let client = Client::with_uri_str(uri).await?;
+    let meta = client.database(&format!("canopy_mail_test_{}", ObjectId::new().to_hex()));
+    let result = check_log_sink(&meta).await;
     let cleanup = meta.drop().await;
     result?;
     cleanup?;

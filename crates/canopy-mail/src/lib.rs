@@ -84,10 +84,25 @@ struct CachedTemplates {
     refreshing: bool,
 }
 
+/// An email the log transport hands to the host instead of delivering it.
+#[derive(Debug, Clone, Copy)]
+pub struct LoggedMail<'a> {
+    /// The recipient address.
+    pub to: &'a str,
+    /// The subject line.
+    pub subject: &'a str,
+    /// The plain text body.
+    pub body: &'a str,
+}
+
+/// Receives the emails of the log transport, so the host writes them to its own log.
+pub type MailLog = Arc<dyn Fn(&LoggedMail<'_>) + Send + Sync>;
+
 /// Shared renderer and sender for built in auth and the control role.
 pub struct Mailer {
     app_name: String,
     transport: Option<(String, Transport)>,
+    log: Option<MailLog>,
     meta: Database,
     templates: Arc<Mutex<CachedTemplates>>,
     sent: Mutex<HashMap<(EmailKind, String), Vec<Instant>>>,
@@ -107,6 +122,7 @@ impl Mailer {
         Ok(Self {
             app_name,
             transport,
+            log: None,
             meta,
             templates: Arc::new(Mutex::new(CachedTemplates {
                 loaded_at: Instant::now(),
@@ -115,6 +131,14 @@ impl Mailer {
             })),
             sent: Mutex::default(),
         })
+    }
+
+    /// Hands every email of the log transport to `log` instead of the `tracing` warning it emits by
+    /// default.
+    #[must_use]
+    pub fn with_log(mut self, log: MailLog) -> Self {
+        self.log = Some(log);
+        self
     }
 
     /// Reports whether an email transport is configured.
@@ -160,6 +184,10 @@ impl Mailer {
             .transport
             .as_ref()
             .ok_or_else(|| CanopyError::new(ErrorCode::Unavailable, "No email transport is configured"))?;
+        if let (Transport::Log, Some(log)) = (transport, &self.log) {
+            log(&LoggedMail { to, subject: &rendered.subject, body: &rendered.text });
+            return Ok(());
+        }
         transport.send(from, to, rendered, OffsetDateTime::now_utc()).await
     }
 

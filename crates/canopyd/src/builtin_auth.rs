@@ -6,7 +6,7 @@ use canopy_authn::server::{
 };
 use canopy_config::{GatewayConfig, JwtConfig, TrustedProxy};
 use canopy_control::{SigningKeyOptions, SigningKeyRoutes, system_clock};
-use canopy_mail::{MailSettings, Mailer, TransportSettings};
+use canopy_mail::{LoggedMail, MailSettings, Mailer, TransportSettings};
 use canopy_mongo::mongodb::{
     Database,
     bson::{DateTime, Document, doc},
@@ -47,7 +47,6 @@ pub(crate) fn resolve(
     }
 
     for (field, feature, enabled) in [
-        ("anonymous", "anonymous authentication", flag(auth, "anonymous", false)?),
         ("claims", "custom claims", auth.get("claims").is_some_and(|value| *value != Json::Null)),
         (
             "emailPassword",
@@ -109,6 +108,7 @@ pub(crate) fn resolve(
         ("emailOtp", "email_otp", true),
         ("twoFactor", "two_factor", true),
         ("passkeys", "passkey", true),
+        ("anonymous", "anonymous", false),
     ] {
         options.external.insert(method, flag(auth, field, default)?.into());
     }
@@ -333,7 +333,13 @@ impl Settings {
         };
         let mail = Mailer::open(meta.clone(), self.auth.app_name.clone(), Some(self.mail))
             .await
-            .map_err(|error| message(&error))?;
+            .map_err(|error| message(&error))?
+            .with_log(Arc::new(move |mail: &LoggedMail<'_>| {
+                log.warn(
+                    "auth email (email.log() transport, not delivered)",
+                    &[("to", mail.to), ("subject", mail.subject), ("body", mail.body)],
+                );
+            }));
         let router = AuthRouter::open(auth.clone(), meta.clone(), self.auth, Arc::new(mail))
             .await
             .map_err(|error| message(&error))?;

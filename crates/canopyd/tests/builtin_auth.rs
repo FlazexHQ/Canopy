@@ -42,12 +42,16 @@ fn config(uri: &str, database: &str, auth: Value) -> Value {
 }
 
 fn spawn(config: &Value, role: &str, engine: Option<&str>) -> Child {
+    spawn_logging(config, role, engine, "error")
+}
+
+fn spawn_logging(config: &Value, role: &str, engine: Option<&str>, level: &str) -> Child {
     let mut command = Command::new(env!("CARGO_BIN_EXE_canopyd"));
     command
         .args(["--config", "-"])
         .env("CANOPY_ROLE", role)
         .env("CANOPY_ENV", "test")
-        .env("CANOPY_LOG_LEVEL", "error")
+        .env("CANOPY_LOG_LEVEL", level)
         .env("CANOPY_PUBLIC_URL", PUBLIC_URL)
         .env("CANOPY_MASTER_KEY", "fixture secret with more than 32 characters")
         .env_remove("CANOPY_AUTH_ENGINE")
@@ -60,7 +64,7 @@ fn spawn(config: &Value, role: &str, engine: Option<&str>) -> Child {
     if let Some(engine) = engine {
         command.env("CANOPY_AUTH_ENGINE", engine);
     }
-    if config["auth"].get("providers").is_some() {
+    if config["auth"].get("providers").is_some() || level != "error" {
         command.stderr(Stdio::piped());
     }
     let mut child = command.spawn().expect("canopyd starts");
@@ -72,7 +76,11 @@ struct Gateway(Child);
 
 impl Gateway {
     async fn start(config: &Value, role: &str, engine: Option<&str>) -> (Self, String) {
-        let mut gateway = Self(spawn(config, role, engine));
+        Self::start_logging(config, role, engine, "error").await
+    }
+
+    async fn start_logging(config: &Value, role: &str, engine: Option<&str>, level: &str) -> (Self, String) {
+        let mut gateway = Self(spawn_logging(config, role, engine, level));
         let stdout = gateway.0.stdout.take().expect("startup output");
         let line = tokio::time::timeout(
             Duration::from_secs(30),
@@ -333,6 +341,94 @@ async fn rust_auth_starts_social_and_oidc_sign_in() {
         format!("{PUBLIC_URL}/auth/v1/error?error=state_mismatch")
     );
     drop(gateway);
+    for suffix in ["", "_auth", "_meta"] {
+        mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn rust_auth_logs_mail_and_signs_in_anonymous_users_when_enabled() {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return };
+    let database = format!("gateway_anonymous_{}", std::process::id());
+    let mongo = Client::with_uri_str(&uri).await.expect("backing database");
+    let auth = |anonymous: Option<bool>| {
+        let mut auth = json!({
+            "kind": "builtin",
+            "emailPassword": {"requireEmailVerification": true},
+            "redirectUrls": [APP_ORIGIN],
+            "email": {"transport": {"kind": "log"}},
+        });
+        if let Some(anonymous) = anonymous {
+            auth["anonymous"] = json!(anonymous);
+        }
+        config(&uri, &database, auth)
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("HTTP client");
+    let post = |url: &str, path: &str, body: Value| {
+        http.post(format!("{url}/auth/v1/{path}"))
+            .header("origin", APP_ORIGIN)
+            .header("content-type", "application/json")
+            .body(body.to_string())
+            .send()
+    };
+
+    let (mut gateway, url) = Gateway::start_logging(&auth(Some(true)), "all", Some("rust"), "warn").await;
+    let stderr = gateway.0.stderr.take().expect("log output");
+    let (lines, logged) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+            if lines.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let email = "verify@example.test";
+    let signup = body(
+        post(&url, "sign-up/email", json!({"name": "Verify", "email": email, "password": PASSWORD}))
+            .await
+            .unwrap(),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(signup["verification"], "sent");
+    let mail = tokio::task::spawn_blocking(move || {
+        while let Ok(line) = logged.recv_timeout(Duration::from_secs(10)) {
+            if let Ok(entry) = serde_json::from_str::<Value>(&line)
+                && entry["to"] == email
+            {
+                return Some(entry);
+            }
+        }
+        None
+    })
+    .await
+    .unwrap()
+    .expect("the verification mail is logged");
+    assert_eq!(mail["level"], "warn");
+    assert_eq!(mail["msg"], "auth email (email.log() transport, not delivered)");
+    assert!(mail["subject"].as_str().is_some_and(|subject| !subject.is_empty()), "{mail}");
+    assert!(
+        mail["body"]
+            .as_str()
+            .is_some_and(|body| body.contains(&format!("{PUBLIC_URL}/auth/v1/verify-email?token="))),
+        "{mail}"
+    );
+
+    let anonymous = body(post(&url, "sign-in/anonymous", json!({})).await.unwrap(), StatusCode::OK).await;
+    assert_eq!(anonymous["user"]["isAnonymous"], true, "{anonymous}");
+    assert!(anonymous["token"].as_str().is_some_and(|token| !token.is_empty()), "{anonymous}");
+    drop(gateway);
+
+    for setting in [None, Some(false)] {
+        let (gateway, url) = Gateway::start(&auth(setting), "all", Some("rust")).await;
+        assert_eq!(
+            post(&url, "sign-in/anonymous", json!({})).await.unwrap().status(),
+            StatusCode::NOT_FOUND,
+            "anonymous sign in with auth.anonymous {setting:?}"
+        );
+        drop(gateway);
+    }
     for suffix in ["", "_auth", "_meta"] {
         mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
     }
