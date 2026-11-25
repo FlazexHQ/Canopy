@@ -141,8 +141,10 @@ async function main(): Promise<void> {
   for (const feature of ["client", "transforms", "authoring"]) {
     const name = `canopy_${feature}`
     const dir = join(generated, feature)
+    const speed = feature === "transforms"
     const env = {
       ...process.env,
+      ...(speed ? { CARGO_PROFILE_WASM_OPT_LEVEL: "3" } : {}),
       RUSTFLAGS:
         `${process.env["RUSTFLAGS"] ?? ""} -C target-feature=-reference-types,-multivalue -C panic=abort`.trim(),
     }
@@ -178,7 +180,15 @@ async function main(): Promise<void> {
       bindgenEnv,
     )
     const wasm = join(dir, `${name}_bg.wasm`)
-    run(optimizer, ["-Oz", "--converge", "--strip-debug", ...features, wasm, "-o", wasm])
+    run(optimizer, [
+      speed ? "-O3" : "-Oz",
+      "--converge",
+      "--strip-debug",
+      ...features,
+      wasm,
+      "-o",
+      wasm,
+    ])
     if (feature === "client") {
       run(optimizer, [
         "--flatten",

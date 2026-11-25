@@ -12,8 +12,9 @@ include = ["/src/**/*.rs", "/Cargo.toml"]
 crate-type = ["cdylib"]
 
 [features]
-default = ["client", "transforms", "authoring"]
+default = ["client", "transforms", "authoring", "binding"]
 client = []
+binding = ["client"]
 transforms = []
 authoring = ["dep:canopy-config", "dep:canopy-policy", "dep:canopy-query", "dep:canopy-schema"]
 

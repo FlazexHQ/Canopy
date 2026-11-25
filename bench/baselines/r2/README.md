@@ -267,3 +267,36 @@ Workspace build:
 | ------- | --------------------: | --------------: | -----------------: |
 | Node 26 |                  4.26 |            5.97 |              15.21 |
 | Bun     |                  2.93 |            5.88 |              12.97 |
+
+## Canopy.js adoption
+
+Canopy.js vendors the client and transforms builds with `bun scripts/sync-wasm.ts` and loads both at
+client creation (see the R2 adoption checkpoint in the plan 005 progress log for every result).
+`root-entry.ts` builds the R0 live query app against a Canopy.js `src` folder with code splitting and
+reports the entry chunk, the lazy chunks and the Wasm assets. `startup.mjs` serves that output to headless
+Chromium at 4x CPU slowdown and reports the first live query; it needs a Canopy server on port 3000 with the
+R0 publishable key, and `--csp strict` serves the page without `'wasm-unsafe-eval'`.
+
+```sh
+bun bench/baselines/r2/root-entry.ts --src ../Canopy.js/src --out <dir>
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir <dir> --runs 50
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir <dir> --runs 50 --csp strict
+```
+
+| Build of the R0 app   | Eager JavaScript (Brotli) | Loaded at client creation           | First live query median (ms) |
+| --------------------- | ------------------------: | ----------------------------------- | ---------------------------: |
+| TypeScript core       |                    23,785 | update engine chunk 4,436           |              255.4 and 289.2 |
+| Rust core, Wasm       |                    17,723 | glue 4,682, Wasm 79,938 and 102,347 |              334.6 and 348.8 |
+| Rust core, strict CSP |                    17,723 | wasm2js 108,783 and 138,713         |                        359.8 |
+
+Each median is one round of 50 runs against `canopyd` from `bun run dev` on MongoDB 8.0.34.
+
+After the BSON crossing and the deferred sort the core loads after first paint, so the first live query no
+longer waits for it. The same R0 app, measured again in two interleaved rounds of 50 runs each:
+
+| Build of the R0 app         | Eager JavaScript (Brotli) | Loaded after first paint            | First live query median (ms) |
+| --------------------------- | ------------------------: | ----------------------------------- | ---------------------------: |
+| TypeScript core             |                    23,787 | update engine chunk 4,437           |              194.8 and 190.2 |
+| Rust core, Wasm             |                    21,040 | glue 4,763, Wasm 81,646 and 102,006 |              202.3 and 183.9 |
+| TypeScript core, strict CSP |                    23,787 | update engine chunk 4,437           |                        194.9 |
+| Rust core, strict CSP       |                    21,040 | wasm2js 110,828 and 137,803         |                        192.9 |
