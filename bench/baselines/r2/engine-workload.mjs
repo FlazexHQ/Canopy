@@ -43,10 +43,13 @@ function median(samples) {
   return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle]
 }
 
-function scan(matches, expectedHits) {
+function scan(documents, mode, matches, expectedHits) {
+  const batches = Array.from({ length: scansPerPass }, () =>
+    mode === "cold" ? documents.map((_, index) => benchDocument(index)) : documents,
+  )
   return () => {
     let hits = 0
-    for (let pass = 0; pass < scansPerPass; pass += 1) hits += matches()
+    for (const batch of batches) hits += matches(batch)
     if (hits !== scansPerPass * expectedHits) throw new Error("Unexpected match count")
   }
 }
@@ -78,7 +81,8 @@ function updateBatch(apply, document, spec, mode) {
 export function runWorkload(engine, reverse) {
   if (engine.kind !== "wasm") throw new Error(`Expected the Wasm engine, got ${engine.kind}`)
   const documents = Array.from({ length: documentCount }, (_, index) => benchDocument(index))
-  const match = {}
+  const matchCold = {}
+  const matchWarm = {}
   for (const [name, { filter, handWritten }] of Object.entries(SCENARIOS)) {
     const reference = name === "dotted path" ? "full" : "lite"
     const ts = (reference === "full" ? fullFilter : liteFilter)(filter)
@@ -98,29 +102,42 @@ export function runWorkload(engine, reverse) {
         }
       }
       const hits = expected.filter(Boolean).length
-      match[name] = {
-        reference,
-        ...measure(
-          () =>
-            scan(() => {
-              let count = 0
-              for (const doc of documents) count += Number(ts.matches(doc))
-              return count
-            }, hits),
-          () =>
-            scan(() => {
-              let count = 0
-              for (const decision of rust.matchAll(documents)) count += Number(decision)
-              return count
-            }, hits),
-          {
-            passes: 15,
-            operations: documentCount * scansPerPass,
-            scale: 1e6,
-            summarize: (samples) => Math.min(...samples),
-            reverse,
-          },
-        ),
+      for (const mode of reverse ? ["warm", "cold"] : ["cold", "warm"]) {
+        const match = mode === "cold" ? matchCold : matchWarm
+        match[name] = {
+          reference,
+          ...measure(
+            () =>
+              scan(
+                documents,
+                mode,
+                (batch) => {
+                  let count = 0
+                  for (const doc of batch) count += Number(ts.matches(doc))
+                  return count
+                },
+                hits,
+              ),
+            () =>
+              scan(
+                documents,
+                mode,
+                (batch) => {
+                  let count = 0
+                  for (const decision of rust.matchAll(batch)) count += Number(decision)
+                  return count
+                },
+                hits,
+              ),
+            {
+              passes: 15,
+              operations: documentCount * scansPerPass,
+              scale: 1e6,
+              summarize: (samples) => Math.min(...samples),
+              reverse,
+            },
+          ),
+        }
       }
     } finally {
       rust.free()
@@ -145,5 +162,5 @@ export function runWorkload(engine, reverse) {
       { passes: 30, operations: updatesPerBatch, scale: 1000, summarize: median, reverse },
     )
   }
-  return { match, update }
+  return { matchCold, matchWarm, update }
 }

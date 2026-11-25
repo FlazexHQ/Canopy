@@ -390,8 +390,14 @@ Each round alternates TypeScript and Wasm within each workload. Matching times a
 document from the fastest of 15 passes after warmup, with ten scans of 1,000 documents per pass.
 Both implementations are checked against the six handwritten predicates. The dotted path fixture
 uses the frozen full matcher because the lite matcher refuses its regex. The other five use the
-[frozen lite matcher](./reference/README.md). Matching times include reading the decisions and the
-engine call on a warmed document cache. They exclude filter compilation and engine startup.
+[frozen lite matcher](./reference/README.md). Cold scans use fresh document objects with identical
+contents for every scan, prepared before timing. Warm scans reuse the same document objects,
+allowing the engine to reuse retained BSON and decoded documents. The 1.2x matching gate uses
+the warm number, because the client keeps the documents of a live query retained in the core and
+matches them there; the cold number is the cost of a document's first contact with the core (encoding
+it and decoding it once), reported beside the gate and not gated, as in the earlier R2 measurements.
+Both timings include the engine call and reading the decisions, and exclude
+filter compilation and engine startup.
 
 Optimistic update times are microseconds per application, from the median of 30 batches of 200
 applications. `single` reuses the same input document and update, `chained` feeds each result into
@@ -454,7 +460,8 @@ Module evaluation is 6.45 ms to 6.50 ms median in the two Rust runs without stri
 
 ### Engine matching throughput (nanoseconds per document)
 
-Values are median [spread min .. max] across 5 interleaved rounds.
+These runs used repeated document objects, the warm number the gate uses. Values are median [spread
+min .. max] across 5 interleaved rounds.
 
 | Scenario                |            Bun TypeScript |                  Bun Wasm (ratio) |        Node 26 TypeScript |              Node 26 Wasm (ratio) |    Chromium 4x TypeScript |          Chromium 4x Wasm (ratio) |
 | ----------------------- | ------------------------: | --------------------------------: | ------------------------: | --------------------------------: | ------------------------: | --------------------------------: |

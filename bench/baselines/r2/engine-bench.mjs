@@ -129,7 +129,8 @@ const { runtime, samples } = await (values.chromium ? measureChromium() : measur
 const report = {
   checkout,
   runtime,
-  matchNsPerDocument: summarize(samples, "match"),
+  matchColdNsPerDocument: summarize(samples, "matchCold"),
+  matchWarmNsPerDocument: summarize(samples, "matchWarm"),
   updateUsPerOperation: summarize(samples, "update"),
   rounds: samples,
 }

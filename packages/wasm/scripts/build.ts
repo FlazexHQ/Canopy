@@ -257,6 +257,11 @@ async function main(): Promise<void> {
     const glue = readFileSync(join(dir, `${name}.js`), "utf8")
     const loader = glue.indexOf("let wasmModule, wasmInstance, wasm;")
     if (loader < 0) throw new Error("The wasm-bindgen initializer has changed")
+    const batchMemory =
+      feature === "client"
+        ? "\n/** Returns the current linear memory buffer for the document cache batch. */\nexport function matchBatchMemory() { return wasm.memory.buffer; }\n"
+        : ""
+    if (batchMemory !== "") writeFileSync(join(dir, `${name}.js`), glue + batchMemory)
     // Binaryen replaces the buffer on growth without detaching existing views.
     const bindings = glue.slice(0, loader)
     const views = bindings
@@ -272,12 +277,17 @@ wasm.__wbindgen_start?.();
 `
     writeFileSync(
       join(dir, `${name}_js.js`),
-      views.replace(`./${name}.d.ts`, `./${name}_js.d.ts`) + bridge,
+      views.replace(`./${name}.d.ts`, `./${name}_js.d.ts`) + bridge + batchMemory,
     )
     const types = readFileSync(join(dir, `${name}.d.ts`), "utf8")
     const initTypes = types.indexOf("export type InitInput")
     if (initTypes < 0) throw new Error("The wasm-bindgen initializer types have changed")
-    writeFileSync(join(dir, `${name}_js.d.ts`), types.slice(0, initTypes))
+    const batchMemoryType =
+      batchMemory === ""
+        ? ""
+        : "\n/** Returns the current linear memory buffer for the document cache batch. */\nexport function matchBatchMemory(): ArrayBuffer;\n"
+    if (batchMemoryType !== "") writeFileSync(join(dir, `${name}.d.ts`), types + batchMemoryType)
+    writeFileSync(join(dir, `${name}_js.d.ts`), types.slice(0, initTypes) + batchMemoryType)
   }
   const transforms = join(generated, "transforms")
   writeFileSync(

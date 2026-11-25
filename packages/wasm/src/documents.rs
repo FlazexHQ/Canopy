@@ -118,6 +118,7 @@ impl DocumentPage {
 pub struct DocumentCache {
     slots: Vec<Option<Document>>,
     vacant: Vec<u32>,
+    batch: Vec<u32>,
 }
 
 #[cfg(feature = "client")]
@@ -171,19 +172,30 @@ impl DocumentCache {
     /// returns them; a slot that holds no document is undecided.
     #[wasm_bindgen(js_name = "matchFilter")]
     pub fn match_filter(&self, filter: &Filter, slots: &[u32]) -> Vec<u8> {
-        slots
-            .iter()
-            .map(|&slot| {
-                match usize::try_from(slot)
-                    .ok()
-                    .and_then(|index| self.slots.get(index))
-                    .and_then(Option::as_ref)
-                {
-                    Some(document) => filter.decide_document(document),
-                    None => canopy_port::UNDECIDED,
-                }
-            })
-            .collect()
+        slots.iter().map(|&slot| decide_slot(&self.slots, filter, slot)).collect()
+    }
+
+    /// Reserves scratch space for slot numbers and returns its byte offset in linear memory.
+    #[wasm_bindgen(js_name = "reserveMatchBatch")]
+    pub fn reserve_match_batch(&mut self, capacity: usize) -> usize {
+        self.batch.resize(capacity, 0);
+        self.batch.as_mut_ptr() as usize
+    }
+
+    /// Replaces the first `count` slot numbers in scratch space with their decisions.
+    #[wasm_bindgen(js_name = "matchBatch")]
+    pub fn match_batch(&mut self, filter: &Filter, count: usize) {
+        for slot in self.batch.iter_mut().take(count) {
+            *slot = u32::from(decide_slot(&self.slots, filter, *slot));
+        }
+    }
+}
+
+#[cfg(feature = "client")]
+fn decide_slot(slots: &[Option<Document>], filter: &Filter, slot: u32) -> u8 {
+    match usize::try_from(slot).ok().and_then(|index| slots.get(index)).and_then(Option::as_ref) {
+        Some(document) => filter.decide_document(document),
+        None => canopy_port::UNDECIDED,
     }
 }
 
