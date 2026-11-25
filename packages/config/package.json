@@ -39,7 +39,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "ajv": "catalog:",
-    "canopy.js": "catalog:",
+    "canopy.js": "0.0.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

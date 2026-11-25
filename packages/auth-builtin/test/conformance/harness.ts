@@ -173,7 +173,7 @@ export interface CaseContext {
 }
 
 /** Options of one request. */
-export interface SendOptions {
+interface SendOptions {
   readonly headers?: Readonly<Record<string, string>>
   /** Mails the request sends; the step waits for them. */
   readonly mails?: number

@@ -2,10 +2,10 @@ import { createHash, createPrivateKey, type KeyObject, sign } from "node:crypto"
 import { derivedJwk } from "./determinism.ts"
 
 /** A CBOR value the encoder below writes: the subset WebAuthn uses. */
-export type Cbor = number | string | Uint8Array | readonly Cbor[] | CborMap
+type Cbor = number | string | Uint8Array | readonly Cbor[] | CborMap
 
 /** A CBOR map with its keys in the order given. */
-export class CborMap {
+class CborMap {
   readonly entries: readonly (readonly [number | string, Cbor])[]
 
   constructor(entries: readonly (readonly [number | string, Cbor])[]) {
@@ -29,7 +29,7 @@ function head(major: number, length: number): Buffer {
 }
 
 /** Encodes a value as definite length CBOR. */
-export function cbor(value: Cbor): Buffer {
+function cbor(value: Cbor): Buffer {
   if (typeof value === "number") {
     if (!Number.isInteger(value)) throw new Error("Only integers are encoded")
     return value >= 0 ? head(0, value) : head(1, -1 - value)

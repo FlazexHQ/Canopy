@@ -150,7 +150,7 @@ function substitutions() {
     return text
       .replaceAll("\r\n", "\n")
       .replace(/<project>(?:[/\\]+[\w.-]+)+/g, (path) => path.replace(/\\+/g, "/"))
-      .replace(/("userAgent":")(?:Bun\/[\d.]+|node)(?=")/gi, "$1<runtime-user-agent>")
+      .replace(/("userAgent":\s*")(?:Bun|node)[^"]*(?=")/gi, "$1<runtime-user-agent>")
       .replace(/("(?:salt|storedKey|serverKey)":")[A-Za-z0-9+/]+=*(?=")/g, "$1<scram-value>")
       .replace(/\b[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\b/gi, (value) => numbered(value, "uuid"))
       .replace(/(?<="(?:\$oid|id)":")[\da-f]{24}/g, (value) => numbered(value, "object-id"))
@@ -481,11 +481,13 @@ export async function recordCli(dir: string, uri: string, check: boolean): Promi
       if (saved !== content) {
         const expected = JSON.parse(saved) as { steps: unknown[] }
         const actual = JSON.parse(content) as { steps: { id: string }[] }
-        different.push(
-          ...actual.steps
-            .filter((item, index) => JSON.stringify(item) !== JSON.stringify(expected.steps[index]))
-            .map(({ id }) => id),
-        )
+        actual.steps.forEach((item, index) => {
+          const want = JSON.stringify(expected.steps[index], null, 1).split("\n")
+          const got = JSON.stringify(item, null, 1).split("\n")
+          const line = got.findIndex((text, at) => text !== want[at])
+          if (line >= 0)
+            different.push(`${item.id}: ${want[line]?.trim()} became ${got[line]?.trim()}`)
+        })
         if (different.length === 0) different.push("vectors.json")
       }
     }

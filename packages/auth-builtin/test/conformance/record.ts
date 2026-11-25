@@ -27,7 +27,7 @@ import {
 } from "./harness.ts"
 
 /** The groups of the oracle, one file each under `cases/`. */
-export const GROUPS: Readonly<Record<string, readonly CaseSpec[]>> = {
+const GROUPS: Readonly<Record<string, readonly CaseSpec[]>> = {
   "email-password": emailPassword,
   "email-verification": emailVerification,
   "password-reset": passwordReset,
