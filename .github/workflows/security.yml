@@ -32,7 +32,10 @@ jobs:
           # only. The remaining Unicode and certificate data crates match the gateway exceptions in
           # deny.toml. libfuzzer-sys is confined to the separate fuzz workspace. zlib-rs is listed in
           # Cargo.lock only as a weak optional dependency of flate2 that nothing enables, so it is never built.
+          # ar_archive_writer (Apache 2.0 with the LLVM exception) runs only in the build script of psm, as in
+          # deny.toml.
           allow-dependencies-licenses: >-
+            pkg:cargo/ar_archive_writer,
             pkg:cargo/icu_collections,
             pkg:cargo/icu_locale_core,
             pkg:cargo/icu_normalizer,
