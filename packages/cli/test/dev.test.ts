@@ -1,3 +1,4 @@
+import { statSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -7,6 +8,12 @@ import { MONGODB_URI } from "@canopy/testing"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { dev } from "../src/dev.ts"
+
+/** Whether a canopyd executable exists, as `canopy dev` checks before it chooses the gateway. */
+function installedGateway(): boolean {
+  const binary = realtimeServer.findGatewayBinary()
+  return binary !== undefined && statSync(binary, { throwIfNoEntry: false })?.isFile() === true
+}
 
 const scratch = fileURLToPath(new URL("./.tmp/dev/", import.meta.url))
 const suite = MONGODB_URI === undefined ? describe.skip : describe
@@ -166,7 +173,7 @@ export default collection("todos", { exposed: true, realtime: true, policies: [a
     }
   })
 
-  it.skipIf(realtimeServer.findGatewayBinary() === undefined)(
+  it.skipIf(!installedGateway())(
     "serves REST and realtime through the gateway by default and restarts it on config edits",
     async () => {
       const key = "canopy_pk_test"
