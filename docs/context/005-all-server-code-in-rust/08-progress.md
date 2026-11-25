@@ -92,6 +92,26 @@ JavaScript.
   update gate stays missed; the next lever is the speed of that updater (its per call parsing and copying,
   or a faster build of the transforms module, which is not size gated).
 
+### Follow up: a faster updater (maintainer's choice, 2026-11-25)
+
+- Committed: `perf(matcher)`, `canopy_matcher::update::apply_update` borrows operands, paths and path
+  segments from the update (and the `$rename` source from the document) instead of owning copies, and reads
+  the current value by reference, moving an array out only for the array operators. Natively, a two field
+  update on a six field document went from 3.17 to 1.74 µs at `opt-level = 3` and from 3.88 to 2.43 µs at
+  `"z"`; `canopy-matcher` and `canopy-policy` tests and the MongoDB update vectors pass on 8.0 and 9.0.
+- Not committed: `packages/wasm/scripts/build.ts` builds the transforms module at `opt-level = 3` with
+  `wasm-opt -O3` (the client module keeps `"z"` and is unchanged at 81,646 Brotli bytes). Transforms grows
+  to 134,580 Brotli bytes and its wasm2js translation to 289,514; neither is size gated, but both add to
+  what the root entry downloads after first paint. The bare update in Wasm on Bun went from 4.0 to 5.8 µs
+  to 3.0 to 3.4 µs in the same runs.
+- Measurements after these changes are not reliable: the machine ran another program using about half the
+  CPU, and the TypeScript update alone swung from 1.4 to 6.4 µs between passes. In Chromium (unthrottled)
+  one chained update costs about 11.8 µs; a CPU profile puts half in Wasm, a quarter in native time with no
+  frame (likely the `WeakMap` and `FinalizationRegistry` bookkeeping), about a tenth in decoding the 42 byte
+  change set and 5 % in garbage collection. The update gate is still missed on Chromium 4x (about 4x).
+  Next: measure on a quiet machine, profile a build that keeps Wasm function names, and drop the per update
+  `FinalizationRegistry` registration for intermediate versions if the profile confirms it.
+
 ### Options for the maintainer (the stage stops here, per §7)
 
 1. Keep documents on the Rust side for updates too: apply an optimistic update to the retained slot and
