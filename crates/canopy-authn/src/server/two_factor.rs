@@ -48,14 +48,6 @@ struct Challenge {
 }
 
 impl Call<'_> {
-    pub(super) fn ceremony_cookie(&self) -> Option<String> {
-        let name = AuthCookie::TwoFactor.name(self.router.secure());
-        self.request.header("x-canopy-ceremony")?.split(';').find_map(|part| {
-            let (key, value) = part.trim().split_once('=')?;
-            (key == name).then(|| value.to_owned())
-        })
-    }
-
     fn factor_uri(&self, secret: &str, email: &str, issuer: &str) -> String {
         let query: String = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("secret", &totp::base32_encode(secret.as_bytes()))
@@ -163,7 +155,7 @@ impl Call<'_> {
         let Some((session, user)) = self.authenticated().await? else {
             return Ok(error(401, "UNAUTHORIZED", "Unauthorized"));
         };
-        if self.now.timestamp_millis().saturating_sub(session.created_at.timestamp_millis()) >= FRESH_MS {
+        if !self.fresh(&session) {
             return Ok(error(403, "SESSION_NOT_FRESH", "Session is not fresh"));
         }
         let stored = self.account(&user).await?.and_then(|account| account.password);
@@ -266,7 +258,7 @@ impl Call<'_> {
                                     .delete_one(doc! {"userId": &user.id})
                                     .session(&mut *tx)
                                     .await?;
-                                call.insert_session_in(tx, replacement).await?;
+                                call.insert_session_in(tx, replacement, "two_factor").await?;
                                 call.end_sessions_in(tx, doc! {"_id": &session.id}).await?;
                                 call.factor_audit_in(tx, "auth.mfa_disabled").await?;
                                 Ok(true)
@@ -359,7 +351,7 @@ impl Call<'_> {
         } else {
             let Some(id) = self
                 .cookie(AuthCookie::TwoFactor)
-                .or_else(|| self.ceremony_cookie())
+                .or_else(|| self.ceremony_cookie(AuthCookie::TwoFactor))
                 .and_then(|cookie| verify_session(&self.router.options.secret, &cookie))
                 .filter(|id| id.starts_with("2fa-") && !id.starts_with("2fa-attempts-"))
             else {
@@ -563,7 +555,7 @@ impl Call<'_> {
             if consumed.deleted_count != 1 {
                 return Err(MongoError::custom("Two factor challenge changed during verification"));
             }
-            self.insert_session_in(tx, replacement).await?;
+            self.insert_session_in(tx, replacement, "two_factor").await?;
             let mut reply = response(200, object!("token":replacement.token, "user":user.public()));
             self.set_session(&mut reply, &replacement.token, remember);
             self.set_cookie(&mut reply, AuthCookie::TwoFactor, "", Expiration::MaxAge(0));
@@ -574,7 +566,7 @@ impl Call<'_> {
         };
         let mut reply = response(200, object!("token":session.token, "user":user.public()));
         if confirmed && !user.extra.get_bool("twoFactorEnabled").unwrap_or(false) {
-            self.insert_session_in(tx, replacement).await?;
+            self.insert_session_in(tx, replacement, "two_factor").await?;
             self.end_sessions_in(tx, doc! {"_id": &session.id}).await?;
             self.set_session(&mut reply, &replacement.token, remember);
         }

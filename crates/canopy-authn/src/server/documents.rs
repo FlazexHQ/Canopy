@@ -75,6 +75,68 @@ pub(super) struct TwoFactor {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct Passkey {
+    #[serde(rename = "_id")]
+    pub id: Bson,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    pub public_key: String,
+    pub user_id: Bson,
+    #[serde(rename = "credentialID")]
+    pub credential_id: String,
+    pub counter: Bson,
+    pub device_type: String,
+    pub backed_up: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transports: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aaguid: Option<String>,
+    #[serde(flatten)]
+    pub extra: Document,
+}
+
+impl Passkey {
+    pub(super) fn public(&self) -> Value {
+        let mut fields = Map::new();
+        if let Some(name) = &self.name {
+            fields.insert("name", json!(name));
+        }
+        let Value::Object(rest) = object!(
+            "publicKey": self.public_key, "userId": id_text(&self.user_id),
+            "credentialID": self.credential_id, "counter": self.counter.clone().into_relaxed_extjson(),
+            "deviceType": self.device_type, "backedUp": self.backed_up
+        ) else {
+            return Value::Null;
+        };
+        fields.extend(rest);
+        if let Some(transports) = &self.transports {
+            fields.insert("transports", json!(transports));
+        }
+        if let Some(created_at) = self.created_at {
+            fields.insert("createdAt", json!(iso(created_at)));
+        }
+        if let Some(aaguid) = &self.aaguid {
+            fields.insert("aaguid", json!(aaguid));
+        }
+        fields.insert("id", json!(id_text(&self.id)));
+        Value::Object(fields)
+    }
+
+    pub(super) fn descriptor(&self) -> Value {
+        let mut fields = Map::new();
+        fields.insert("id", json!(self.credential_id));
+        if let Some(transports) = &self.transports {
+            fields.insert("transports", json!(transports.split(',').collect::<Vec<_>>()));
+        }
+        fields.insert("type", json!("public-key"));
+        Value::Object(fields)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct AddressLimit {
     #[serde(rename = "_id")]
     id: Bson,

@@ -27,14 +27,20 @@ use ring::{hmac, signature};
 use serde_json_bytes::{Value, json};
 use url::Url;
 
+#[path = "support/passkey_replay.rs"]
+mod passkey_replay;
+#[path = "../../canopy-webauthn/tests/support/mod.rs"]
+mod webauthn_support;
+
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 8] = [
+const GROUPS: [&str; 9] = [
     "email-password",
     "email-verification",
     "password-reset",
     "magic-link",
     "email-otp",
     "two-factor",
+    "passkeys",
     "sessions",
     "tokens",
 ];
@@ -120,8 +126,12 @@ impl Bindings {
                 let (kind, _) = name.trim_matches(['<', '>']).rsplit_once('-').ok_or("placeholder kind")?;
                 let shape = match kind {
                     "user-id" | "account-id" | "session-id" | "audit-id" | "revocation-id"
-                    | "verification-id" | "rate-limit-id" | "target-id" | "two-factor-id" => "[a-f0-9]{24}",
-                    "session-token" => "[A-Za-z0-9]{32}",
+                    | "verification-id" | "rate-limit-id" | "target-id" | "two-factor-id" | "passkey-id" => {
+                        "[a-f0-9]{24}"
+                    }
+                    "challenge" | "webauthn-user-id" => "[A-Za-z0-9_-]{43}",
+                    "attestation-object" => "[A-Za-z0-9_-]+",
+                    "session-token" | "better-auth-passkey-cookie" => "[A-Za-z0-9]{32}",
                     "otp" => "[0-9]{6}",
                     "totp-secret" => "[A-Z2-7]{52}",
                     "backup-code" => "[A-Za-z0-9]{5}-[A-Za-z0-9]{5}",
@@ -423,6 +433,13 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         })
         .filter_map(|step| step["client"].as_str())
         .collect();
+    let mut passkeys = steps
+        .iter()
+        .any(|step| {
+            step["request"]["path"].as_str().is_some_and(|path| path.starts_with("/auth/v1/passkey/"))
+        })
+        .then(passkey_replay::ReplayPasskeys::load)
+        .transpose()?;
     for (index, step) in steps.iter().enumerate() {
         let request = &step["request"];
         let original = str_at(request, "path")?;
@@ -457,6 +474,16 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                     assert_eq!(step["details"]["totpStep"].as_i64(), Some(now.div_euclid(30_000)));
                     bindings.bind(code, &totp(&secret, now, TotpOptions::default()))?;
                 }
+                if matches!(
+                    path.as_str(),
+                    "/auth/v1/passkey/verify-registration" | "/auth/v1/passkey/verify-authentication"
+                ) {
+                    passkeys.as_mut().ok_or("Passkey replay state")?.rebuild(
+                        &mut bindings,
+                        step,
+                        path.ends_with("verify-registration"),
+                    )?;
+                }
                 let text = match body {
                     Value::String(text) => text.as_str().to_owned(),
                     _ => body.to_string(),
@@ -469,6 +496,18 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 assert_eq!(started.elapsed() >= Duration::from_millis(75), held, "{path} floor");
             }
             let response = response_value(response, &secret, jwks)?;
+            if case["id"] == "fresh-session-required"
+                && step["response"]["body"]["user"]["id"] == "<user-id-2>"
+            {
+                let handle = str_at(&response["body"]["user"], "id")?;
+                let bytes = URL_SAFE_NO_PAD.decode(&handle)?;
+                assert_eq!(bytes.len(), 32, "Registration user handle length");
+                assert!(
+                    bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
+                    "Registration user handle encoding"
+                );
+                bindings.bind("<user-id-2>", &handle)?;
+            }
             bindings.compare(&step["response"], &response, "response")?;
             for cookie in response["cookies"]
                 .as_array()
@@ -592,8 +631,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 23);
-    assert_eq!(steps, 149);
+    assert_eq!(cases, 26);
+    assert_eq!(steps, 191);
     Ok(())
 }
 
@@ -701,7 +740,7 @@ async fn opens_over_the_indexes_the_typescript_server_created() -> Result<()> {
         .iter()
         .map(|(collection, index)| format!("{collection}.{}", index.get_str("name").unwrap_or_default()))
         .collect();
-    expected.push("two_factors.user".into());
+    expected.extend(["two_factors.user".into(), "passkeys.credential".into()]);
     expected.sort();
     assert_eq!(result?, expected);
     Ok(())
@@ -779,7 +818,7 @@ async fn requires_a_fresh_session_for_two_factor_enrolment() -> Result<()> {
 }
 
 #[tokio::test]
-async fn opens_over_duplicate_factor_documents_the_typescript_server_allowed() -> Result<()> {
+async fn opens_over_duplicate_authenticator_documents_the_typescript_server_allowed() -> Result<()> {
     let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
         return Ok(());
     };
@@ -793,12 +832,19 @@ async fn opens_over_duplicate_factor_documents_the_typescript_server_allowed() -
         factors
             .insert_many([doc! {"userId": "user-1", "secret": "a"}, doc! {"userId": "user-1", "secret": "b"}])
             .await?;
+        let passkeys = auth.collection::<Document>("passkeys");
+        passkeys
+            .insert_many([
+                doc! {"credentialID": "same-credential", "userId": "user-1"},
+                doc! {"credentialID": "same-credential", "userId": "user-2"},
+            ])
+            .await?;
         let outbox =
             Arc::new(Outbox { messages: Mutex::default(), app: "Canopy".into(), from: String::new() });
         let options = AuthOptions::new(Url::parse("https://auth.canopy.test")?, "a".repeat(32));
         AuthRouter::open(auth.clone(), meta.clone(), options, outbox).await?;
         let mut names = Vec::new();
-        for collection in ["two_factors", "identifier_limits"] {
+        for collection in ["two_factors", "passkeys", "identifier_limits"] {
             let mut cursor = auth.collection::<Document>(collection).list_indexes().await?;
             while let Some(index) = cursor.try_next().await? {
                 names.push(format!(
@@ -808,7 +854,11 @@ async fn opens_over_duplicate_factor_documents_the_typescript_server_allowed() -
             }
         }
         names.sort();
-        Ok::<_, Box<dyn Error>>((names, factors.count_documents(doc! {}).await?))
+        Ok::<_, Box<dyn Error>>((
+            names,
+            factors.count_documents(doc! {}).await?,
+            passkeys.count_documents(doc! {}).await?,
+        ))
     }
     .await;
     auth.drop().await?;
@@ -819,8 +869,10 @@ async fn opens_over_duplicate_factor_documents_the_typescript_server_allowed() -
             vec![
                 "identifier_limits._id_".to_owned(),
                 "identifier_limits.ttl_expires".to_owned(),
+                "passkeys._id_".to_owned(),
                 "two_factors._id_".to_owned()
             ],
+            2,
             2
         )
     );

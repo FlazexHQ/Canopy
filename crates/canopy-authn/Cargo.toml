@@ -12,6 +12,7 @@ canopy-http = { path = "../canopy-http" }
 canopy-mail = { path = "../canopy-mail" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-protocol = { path = "../canopy-protocol" }
+canopy-webauthn = { path = "../canopy-webauthn" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }

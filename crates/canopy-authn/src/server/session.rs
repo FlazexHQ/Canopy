@@ -27,6 +27,10 @@ impl Call<'_> {
         Ok(Some((session, user)))
     }
 
+    pub(super) fn fresh(&self, session: &Session) -> bool {
+        self.now.timestamp_millis().saturating_sub(session.created_at.timestamp_millis()) < 900_000
+    }
+
     pub(super) fn banned(&self, user: &User) -> bool {
         user.extra.get_bool("banned").unwrap_or(false)
             && user.extra.get_datetime("banExpires").map_or(true, |until| *until > self.now)
@@ -71,12 +75,13 @@ impl Call<'_> {
         &self,
         tx: &mut canopy_mongo::mongodb::ClientSession,
         session: &Session,
+        method: &str,
     ) -> canopy_mongo::mongodb::error::Result<()> {
         self.router.auth.collection::<Session>("sessions").insert_one(session).session(&mut *tx).await?;
         self.router
             .meta
             .collection::<Document>("audit_log")
-            .insert_one(self.session_audit(session, "two_factor"))
+            .insert_one(self.session_audit(session, method))
             .session(tx)
             .await?;
         Ok(())

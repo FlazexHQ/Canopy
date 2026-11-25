@@ -30,6 +30,7 @@ mod email;
 mod floor;
 mod magic_link;
 mod otp;
+mod passkeys;
 mod password;
 mod session;
 mod two_factor;
@@ -167,7 +168,7 @@ impl AuthRouter {
         for (collection, indexes) in auth_indexes() {
             match router.collection(collection).create_indexes(indexes).await {
                 Ok(_) => {}
-                Err(error) if collection == "two_factors" && duplicate_key(&error) => {}
+                Err(error) if matches!(collection, "two_factors" | "passkeys") && duplicate_key(&error) => {}
                 Err(error) => return Err(internal(error)),
             }
         }
@@ -319,6 +320,9 @@ impl Call<'_> {
             "/verify-email" | "/get-session" | "/list-sessions" => get,
             "/magic-link/verify" => get && self.feature("magic_link"),
             "/sign-in/magic-link" => self.request.method == "POST" && self.feature("magic_link"),
+            route if passkeys::method(route).is_some() => {
+                passkeys::method(route) == Some(self.request.method.as_str()) && self.feature("passkey")
+            }
             route if two_factor::is_route(route) => {
                 self.request.method == "POST" && self.feature("two_factor")
             }
@@ -345,7 +349,10 @@ impl Call<'_> {
                 Some(origin) if !self.router.trusts_origin(&origin) => {
                     return Ok(error(403, "INVALID_ORIGIN", "Invalid origin"));
                 }
-                None if self.ceremony_cookie().is_some() => {
+                None if self.ceremony_cookie(AuthCookie::TwoFactor).is_some()
+                    || (passkeys::method(self.route).is_some()
+                        && self.ceremony_cookie(AuthCookie::Passkey).is_some()) =>
+                {
                     if !self.address_hit().await? {
                         return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
                     }
@@ -416,6 +423,7 @@ impl Call<'_> {
             "/sign-in/magic-link" => self.send_magic_link(&body).await,
             "/magic-link/verify" => self.verify_magic_link(&params).await,
             route if two_factor::is_route(route) => self.two_factor_route(&body).await,
+            route if passkeys::method(route).is_some() => self.passkey_route(&body, &params).await,
             route if otp::is_route(route) => self.otp_route(&body).await,
             "/verify-email" => self.verify_email(&params).await,
             "/send-verification-email" => self.resend(&body).await,
@@ -508,6 +516,14 @@ impl Call<'_> {
     fn cookie(&self, kind: AuthCookie) -> Option<String> {
         let name = kind.name(self.router.secure());
         self.request.header("cookie")?.split(';').find_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            (key == name).then(|| value.to_owned())
+        })
+    }
+
+    fn ceremony_cookie(&self, kind: AuthCookie) -> Option<String> {
+        let name = kind.name(self.router.secure());
+        self.request.header("x-canopy-ceremony")?.split(';').find_map(|part| {
             let (key, value) = part.trim().split_once('=')?;
             (key == name).then(|| value.to_owned())
         })
@@ -620,7 +636,7 @@ impl Call<'_> {
 }
 
 /// The indexes of `canopy_auth`, including the single factor per user constraint.
-fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 8] {
+fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 9] {
     fn index(keys: Document, name: &str, unique: bool, expire_after: Option<u64>) -> IndexModel {
         let mut options = IndexOptions::builder().name(name.to_owned()).build();
         if unique {
@@ -655,17 +671,19 @@ fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 8] {
         ),
         ("rate_limits", vec![index(doc! {"key": 1}, "key", true, None)]),
         ("two_factors", vec![index(doc! {"userId": 1}, "user", true, None)]),
+        ("passkeys", vec![index(doc! {"credentialID": 1}, "credential", true, None)]),
         ("signing_keys", vec![index(doc! {"createdAt": -1}, "created", false, None)]),
         ("identifier_limits", vec![index(doc! {"expiresAt": 1}, "ttl_expires", false, Some(0))]),
     ]
 }
 
-/// A unique index that existing documents violate. The TypeScript server never created the unique index on
-/// `two_factors.userId`, so a database it wrote may hold two factor documents for one user; such a database
-/// still opens, without the index.
 fn duplicate_key(error: &canopy_mongo::mongodb::error::Error) -> bool {
-    use canopy_mongo::mongodb::error::ErrorKind;
-    matches!(error.kind.as_ref(), ErrorKind::Command(command) if command.code == 11000)
+    use canopy_mongo::mongodb::error::{ErrorKind, WriteFailure};
+    match error.kind.as_ref() {
+        ErrorKind::Command(command) => command.code == 11000,
+        ErrorKind::Write(WriteFailure::WriteError(write)) => write.code == 11000,
+        _ => false,
+    }
 }
 
 fn object_id(now: DateTime) -> bson::oid::ObjectId {
@@ -724,13 +742,20 @@ fn status() -> Response {
 }
 
 fn random_token(length: usize) -> Result<String> {
+    random_token_from(length, b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+}
+
+fn random_token_from<const ALPHABET_SIZE: usize>(
+    length: usize,
+    alphabet: &[u8; ALPHABET_SIZE],
+) -> Result<String> {
     let mut token = String::with_capacity(length);
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let cutoff = 256 / ALPHABET_SIZE * ALPHABET_SIZE;
     let mut entropy = [0; 64];
     while token.len() < length {
         getrandom::fill(&mut entropy).map_err(internal)?;
-        for value in entropy.into_iter().filter(|value| *value < 248) {
-            if let Some(character) = alphabet.get(usize::from(value % 62)) {
+        for value in entropy.into_iter().map(usize::from).filter(|value| *value < cutoff) {
+            if let Some(character) = alphabet.get(value % ALPHABET_SIZE) {
                 token.push(char::from(*character));
             }
             if token.len() == length {
