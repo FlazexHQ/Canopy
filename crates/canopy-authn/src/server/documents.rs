@@ -164,7 +164,7 @@ pub(super) fn id_text(id: &Bson) -> String {
     }
 }
 
-fn iso(date: DateTime) -> String {
+pub(super) fn iso(date: DateTime) -> String {
     OffsetDateTime::from_unix_timestamp(date.timestamp_millis().div_euclid(1000))
         .ok()
         .and_then(|time| time.format(&Rfc3339).ok())

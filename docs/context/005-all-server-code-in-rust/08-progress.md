@@ -3,6 +3,66 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R5 HTTPS claims hook in Rust
+
+The last R5 gap the SDK auth suite exposed (decision O3). The contract is documented in
+[07-auth §4](../../design/07-auth.md#4-claims).
+
+### What was built
+
+- [`crates/canopy-webhooks/src/signing.rs`](../../../crates/canopy-webhooks/src/signing.rs): the public
+  `Signer` (the `whsec_` or raw secret, `v1,<base64 HMAC SHA-256>` over `id.timestamp.body`), now used by
+  the webhook dispatcher and by auth. No cycle: `canopy-authn` already reached `canopy-mongo` and
+  `canopy-engine`, so the new dependency adds only `canopy-webhooks`. A unit test checks the Standard
+  Webhooks reference signature.
+- [`crates/canopy-authn/src/server/claims.rs`](../../../crates/canopy-authn/src/server/claims.rs):
+  `ClaimsHook` (`url`, `secret`, `timeout` of 200 ms), `claims_url_allowed` (HTTPS, or HTTP on a loopback
+  host outside production; no credentials), `MAX_CLAIMS_ANSWER_BYTES` (4096). `/token` posts
+  `{user, session: {id}}` (the `AuthUser` fields of the TypeScript hook input, without `db` and `signal`) with
+  `webhook-id` (`msg_` and a UUID), `webhook-timestamp` and `webhook-signature`; no redirects, one deadline
+  over connect and answer. The answer checks are the TypeScript `checkHookResult` (only `app_metadata` and
+  `roles`, reserved roles refused, `null` or an empty body adds nothing). Every failure answers 500
+  `{code: CANOPY_AUTH_HOOK_FAILED, message: "The claims hook failed: <reason>"}`, writes
+  `auth.claims_hook_failed` with `details.reason`, and issues no token or session refresh.
+- [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): `AuthOptions::claims_hook`, `MAX_TOKEN_BYTES`;
+  an oversize token now answers `CANOPY_AUTH_HOOK_FAILED` with "The access token is N bytes, over the 4096
+  byte cap" and audits `{reason: "token too large", bytes}` as TypeScript does (it was `CANOPY_INTERNAL`).
+  `TokenError::TokenTooLarge` carries the size.
+- [`crates/canopyd/src/builtin_auth.rs`](../../../crates/canopyd/src/builtin_auth.rs): `auth.claims`
+  (`url`, `secret` as text or the canonical `{"$env": {"name": ...}}` reference read from the environment)
+  is mapped; the startup refusal of `claims` is gone.
+- [`packages/sdk-e2e/test/auth.e2e.test.ts`](../../../packages/sdk-e2e/test/auth.e2e.test.ts): in split
+  mode with `CANOPY_SPLIT_E2E_CLAIMS_URL` (and `CANOPY_SPLIT_E2E_CLAIMS_KEY`) set, the suite serves the hook
+  itself, verifies each signature with `node:crypto` and answers 503 while the failure test runs, 204
+  otherwise; it also checks every call was signed and carried the user. Without it, the TypeScript auth
+  service path (`sdk_e2e_hooks` and `deploy/compose/split-e2e-control.ts`) is unchanged.
+
+### Evidence
+
+- `cargo test -j 2 -p canopy-authn` (lib 30, `auth_oracle` 5, the new `claims_hook` 4, the rest) and
+  `cargo test -j 2 -p canopyd --test builtin_auth` (7, two new) pass on MongoDB 8.0.34 and 9.0.8;
+  `cargo test -j 2 -p canopy-webhooks` passes; `cargo clippy -j 2 -p canopy-webhooks -p canopy-authn -p canopyd
+  --all-targets -- -D warnings` is clean. `claims_hook.rs` uses a hook server that checks the signature
+  with its own HMAC code and covers success (claims in the token, the request body and headers), a 204 and
+  `null`, a timeout, 503, a 307 not followed, malformed JSON, a list, an oversize answer (with and without
+  a content length), a forbidden claim, a reserved role, a non object `app_metadata`, an oversize token,
+  another secret, and the URL refusals. Mutations (signing another timestamp; dropping the forbidden
+  claim check) fail it.
+- SDK auth end to end against `canopyd` with `CANOPY_AUTH_ENGINE=rust` (role `all`, the debug build,
+  MongoDB 8.0.34, `server.trustedProxies` loopback, `keys` with `pk_client_auth` and a secret key,
+  `auth.claims.url` `http://127.0.0.1:28181/claims` with the secret from `$env`): 5 of 5 on Bun and 5 of 5 on
+  Node 26.13.1, each on fresh databases. With another verification key in the suite's hook, all 5 fail with
+  `AuthHookFailedError: ... the hook answered 401`. The in process TypeScript run still passes 5 of 5.
+  Run with `CANOPY_SPLIT_E2E_URL`, `CANOPY_SPLIT_E2E_CONTROL_LOG` (canopyd's stderr), `CANOPY_SECRET_KEYS`,
+  `CANOPY_DB`, `CANOPY_META_DB`, `CANOPY_SPLIT_E2E_CLAIMS_URL` and `CANOPY_SPLIT_E2E_CLAIMS_KEY`.
+
+### Notes
+
+- `seedSplitPolicy` cannot run twice against the same canopyd databases (its wait for the policy removal
+  times out), so each run needs fresh databases.
+- The CI split stack still runs the TypeScript auth service; a Docker canopyd would need an HTTPS hook URL
+  (loopback HTTP only reaches its own container).
+
 ## Checkpoint (2026-11-25): R5 auth fuzz campaign
 
 [Dispatch the campaign](../../../.github/workflows/fuzz-campaign.yml) with

@@ -1,37 +1,11 @@
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
-use base64::{
-    Engine, alphabet,
-    engine::{
-        GeneralPurpose,
-        general_purpose::{NO_PAD, STANDARD},
-    },
-};
 use canopy_mongo::mongodb::bson::doc;
 use canopy_protocol::CanopyError;
-use ring::hmac;
 use tokio::sync::watch;
 
-use crate::{Webhooks, field, invalid, queue::add, unavailable};
-
-pub(crate) fn key(secret: &str) -> Result<hmac::Key, CanopyError> {
-    let bytes = if let Some(encoded) = secret.strip_prefix("whsec_") {
-        let compact: String =
-            encoded.chars().filter(|ch| !matches!(ch, ' ' | '\t' | '\r' | '\n' | '\x0c')).collect();
-        let unpadded = GeneralPurpose::new(&alphabet::STANDARD, NO_PAD);
-        STANDARD
-            .decode(&compact)
-            .or_else(|_| unpadded.decode(&compact))
-            .map_err(|_| invalid("Invalid webhook secret"))?
-    } else {
-        secret.as_bytes().to_vec()
-    };
-    if bytes.is_empty() {
-        return Err(invalid("The webhook secret is empty"));
-    }
-    Ok(hmac::Key::new(hmac::HMAC_SHA256, &bytes))
-}
+use crate::{Webhooks, field, queue::add, unavailable};
 
 impl Webhooks {
     /// Claims and attempts one due delivery. Returns false when the queue has no due work.
@@ -60,8 +34,7 @@ impl Webhooks {
             return Ok(true);
         };
         let timestamp = self.now().timestamp_millis().div_euclid(1000);
-        let signed = hmac::sign(&self.key, format!("{id}.{timestamp}.{body}").as_bytes());
-        let signature = format!("v1,{}", STANDARD.encode(signed.as_ref()));
+        let signature = self.signer.sign(id, timestamp, body);
         let response = self
             .http
             .post(endpoint.url.clone())

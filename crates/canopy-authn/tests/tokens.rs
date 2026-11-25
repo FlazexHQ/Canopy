@@ -274,7 +274,11 @@ fn publication_keeps_standby_and_retired_keys_until_grace_expires() -> Result<()
     assert!(claims.get("email").is_none());
     assert!(claims.get("email_verified").is_none());
     let capped = KeyRing::load(keys.clone(), url, Algorithm::EdDSA, 600, grace, 1)?;
-    assert!(capped.mint(secret, session(), expiry).is_err_and(|error| error == TokenError::TokenTooLarge));
+    assert!(
+        capped
+            .mint(secret, session(), expiry)
+            .is_err_and(|error| matches!(error, TokenError::TokenTooLarge(bytes) if bytes > 1))
+    );
     assert!(
         KeyRing::load(keys.clone(), url, Algorithm::EdDSA, 299, grace, 4096)
             .is_err_and(|error| error == TokenError::InvalidSettings)

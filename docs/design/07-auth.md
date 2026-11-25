@@ -95,23 +95,64 @@ sequenceDiagram
 - **`app_metadata`** can only be written by `service` and admins, so it is safe for policies.
 - **`user_metadata`** can be edited by the user and **must never be used in policies.** The linter fails a
   publish that references it ([02 §13.2](02-document-level-security.md#132-lint-rules-canopy-policies-lint)).
-- **Custom claims hook.** Runs when a token is minted, the same idea as Supabase's custom access token hook:
+- **Custom claims hook.** An HTTPS endpoint of the app, called each time an access token is minted
+  (`GET /auth/v1/token`), the same idea as Supabase's custom access token hook. It replaces the TypeScript
+  function of earlier releases: the config carries only its URL and a secret reference.
 
 ```ts
 // canopy/canopy.config.ts
-auth: builtin({
+auth: {
+  kind: 'builtin',
   accessTokenTtl: '10m',
-  claims: async ({ user, db }) => {
-    const memberships = await db.collection('memberships')
-      .find({ userId: user.id }, { projection: { orgId: 1 } }).limit(50).toArray();
-    return { app_metadata: { org_ids: memberships.map((m) => m.orgId) } };
-  },
-}),
+  claims: { url: 'https://app.example.com/hooks/claims', secret: env.secret('CLAIMS_KEY') },
+},
 ```
 
-  The hook must finish within 200 ms, and the resulting JWT must be ≤ 4 KiB. If the hook throws or times out,
-  **no token is issued** (fail closed), and the SDK surfaces `CANOPY_AUTH_HOOK_FAILED`. For memberships that
-  change often, prefer `$ctx` lookups ([02 §10](02-document-level-security.md#10-context-lookups-ctx-membership-rules-without-joins)).
+  **Request.** `POST` to the URL with `content-type: application/json` and a body of the user and the
+  session the token is for (the user fields of the admin API, without any database handle):
+
+```json
+{
+  "user": {
+    "id": "u_8f3k2q", "email": "alice@example.com", "emailVerified": true, "name": "Alice",
+    "isAnonymous": false, "roles": ["tenant_admin"], "appMetadata": { "tenant_id": "t_42" },
+    "userMetadata": { "display_name": "Alice" }, "banned": false,
+    "createdAt": "2026-11-01T09:30:00.000Z", "updatedAt": "2026-11-20T17:02:11.000Z"
+  },
+  "session": { "id": "s_19ab7" }
+}
+```
+
+  `email` is absent for anonymous users, `name` when it is empty, `banReason` and `banExpires` when unset.
+  The request is signed exactly like a webhook delivery, with
+  [Standard Webhooks](https://www.standardwebhooks.com/) headers: `webhook-id` (`msg_` and a random id),
+  `webhook-timestamp` (Unix seconds) and `webhook-signature: v1,<base64 HMAC SHA-256>` over
+  `<webhook-id>.<webhook-timestamp>.<body>`. The secret has the webhook format: `whsec_` followed by the
+  base64 key, or any other text used as the key itself. The endpoint should verify the signature with a
+  Standard Webhooks library and refuse timestamps more than five minutes away from its clock.
+
+  **Answer.** A 2xx status with a JSON object holding at most two fields: `app_metadata`, an object merged
+  over the stored `app_metadata`, and `roles`, a list of names added to the stored roles (`anon`,
+  `authenticated`, `service` and `public` are refused). An empty body (for example a `204`) or `null` adds
+  nothing. Canopy owns every other claim: any other field fails the call.
+
+```json
+{ "app_metadata": { "org_ids": ["o1", "o7"] }, "roles": ["billing"] }
+```
+
+  **Limits.** The whole call, connecting included, must finish within 200 ms; the answer may hold at most
+  4 KiB; the resulting JWT must be at most 4 KiB. The URL must use HTTPS; plain HTTP is accepted only on a
+  loopback address (`localhost`, `127.0.0.1`, `::1`) outside production, and a URL with credentials is
+  refused at startup. Redirects are never followed.
+
+  **Failures fail closed.** A timeout, a connection error, a status other than 2xx (redirects included), an
+  answer over 4 KiB, a body that is not JSON, an answer that is not an object, a forbidden field or role, or a
+  token over 4 KiB: **no token is issued** and the session is not refreshed. The answer is status 500 with
+  `{"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed: <reason>"}` (for an oversize token,
+  `The access token is <n> bytes, over the 4096 byte cap`), which the SDK surfaces as `AuthHookFailedError`,
+  and the audit log records `auth.claims_hook_failed` with the user as actor, the client address and
+  `details.reason` (plus `details.bytes` for an oversize token). For memberships that change often, prefer
+  `$ctx` lookups ([02 §10](02-document-level-security.md#10-context-lookups-ctx-membership-rules-without-joins)).
 
 ## 5. API keys
 

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { createHmac, timingSafeEqual } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -11,10 +12,35 @@ import { AuthError, type CanopyAuth, createAuth } from "canopy.js/auth"
 import { memoryPersister } from "canopy.js/persist"
 import { MongoClient } from "mongodb"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { seedSplitPolicy, splitDatabase, splitUrl } from "./split.ts"
+import {
+  seedSplitPolicy,
+  splitClaimsKey,
+  splitClaimsUrl,
+  splitDatabase,
+  splitUrl,
+} from "./split.ts"
 
 const suite = MONGODB_URI === undefined ? describe.skip : describe
 const KEY = "pk_client_auth"
+
+/** Checks a claims hook call the way a Standard Webhooks receiver does. */
+function signedWith(secret: string, request: IncomingMessage, body: string): boolean {
+  const id = request.headers["webhook-id"]
+  const timestamp = request.headers["webhook-timestamp"]
+  const signatures = request.headers["webhook-signature"]
+  if (typeof id !== "string" || typeof timestamp !== "string" || typeof signatures !== "string")
+    return false
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false
+  const key = secret.startsWith("whsec_")
+    ? Buffer.from(secret.slice("whsec_".length), "base64")
+    : Buffer.from(secret)
+  const expected = createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest()
+  return signatures.split(" ").some((entry) => {
+    if (!entry.startsWith("v1,")) return false
+    const actual = Buffer.from(entry.slice(3), "base64")
+    return actual.length === expected.length && timingSafeEqual(actual, expected)
+  })
+}
 
 const notes = collection("notes", {
   exposed: true,
@@ -36,6 +62,8 @@ suite("@canopy/client/auth against built in auth", () => {
   let mongo: MongoClient
   let canopy: Canopy
   let server: Server
+  let hookServer: Server | undefined
+  const hookCalls: { signed: boolean; user: unknown }[] = []
   let url: string
   let failHook = false
   let sessionAuthorization: string | null = null
@@ -97,6 +125,29 @@ suite("@canopy/client/auth against built in auth", () => {
     mongo = new MongoClient(MONGODB_URI ?? "")
     await mongo.connect()
     if (splitUrl) {
+      if (splitClaimsUrl !== undefined) {
+        const hook = new URL(splitClaimsUrl)
+        const secret = splitClaimsKey ?? ""
+        hookServer = createServer((request, response) => {
+          const chunks: Buffer[] = []
+          request.on("data", (chunk: Buffer) => chunks.push(chunk))
+          request.on("end", () => {
+            const body = Buffer.concat(chunks).toString("utf8")
+            const signed = secret !== "" && signedWith(secret, request, body)
+            hookCalls.push({ signed, user: signed ? JSON.parse(body).user : undefined })
+            response.statusCode =
+              !signed || request.method !== "POST" || request.url !== hook.pathname
+                ? 401
+                : failHook
+                  ? 503
+                  : 204
+            response.end()
+          })
+        })
+        await new Promise<void>((resolve) =>
+          hookServer?.listen(Number(hook.port), hook.hostname.replace(/^\[|\]$/g, ""), resolve),
+        )
+      }
       await seedSplitPolicy(mongo, notes, { apikey: process.env["CANOPY_SECRET_KEYS"] ?? "" })
       url = splitUrl
       return
@@ -129,6 +180,10 @@ suite("@canopy/client/auth against built in auth", () => {
 
   afterAll(async () => {
     if (splitUrl) {
+      if (hookServer !== undefined) {
+        hookServer.closeAllConnections()
+        await new Promise<void>((resolve) => hookServer?.close(() => resolve()))
+      }
       await mongo?.close()
       return
     }
@@ -190,8 +245,10 @@ suite("@canopy/client/auth against built in auth", () => {
     await verifiedUser("cy@example.com", "cy password 12")
     const handle = createAuth({ url, fetch: fetcher() })
     const hooks = mongo.db(splitDatabase).collection("sdk_e2e_hooks")
-    if (splitUrl) await hooks.insertOne({ fail: true })
+    const typescriptHook = splitUrl !== undefined && hookServer === undefined
+    if (typescriptHook) await hooks.insertOne({ fail: true })
     failHook = true
+    hookCalls.length = 0
     try {
       const error = await handle
         .signInWithPassword({ email: "cy@example.com", password: "cy password 12" })
@@ -201,9 +258,18 @@ suite("@canopy/client/auth against built in auth", () => {
       expect(isCanopyError(error, "CANOPY_AUTH_HOOK_FAILED")).toBe(true)
     } finally {
       failHook = false
-      if (splitUrl) await hooks.deleteMany({})
+      if (typescriptHook) await hooks.deleteMany({})
     }
     expect(await handle.getToken()).not.toBeNull()
+    if (hookServer !== undefined) {
+      expect(hookCalls.length).toBeGreaterThanOrEqual(2)
+      expect(hookCalls.every((call) => call.signed)).toBe(true)
+      expect(hookCalls.at(-1)?.user).toMatchObject({
+        email: "cy@example.com",
+        emailVerified: true,
+        isAnonymous: false,
+      })
+    }
   })
 
   it("upgrades an anonymous user and keeps the id", async () => {

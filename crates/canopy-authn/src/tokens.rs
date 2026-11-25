@@ -46,8 +46,8 @@ pub enum TokenError {
     InvalidSettings,
     /// Token signing or serialization failed.
     SigningFailed,
-    /// The compact access token exceeds its configured byte limit.
-    TokenTooLarge,
+    /// The compact access token, of this many bytes, exceeds its configured byte limit.
+    TokenTooLarge(usize),
 }
 
 impl std::fmt::Display for TokenError {
@@ -58,7 +58,7 @@ impl std::fmt::Display for TokenError {
             Self::NoActiveKey => "No active signing key",
             Self::InvalidSettings => "Invalid access token settings",
             Self::SigningFailed => "Could not sign or serialize access token",
-            Self::TokenTooLarge => "Access token exceeds its byte limit",
+            Self::TokenTooLarge(_) => "Access token exceeds its byte limit",
         })
     }
 }
@@ -291,7 +291,7 @@ impl KeyRing {
         access_token.push('.');
         access_token.push_str(&signature);
         if access_token.len() > self.max_token_bytes {
-            return Err(TokenError::TokenTooLarge);
+            return Err(TokenError::TokenTooLarge(access_token.len()));
         }
         Ok(AccessToken { access_token, token_type: "bearer", expires_in: self.ttl_seconds, expires_at: exp })
     }

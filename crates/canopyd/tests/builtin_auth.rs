@@ -4,8 +4,13 @@
 
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::process::{Child, Command, Stdio};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
+use base64::Engine as _;
 use mongodb::{
     Client,
     bson::{Document, doc},
@@ -41,12 +46,9 @@ fn config(uri: &str, database: &str, auth: Value) -> Value {
     })
 }
 
-fn spawn(config: &Value, role: &str, engine: Option<&str>) -> Child {
-    spawn_logging(config, role, engine, "error")
-}
-
-fn spawn_logging(config: &Value, role: &str, engine: Option<&str>, level: &str) -> Child {
+fn spawn_with(config: &Value, role: &str, engine: Option<&str>, level: &str, envs: &[(&str, &str)]) -> Child {
     let mut command = Command::new(env!("CARGO_BIN_EXE_canopyd"));
+    command.envs(envs.iter().copied());
     command
         .args(["--config", "-"])
         .env("CANOPY_ROLE", role)
@@ -64,7 +66,8 @@ fn spawn_logging(config: &Value, role: &str, engine: Option<&str>, level: &str) 
     if let Some(engine) = engine {
         command.env("CANOPY_AUTH_ENGINE", engine);
     }
-    if config["auth"].get("providers").is_some() || level != "error" {
+    if config["auth"].get("providers").is_some() || config["auth"].get("claims").is_some() || level != "error"
+    {
         command.stderr(Stdio::piped());
     }
     let mut child = command.spawn().expect("canopyd starts");
@@ -80,7 +83,17 @@ impl Gateway {
     }
 
     async fn start_logging(config: &Value, role: &str, engine: Option<&str>, level: &str) -> (Self, String) {
-        let mut gateway = Self(spawn_logging(config, role, engine, level));
+        Self::start_with(config, role, engine, level, &[]).await
+    }
+
+    async fn start_with(
+        config: &Value,
+        role: &str,
+        engine: Option<&str>,
+        level: &str,
+        envs: &[(&str, &str)],
+    ) -> (Self, String) {
+        let mut gateway = Self(spawn_with(config, role, engine, level, envs));
         let stdout = gateway.0.stdout.take().expect("startup output");
         let line = tokio::time::timeout(
             Duration::from_secs(30),
@@ -273,7 +286,12 @@ async fn rust_auth_rejects_an_apple_key_that_does_not_parse() {
 }
 
 fn assert_startup_refused(config: &Value, problem: &str) {
-    let output = spawn(config, "all", Some("rust")).wait_with_output().expect("startup exits");
+    assert_startup_refused_with(config, problem, &[]);
+}
+
+fn assert_startup_refused_with(config: &Value, problem: &str, envs: &[(&str, &str)]) {
+    let output =
+        spawn_with(config, "all", Some("rust"), "error", envs).wait_with_output().expect("startup exits");
     assert_eq!(output.status.code(), Some(1));
     let err = String::from_utf8(output.stderr).expect("startup error");
     assert!(err.contains(problem), "{err}");
@@ -449,5 +467,180 @@ async fn rust_auth_logs_mail_and_signs_in_anonymous_users_when_enabled() {
     }
     for suffix in ["", "_auth", "_meta"] {
         mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
+    }
+}
+
+const CLAIMS_KEY: &str = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+
+/// A claims hook that answers 401 unless the Standard Webhooks signature verifies with [`CLAIMS_KEY`], 503
+/// while `failing` is set, and otherwise adds a plan and an editor role.
+async fn claims_hook(failing: Arc<AtomicBool>, calls: Arc<AtomicUsize>) -> String {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("hook listener");
+    let url = format!("http://127.0.0.1:{}/claims", listener.local_addr().expect("hook address").port());
+    let encoded = CLAIMS_KEY.strip_prefix("whsec_").expect("whsec_ secret");
+    let key = ring::hmac::Key::new(
+        ring::hmac::HMAC_SHA256,
+        &base64::engine::general_purpose::STANDARD.decode(encoded).expect("hook key"),
+    );
+    tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            let (failing, calls, key) = (failing.clone(), calls.clone(), key.clone());
+            tokio::spawn(async move {
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let (head, body) = loop {
+                    let read = stream.read(&mut chunk).await.unwrap_or(0);
+                    if read == 0 {
+                        return;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    let text = String::from_utf8_lossy(&request).into_owned();
+                    if let Some((head, body)) = text.split_once("\r\n\r\n") {
+                        let length = head
+                            .lines()
+                            .filter_map(|line| line.split_once(':'))
+                            .find(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                            .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        if body.len() >= length {
+                            break (head.to_owned(), body.to_owned());
+                        }
+                    }
+                };
+                calls.fetch_add(1, Ordering::SeqCst);
+                let header = |name: &str| {
+                    head.lines()
+                        .filter_map(|line| line.split_once(':'))
+                        .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                        .map(|(_, value)| value.trim().to_owned())
+                        .unwrap_or_default()
+                };
+                let signed = header("webhook-signature").strip_prefix("v1,").is_some_and(|signature| {
+                    base64::engine::general_purpose::STANDARD.decode(signature).is_ok_and(|tag| {
+                        let message =
+                            format!("{}.{}.{body}", header("webhook-id"), header("webhook-timestamp"));
+                        ring::hmac::verify(&key, message.as_bytes(), &tag).is_ok()
+                    })
+                });
+                let (status, answer) = if !signed {
+                    ("401 Unauthorized", String::new())
+                } else if failing.load(Ordering::SeqCst) {
+                    ("503 Service Unavailable", String::new())
+                } else {
+                    let sent: Value = serde_json::from_str(&body).unwrap_or_default();
+                    let email = sent["user"]["email"].as_str().unwrap_or_default().to_owned();
+                    (
+                        "200 OK",
+                        json!({"app_metadata": {"plan": "pro", "seen": email}, "roles": ["editor"]})
+                            .to_string(),
+                    )
+                };
+                let reply = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                    answer.len()
+                );
+                let _ = stream.write_all(reply.as_bytes()).await;
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    url
+}
+
+#[tokio::test]
+async fn rust_auth_runs_the_https_claims_hook_on_each_token() {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return };
+    let database = format!("gateway_claims_{}", std::process::id());
+    let mongo = Client::with_uri_str(&uri).await.expect("backing database");
+    let failing = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let hook = claims_hook(failing.clone(), calls.clone()).await;
+    let config = config(
+        &uri,
+        &database,
+        json!({
+            "kind": "builtin",
+            "emailPassword": {"requireEmailVerification": false},
+            "redirectUrls": [APP_ORIGIN],
+            "email": {"transport": {"kind": "log"}},
+            "claims": {
+                "url": hook,
+                "secret": {"$env": {"name": "CANOPY_TEST_CLAIMS_KEY", "type": "string", "secret": true, "optional": false}},
+            },
+        }),
+    );
+    let envs = [("CANOPY_TEST_CLAIMS_KEY", CLAIMS_KEY)];
+    let (gateway, url) = Gateway::start_with(&config, "all", Some("rust"), "error", &envs).await;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let http = reqwest::Client::builder().timeout(Duration::from_secs(10)).build().expect("HTTP client");
+    let email = "claims@example.test";
+    let signup = http
+        .post(format!("{url}/auth/v1/sign-up/email"))
+        .header("origin", APP_ORIGIN)
+        .header("content-type", "application/json")
+        .body(json!({"name": "Claims", "email": email, "password": PASSWORD}).to_string())
+        .send()
+        .await
+        .unwrap();
+    let bearer = signup.headers().get("set-auth-token").expect("session token").to_str().unwrap().to_owned();
+    body(signup, StatusCode::OK).await;
+    let token = || http.get(format!("{url}/auth/v1/token")).bearer_auth(&bearer).send();
+
+    let minted = body(token().await.unwrap(), StatusCode::OK).await;
+    let payload = minted["access_token"].as_str().expect("access token").split('.').nth(1).expect("payload");
+    let claims: Value =
+        serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload).unwrap())
+            .unwrap();
+    assert_eq!(claims["app_metadata"], json!({"plan": "pro", "seen": email}));
+    assert_eq!(claims["roles"], json!(["editor"]));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    failing.store(true, Ordering::SeqCst);
+    let failed = token().await.unwrap();
+    assert_eq!(failed.headers().get("cache-control").and_then(|value| value.to_str().ok()), Some("no-store"));
+    assert_eq!(
+        body(failed, StatusCode::INTERNAL_SERVER_ERROR).await,
+        json!({"code": "CANOPY_AUTH_HOOK_FAILED", "message": "The claims hook failed: the hook answered 503"}),
+    );
+    let audited = mongo
+        .database(&format!("{database}_meta"))
+        .collection::<Document>("audit_log")
+        .find_one(doc! {"action": "auth.claims_hook_failed"})
+        .await
+        .unwrap()
+        .expect("the failure is audited");
+    assert_eq!(audited.get_document("details").unwrap(), &doc! {"reason": "the hook answered 503"});
+    failing.store(false, Ordering::SeqCst);
+    body(token().await.unwrap(), StatusCode::OK).await;
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    drop(gateway);
+    for suffix in ["", "_auth", "_meta"] {
+        mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
+    }
+}
+
+#[test]
+fn rust_auth_refuses_claims_hooks_it_cannot_call() {
+    let unreachable = "mongodb://127.0.0.1:9/?replicaSet=rs0&serverSelectionTimeoutMS=500";
+    let reference =
+        json!({"$env": {"name": "CANOPY_TEST_UNSET_CLAIMS_KEY", "type": "string", "secret": true}});
+    for (claims, problem) in [
+        (
+            json!({"url": "http://hooks.example.test/claims", "secret": "key"}),
+            "auth.claims.url must be an HTTPS URL",
+        ),
+        (
+            json!({"url": "https://hooks.example.test/claims"}),
+            "auth.claims.secret must be a secret reference",
+        ),
+        (
+            json!({"url": "https://hooks.example.test/claims", "secret": reference}),
+            "Set CANOPY_TEST_UNSET_CLAIMS_KEY",
+        ),
+        (json!("https://hooks.example.test/claims"), "auth.claims must be an object"),
+    ] {
+        let config = config(unreachable, "unused_claims", json!({"kind": "builtin", "claims": claims}));
+        assert_startup_refused_with(&config, problem, &[]);
     }
 }

@@ -13,6 +13,7 @@ canopy-mail = { path = "../canopy-mail" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-webauthn = { path = "../canopy-webauthn" }
+canopy-webhooks = { path = "../canopy-webhooks" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 time = { version = "0.3", features = ["formatting", "parsing"] }
 tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
@@ -48,6 +49,7 @@ percent-encoding = "2"
 canopy-auth = { path = "../canopy-auth" }
 proptest = { version = "1.11", default-features = false, features = ["std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+tokio = { version = "1", features = ["net", "io-util"] }
 
 [lints]
 workspace = true

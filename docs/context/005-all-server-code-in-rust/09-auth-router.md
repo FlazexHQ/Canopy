@@ -12,6 +12,7 @@ The HTTP server implementation lives in [`crates/canopy-authn/src/server/`](../.
 | Module | Purpose and routes |
 |---|---|
 | [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs) | Router setup, options, request dispatch, CORS, rate limits (`address_hit`, `identifier_hit`), `/token`, `/settings`, JWKS endpoints, and `canopy_auth` index definitions |
+| [`claims.rs`](../../../crates/canopy-authn/src/server/claims.rs) | The HTTPS claims hook called by `/token`: URL rules, the signed request, the 200 ms deadline, the 4 KiB answer cap and the answer checks |
 | [`documents.rs`](../../../crates/canopy-authn/src/server/documents.rs) | Document representations for `users`, `sessions`, `accounts`, `verifications`, and rate limits, using flattened extra documents to retain unknown fields |
 | [`floor.rs`](../../../crates/canopy-authn/src/server/floor.rs) | `ResponseFloor` adaptive timing protection on sensitive endpoints to prevent email enumeration |
 | [`password.rs`](../../../crates/canopy-authn/src/server/password.rs) | Email and password sign up, sign in, email verification, password reset, and password changes |
@@ -102,7 +103,11 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
 
 ## Known gap and mounting status
 
-- **HTTPS claims hook gap:** The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not yet built (in progress by `claudeAgent`).
+- **HTTPS claims hook:** built in [`claims.rs`](../../../crates/canopy-authn/src/server/claims.rs) (`AuthOptions::claims_hook`).
+  `/token` posts the user and session, signed with `canopy_webhooks::Signer`, and fails closed with
+  `CANOPY_AUTH_HOOK_FAILED` (status 500, audit event `auth.claims_hook_failed`). The contract is in
+  [07-auth §4](../../design/07-auth.md#4-claims); the tests are `tests/claims_hook.rs` and canopyd's
+  `tests/builtin_auth.rs`.
 - **Account linking:** `POST /auth/v1/link-social` starts a social or generic OIDC provider redirect for a signed in user.
   The callback requires the initiating session to remain live, a verified email from the provider and a
   matching local email. Linking an account again refreshes its tokens and merges its scopes. Linking does

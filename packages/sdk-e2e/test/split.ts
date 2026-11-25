@@ -3,6 +3,10 @@ import { importJWK } from "jose"
 import type { MongoClient } from "mongodb"
 
 export const splitUrl = process.env["CANOPY_SPLIT_E2E_URL"]
+/** Where a stack running Rust auth posts its claims hook; the auth suite serves that endpoint itself. */
+export const splitClaimsUrl = process.env["CANOPY_SPLIT_E2E_CLAIMS_URL"]
+/** The Standard Webhooks secret that stack signs claims hook calls with. */
+export const splitClaimsKey = process.env["CANOPY_SPLIT_E2E_CLAIMS_KEY"]
 export const splitDatabase = process.env["CANOPY_DB"] ?? "app"
 const splitMetaDatabase = process.env["CANOPY_META_DB"] ?? "canopy"
 

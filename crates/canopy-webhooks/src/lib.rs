@@ -4,6 +4,7 @@ mod capture;
 mod cron;
 mod dispatch;
 mod queue;
+mod signing;
 
 use std::collections::BTreeMap;
 use std::future::IntoFuture;
@@ -19,7 +20,8 @@ use canopy_protocol::{CanopyError, ErrorCode, Value, bson::decode_document};
 use cron::Cron;
 use futures_util::TryStreamExt;
 use queue::Queue;
-use ring::{hmac, rand::SecureRandom};
+use ring::rand::SecureRandom;
+pub use signing::Signer;
 use time::{OffsetDateTime, macros::format_description};
 use tokio::{
     sync::{Notify, watch},
@@ -100,7 +102,7 @@ pub struct Webhooks {
     hooks: BTreeMap<String, Hook>,
     queue: Queue,
     http: reqwest::Client,
-    key: hmac::Key,
+    signer: Signer,
     counters: Mutex<Counters>,
     wake: Notify,
 }
@@ -155,7 +157,7 @@ impl Webhooks {
         for definition in definitions {
             hooks.insert(field(&definition, "_id")?.to_owned(), Hook::parse(&definition)?);
         }
-        let key = dispatch::key(&options.secret)?;
+        let signer = Signer::new(&options.secret)?;
         let _ = rustls::crypto::ring::default_provider().install_default();
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -168,7 +170,7 @@ impl Webhooks {
             meta,
             hooks,
             http,
-            key,
+            signer,
             counters: Mutex::default(),
             wake: Notify::new(),
         })

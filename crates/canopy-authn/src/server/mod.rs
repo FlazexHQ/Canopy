@@ -19,7 +19,7 @@ use url::Url;
 
 use crate::{
     cookies::{AuthCookie, Expiration, render_set_cookie, sign_value, verify_session},
-    tokens::{AccessSession, Algorithm, KeyRing},
+    tokens::{AccessSession, Algorithm, KeyRing, TokenError},
 };
 
 macro_rules! object {
@@ -29,6 +29,7 @@ macro_rules! object {
     };
 }
 mod anonymous;
+mod claims;
 mod documents;
 mod email;
 mod error_page;
@@ -41,10 +42,14 @@ mod password;
 mod session;
 mod two_factor;
 
+pub use claims::{ClaimsHook, MAX_CLAIMS_ANSWER_BYTES, claims_url_allowed};
 use documents::{AddressLimit, IdentifierLimit, User, id_text};
 use floor::ResponseFloor;
 
 type Result<T> = std::result::Result<T, CanopyError>;
+
+/// The most an access token may take, in bytes, claims hook contributions included.
+pub const MAX_TOKEN_BYTES: usize = 4096;
 
 /// Delivery of an authentication email.
 pub trait AuthMail: Send + Sync {
@@ -120,6 +125,8 @@ pub struct AuthOptions {
     /// Whether the server runs in production: a failed sign in then redirects to the home page with the
     /// error in the query instead of showing the error page.
     pub production: bool,
+    /// The HTTPS endpoint that adds claims to each access token; none when unset.
+    pub claims_hook: Option<ClaimsHook>,
 }
 
 impl AuthOptions {
@@ -143,6 +150,7 @@ impl AuthOptions {
             oidc_providers: Vec::new(),
             provider_http: None,
             production: false,
+            claims_hook: None,
         }
     }
 }
@@ -156,6 +164,7 @@ pub struct AuthRouter {
     password_slots: Arc<tokio::sync::Semaphore>,
     floor: ResponseFloor,
     oauth: oauth::Registry,
+    claims: Option<claims::Hook>,
 }
 
 impl AuthRouter {
@@ -178,6 +187,12 @@ impl AuthRouter {
             return Err(CanopyError::new(ErrorCode::Internal, "Invalid built in auth settings"));
         }
         let floor = ResponseFloor::new(options.response_floor);
+        let claims = options
+            .claims_hook
+            .take()
+            .map(|hook| claims::Hook::open(hook, options.production))
+            .transpose()
+            .map_err(|message| CanopyError::new(ErrorCode::Internal, message))?;
         let ids: Vec<String> = options
             .social_providers
             .iter()
@@ -204,6 +219,7 @@ impl AuthRouter {
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             floor,
             oauth,
+            claims,
         };
         for (collection, indexes) in auth_indexes() {
             match router.collection(collection).create_indexes(indexes).await {
@@ -309,7 +325,7 @@ impl AuthRouter {
             self.options.algorithm,
             self.options.access_token_ttl_seconds,
             self.options.key_grace_ms,
-            4096,
+            MAX_TOKEN_BYTES,
         )
         .map_err(internal)
     }
@@ -618,32 +634,54 @@ impl Call<'_> {
             .collect();
         let subject = id_text(&user.id);
         let session_id = id_text(&session.id);
-        let token = self
-            .router
-            .keys()
-            .await?
-            .mint(
-                &self.router.options.secret,
-                AccessSession {
-                    subject: &subject,
-                    session_id: &session_id,
-                    roles: &roles,
-                    claim_roles: &[],
-                    identity: Some((&user.email, user.email_verified)),
-                    is_anonymous: user.extra.get_bool("isAnonymous").unwrap_or(false),
-                    aal: session.extra.get_str("aal").unwrap_or("aal1"),
-                    app_metadata: &user.metadata("appMetadata"),
-                    claim_app_metadata: &Default::default(),
-                    user_metadata: &user.metadata("userMetadata"),
-                },
-                self.now.timestamp_millis(),
-            )
-            .map_err(internal)?;
+        let contributed = match &self.router.claims {
+            None => claims::Contributed::default(),
+            Some(hook) => match hook.call(&user, &session_id, self.now.timestamp_millis()).await {
+                Ok(contributed) => contributed,
+                Err(reason) => {
+                    self.audit_hook_failure(&subject, doc! {"reason": &reason}).await?;
+                    return Ok(hook_failed(&format!("The claims hook failed: {reason}")));
+                }
+            },
+        };
+        let minted = self.router.keys().await?.mint(
+            &self.router.options.secret,
+            AccessSession {
+                subject: &subject,
+                session_id: &session_id,
+                roles: &roles,
+                claim_roles: &contributed.roles,
+                identity: Some((&user.email, user.email_verified)),
+                is_anonymous: user.extra.get_bool("isAnonymous").unwrap_or(false),
+                aal: session.extra.get_str("aal").unwrap_or("aal1"),
+                app_metadata: &user.metadata("appMetadata"),
+                claim_app_metadata: &contributed.app_metadata,
+                user_metadata: &user.metadata("userMetadata"),
+            },
+            self.now.timestamp_millis(),
+        );
+        let token = match minted {
+            Ok(token) => token,
+            Err(TokenError::TokenTooLarge(bytes)) => {
+                let counted = i32::try_from(bytes).unwrap_or(i32::MAX);
+                self.audit_hook_failure(&subject, doc! {"reason": "token too large", "bytes": counted})
+                    .await?;
+                return Ok(hook_failed(&format!(
+                    "The access token is {bytes} bytes, over the {MAX_TOKEN_BYTES} byte cap"
+                )));
+            }
+            Err(error) => return Err(internal(error)),
+        };
         let mut reply = response(200, token);
         if self.refresh_session(&mut session).await? {
             self.set_session(&mut reply, &session.token, true);
         }
         Ok(reply)
+    }
+
+    async fn audit_hook_failure(&self, subject: &str, details: Document) -> Result<()> {
+        self.audit("auth.claims_hook_failed", doc! {"type": "user", "id": subject}, None, Some(details), true)
+            .await
     }
 
     fn ip(&self) -> &str {
@@ -904,6 +942,10 @@ fn validation(body: &Value, field: &str) -> Response {
         _ => "object",
     };
     error(400, "VALIDATION_ERROR", &format!("[body.{field}] Invalid input: expected string, received {kind}"))
+}
+
+fn hook_failed(message: &str) -> Response {
+    response(500, object!("code": ErrorCode::AuthHookFailed.as_str(), "message": message))
 }
 
 fn api_error(status: u16, code: &str, message: &str) -> Response {

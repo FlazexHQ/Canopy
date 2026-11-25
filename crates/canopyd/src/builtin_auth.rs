@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use canopy_authn::server::{
-    AuthOptions, AuthRouter,
+    AuthOptions, AuthRouter, ClaimsHook, claims_url_allowed,
     oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
 };
 use canopy_config::{GatewayConfig, JwtConfig, TrustedProxy};
@@ -46,17 +46,11 @@ pub(crate) fn resolve(
         return Ok(None);
     }
 
-    for (field, feature, enabled) in [
-        ("claims", "custom claims", auth.get("claims").is_some_and(|value| *value != Json::Null)),
-        (
-            "emailPassword",
-            "disabling password authentication",
-            auth.get("emailPassword") == Some(&Json::Bool(false)),
-        ),
-    ] {
-        if enabled {
-            return Err(format!("CANOPY_AUTH_ENGINE=rust does not support {feature} (auth.{field})"));
-        }
+    if auth.get("emailPassword") == Some(&Json::Bool(false)) {
+        return Err(
+            "CANOPY_AUTH_ENGINE=rust does not support disabling password authentication (auth.emailPassword)"
+                .into(),
+        );
     }
     let production = env("CANOPY_ENV").as_deref() == Some("production");
     let public_url = match env("CANOPY_PUBLIC_URL") {
@@ -115,6 +109,7 @@ pub(crate) fn resolve(
     options.social_providers = social_providers(auth)?;
     options.oidc_providers = oidc_providers(auth, production)?;
     options.production = production;
+    options.claims_hook = claims_hook(auth, production)?;
     options.access_token_ttl_seconds =
         seconds(auth, "accessTokenTtl", "accessTokenTtlSeconds", 600, 300, 3600)?;
     if let Some(rotation) = auth.get("keyRotation") {
@@ -252,6 +247,32 @@ fn oidc_providers(auth: &Json, production: bool) -> Result<Vec<OidcProvider>, St
             })
         })
         .collect()
+}
+
+fn claims_hook(auth: &Json, production: bool) -> Result<Option<ClaimsHook>, String> {
+    let hook = match auth.get("claims") {
+        None | Some(Json::Null) => return Ok(None),
+        Some(hook @ Json::Object(_)) => hook,
+        Some(_) => return Err("auth.claims must be an object with url and secret".into()),
+    };
+    let url = config_text(hook, "url")
+        .and_then(|url| Url::parse(url).ok())
+        .filter(|url| claims_url_allowed(url, production))
+        .ok_or("auth.claims.url must be an HTTPS URL (HTTP only on a loopback address outside production)")?;
+    let secret = match hook.get("secret") {
+        Some(Json::String(secret)) => Some(secret.clone()),
+        Some(reference @ Json::Object(_)) => match reference.get("$env") {
+            Some(variable) => {
+                let name = config_text(variable, "name").ok_or("auth.claims.secret has no variable name")?;
+                Some(env(name).ok_or_else(|| format!("Set {name} for auth.claims.secret"))?)
+            }
+            None => None,
+        },
+        _ => None,
+    }
+    .filter(|secret| !secret.is_empty())
+    .ok_or("auth.claims.secret must be a secret reference or text")?;
+    Ok(Some(ClaimsHook::new(url, secret)))
 }
 
 fn flag(config: &Json, field: &str, default: bool) -> Result<bool, String> {
