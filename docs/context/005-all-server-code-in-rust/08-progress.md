@@ -3,6 +3,13 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): maintainer decisions, CLI commands, Studio image
+
+- Decisions of 2026-11-26: (1) the R2 optimistic update gate is accepted at the measured ratio, at most 3x for this stage (written in docs/plans/005-all-server-code-in-rust.md §7); (2) a policy test case in filter form runs only against MongoDB and passes when every matching document gives the expected outcome; an empty or mixed match fails; without MongoDB it is not run (written in conformance/authoring/README.md); (3) the Security finding on PR #6 is handled by excluding crates/canopy-authn/src/server/claims.rs in .github/trufflehog-exclude.txt.
+- Commits: a2059d40 (Rust CLI: admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv with dry run and the admin API import; golden replay on MongoDB 8.0.34 and 9.0.8; firebase, auth0 and cognito imports not built yet), 4692950d (the TruffleHog exclusion), 55dfb7e7 (the two decisions in the docs). bbb00fcf (auth import --from firebase, auth0 and cognito; tests sign in an imported Firebase scrypt user and an Auth0 bcrypt user and check the rehash to Argon2id). Canopy.js branch refactor/rust-core: 2b3855c (canopy-stack runs Studio on the canopy image through CANOPY_GATEWAY_IMAGE, api and realtime on canopy-legacy through CANOPY_IMAGE, and `up --build` builds both; 248 tests pass on Bun and Node 26).
+- In progress: R3 split between two claudeAgent tasks: R3a (Canopy.js builders validated by the Rust authoring module and `canopy.js/emit`) and R3b (Rust CLI project loading through the emitter, `canopy build`, publishing from a bundle, policies lint, test, explain, diff, push, pull, history, rollback, config print).
+- Still open: the R2 matching gate (missed in 3 to 4 of 6 filters) and the wasm2js gate (missed, at most 3x) were not part of the decision and remain open.
+
 ## Checkpoint (2026-11-25): R2 committed on branches, allocator measured, CI fixes
 
 ### Commits on refactor/rust-port
@@ -31,8 +38,8 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
 
 ### In progress (not committed)
 
-- The R4 CLI task (admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv --dry-run) was stopped at the maintainer's request before it finished. Its partial, unverified changes stay uncommitted in `crates/canopy-cli` (`Cargo.toml`, `src/main.rs`, `src/meta.rs`, `src/remote.rs`, `tests/meta_vectors.rs`, `tests/vectors.rs`), `crates/canopy-control` (`src/accounts.rs`, `src/lib.rs`) and `Cargo.lock`; they must be reviewed, finished and verified (clippy, the golden replay on 8.0.34 and 9.0.8) before any commit.
-- The Canopy.js Studio alignment is done but uncommitted on `refactor/rust-core` and not yet correct. Changed: `templates/cli/compose.yaml` (Studio from the canopy image with `CANOPY_ROLE` studio and the canopyd probe healthcheck), `test/cli/compose.test.ts`, `test/cli/cli.test.ts`, `src/cli/cli.ts`, `examples/chatapp/compose.yaml`, the existing `templates/cli/Caddyfile` change (an `@internal` 404, matching Canopy's edge Caddyfile), and a changeset `studio-canopy-image.md`; lint, format, typecheck and all 248 tests passed. The problem: `canopy-stack up --build` now builds only `canopyd.Dockerfile`, but Canopy's reference stack (`deploy/compose/canopy.yaml`) runs api and realtime on `canopy.Dockerfile` (the TypeScript image, tagged `canopy-legacy:dev`, with a Bun healthcheck) and only Studio on the canopyd image through `CANOPY_GATEWAY_IMAGE`. The fix still to do: build both images (`canopy.Dockerfile` into `CANOPY_IMAGE`, `canopyd.Dockerfile` into `CANOPY_GATEWAY_IMAGE`), give the template's studio service `${CANOPY_GATEWAY_IMAGE:-ghcr.io/flazexhq/canopy:${CANOPY_VERSION:-__CANOPY_VERSION__}}`, and adjust `compose.test.ts` and `cli.test.ts` to match.
+- The R4 CLI task (admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv --dry-run): done, committed in a2059d40.
+- The Canopy.js Studio alignment: done, committed in 2b3855c on refactor/rust-core.
 
 ## Checkpoint (2026-11-25): R5 split stacks and the CI split job on Rust auth (not committed)
 
@@ -1079,11 +1086,10 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5 remaining: confirm the switched split stack in CI (images job: Rust auth smoke, TypeScript fallback smoke, SDK auth through the claims relay), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review; then drop `split-auth-typescript.yaml` and the `canopy-control` image build | R5 | Medium | `claudeAgent` |
-| 2 | R2: maintainer decision on the missed matching and update gates (options: inline keys in canopy-protocol Document, accept the measured ratios, or keep the TypeScript updater for optimistic updates); merge Canopy.js refactor/rust-core when decided | R2 | Big | `claudeAgent` |
-| 3 | R3: canonical JSON Schemas, bundle emitter, CLI publishing (depends only on the R2 authoring module and R1 publishing, with the filter case question open) | R3 | Big | `claudeAgent` |
-| 4 | R4 remaining: admin, realtime images and auth import work is partial and uncommitted; every command that needs the project config (blocked on R3's emitter), dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
+| 2 | R2: update gate accepted; matching and wasm2js gates open | R2 | Big | `claudeAgent` |
+| 3 | R3 in progress: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 4 | R4: config dependent commands come with R3b; remaining: dev, init, doctor, type generation, pull and schema commands, indexes, platform packages (in progress, Codex) and launcher | R4 | Big | `claudeAgent` |
 | 5 | R7: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
-| 6 | Security workflow on PR #6: decide between a path exclusion and excluding the URI detector for the 9af1d9c1 finding | CI | Small | `claudeAgent` |
 
 ## Done
 
