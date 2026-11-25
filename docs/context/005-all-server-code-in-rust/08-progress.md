@@ -3,6 +3,153 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R1 admin API in Rust
+
+- [`canopy-control`](../../../crates/canopy-control/src/lib.rs) serves `/admin/v1` on the `canopy-http`
+  request and response types. Its [router](../../../crates/canopy-control/src/api.rs) ports the route table
+  in registration order (matching and `Allow`), cookie, bearer and admin token authentication, the Origin
+  and CSRF checks of cookie sessions, the routes admin tokens may not use, the forced password change, the
+  RBAC of the four roles, and the audit of accepted and refused changes with the TypeScript field order.
+- Served natively: setup and claim, login with TOTP, rate limits and lockout, logout, the own password and
+  TOTP enrollment, admins, admin API tokens, API keys (SCRAM verifiers for secret keys), auth providers,
+  doctor, audit and request logs, settings with the allowlist lockout check, both danger zone actions, and
+  the webhook queue routes over `canopy-webhooks` (hook definitions passed in by the caller).
+  [`PolicyRoutes`](../../../crates/canopy-control/src/policies.rs) serves the policy and context reads,
+  publishing, rollback and history and the collection toggles over the policy publisher, which now takes an
+  injectable clock (`PolicyPublisher::with_clock`).
+- [TOTP](../../../crates/canopy-control/src/totp.rs) is RFC 4226 and RFC 6238 on ring, checked against both
+  RFC appendices, public for the auth stage to reuse. Admin passwords are Argon2id with the TypeScript work
+  factors; verification accepts Bun written hashes and the legacy scrypt form. Sealed secrets open values
+  sealed by the TypeScript server (a Node vector in the tests).
+- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one: the data routes, policy
+  validation, simulation and explain (and context validation), email templates, the realtime inspector, app
+  users and signing keys.
+- The [oracle replay](../../../crates/canopy-control/tests/admin_oracle.rs) rebuilds every recorded request
+  from earlier Rust answers, applies the recorder's substitutions to the Rust output, and binds the numbered
+  placeholders by unification, so a pending step cannot shift later numbering. On MongoDB 8.0.34 and 9.0.8,
+  319 of the 433 steps match byte for byte with their state diffs (owner 69, admin 73, developer 82,
+  viewer 95). The 114 pending steps are the delegated groups above, the doctor (its realtime and revocation
+  checks) and the owner's audit list (it shows the template steps). Every other step must match.
+- `CANOPY_ROLE=control` in `canopyd` ([control.rs](../../../crates/canopyd/src/control.rs)) migrates the meta
+  database, publishes `CANOPY_POLICY_BUNDLE`, logs a setup token while no owner exists, runs the webhooks of
+  the config's `webhooks` section (or `CANOPY_WEBHOOKS`), and serves only `/admin/v1`, `/healthz` and
+  `/readyz`. It reads `CANOPY_ENV`, `CANOPY_PUBLIC_URL`, `CANOPY_ADMIN_ORIGINS`, `CANOPY_MASTER_KEY`,
+  `CANOPY_MASTER_KEY_PREVIOUS` and `CANOPY_WEBHOOK_SECRET`. The [role test](../../../crates/canopyd/tests/control.rs)
+  checks the migrations, the setup token, the schedule state and that data routes answer `404`.
+- Fixed in `canopy-webhooks`: requeueing a dead letter writes the delivery fields in the TypeScript order.
+- Remaining for R1: the data route delegate (collections, schema, stats, OpenAPI, the GraphQL explorer,
+  documents with view as, masking and writes), policy validate, simulate and explain and context validate
+  (lint findings and the explain report; `GET policies/:collection` reports no findings yet), the email
+  template store on `canopy-mail` (list, history, preview, save and reset), the realtime inspector (needs
+  engine introspection in `canopyd`), the providers document from the config in `canopyd`, app user session
+  revocation in the danger zone (R5), compose, Helm and Kubernetes running `control` as a role of the
+  `canopy` image, and the edge routing `/admin/v1` to it.
+
+## Checkpoint (2026-11-25): R0 `/admin/v1/users` over HTTP
+
+- [`users.json`](../../../conformance/http/admin/users.json) records every `/admin/v1/users` route for each
+  admin role over HTTP, with the admin oracle's determinism and substitutions; the state also follows
+  `revocations`. The [cases](../../../packages/server/test/conformance/admin/users.ts) run after the role
+  preamble on a fixture app user with two sessions; the README lists the fixture. `bun run vectors:http-admin`
+  writes it next to the role files (unchanged byte for byte) and `--check` compares all five.
+- Recorded on MongoDB 8.0.34. `--check` passed on 8.0.34 and 9.0.8 with Bun, and the server Vitest check
+  passed on 9.0.8 with Node 26.
+- Finding: a refused invite redirect still creates the user (`user-invite-foreign` writes an
+  `auth.sign_up` audit entry before the `401`). Recorded as is; worth a decision for R5.
+
+## Checkpoint (2026-11-25): R5 access tokens and JWKS
+
+- [The token module](../../../crates/canopy-authn/src/tokens.rs) reads the BSON signing key
+  documents, opens the active private key with the auth secret and signs EdDSA and ES256 tokens
+  with ring. It keeps the original documents and renders JWKS on the three existing paths, with
+  standby keys and retired keys within the verification grace period.
+- [The token tests](../../../crates/canopy-authn/tests/tokens.rs) compare all 15 decoded access
+  tokens and all five JWKS responses in the HTTP oracle at its recorded clocks. The verifier
+  checks signatures against the recorded key sets. Fresh tokens from the document fixture work
+  in canopy-auth and the TypeScript jose verifier, which both refuse altered signatures and
+  unknown key ids. The tests also cover the switch to a standby key, the grace period boundary
+  and revocation.
+- The lease, key creation and rotation writes, session lookup, and auth router integration
+  remain open.
+
+## Checkpoint (2026-11-25): R5 encrypted values and signed cookies
+
+- [Encrypted values](../../../crates/canopy-authn/src/secrets.rs) use SHA-256 of the auth secret
+  with XChaCha20-Poly1305, the stored nonce and tag layout, and the JSON string wrapper for private
+  JWKs. The [format tests](../../../crates/canopy-authn/tests/formats.rs) decrypt all four signing
+  keys, the TOTP secret and the backup codes. Bun tests exchange fresh ciphertext in both directions.
+- [Signed cookies](../../../crates/canopy-authn/src/cookies.rs) use padded standard base64,
+  constant time HMAC verification, and the same percent encoding and header attribute order as
+  TypeScript. Tests verify the literal session values from the document fixture. For HTTP cases,
+  the oracle replaces tokens and signatures with placeholders, so the tests substitute independently
+  signed values and compare the headers, including sign in, refresh and sign out.
+- Route integration and the full R5 replay remain open. The crypto and cookie tests run without MongoDB.
+
+## Checkpoint (2026-11-25): R5 password primitives
+
+- [canopy-authn](../../../crates/canopy-authn/src/passwords.rs) writes native Argon2id PHC strings
+  and verifies the eight password formats in the exported authentication documents. Verification
+  returns whether a successful sign in should replace the hash. The module applies the work
+  limits of the TypeScript native verifier and legacy importer before running a password KDF.
+  Legacy strings with invalid fields or empty tags are refused.
+- The [password tests](../../../crates/canopy-authn/tests/passwords.rs) replay all ten fixture
+  passwords with positive and negative checks and use Bun to verify fresh hashes in both
+  directions against the TypeScript implementation. They also cover bcrypt's 2x variant,
+  work factor limits, upgrade decisions and generated malformed hashes.
+- This checkpoint covers password primitives. Auth routes, credential updates and the
+  full R5 document and HTTP replay remain separate integration work.
+
+## Checkpoint (2026-11-25): R2 standalone size and startup
+
+- The client build retains the Rust EJSON codec, full matcher and owned BSON pages for
+  batched filtering. A third module supplies sorting, projection and atomic updates through
+  a lazy loader for Canopy.js. The authoring module supplies policy, query and collection
+  shape operations. All three build to Wasm and JavaScript.
+- The standalone client passes both requested limits. It is 81,704 Brotli bytes against
+  the 81,920 byte budget. Chromium at 4x CPU slowdown measured 8.85 ms median and 21.60 ms
+  p95 in 50 streaming runs. The [R2 benchmark](../../../bench/baselines/r2/README.md) records
+  the optimization steps, symbol sizes and conformance on Bun and Node 26 in both formats.
+- The same split module replay passes on Node 24, Deno, Chromium, Firefox and WebKit in
+  both formats. All three browsers refuse native Wasm with strict CSP and pass the
+  JavaScript replay. The Linux nightly job runs Deno and the three browsers.
+  The [runtime matrix](../../../bench/baselines/r2/README.md#build-and-replay) records
+  the Hermes CLI failures and the remaining vector coverage gaps.
+- Canopy.js still needs to adopt the generated loader. The root bundle, first live query,
+  optimistic update latency and Hermes and CSP gates still need measurement. Remaining
+  authoring work includes generated frame types, policy lint, unresolved config resolution
+  and the rest of the authoring contract replay.
+
+## Checkpoint (2026-11-25): R6 Studio serving
+
+- [Studio in canopyd](../../../crates/canopyd/src/studio.rs) serves `CANOPY_STUDIO_DIR` in the
+  standalone `studio` role and on the shared listener in `all`. The standalone listener starts
+  without MongoDB. A gateway front door that proxies to a TypeScript server leaves Studio on that
+  upstream admin surface.
+- The [Rust HTTP replay](../../../crates/canopyd/tests/studio.rs) checks every response against the
+  Bun oracle and verifies that the Node oracle differs only in the implicit health and readiness
+  content type. The test compares the application headers and body bytes after excluding HTTP
+  transport framing. It also covers directory traversal, encoded separators, absolute paths,
+  drive paths, UNC paths, and an unset or missing asset directory. The CSP remains the recorded
+  policy because the current Studio build does not load WebAssembly.
+- The Studio build and all nine Playwright tests passed with a local edge routing Studio to
+  `canopyd` and the APIs to `canopy-server`, using MongoDB 8.0.34 on port 37017. Smoke checks
+  also passed for the Rust `all` listener and the current in process `canopy dev` listener.
+  The replay and strict all targets Clippy passed in a clean checkout copy and again in the
+  shared checkout after the schema refactor compiled. The license check passed with the existing
+  `jsonpath-rust` manifest warning.
+- The scratch `canopy` image builds Studio in a separate stage and serves it from `/app/studio`.
+  Compose, Helm and Kubernetes launch the `studio` role as its own service. Its Caddy routes and
+  its independence from the data and control services are preserved. The TypeScript API and
+  realtime image uses the `canopy-legacy` tag.
+- CI runs the stack smoke and Studio Playwright suites through the edge. The container release
+  checks the split stack with the published architecture tags before promoting the release tags.
+- The Linux x64 scratch image built locally from the R6 Studio commit and these deployment changes.
+  The standalone probe and redirect passed without MongoDB. Both split stack smoke modes and all
+  nine Studio Playwright tests passed through Caddy with MongoDB 9 and the TypeScript control image.
+  All 26 deploy manifest tests passed, and Helm lint passed in both chart modes.
+- Packaging the assets with the Rust CLI is pending. The `canopy-studio` Dockerfile and
+  `packages/studio` server remain for removal in R7.
+
 ## Checkpoint (2026-11-25): R1 policy publishing
 
 - [Canonical parsing](../../../crates/canopy-policy/src/canonical.rs) validates version 1 policy
@@ -155,7 +302,7 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   webhooks, migrations, the CLI or the authoring DSLs yet.
 - No Rust crate uses `proptest` or `cargo mutants` yet; `fuzz/` holds the existing `cargo fuzz` targets.
 
-**Waiting on the maintainer before R0 closes:** the thresholds of plan 005 Â§7 (Wasm size and startup), and
+**Waiting on the maintainer before R0 closes:** the thresholds of plan 005 §7 (Wasm size and startup), and
 open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name).
 
 ## Next tasks (R0)
@@ -163,12 +310,12 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Size | Agent |
 |---|---|---|---|
 | 1 | Canonical document JSON Schemas for the policy set, the unresolved config and the collection schema, generated from or checked against the Rust types; `conformance/authoring/` with DSL inputs, canonical outputs and invalid inputs | Big | `claudeAgent` |
-| 2 | `/auth/v1` oracle recorder on the TypeScript server: fake clock, seeded randomness, memory mail transport, mock OIDC provider, software authenticator; groups per plan 005 Â§6.1 | Big | `claudeAgent` |
+| 2 | `/auth/v1` oracle recorder on the TypeScript server: fake clock, seeded randomness, memory mail transport, mock OIDC provider, software authenticator; groups per plan 005 §6.1 | Big | `claudeAgent` |
 | 3 | `canopy_auth` fixture database written by the TypeScript server, dumped as canonical EJSON; confirm the `symmetricEncrypt` format and the session cookie signature format from it | Medium | Codex |
 | 4 | `/admin/v1` oracle for every route and admin role | Medium | Codex |
 | 5 | Webhooks and migrations oracles | Medium | Codex |
 | 6 | CLI golden outputs, type generation and `canopy pull` vectors, Studio header oracle | Medium | Codex |
-| 7 | Canopy.js bundle size and startup baselines on the profiles of plan 005 Â§7 | Small | `antigravity_sudhan_s_antigravity` |
+| 7 | Canopy.js bundle size and startup baselines on the profiles of plan 005 §7 | Small | `antigravity_sudhan_s_antigravity` |
 | 8 | Spike S16 (WebAuthn relying party: CBOR and COSE choice, W3C Level 3 vectors, fuzz harness) | Big | `claudeAgent` |
 
 ## Done
@@ -210,10 +357,9 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
   ObjectIds, the Google mock's per process RSA key, and the response floor (recorded only as "held at least
   75 ms"). The fixture database holds random salts and ObjectIds, so it is written once and proved on every
   check rather than compared byte for byte.
-- **Open:** the HTTP layer of `/admin/v1/users` is not recorded. The admin oracle assigns app user
-  management to the auth oracle, but the auth oracle records the `UserAdmin` calls behind those routes
-  (results and documents). The HTTP layer needs a small recorder under `packages/server/test`, because
-  `auth-builtin` cannot depend on `server`. Also not covered: Apple, Microsoft and Discord, `packed`
+- **Open:** the auth oracle records the `UserAdmin` calls behind `/admin/v1/users` (results and documents);
+  their HTTP layer is recorded separately in `conformance/http/admin/users.json` (see the R0 checkpoint
+  on `/admin/v1/users`). Also not covered: Apple, Microsoft and Discord, `packed`
   attestation with an `x5c` chain, RS256 passkeys, the claims hook, key rotation over time, revocations from
   another node, and an http public URL (cookies without `__Secure-`). Findings worth a decision for R5: a
   client using the `x-canopy-ceremony` bridge must send an `Origin` (a native client without one gets `403
