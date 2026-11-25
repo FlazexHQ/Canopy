@@ -1,0 +1,2439 @@
+{
+  "steps": [
+    {
+      "id": "help",
+      "cwd": ".",
+      "args": [
+        "--help"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Usage: canopy <command> [options]\n\nCommands:\n  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project\n  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too\n  doctor                 Check MongoDB, change streams, policies and indexes\n  policies lint          Validate and lint the policy directory\n  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB\n  policies explain <collection>\n                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)\n  policies diff [collection...]\n                         Compare the policy directory with the published policies\n  policies push [collection...]\n                         Publish changed collections (versioned, audited, conditional)\n  policies pull [collection...]\n                         Write the published policies into the policy directory as TypeScript\n  policies history <collection>\n                         List the published versions of a collection\n  policies rollback <collection> <version>\n                         Republish an earlier version as a new one (asks first)\n  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;\n                         password hashes are checked on first sign in, then rehashed\n  keys list              List the API keys of the project\n  keys create            Create a key: --kind publishable|secret --name <name>\n  keys revoke <id>       Revoke a key for good (asks first)\n  admin list             List the Studio admins\n  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]\n  admin reset-totp <id|email>\n                         Clear an admin's TOTP and end their sessions (asks first)\n  admin tokens create    Create a long lived admin API token for CI on the project behind --env:\n                         --name <name> [--role <role>] [--expires <days>]\n  admin tokens list      List your admin API tokens (--all: every admin's)\n  admin tokens revoke <id>\n                         Revoke an admin API token at once (asks first)\n  migrate                Bring the meta database up to date (--status lists the migrations)\n  login <url>            Verify an admin token and store it for a remote project in the OS keychain\n  logout <url>           Remove the stored admin token of a project\n  pull                   Write an editable collection schema from MongoDB\n  schema diff            Compare the schema file with MongoDB and exit 1 on drift\n  schema push            Apply collection validators from the schema file (asks first)\n  config print           Print the resolved config with secrets masked\n  realtime enable-images <collection...>\n                         Turn on change stream pre and post images (asks first)\n  realtime disable-images <collection...>\n                         Turn them off (asks first)\n  indexes advise         Suggest indexes for the equality fields of policies and context lookups\n  indexes create         Create the suggested indexes (asks first)\n\nSettings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and\nthe CANOPY_* variables. Flags override both.\n\nOptions:\n  --config <file>        The config file (default: discovered)\n  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)\n  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)\n  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)\n  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)\n  --js                   pull: emit JavaScript\n  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)\n  --collection <name>    pull: add one collection to the schema file\n  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions\n  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)\n  --sources              config print: show where each value came from\n  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),\n                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)\n  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs\n  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)\n  --port <n>             dev: the port to serve on (default: the config's server.port)\n  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)\n  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)\n  --expect-version <v>   policies push: the version each change was made against, as n (one collection)\n                         or collection=n pairs (_context=n for the context lookups); policies\n                         rollback: the current version\n  --comment <text>       policies push, rollback: recorded in the history and the audit log\n  --dry-run              policies push: show what would be published; auth import: only read the file\n  --fail-on-drift        policies diff: exit 1 when anything differs\n  --force                policies pull: replace existing files\n                         pull: replace an edited schema file when pulling all collections\n  --limit <n>            policies history: how many versions (default 50)\n  --kind <kind>          keys create: publishable or secret\n  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens\n                         create: the token's name\n  --email <email>        admin create: the admin's email\n  --role <role>          schema diff: report fields the role cannot read or write on insert\n                         admin create, admin\n                         tokens create: the role (a token's defaults to yours and may not be higher)\n  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)\n  --all                  admin tokens list: every admin's tokens (owners and admins)\n  --status               migrate: list the migrations instead of running them\n  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)\n  --env <name>           login: remember the project under this name; policies push, diff, pull,\n                         history, rollback and admin tokens: work on that project through its admin API\n                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).\n                         production and development also set CANOPY_ENV\n  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,\n                         admin tokens revoke, schema push: apply without asking\n  --from <system>        auth import: firebase, auth0, cognito or csv\n  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and\n                         --mem-cost (the project's password hash parameters) imports password hashes\n  --as <claims>          policies explain: the caller's claims as JSON (default: anon)\n  --roles <a,b>          policies explain: custom roles of the caller\n  --op <op>              policies explain: read, insert, update or delete (default read)\n  --filter <json>        policies explain: the caller's read filter\n  --ctx <json>           policies explain: context lookup values instead of resolving them\n  --version              Print the version of the CLI\n  --debug                With an unexpected error, print its stack trace\n  --help                 Show this help\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "version",
+      "cwd": ".",
+      "args": [
+        "--version"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "0.0.0\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "no-command",
+      "cwd": ".",
+      "args": [],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Usage: canopy <command> [options]\n\nCommands:\n  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project\n  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too\n  doctor                 Check MongoDB, change streams, policies and indexes\n  policies lint          Validate and lint the policy directory\n  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB\n  policies explain <collection>\n                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)\n  policies diff [collection...]\n                         Compare the policy directory with the published policies\n  policies push [collection...]\n                         Publish changed collections (versioned, audited, conditional)\n  policies pull [collection...]\n                         Write the published policies into the policy directory as TypeScript\n  policies history <collection>\n                         List the published versions of a collection\n  policies rollback <collection> <version>\n                         Republish an earlier version as a new one (asks first)\n  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;\n                         password hashes are checked on first sign in, then rehashed\n  keys list              List the API keys of the project\n  keys create            Create a key: --kind publishable|secret --name <name>\n  keys revoke <id>       Revoke a key for good (asks first)\n  admin list             List the Studio admins\n  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]\n  admin reset-totp <id|email>\n                         Clear an admin's TOTP and end their sessions (asks first)\n  admin tokens create    Create a long lived admin API token for CI on the project behind --env:\n                         --name <name> [--role <role>] [--expires <days>]\n  admin tokens list      List your admin API tokens (--all: every admin's)\n  admin tokens revoke <id>\n                         Revoke an admin API token at once (asks first)\n  migrate                Bring the meta database up to date (--status lists the migrations)\n  login <url>            Verify an admin token and store it for a remote project in the OS keychain\n  logout <url>           Remove the stored admin token of a project\n  pull                   Write an editable collection schema from MongoDB\n  schema diff            Compare the schema file with MongoDB and exit 1 on drift\n  schema push            Apply collection validators from the schema file (asks first)\n  config print           Print the resolved config with secrets masked\n  realtime enable-images <collection...>\n                         Turn on change stream pre and post images (asks first)\n  realtime disable-images <collection...>\n                         Turn them off (asks first)\n  indexes advise         Suggest indexes for the equality fields of policies and context lookups\n  indexes create         Create the suggested indexes (asks first)\n\nSettings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and\nthe CANOPY_* variables. Flags override both.\n\nOptions:\n  --config <file>        The config file (default: discovered)\n  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)\n  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)\n  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)\n  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)\n  --js                   pull: emit JavaScript\n  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)\n  --collection <name>    pull: add one collection to the schema file\n  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions\n  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)\n  --sources              config print: show where each value came from\n  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),\n                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)\n  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs\n  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)\n  --port <n>             dev: the port to serve on (default: the config's server.port)\n  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)\n  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)\n  --expect-version <v>   policies push: the version each change was made against, as n (one collection)\n                         or collection=n pairs (_context=n for the context lookups); policies\n                         rollback: the current version\n  --comment <text>       policies push, rollback: recorded in the history and the audit log\n  --dry-run              policies push: show what would be published; auth import: only read the file\n  --fail-on-drift        policies diff: exit 1 when anything differs\n  --force                policies pull: replace existing files\n                         pull: replace an edited schema file when pulling all collections\n  --limit <n>            policies history: how many versions (default 50)\n  --kind <kind>          keys create: publishable or secret\n  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens\n                         create: the token's name\n  --email <email>        admin create: the admin's email\n  --role <role>          schema diff: report fields the role cannot read or write on insert\n                         admin create, admin\n                         tokens create: the role (a token's defaults to yours and may not be higher)\n  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)\n  --all                  admin tokens list: every admin's tokens (owners and admins)\n  --status               migrate: list the migrations instead of running them\n  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)\n  --env <name>           login: remember the project under this name; policies push, diff, pull,\n                         history, rollback and admin tokens: work on that project through its admin API\n                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).\n                         production and development also set CANOPY_ENV\n  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,\n                         admin tokens revoke, schema push: apply without asking\n  --from <system>        auth import: firebase, auth0, cognito or csv\n  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and\n                         --mem-cost (the project's password hash parameters) imports password hashes\n  --as <claims>          policies explain: the caller's claims as JSON (default: anon)\n  --roles <a,b>          policies explain: custom roles of the caller\n  --op <op>              policies explain: read, insert, update or delete (default read)\n  --filter <json>        policies explain: the caller's read filter\n  --ctx <json>           policies explain: context lookup values instead of resolving them\n  --version              Print the version of the CLI\n  --debug                With an unexpected error, print its stack trace\n  --help                 Show this help\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "unknown-command",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "lnt"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "Unknown command: policies lnt. Did you mean canopy policies lint?\n\nUsage: canopy <command> [options]\n\nCommands:\n  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project\n  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too\n  doctor                 Check MongoDB, change streams, policies and indexes\n  policies lint          Validate and lint the policy directory\n  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB\n  policies explain <collection>\n                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)\n  policies diff [collection...]\n                         Compare the policy directory with the published policies\n  policies push [collection...]\n                         Publish changed collections (versioned, audited, conditional)\n  policies pull [collection...]\n                         Write the published policies into the policy directory as TypeScript\n  policies history <collection>\n                         List the published versions of a collection\n  policies rollback <collection> <version>\n                         Republish an earlier version as a new one (asks first)\n  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;\n                         password hashes are checked on first sign in, then rehashed\n  keys list              List the API keys of the project\n  keys create            Create a key: --kind publishable|secret --name <name>\n  keys revoke <id>       Revoke a key for good (asks first)\n  admin list             List the Studio admins\n  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]\n  admin reset-totp <id|email>\n                         Clear an admin's TOTP and end their sessions (asks first)\n  admin tokens create    Create a long lived admin API token for CI on the project behind --env:\n                         --name <name> [--role <role>] [--expires <days>]\n  admin tokens list      List your admin API tokens (--all: every admin's)\n  admin tokens revoke <id>\n                         Revoke an admin API token at once (asks first)\n  migrate                Bring the meta database up to date (--status lists the migrations)\n  login <url>            Verify an admin token and store it for a remote project in the OS keychain\n  logout <url>           Remove the stored admin token of a project\n  pull                   Write an editable collection schema from MongoDB\n  schema diff            Compare the schema file with MongoDB and exit 1 on drift\n  schema push            Apply collection validators from the schema file (asks first)\n  config print           Print the resolved config with secrets masked\n  realtime enable-images <collection...>\n                         Turn on change stream pre and post images (asks first)\n  realtime disable-images <collection...>\n                         Turn them off (asks first)\n  indexes advise         Suggest indexes for the equality fields of policies and context lookups\n  indexes create         Create the suggested indexes (asks first)\n\nSettings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and\nthe CANOPY_* variables. Flags override both.\n\nOptions:\n  --config <file>        The config file (default: discovered)\n  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)\n  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)\n  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)\n  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)\n  --js                   pull: emit JavaScript\n  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)\n  --collection <name>    pull: add one collection to the schema file\n  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions\n  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)\n  --sources              config print: show where each value came from\n  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),\n                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)\n  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs\n  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)\n  --port <n>             dev: the port to serve on (default: the config's server.port)\n  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)\n  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)\n  --expect-version <v>   policies push: the version each change was made against, as n (one collection)\n                         or collection=n pairs (_context=n for the context lookups); policies\n                         rollback: the current version\n  --comment <text>       policies push, rollback: recorded in the history and the audit log\n  --dry-run              policies push: show what would be published; auth import: only read the file\n  --fail-on-drift        policies diff: exit 1 when anything differs\n  --force                policies pull: replace existing files\n                         pull: replace an edited schema file when pulling all collections\n  --limit <n>            policies history: how many versions (default 50)\n  --kind <kind>          keys create: publishable or secret\n  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens\n                         create: the token's name\n  --email <email>        admin create: the admin's email\n  --role <role>          schema diff: report fields the role cannot read or write on insert\n                         admin create, admin\n                         tokens create: the role (a token's defaults to yours and may not be higher)\n  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)\n  --all                  admin tokens list: every admin's tokens (owners and admins)\n  --status               migrate: list the migrations instead of running them\n  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)\n  --env <name>           login: remember the project under this name; policies push, diff, pull,\n                         history, rollback and admin tokens: work on that project through its admin API\n                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).\n                         production and development also set CANOPY_ENV\n  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,\n                         admin tokens revoke, schema push: apply without asking\n  --from <system>        auth import: firebase, auth0, cognito or csv\n  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and\n                         --mem-cost (the project's password hash parameters) imports password hashes\n  --as <claims>          policies explain: the caller's claims as JSON (default: anon)\n  --roles <a,b>          policies explain: custom roles of the caller\n  --op <op>              policies explain: read, insert, update or delete (default read)\n  --filter <json>        policies explain: the caller's read filter\n  --ctx <json>           policies explain: context lookup values instead of resolving them\n  --version              Print the version of the CLI\n  --debug                With an unexpected error, print its stack trace\n  --help                 Show this help\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "unknown-flag",
+      "cwd": ".",
+      "args": [
+        "config",
+        "print",
+        "--sourcs"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "Unknown option --sourcs for config print. Did you mean --sources?\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "missing-config",
+      "cwd": ".",
+      "args": [
+        "config",
+        "print",
+        "--config",
+        "missing.ts"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "Cannot find module '<project>/missing.ts' imported from <config-loader>\nRun again with --debug for the stack trace.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "init",
+      "cwd": "init",
+      "args": [
+        "init",
+        "--mongodb-uri",
+        "<mongo-uri>",
+        "--database",
+        "<app-db>"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Connected to <app-db>: 1 collections\n  create  canopy/canopy.config.ts\n  create  canopy/.env.example\n  create  canopy/policies/templates/owner-only.ts\n  create  canopy/policies/templates/tenant-scoped.ts\n  create  canopy/policies/templates/public-read-owner-write.ts\n  create  canopy/policies/templates/write-only-intake.ts\n  create  canopy/policies/notes.ts  exposed: false, owner only suggested\n  create  .gitignore  + canopy/.env, canopy/.env.*, !canopy/.env.example, .canopy/\n\nNext:\n  1. npm install canopy.js && npm install -D @canopy/cli\n  2. npx canopy dev --with-mongo  (starts a local MongoDB; or set MONGODB_URI in canopy/.env.local and run canopy dev)\n  3. Open the Studio URL it prints and claim the project with the setup token\n  4. Write the policies of a collection in canopy/policies (start from ./templates), then set exposed: true\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "init/.gitignore": {
+          "before": null,
+          "after": "canopy/.env\ncanopy/.env.*\n!canopy/.env.example\n.canopy/\n"
+        },
+        "init/canopy/.env.example": {
+          "before": null,
+          "after": "# Copy to canopy/.env.local and fill in. canopy dev reads .env, .env.local, .env.development and\n# .env.development.local next to canopy.config.ts; real environment variables always win.\n\n# A replica set: change streams and transactions do not work on a standalone server.\n# The database in the path is the app database.\nMONGODB_URI=mongodb://localhost:27017/app?replicaSet=rs0\n\n# Comma separated. A publishable key (canopy_pk_...) lets browsers connect as anon or with a user token;\n# a secret key (canopy_sk_...) is the service role and bypasses every policy, so keep it on servers.\nCANOPY_PUBLISHABLE_KEYS=\nCANOPY_SECRET_KEYS=\n"
+        },
+        "init/canopy/canopy.config.ts": {
+          "before": null,
+          "after": "import { defineConfig, env } from \"canopy.js/config\"\n\nexport default defineConfig({\n  mongodb: { uri: env.secret(\"MONGODB_URI\") },\n  keys: {\n    publishable: env.list.optional(\"CANOPY_PUBLISHABLE_KEYS\"),\n    secret: env.list.optional(\"CANOPY_SECRET_KEYS\"),\n  },\n  policies: { dir: \"./policies\" },\n  // Verify user tokens from your identity provider, for example:\n  // auth: external.auth0({ domain: env(\"AUTH0_DOMAIN\"), audience: \"https://api.example.com\" }),\n  // (import external from \"canopy.js/config\" as well)\n})\n"
+        },
+        "init/canopy/policies/notes.ts": {
+          "before": null,
+          "after": "// Suggested by canopy init from the ownerId field.\n// Owner only\n// Every document belongs to the user in ownerId; nobody else can see or change it.\n// Set exposed: true once the policies below match your data.\nimport { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"notes\", {\n  exposed: false,\n  realtime: true,\n  policies: [\n    allow\n      .read(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"owner reads\"),\n    allow\n      .insert(\"authenticated\")\n      .check({ ownerId: auth(\"sub\") })\n      .named(\"owner creates\"),\n    allow\n      .update(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .check({ ownerId: auth(\"sub\") })\n      .named(\"owner edits\"),\n    allow\n      .delete(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"owner deletes\"),\n  ],\n  immutable: [\"ownerId\"],\n})\n"
+        },
+        "init/canopy/policies/templates/owner-only.ts": {
+          "before": null,
+          "after": "// Owner only\n// Every document belongs to the user in ownerId; nobody else can see or change it.\n// Set exposed: true once the policies below match your data.\nimport { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"notes\", {\n  exposed: false,\n  realtime: true,\n  policies: [\n    allow\n      .read(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"owner reads\"),\n    allow\n      .insert(\"authenticated\")\n      .check({ ownerId: auth(\"sub\") })\n      .named(\"owner creates\"),\n    allow\n      .update(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .check({ ownerId: auth(\"sub\") })\n      .named(\"owner edits\"),\n    allow\n      .delete(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"owner deletes\"),\n  ],\n  immutable: [\"ownerId\"],\n})\n"
+        },
+        "init/canopy/policies/templates/public-read-owner-write.ts": {
+          "before": null,
+          "after": "// Public read, owner write\n// Anyone, signed in or not, reads published documents. The user in authorId writes them and also\n// sees their drafts.\n// Set exposed: true once the policies below match your data.\nimport { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"posts\", {\n  exposed: false,\n  realtime: true,\n  policies: [\n    allow.read(\"public\").where({ published: true }).named(\"anyone reads published\"),\n    allow\n      .read(\"authenticated\")\n      .where({ authorId: auth(\"sub\") })\n      .named(\"author reads drafts\"),\n    allow\n      .insert(\"authenticated\")\n      .check({ authorId: auth(\"sub\") })\n      .named(\"author creates\"),\n    allow\n      .update(\"authenticated\")\n      .where({ authorId: auth(\"sub\") })\n      .check({ authorId: auth(\"sub\") })\n      .named(\"author edits\"),\n    allow\n      .delete(\"authenticated\")\n      .where({ authorId: auth(\"sub\") })\n      .named(\"author deletes\"),\n  ],\n  immutable: [\"authorId\"],\n})\n"
+        },
+        "init/canopy/policies/templates/tenant-scoped.ts": {
+          "before": null,
+          "after": "// Tenant scoped\n// Documents belong to the tenant in orgId; every member of that tenant may use them.\n// The tenant comes from the org_id claim of the token. When membership lives in MongoDB instead, declare\n// a context lookup in policies/_context.ts and compare with ctx(\"tenantIds\") using $in.\n// Set exposed: true once the policies below match your data.\nimport { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"projects\", {\n  exposed: false,\n  realtime: true,\n  policies: [\n    allow\n      .ops([\"read\", \"delete\"], \"authenticated\")\n      .where({ orgId: auth(\"org_id\") })\n      .named(\"members read and delete\"),\n    allow\n      .insert(\"authenticated\")\n      .check({ orgId: auth(\"org_id\") })\n      .named(\"members create in their tenant\"),\n    allow\n      .update(\"authenticated\")\n      .where({ orgId: auth(\"org_id\") })\n      .check({ orgId: auth(\"org_id\") })\n      .named(\"members edit\"),\n  ],\n  immutable: [\"orgId\"],\n})\n"
+        },
+        "init/canopy/policies/templates/write-only-intake.ts": {
+          "before": null,
+          "after": "// Write only intake\n// A contact form or feedback box: anyone may insert a document, nobody can read, change or delete\n// one through Canopy. Read submissions with a secret key on your server.\n// Set exposed: true once the policies below match your data.\nimport { allow, collection } from \"canopy.js/policy\"\n\nexport default collection(\"feedback\", {\n  exposed: false,\n  realtime: false,\n  policies: [\n    allow\n      .insert(\"public\")\n      .check({ email: { $type: \"string\" }, status: \"new\" })\n      .named(\"anyone submits\"),\n  ],\n  fields: {\n    write: { default: { only: [\"email\", \"message\", \"status\"] } },\n  },\n})\n"
+        }
+      },
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "init-again",
+      "cwd": "init",
+      "args": [
+        "init"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "  exists  canopy/canopy.config.ts  (kept)\n  exists  canopy/.env.example  (kept)\n  exists  canopy/policies/templates/owner-only.ts  (kept)\n  exists  canopy/policies/templates/tenant-scoped.ts  (kept)\n  exists  canopy/policies/templates/public-read-owner-write.ts  (kept)\n  exists  canopy/policies/templates/write-only-intake.ts  (kept)\n\nNext:\n  1. npm install canopy.js && npm install -D @canopy/cli\n  2. npx canopy dev --with-mongo  (starts a local MongoDB; or set MONGODB_URI in canopy/.env.local and run canopy dev)\n  3. Open the Studio URL it prints and claim the project with the setup token\n  4. Write the policies of a collection in canopy/policies (start from ./templates), then set exposed: true\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "doctor",
+      "cwd": ".",
+      "args": [
+        "doctor"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "ok    connected to MongoDB\nok    topology: replica set rs0\nok    MongoDB <version>\nok    featureCompatibilityVersion <fcv>\nok    change streams can be opened on <app-db>\nok    1 policy collections loaded from <project>/policies\nwarn  warn   missing-index  notes > read own: No index starts with ownerId, which this policy filters on for every query\nwarn  DLS is enforced by Canopy, not inside mongod: clients holding MongoDB credentials bypass it\nok    search: Search is not available on this MongoDB deployment; it needs Atlas, an Atlas local deployment or MongoDB Search\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "doctor-unreachable",
+      "cwd": ".",
+      "args": [
+        "doctor"
+      ],
+      "env": {
+        "MONGODB_URI": "mongodb://127.0.0.1:1/",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "error CANOPY_UNAVAILABLE: cannot reach MongoDB\n  MongoDB at 127.0.0.1:1 did not accept a connection: the host is wrong or mongod is not running.\n  Fix: check that mongod is running and that the host and port of the connection string are right.\n       In Docker, use the service name instead of localhost.\n  Docs: errors/mongodb-unreachable\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "config-print",
+      "cwd": ".",
+      "args": [
+        "config",
+        "print",
+        "--sources"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "environment = \"development\"  (default)\nmongodb.uri = \"<mongo-uri>\"  (env MONGODB_URI)\nmongodb.database = \"<app-db>\"  (env CANOPY_DB)\nmongodb.metaDatabase = \"<meta-db>\"  (env CANOPY_META_DB)\nmongodb.authDatabase = \"<auth-db>\"  (env CANOPY_AUTH_DB)\npreviousMasterKeys = []  (default)\nkeys.publishable = []  (default)\nkeys.secret = []  (default)\npolicies.dir = \"<project>/policies\"  (config file)\npolicies.watch = true  (default)\nrest.defaultLimit = 100  (default)\nrest.maxLimit = 1000  (default)\nrest.maxBodyBytes = 1048576  (default)\nrest.mutationTtlMs = 86400000  (default)\ngraphql.maxDepth = 10  (default)\ngraphql.maxComplexity = 5000  (default)\ngraphql.maxAliases = 30  (default)\ngraphql.maxBatch = 10  (default)\ngraphql.introspection = \"always\"  (default)\nrealtime = false  (config file)\nrateLimits.requests.perSecond = 50  (default)\nrateLimits.requests.burst = 200  (default)\nrateLimits.messages.perSecond = 20  (default)\nrateLimits.messages.burst = 100  (default)\nrateLimits.anonymousConnectionsPerAddress = 50  (default)\nrateLimits.failedAuthentications.perSecond = 1  (default)\nrateLimits.failedAuthentications.burst = 30  (default)\nrateLimits.exemptService = true  (default)\ncollections = {}\naudit.dataWrites = false  (default)\nwebhooks.maxAttempts = 8  (default)\nwebhooks.timeoutMs = 10000  (default)\nwebhooks.triggers = {}\nwebhooks.schedules = {}\nstorage = false  (default)\ntelemetry.tracing = false  (default)\nserver.port = 8080  (default)\nserver.metricsPort = 9464  (default)\nserver.metricsHost = \"127.0.0.1\"  (default)\nserver.nodeId = \"n1\"  (default)\nserver.trustedProxies = []  (default)\nserver.engine = \"ts\"  (config file)\nlog.level = \"info\"  (default)\ntypes.out = \"<project>/src/canopy.gen.ts\"  (default)\ndev.insecure = false  (default)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "lint",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "lint"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "1 collections, 0 findings, 0 errors\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "invalid-policy",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "lint",
+        "--dir",
+        "invalid"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "error  notes.json must export collection(...) policies\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-test",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "test",
+        "--mongodb-uri",
+        "<mongo-uri>"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "pass  notes: alice can read\npass  notes: bob cannot read\ncoverage  notes: 1/1 policies exercised\n2 cases on memory and mongodb, 0 failed\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-explain",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "explain",
+        "notes",
+        "--as",
+        "{\"sub\":\"alice\"}"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "notes, read, roles [authenticated]\n  permissive  \"read own\"  matches   {\"ownerId\":\"alice\"}\n  restrictive (none)\nResult: allowed\nEffective filter: {\"ownerId\":\"alice\"}\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "push-unmigrated",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "The meta database <meta-db> is not migrated (create-meta-collections, create-request-log, create-admin-tokens, create-webhooks, create-storage, create-storage-variants). Run canopy migrate first.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "migration-pending",
+      "cwd": ".",
+      "args": [
+        "migrate",
+        "--status"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "   1  create-meta-collections  pending\n   2  create-request-log  pending\n   3  create-admin-tokens  pending\n   4  create-webhooks  pending\n   5  create-storage  pending\n   6  create-storage-variants  pending\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "migrate",
+      "cwd": ".",
+      "args": [
+        "migrate"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Applied create-meta-collections, create-request-log, create-admin-tokens, create-webhooks, create-storage, create-storage-variants; <meta-db> is at version 6\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "migrations/1": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "1"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-meta-collections"
+          }
+        },
+        "migrations/2": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "2"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-request-log"
+          }
+        },
+        "migrations/3": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "3"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-admin-tokens"
+          }
+        },
+        "migrations/4": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "4"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-webhooks"
+          }
+        },
+        "migrations/5": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "5"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-storage"
+          }
+        },
+        "migrations/6": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$numberInt": "6"
+            },
+            "appliedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "name": "create-storage-variants"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "migration-applied",
+      "cwd": ".",
+      "args": [
+        "migrate",
+        "--status"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "   1  create-meta-collections  applied <time>\n   2  create-request-log  applied <time>\n   3  create-admin-tokens  applied <time>\n   4  create-webhooks  applied <time>\n   5  create-storage  applied <time>\n   6  create-storage-variants  applied <time>\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-drift",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "diff",
+        "--fail-on-drift"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "only local     notes\n1 difference\n",
+      "stderr": "",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "push-dry-run",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "--dry-run"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "would publish  notes  v1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "push",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "--expect-version",
+        "0",
+        "--comment",
+        "initial"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "published  notes  v1\nversions: notes=1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "audit_log/{\"$oid\":\"<object-id:1>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:1>"
+            },
+            "action": "policy.publish",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "collection": "notes",
+              "version": {
+                "$numberInt": "1"
+              }
+            },
+            "diff": {
+              "before": null,
+              "after": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "1"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "read own",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              }
+            },
+            "comment": "initial",
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        },
+        "policies/\"notes\"": {
+          "before": null,
+          "after": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "1"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "read own",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          }
+        },
+        "policy_history/{\"$oid\":\"<object-id:2>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:2>"
+            },
+            "collection": "notes",
+            "version": {
+              "$numberInt": "1"
+            },
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "document": {
+              "_id": "notes",
+              "version": {
+                "$numberInt": "1"
+              },
+              "exposed": true,
+              "realtime": false,
+              "policies": [
+                {
+                  "name": "read own",
+                  "kind": "permissive",
+                  "ops": [
+                    "read"
+                  ],
+                  "roles": [
+                    "authenticated"
+                  ],
+                  "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                }
+              ],
+              "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+              "updatedAt": {
+                "$date": {
+                  "$numberLong": "<time-ms>"
+                }
+              },
+              "updatedBy": "system:cli:<user>"
+            },
+            "publishedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "publishedBy": "system:cli:<user>",
+            "comment": "initial"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "policy-diff",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "diff"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "same           notes  v1\nNo drift: the database matches the policy directory.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "push-conflict",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "--expect-version",
+        "0"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "fileInput": {
+        "path": "policies/notes.ts",
+        "content": "import { allow, auth, collection } from \"@canopy/policy\"\n\nexport default collection(\"notes\", {\n  exposed: true,\n  policies: [allow.read(\"authenticated\").where({ ownerId: auth(\"sub\") }).named(\"owner read\")],\n})\n"
+      },
+      "stdout": "",
+      "stderr": "notes is at version 1 in the database, not 0. Someone published in between: run canopy policies diff, then push again.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "push-update",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "push",
+        "--expect-version",
+        "1"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "published  notes  v2\nversions: notes=2\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "policies/\"notes\"": {
+          "before": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "1"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "read own",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          },
+          "after": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "2"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "owner read",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:3>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:3>"
+            },
+            "action": "policy.publish",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "collection": "notes",
+              "version": {
+                "$numberInt": "2"
+              }
+            },
+            "diff": {
+              "before": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "1"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "read own",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              },
+              "after": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "2"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "owner read",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              }
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        },
+        "policy_history/{\"$oid\":\"<object-id:4>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:4>"
+            },
+            "collection": "notes",
+            "version": {
+              "$numberInt": "2"
+            },
+            "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+            "document": {
+              "_id": "notes",
+              "version": {
+                "$numberInt": "2"
+              },
+              "exposed": true,
+              "realtime": false,
+              "policies": [
+                {
+                  "name": "owner read",
+                  "kind": "permissive",
+                  "ops": [
+                    "read"
+                  ],
+                  "roles": [
+                    "authenticated"
+                  ],
+                  "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                }
+              ],
+              "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+              "updatedAt": {
+                "$date": {
+                  "$numberLong": "<time-ms>"
+                }
+              },
+              "updatedBy": "system:cli:<user>"
+            },
+            "publishedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "publishedBy": "system:cli:<user>"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "policy-history",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "history",
+        "notes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "v2  <time>  system:cli:<user>  sha256:9f7bc93335ef  current\nv1  <time>  system:cli:<user>  sha256:df2bd949cd78  \"initial\"\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-rollback-refused",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "rollback",
+        "notes",
+        "1"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "Not applied: no terminal to confirm on. Pass --yes to apply without a prompt.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "policy-rollback",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "rollback",
+        "notes",
+        "1",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "published  notes  v3  (rollback of v1)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "policies/\"notes\"": {
+          "before": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "2"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "owner read",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          },
+          "after": {
+            "_id": "notes",
+            "version": {
+              "$numberInt": "3"
+            },
+            "exposed": true,
+            "realtime": false,
+            "policies": [
+              {
+                "name": "read own",
+                "kind": "permissive",
+                "ops": [
+                  "read"
+                ],
+                "roles": [
+                  "authenticated"
+                ],
+                "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+              }
+            ],
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedBy": "system:cli:<user>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:5>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:5>"
+            },
+            "action": "policy.rollback",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "collection": "notes",
+              "version": {
+                "$numberInt": "3"
+              }
+            },
+            "diff": {
+              "before": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "2"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "owner read",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:9f7bc93335efec24bfed451ecd1df51ecc46d5137932198dd9af204f172ad3f3",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              },
+              "after": {
+                "_id": "notes",
+                "version": {
+                  "$numberInt": "3"
+                },
+                "exposed": true,
+                "realtime": false,
+                "policies": [
+                  {
+                    "name": "read own",
+                    "kind": "permissive",
+                    "ops": [
+                      "read"
+                    ],
+                    "roles": [
+                      "authenticated"
+                    ],
+                    "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                  }
+                ],
+                "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+                "updatedAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                },
+                "updatedBy": "system:cli:<user>"
+              }
+            },
+            "details": {
+              "rollbackOf": {
+                "$numberInt": "1"
+              }
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        },
+        "policy_history/{\"$oid\":\"<object-id:6>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:6>"
+            },
+            "collection": "notes",
+            "version": {
+              "$numberInt": "3"
+            },
+            "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+            "document": {
+              "_id": "notes",
+              "version": {
+                "$numberInt": "3"
+              },
+              "exposed": true,
+              "realtime": false,
+              "policies": [
+                {
+                  "name": "read own",
+                  "kind": "permissive",
+                  "ops": [
+                    "read"
+                  ],
+                  "roles": [
+                    "authenticated"
+                  ],
+                  "using": "{\"ownerId\":{\"$auth\":\"sub\"}}"
+                }
+              ],
+              "hash": "sha256:df2bd949cd78e499216a0dfdc88f0ce6f07e0d9a2c6dcd3f265da6d7d322f0f5",
+              "updatedAt": {
+                "$date": {
+                  "$numberLong": "<time-ms>"
+                }
+              },
+              "updatedBy": "system:cli:<user>"
+            },
+            "publishedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "publishedBy": "system:cli:<user>",
+            "rollbackOf": {
+              "$numberInt": "1"
+            }
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "policy-pull",
+      "cwd": ".",
+      "args": [
+        "policies",
+        "pull",
+        "--dir",
+        "pulled-policies"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "wrote  <project>/pulled-policies/notes.ts\nPulled 1 collection: notes=3\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "pulled-policies/notes.ts": {
+          "before": null,
+          "after": "import { allow, auth, collection } from \"canopy.js/policy\"\n\nexport default collection(\"notes\", {\n  exposed: true,\n  realtime: false,\n  policies: [\n    allow.read(\"authenticated\")\n      .where({ ownerId: auth(\"sub\") })\n      .named(\"read own\"),\n  ],\n})\n"
+        }
+      },
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "schema-diff",
+      "cwd": ".",
+      "args": [
+        "schema",
+        "diff",
+        "--file",
+        "fixture.schema.ts"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "notes._id is objectId in the schema file but string in the database\n1 differences; edit fixture.schema.ts or run canopy schema push\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "schema-push-refused",
+      "cwd": ".",
+      "args": [
+        "schema",
+        "push",
+        "--file",
+        "fixture.schema.ts"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "update validator of notes\n",
+      "stderr": "Not applied: no terminal to confirm on. Pass --yes to apply without a prompt.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "schema-push",
+      "cwd": ".",
+      "args": [
+        "schema",
+        "push",
+        "--file",
+        "fixture.schema.ts",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "update validator of notes\nupdated validator of notes\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "pull-typescript",
+      "cwd": ".",
+      "args": [
+        "pull",
+        "--out",
+        "pulled.schema.ts"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "wrote pulled.schema.ts (1 collections)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "pulled.schema.ts": {
+          "before": null,
+          "after": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport type {} from \"canopy.js\"\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  ownerId: t.string(),\n  title: t.string(),\n})\n\nexport const schema = defineSchema(notes)\n\ndeclare module \"canopy.js\" {\n  interface Register {\n    schema: typeof schema\n  }\n}\n"
+        }
+      },
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "pull-javascript",
+      "cwd": ".",
+      "args": [
+        "pull",
+        "--js",
+        "--out",
+        "pulled.schema.js"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "wrote pulled.schema.js (1 collections)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {
+        "pulled.schema.js": {
+          "before": null,
+          "after": "// Written by canopy pull. This file is yours now: edit it, review it and commit it.\nimport { collection, defineSchema, t } from \"canopy.js/schema\"\n\nexport const notes = collection(\"notes\", {\n  ownerId: t.string(),\n  title: t.string(),\n})\n\nexport const schema = defineSchema(notes)\n"
+        }
+      },
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "realtime-enable",
+      "cwd": ".",
+      "args": [
+        "realtime",
+        "enable-images",
+        "notes",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Will run on <app-db>:\n  db.runCommand({\"collMod\":\"notes\",\"changeStreamPreAndPostImages\":{\"enabled\":true}})\nPre images are kept in config.system.preimages until the oplog rolls past them. Bound their size with\n  db.adminCommand({ setClusterParameter: { changeStreamOptions: { preAndPostImages: { expireAfterSeconds: 3600 } } } })\nnotes: pre and post images on\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "realtime-disable",
+      "cwd": ".",
+      "args": [
+        "realtime",
+        "disable-images",
+        "notes",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Will run on <app-db>:\n  db.runCommand({\"collMod\":\"notes\",\"changeStreamPreAndPostImages\":{\"enabled\":false}})\nnotes: pre and post images off\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "indexes-advise",
+      "cwd": ".",
+      "args": [
+        "indexes",
+        "advise"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "db.getCollection(\"notes\").createIndex({\"ownerId\":1})\n  for policy \"owner read\"\n1 index suggested on <app-db>. Run canopy indexes create to build them.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "indexes-create",
+      "cwd": ".",
+      "args": [
+        "indexes",
+        "create",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "db.getCollection(\"notes\").createIndex({\"ownerId\":1})\n  for policy \"owner read\"\ncreated notes.ownerId_1\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "key-create",
+      "cwd": ".",
+      "args": [
+        "keys",
+        "create",
+        "--kind",
+        "secret",
+        "--name",
+        "fixture"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "<key-id>  secret  \"fixture\"\n<key>\nThis is the only time the secret key is shown. Store it in your server's secrets; it bypasses every policy.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "api_keys/\"<key-id>\"": {
+          "before": null,
+          "after": {
+            "_id": "<key-id>",
+            "kind": "secret",
+            "name": "fixture",
+            "prefix": "<key-prefix>",
+            "hash": "<key-hash>",
+            "scram": {
+              "salt": "<scram-value>",
+              "iterations": {
+                "$numberInt": "15000"
+              },
+              "storedKey": "<scram-value>",
+              "serverKey": "<scram-value>"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:7>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:7>"
+            },
+            "action": "key.create",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "keyId": "<key-id>",
+              "kind": "secret",
+              "name": "fixture"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "key-list",
+      "cwd": ".",
+      "args": [
+        "keys",
+        "list"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "<key-id>  secret       <key-prefix>...               \"fixture\"  created <time> by cli:<user>  last used never  active\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "key-revoke",
+      "cwd": ".",
+      "args": [
+        "keys",
+        "revoke",
+        "<key-id>",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "revoked  <key-id>\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "api_keys/\"<key-id>\"": {
+          "before": {
+            "_id": "<key-id>",
+            "kind": "secret",
+            "name": "fixture",
+            "prefix": "<key-prefix>",
+            "hash": "<key-hash>",
+            "scram": {
+              "salt": "<scram-value>",
+              "iterations": {
+                "$numberInt": "15000"
+              },
+              "storedKey": "<scram-value>",
+              "serverKey": "<scram-value>"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>"
+          },
+          "after": {
+            "_id": "<key-id>",
+            "kind": "secret",
+            "name": "fixture",
+            "prefix": "<key-prefix>",
+            "hash": "<key-hash>",
+            "scram": {
+              "salt": "<scram-value>",
+              "iterations": {
+                "$numberInt": "15000"
+              },
+              "storedKey": "<scram-value>",
+              "serverKey": "<scram-value>"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>",
+            "revokedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "revokedBy": "cli:<user>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:8>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:8>"
+            },
+            "action": "key.revoke",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "keyId": "<key-id>",
+              "kind": "secret",
+              "name": "fixture"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "admin-create",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "create",
+        "--email",
+        "admin@example.test",
+        "--role",
+        "viewer"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "<admin-id:1>  admin@example.test  viewer\nTemporary password: <temporary-password>\nThis is the only time it is shown. It must be changed at the first login.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "admin_users/\"<admin-id:1>\"": {
+          "before": null,
+          "after": {
+            "_id": "<admin-id:1>",
+            "email": "admin@example.test",
+            "role": "viewer",
+            "passwordHash": "<password-hash>",
+            "mustChangePassword": true,
+            "disabled": false,
+            "failedLogins": {
+              "$numberInt": "0"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "passwordChangedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            }
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:9>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:9>"
+            },
+            "action": "admin.create",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "adminId": "<admin-id:1>",
+              "email": "admin@example.test",
+              "role": "viewer"
+            },
+            "origin": {},
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "admin-list",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "list"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "<admin-id:1>  admin@example.test                viewer     totp off  active    last login never\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "admin-reset-totp",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "reset-totp",
+        "admin@example.test",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "reset  <admin-id:1>  admin@example.test\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "admin_users/\"<admin-id:1>\"": {
+          "before": {
+            "_id": "<admin-id:1>",
+            "email": "admin@example.test",
+            "role": "viewer",
+            "passwordHash": "<password-hash>",
+            "mustChangePassword": true,
+            "disabled": false,
+            "failedLogins": {
+              "$numberInt": "0"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "passwordChangedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            }
+          },
+          "after": {
+            "_id": "<admin-id:1>",
+            "email": "admin@example.test",
+            "role": "viewer",
+            "passwordHash": "<password-hash>",
+            "mustChangePassword": true,
+            "disabled": false,
+            "failedLogins": {
+              "$numberInt": "0"
+            },
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "cli:<user>",
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "passwordChangedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            }
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:10>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:10>"
+            },
+            "action": "admin.totp.reset",
+            "actor": {
+              "type": "system",
+              "id": "cli:<user>"
+            },
+            "target": {
+              "adminId": "<admin-id:1>",
+              "email": "admin@example.test",
+              "role": "viewer"
+            },
+            "origin": {},
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "auth-import-dry-run",
+      "cwd": ".",
+      "args": [
+        "auth",
+        "import",
+        "users.csv",
+        "--from",
+        "csv",
+        "--dry-run"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "1 users read from <project>/users.csv (0 with password hashes, 0 unreadable)\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "login-help",
+      "cwd": ".",
+      "args": [
+        "login",
+        "--help"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Usage: canopy <command> [options]\n\nCommands:\n  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project\n  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too\n  doctor                 Check MongoDB, change streams, policies and indexes\n  policies lint          Validate and lint the policy directory\n  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB\n  policies explain <collection>\n                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)\n  policies diff [collection...]\n                         Compare the policy directory with the published policies\n  policies push [collection...]\n                         Publish changed collections (versioned, audited, conditional)\n  policies pull [collection...]\n                         Write the published policies into the policy directory as TypeScript\n  policies history <collection>\n                         List the published versions of a collection\n  policies rollback <collection> <version>\n                         Republish an earlier version as a new one (asks first)\n  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;\n                         password hashes are checked on first sign in, then rehashed\n  keys list              List the API keys of the project\n  keys create            Create a key: --kind publishable|secret --name <name>\n  keys revoke <id>       Revoke a key for good (asks first)\n  admin list             List the Studio admins\n  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]\n  admin reset-totp <id|email>\n                         Clear an admin's TOTP and end their sessions (asks first)\n  admin tokens create    Create a long lived admin API token for CI on the project behind --env:\n                         --name <name> [--role <role>] [--expires <days>]\n  admin tokens list      List your admin API tokens (--all: every admin's)\n  admin tokens revoke <id>\n                         Revoke an admin API token at once (asks first)\n  migrate                Bring the meta database up to date (--status lists the migrations)\n  login <url>            Verify an admin token and store it for a remote project in the OS keychain\n  logout <url>           Remove the stored admin token of a project\n  pull                   Write an editable collection schema from MongoDB\n  schema diff            Compare the schema file with MongoDB and exit 1 on drift\n  schema push            Apply collection validators from the schema file (asks first)\n  config print           Print the resolved config with secrets masked\n  realtime enable-images <collection...>\n                         Turn on change stream pre and post images (asks first)\n  realtime disable-images <collection...>\n                         Turn them off (asks first)\n  indexes advise         Suggest indexes for the equality fields of policies and context lookups\n  indexes create         Create the suggested indexes (asks first)\n\nSettings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and\nthe CANOPY_* variables. Flags override both.\n\nOptions:\n  --config <file>        The config file (default: discovered)\n  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)\n  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)\n  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)\n  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)\n  --js                   pull: emit JavaScript\n  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)\n  --collection <name>    pull: add one collection to the schema file\n  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions\n  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)\n  --sources              config print: show where each value came from\n  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),\n                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)\n  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs\n  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)\n  --port <n>             dev: the port to serve on (default: the config's server.port)\n  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)\n  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)\n  --expect-version <v>   policies push: the version each change was made against, as n (one collection)\n                         or collection=n pairs (_context=n for the context lookups); policies\n                         rollback: the current version\n  --comment <text>       policies push, rollback: recorded in the history and the audit log\n  --dry-run              policies push: show what would be published; auth import: only read the file\n  --fail-on-drift        policies diff: exit 1 when anything differs\n  --force                policies pull: replace existing files\n                         pull: replace an edited schema file when pulling all collections\n  --limit <n>            policies history: how many versions (default 50)\n  --kind <kind>          keys create: publishable or secret\n  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens\n                         create: the token's name\n  --email <email>        admin create: the admin's email\n  --role <role>          schema diff: report fields the role cannot read or write on insert\n                         admin create, admin\n                         tokens create: the role (a token's defaults to yours and may not be higher)\n  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)\n  --all                  admin tokens list: every admin's tokens (owners and admins)\n  --status               migrate: list the migrations instead of running them\n  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)\n  --env <name>           login: remember the project under this name; policies push, diff, pull,\n                         history, rollback and admin tokens: work on that project through its admin API\n                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).\n                         production and development also set CANOPY_ENV\n  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,\n                         admin tokens revoke, schema push: apply without asking\n  --from <system>        auth import: firebase, auth0, cognito or csv\n  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and\n                         --mem-cost (the project's password hash parameters) imports password hashes\n  --as <claims>          policies explain: the caller's claims as JSON (default: anon)\n  --roles <a,b>          policies explain: custom roles of the caller\n  --op <op>              policies explain: read, insert, update or delete (default read)\n  --filter <json>        policies explain: the caller's read filter\n  --ctx <json>           policies explain: context lookup values instead of resolving them\n  --version              Print the version of the CLI\n  --debug                With an unexpected error, print its stack trace\n  --help                 Show this help\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "logout-help",
+      "cwd": ".",
+      "args": [
+        "logout",
+        "--help"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Usage: canopy <command> [options]\n\nCommands:\n  init                   Add a canopy/ folder (config, starter policies, .env.example) to this project\n  dev                    Run Canopy locally with hot reload; --with-mongo starts MongoDB too\n  doctor                 Check MongoDB, change streams, policies and indexes\n  policies lint          Validate and lint the policy directory\n  policies test          Run policy tests in memory and, with --mongodb-uri, against MongoDB\n  policies explain <collection>\n                         Show how DLS decides an operation for a caller (--as, --roles, --op, --filter)\n  policies diff [collection...]\n                         Compare the policy directory with the published policies\n  policies push [collection...]\n                         Publish changed collections (versioned, audited, conditional)\n  policies pull [collection...]\n                         Write the published policies into the policy directory as TypeScript\n  policies history <collection>\n                         List the published versions of a collection\n  policies rollback <collection> <version>\n                         Republish an earlier version as a new one (asks first)\n  auth import <file>     Import app users from --from firebase|auth0|cognito|csv into built in auth;\n                         password hashes are checked on first sign in, then rehashed\n  keys list              List the API keys of the project\n  keys create            Create a key: --kind publishable|secret --name <name>\n  keys revoke <id>       Revoke a key for good (asks first)\n  admin list             List the Studio admins\n  admin create           Create an admin: --email <email> --role owner|admin|developer|viewer [--name]\n  admin reset-totp <id|email>\n                         Clear an admin's TOTP and end their sessions (asks first)\n  admin tokens create    Create a long lived admin API token for CI on the project behind --env:\n                         --name <name> [--role <role>] [--expires <days>]\n  admin tokens list      List your admin API tokens (--all: every admin's)\n  admin tokens revoke <id>\n                         Revoke an admin API token at once (asks first)\n  migrate                Bring the meta database up to date (--status lists the migrations)\n  login <url>            Verify an admin token and store it for a remote project in the OS keychain\n  logout <url>           Remove the stored admin token of a project\n  pull                   Write an editable collection schema from MongoDB\n  schema diff            Compare the schema file with MongoDB and exit 1 on drift\n  schema push            Apply collection validators from the schema file (asks first)\n  config print           Print the resolved config with secrets masked\n  realtime enable-images <collection...>\n                         Turn on change stream pre and post images (asks first)\n  realtime disable-images <collection...>\n                         Turn them off (asks first)\n  indexes advise         Suggest indexes for the equality fields of policies and context lookups\n  indexes create         Create the suggested indexes (asks first)\n\nSettings come from canopy.config.ts (or canopy/canopy.config.ts), found from the working directory, and\nthe CANOPY_* variables. Flags override both.\n\nOptions:\n  --config <file>        The config file (default: discovered)\n  --dir <path>           Policy directory (default: the config's policies.dir, else ./canopy/policies)\n  --mongodb-uri <uri>    MongoDB connection string (default: the config, else $MONGODB_URI)\n  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)\n  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)\n  --js                   pull: emit JavaScript\n  --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)\n  --collection <name>    pull: add one collection to the schema file\n  --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions\n  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)\n  --sources              config print: show where each value came from\n  --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),\n                         otherwise from the official binaries (downloaded once, data in .canopy/mongodb)\n  --mongo-binary         dev --with-mongo: use the official binaries even when Docker runs\n  --mongo-version <x.y.z> dev --with-mongo: the binaries' version (default 8.0.34)\n  --port <n>             dev: the port to serve on (default: the config's server.port)\n  --mongo-port <n>       dev --with-mongo: the MongoDB port (default 27017)\n  --mongo-image <image>  dev --with-mongo: the image (default mongodb/mongodb-community-server:8.0-ubi9)\n  --expect-version <v>   policies push: the version each change was made against, as n (one collection)\n                         or collection=n pairs (_context=n for the context lookups); policies\n                         rollback: the current version\n  --comment <text>       policies push, rollback: recorded in the history and the audit log\n  --dry-run              policies push: show what would be published; auth import: only read the file\n  --fail-on-drift        policies diff: exit 1 when anything differs\n  --force                policies pull: replace existing files\n                         pull: replace an edited schema file when pulling all collections\n  --limit <n>            policies history: how many versions (default 50)\n  --kind <kind>          keys create: publishable or secret\n  --name <name>          keys create: a label for the key; admin create: the admin's name; admin tokens\n                         create: the token's name\n  --email <email>        admin create: the admin's email\n  --role <role>          schema diff: report fields the role cannot read or write on insert\n                         admin create, admin\n                         tokens create: the role (a token's defaults to yours and may not be higher)\n  --expires <days>       admin tokens create: days until the token expires, as 90 or 90d (default never)\n  --all                  admin tokens list: every admin's tokens (owners and admins)\n  --status               migrate: list the migrations instead of running them\n  --token <token>        login: the admin token (default: $CANOPY_ADMIN_TOKEN, else asked for)\n  --env <name>           login: remember the project under this name; policies push, diff, pull,\n                         history, rollback and admin tokens: work on that project through its admin API\n                         ($CANOPY_ADMIN_URL and $CANOPY_ADMIN_TOKEN override the stored login).\n                         production and development also set CANOPY_ENV\n  --yes                  realtime, indexes create, policies rollback, keys revoke, admin reset-totp,\n                         admin tokens revoke, schema push: apply without asking\n  --from <system>        auth import: firebase, auth0, cognito or csv\n  --hash-key <base64>    auth import: Firebase's signer key; with --salt-separator, --rounds and\n                         --mem-cost (the project's password hash parameters) imports password hashes\n  --as <claims>          policies explain: the caller's claims as JSON (default: anon)\n  --roles <a,b>          policies explain: custom roles of the caller\n  --op <op>              policies explain: read, insert, update or delete (default read)\n  --filter <json>        policies explain: the caller's read filter\n  --ctx <json>           policies explain: context lookup values instead of resolving them\n  --version              Print the version of the CLI\n  --debug                With an unexpected error, print its stack trace\n  --help                 Show this help\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "login-refused",
+      "cwd": ".",
+      "args": [
+        "login",
+        "http://example.test"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "Admin tokens are only sent over HTTPS (http is allowed for localhost).\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "logout-refused",
+      "cwd": ".",
+      "args": [
+        "logout"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "logout needs the project URL\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "dev-bad-port",
+      "cwd": ".",
+      "args": [
+        "dev",
+        "--port",
+        "99999"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "--port needs a port number between 0 and 65535\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "dev-missing-config",
+      "cwd": ".",
+      "args": [
+        "dev",
+        "--config",
+        "missing.ts"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "",
+      "stderr": "error  Cannot find module '<project>/missing.ts' imported from <config-loader>\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "dev-startup",
+      "cwd": ".",
+      "args": [
+        "dev",
+        "--port",
+        "0"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "",
+      "stdout": "Canopy dev  (config canopy.config.ts)\n\n  REST      http://localhost:<port>/rest/v1\n  Realtime  off\n  GraphQL   http://localhost:<port>/graphql/v1\n  MongoDB   <mongo-uri>  (app database <app-db>)\n  Keys      publishable <dev-key:1>\n            secret      <dev-key:2>  (generated for this session; never ship it)\n  Auth      API keys only (no identity provider configured)\n  Policies  1 collections, 1 policies from policies, 0 lint errors\n  Studio    http://localhost:<port>/studio\n            no owner yet: claim it in Studio with the setup token <setup-token>\n\nWatching the config and env files (restart) and the policies (hot reload). Ctrl+C stops.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "settings/\"setup\"": {
+          "before": null,
+          "after": {
+            "_id": "setup",
+            "tokens": [
+              {
+                "hash": "<setup-token-hash>",
+                "expiresAt": {
+                  "$date": {
+                    "$numberLong": "<time-ms>"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "login-token-refused",
+      "cwd": ".",
+      "args": [
+        "login",
+        "<admin-url>"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>"
+      },
+      "stdin": "fixture-invalid-token\n",
+      "stdout": "",
+      "stderr": "<admin-url> refused the token: it is unknown, expired, revoked or ended. Create an admin API token with canopy admin tokens create, or POST /admin/v1/login with \"transport\": \"bearer\" for a session token.\nNothing was stored.\n",
+      "exitCode": 1,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "auth-import",
+      "cwd": ".",
+      "args": [
+        "auth",
+        "import",
+        "users.csv",
+        "--from",
+        "csv",
+        "--env",
+        "development"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>",
+        "CANOPY_ADMIN_URL": "<admin-url>",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\n1 users read from <project>/users.csv (0 with password hashes, 0 unreadable)\n1 / 1\n1 imported, 0 already existed, 0 failed\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "audit_log/{\"$oid\":\"<object-id:11>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:11>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<object-id:12>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<object-id:12>"
+            },
+            "details": {
+              "method": "unknown"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            }
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:13>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:13>"
+            },
+            "action": "user.import",
+            "details": {
+              "created": {
+                "$numberInt": "1"
+              },
+              "skipped": {
+                "$numberInt": "0"
+              },
+              "failed": {
+                "$numberInt": "0"
+              }
+            },
+            "actor": {
+              "type": "admin",
+              "id": "<admin-id:2>",
+              "email": "remote@example.test",
+              "role": "admin"
+            },
+            "origin": {
+              "ip": "127.0.0.1",
+              "userAgent": "<runtime-user-agent>",
+              "requestId": "<uuid:1>"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {
+        "users/{\"$oid\":\"<object-id:12>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:12>"
+            },
+            "name": "Fixture User",
+            "email": "user@example.test",
+            "emailVerified": false,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": [],
+            "appMetadata": "{\"importedFrom\":{\"system\":\"csv\",\"id\":\"fixture\"}}",
+            "userMetadata": "{}"
+          }
+        }
+      }
+    },
+    {
+      "id": "admin-token-create",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "tokens",
+        "create",
+        "--env",
+        "development",
+        "--name",
+        "fixture"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>",
+        "CANOPY_ADMIN_URL": "<admin-url>",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\n<admin-token-id>  admin  \"fixture\"  expires never\n<admin-token>\nThis is the only time the token is shown. Store it as a CI secret and pass it as CANOPY_ADMIN_TOKEN, with CANOPY_ADMIN_URL set to the project URL.\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "admin_tokens/\"<admin-token-id>\"": {
+          "before": null,
+          "after": {
+            "_id": "<admin-token-id>",
+            "hash": "<admin-token-hash>",
+            "prefix": "<admin-token-prefix>",
+            "name": "fixture",
+            "role": "admin",
+            "userId": "<admin-id:2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "<admin-id:2>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:14>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:14>"
+            },
+            "action": "admin_token.create",
+            "actor": {
+              "type": "admin",
+              "id": "<admin-id:2>",
+              "email": "remote@example.test",
+              "role": "admin"
+            },
+            "target": {
+              "tokenId": "<admin-token-id>",
+              "name": "fixture",
+              "role": "admin",
+              "prefix": "<admin-token-prefix>"
+            },
+            "origin": {
+              "ip": "127.0.0.1",
+              "userAgent": "<runtime-user-agent>",
+              "requestId": "<uuid:2>"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    },
+    {
+      "id": "admin-token-list",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "tokens",
+        "list",
+        "--env",
+        "development"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>",
+        "CANOPY_ADMIN_URL": "<admin-url>",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\n<admin-token-id>  <admin-token-prefix>...  admin      \"fixture\"  expires never  last used never  active\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {},
+      "auth": {}
+    },
+    {
+      "id": "admin-token-revoke",
+      "cwd": ".",
+      "args": [
+        "admin",
+        "tokens",
+        "revoke",
+        "<admin-token-id>",
+        "--env",
+        "development",
+        "--yes"
+      ],
+      "env": {
+        "MONGODB_URI": "<mongo-uri>",
+        "CANOPY_DB": "<app-db>",
+        "CANOPY_META_DB": "<meta-db>",
+        "CANOPY_AUTH_DB": "<auth-db>",
+        "CANOPY_ADMIN_URL": "<admin-url>",
+        "CANOPY_ADMIN_TOKEN": "<session-token>"
+      },
+      "stdin": "",
+      "stdout": "env development: <admin-url> as remote@example.test (admin)\nrevoked  <admin-token-id>  \"fixture\"\n",
+      "stderr": "",
+      "exitCode": 0,
+      "files": {},
+      "meta": {
+        "admin_tokens/\"<admin-token-id>\"": {
+          "before": {
+            "_id": "<admin-token-id>",
+            "hash": "<admin-token-hash>",
+            "prefix": "<admin-token-prefix>",
+            "name": "fixture",
+            "role": "admin",
+            "userId": "<admin-id:2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "<admin-id:2>"
+          },
+          "after": {
+            "_id": "<admin-token-id>",
+            "hash": "<admin-token-hash>",
+            "prefix": "<admin-token-prefix>",
+            "name": "fixture",
+            "role": "admin",
+            "userId": "<admin-id:2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "createdBy": "<admin-id:2>",
+            "revokedAt": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "revokedBy": "<admin-id:2>"
+          }
+        },
+        "audit_log/{\"$oid\":\"<object-id:15>\"}": {
+          "before": null,
+          "after": {
+            "_id": {
+              "$oid": "<object-id:15>"
+            },
+            "action": "admin_token.revoke",
+            "actor": {
+              "type": "admin",
+              "id": "<admin-id:2>",
+              "email": "remote@example.test",
+              "role": "admin"
+            },
+            "target": {
+              "tokenId": "<admin-token-id>",
+              "name": "fixture",
+              "role": "admin",
+              "prefix": "<admin-token-prefix>",
+              "userId": "<admin-id:2>"
+            },
+            "origin": {
+              "ip": "127.0.0.1",
+              "userAgent": "<runtime-user-agent>",
+              "requestId": "<uuid:3>"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "<time-ms>"
+              }
+            },
+            "outcome": "ok"
+          }
+        }
+      },
+      "auth": {}
+    }
+  ],
+  "typeGeneration": {
+    "entryPoint": "@canopy/schema.generateTypes",
+    "schema": "notes after schema-push",
+    "types": "// Generated by canopy gen types. Do not edit.\nimport type { ObjectId } from \"canopy.js\"\n\nexport interface Database {\n  notes: {\n    Document: {\n      _id: ObjectId\n      ownerId: string\n      title: string\n    }\n    Insert: {\n      _id?: ObjectId\n      ownerId: string\n      title: string\n    }\n  }\n}\n\nexport type Notes = Database[\"notes\"][\"Document\"]\n"
+  }
+}

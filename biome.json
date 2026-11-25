@@ -26,6 +26,7 @@
       "!!conformance/auth",
       "!!conformance/webhooks",
       "!!conformance/migrations",
+      "!!conformance/cli",
       "!!conformance/typegen",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
