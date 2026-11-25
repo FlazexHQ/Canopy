@@ -13,6 +13,7 @@ use crate::proxy::{Pool, Upstream, forward};
 use crate::studio::Studio;
 
 pub(crate) struct Routes {
+    pub(crate) inspector: Option<Arc<crate::realtime_inspection::InternalInspector>>,
     pub(crate) ready: Arc<AtomicBool>,
     pub(crate) trusted_proxies: Vec<TrustedProxy>,
     pub(crate) proxy: Option<Upstream>,
@@ -20,6 +21,7 @@ pub(crate) struct Routes {
     pub(crate) data_plane: Option<DataPlane>,
     /// Studio assets on the shared listener.
     pub(crate) studio: Option<Studio>,
+    pub(crate) admin: Option<(Arc<canopy_control::Control>, canopy_realtime::EngineSender)>,
 }
 
 pub(crate) struct ShardRoutes {
@@ -39,6 +41,26 @@ impl HttpRoutes for ShardRoutes {
     }
 
     async fn fallback(&self, request: Request<Incoming>, peer: &str) -> Response<Body> {
+        let path = request.uri().path();
+        if path == crate::realtime_inspection::PATH {
+            return match &self.routes.inspector {
+                Some(inspector) => inspector.serve(request).await,
+                None => reply(StatusCode::NOT_FOUND, "Not found"),
+            };
+        }
+        if let Some((admin, engine)) = &self.routes.admin
+            && (path == "/admin/v1" || path.starts_with("/admin/v1/"))
+        {
+            return crate::control::handle(
+                admin,
+                request,
+                peer,
+                &self.routes.trusted_proxies,
+                Some(engine),
+                None,
+            )
+            .await;
+        }
         if let Some(studio) = &self.routes.studio
             && Studio::matches(request.uri().path())
         {

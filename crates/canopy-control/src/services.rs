@@ -73,6 +73,8 @@ pub struct Reply {
     pub status: u16,
     /// The JSON body, or none for `204`.
     pub body: Option<Value>,
+    /// The first bytes of a streaming response.
+    pub stream_opening: Option<Vec<u8>>,
     /// Extra response headers.
     pub headers: Vec<(String, String)>,
     /// Audit entries to record, each without actor and origin, which the admin API appends.
@@ -82,7 +84,21 @@ pub struct Reply {
 impl Reply {
     /// A JSON reply.
     pub fn json(status: u16, body: Value) -> Reply {
-        Reply { status, body: Some(body), headers: Vec::new(), audit: Vec::new() }
+        Reply { status, body: Some(body), stream_opening: None, headers: Vec::new(), audit: Vec::new() }
+    }
+
+    /// Starts a server sent event stream.
+    pub fn event_stream(opening: &[u8]) -> Reply {
+        Reply {
+            status: 200,
+            body: None,
+            stream_opening: Some(opening.to_vec()),
+            headers: vec![
+                ("content-type".to_owned(), "text/event-stream".to_owned()),
+                ("x-accel-buffering".to_owned(), "no".to_owned()),
+            ],
+            audit: Vec::new(),
+        }
     }
 
     /// Adds an audit entry.
@@ -122,7 +138,7 @@ pub trait Status: Send + Sync {
     /// The policies in force.
     fn policies(&self) -> BoxFuture<'_, Option<PolicyStatus>>;
     /// The realtime engine, when this process runs one.
-    fn realtime(&self) -> Option<RealtimeStatus>;
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>>;
     /// Whether sign outs and bans written by other nodes reach this one, with built in auth.
     fn revocations_following(&self) -> Option<bool>;
     /// Ends every app user session of built in auth and returns how many ended.
@@ -137,8 +153,8 @@ impl Status for NoStatus {
         Box::pin(async { None })
     }
 
-    fn realtime(&self) -> Option<RealtimeStatus> {
-        None
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>> {
+        Box::pin(async { None })
     }
 
     fn revocations_following(&self) -> Option<bool> {
@@ -171,8 +187,8 @@ impl Status for MetaStatus {
         })
     }
 
-    fn realtime(&self) -> Option<RealtimeStatus> {
-        None
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>> {
+        Box::pin(async { None })
     }
 
     fn revocations_following(&self) -> Option<bool> {

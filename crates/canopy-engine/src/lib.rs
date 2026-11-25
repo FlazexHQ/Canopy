@@ -24,7 +24,9 @@ mod wire;
 pub use auth::Principal;
 pub use ct::Ct;
 pub use echo::{EchoWaiter, Settled};
-pub use engine::{BatchStats, BatchTrace, Config, Engine, Limits, MessageRate, MutationOutcome};
+pub use engine::{
+    BatchStats, BatchTrace, Config, Engine, InspectionTail, Limits, MessageRate, MutationOutcome,
+};
 pub use event::{
     Control, ControlKind, Diff, Event, Image, Normalized, Op, Post, doc_key, merge_fragments, normalize,
 };

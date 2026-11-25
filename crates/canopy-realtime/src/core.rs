@@ -14,13 +14,15 @@ use canopy_mongo::Reader;
 use canopy_policy::PolicySet;
 use canopy_protocol::{CanopyError, Document, ErrorCode};
 use tokio::runtime::Handle;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, broadcast, oneshot};
 
 use crate::LogLevel;
 
+type InspectionCommand = Box<dyn FnOnce(&mut Engine, u64) + Send>;
+
 /// Something that happened, for the engine thread.
 pub(crate) enum Command {
-    Open { conn: ConnId, address: String, shard: usize },
+    Open { conn: ConnId, address: String, shard: usize, queued_bytes: Box<dyn Fn() -> usize + Send> },
     OpenLocal { conn: ConnId, address: Option<String>, deliver: Deliver, principal: Option<Box<Principal>> },
     Message { conn: ConnId, text: String },
     Closed { conn: ConnId },
@@ -39,6 +41,7 @@ pub(crate) enum Command {
     Progress(Ct),
     Policies(Box<PolicySet>),
     Drain(u64),
+    Inspect(InspectionCommand),
 }
 
 /// Receives the frames of an in-process connection, on the engine thread: it must not block.
@@ -64,16 +67,57 @@ pub enum LocalFrame {
 #[derive(Clone)]
 pub struct EngineSender {
     commands: Sender<Command>,
+    tail: broadcast::Sender<Document>,
+    tail_count: Arc<AtomicU64>,
     pub(crate) next_conn: Arc<AtomicU64>,
 }
 
 impl EngineSender {
     pub(crate) fn new(commands: Sender<Command>) -> EngineSender {
-        EngineSender { commands, next_conn: Arc::new(AtomicU64::new(1)) }
+        EngineSender {
+            commands,
+            tail: broadcast::channel(128).0,
+            tail_count: Arc::new(AtomicU64::new(0)),
+            next_conn: Arc::new(AtomicU64::new(1)),
+        }
     }
 
     pub(crate) fn send(&self, command: Command) -> Result<(), ()> {
         self.commands.send(command).map_err(|_| ())
+    }
+
+    /// Runs a bounded inspection operation on the engine thread.
+    pub async fn inspect<T: Send + 'static>(
+        &self,
+        read: impl FnOnce(&Engine) -> T + Send + 'static,
+    ) -> Result<T, CanopyError> {
+        let (tx, rx) = oneshot::channel();
+        let tail = self.tail.clone();
+        let count = Arc::clone(&self.tail_count);
+        let unavailable = || CanopyError::new(ErrorCode::Unavailable, "The realtime engine is unavailable");
+        self.send(Command::Inspect(Box::new(move |engine, now| {
+            engine.enable_inspection(
+                now,
+                Some(Box::new(move |summary| {
+                    if count.load(Ordering::Relaxed) != 0 {
+                        let _ = tail.send(summary.clone());
+                    }
+                })),
+            );
+            let _ = tx.send(read(engine));
+        })))
+        .map_err(|()| unavailable())?;
+        tokio::time::timeout(Duration::from_secs(5), rx)
+            .await
+            .map_err(|_| unavailable())?
+            .map_err(|_| unavailable())
+    }
+
+    /// Subscribes to summaries from an enabled inspector.
+    pub fn inspection_tail(&self) -> InspectionReceiver {
+        let inner = self.tail.subscribe();
+        self.tail_count.fetch_add(1, Ordering::Relaxed);
+        InspectionReceiver { inner, count: Arc::clone(&self.tail_count) }
     }
 
     /// Opens a connection to the engine inside this process, as a WebSocket client would open one: the caller
@@ -124,6 +168,25 @@ impl EngineSender {
     /// Replaces the engine's compiled policy set.
     pub fn set_policies(&self, set: PolicySet) {
         let _ = self.send(Command::Policies(Box::new(set)));
+    }
+}
+
+/// A subscription to recent change summaries.
+pub struct InspectionReceiver {
+    inner: broadcast::Receiver<Document>,
+    count: Arc<AtomicU64>,
+}
+
+impl InspectionReceiver {
+    /// Waits for the next event, or reports a gap if the receiver fell behind.
+    pub async fn recv(&mut self) -> Result<Document, broadcast::error::RecvError> {
+        self.inner.recv().await
+    }
+}
+
+impl Drop for InspectionReceiver {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -220,6 +283,7 @@ struct State {
     per_address: HashMap<String, usize>,
     outgoing: Vec<Vec<ShardMessage>>,
     stopping: bool,
+    inspected_at: Option<u64>,
 }
 
 /// Runs the engine on the calling thread until every sender is gone or the drain is over.
@@ -238,8 +302,10 @@ where
         per_address: HashMap::new(),
         outgoing: (0..router.shards.len()).map(|_| Vec::new()).collect(),
         stopping: false,
+        inspected_at: None,
     };
     let mut last_metrics = 0u64;
+    let mut last_sample = now_ms();
     loop {
         let now = now_ms();
         let wait = engine.next_due().map_or(1000, |due| due.saturating_sub(now)).clamp(1, 1000);
@@ -260,6 +326,16 @@ where
         }
         let now = now_ms();
         engine.tick(now);
+        if state.inspected_at.is_some_and(|at| now.saturating_sub(at) >= 300_000)
+            && router.engine_tx.tail_count.load(Ordering::Relaxed) == 0
+        {
+            state.inspected_at = None;
+            engine.disable_inspection();
+        }
+        if now.saturating_sub(last_sample) >= 5000 {
+            last_sample = now;
+            engine.sample_inspection(now);
+        }
         route(&mut engine, &mut state, &router);
         if now.saturating_sub(last_metrics) >= 1000 {
             last_metrics = now;
@@ -285,10 +361,15 @@ where
 {
     let now = now_ms();
     match command {
-        Command::Open { conn, address, shard } => {
+        Command::Inspect(read) => {
+            state.inspected_at = Some(now);
+            read(engine, now);
+        }
+        Command::Open { conn, address, shard, queued_bytes } => {
             state.conn_shard.insert(conn, shard);
             state.conn_address.insert(conn, address.clone());
             engine.open(conn, Some(address), now);
+            engine.set_inspection_queue(conn, queued_bytes);
         }
         Command::OpenLocal { conn, address, deliver, principal } => {
             state.local.insert(conn, LocalDelivery { deliver, batch: principal.is_none().then(Vec::new) });

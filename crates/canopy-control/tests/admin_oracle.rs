@@ -9,9 +9,7 @@
 //! placeholder to the first value found at its place and requires every later use to repeat it (and no two
 //! placeholders to share a value), which is the same relation without depending on numbering order.
 //!
-//! Policy, data and email template routes are served through their delegates. Steps for realtime
-//! inspector also match when the router answers them directly. Remaining realtime steps and the doctor
-//! can be pending. Every other step must match.
+//! Policy, data, realtime and email template routes are served through their delegates.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stderr, clippy::panic)]
 
@@ -21,15 +19,17 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use canopy_control::totp::{TotpOptions, base32_decode, totp};
 use canopy_control::{
-    AdminRole, BuiltinMethods, Call, Control, ControlOptions, DataRoutes, Delegate, Environment, MetaStatus,
-    PolicyRoutes, ROLE_NAMES, SigningAlgorithm, SigningKeyOptions, SigningKeyRoutes, TemplateRoutes,
-    WebhookAdmin, builtin_providers,
+    AdminRole, BoxFuture, BuiltinMethods, Call, Control, ControlOptions, DataRoutes, Delegate, Environment,
+    InspectionQuery, Inspector, MetaStatus, PolicyRoutes, PolicyStatus, ROLE_NAMES, RealtimeRoutes,
+    RealtimeStatus, SigningAlgorithm, SigningKeyOptions, SigningKeyRoutes, Status, TemplateRoutes,
+    ViewSigner, WebhookAdmin, builtin_providers,
 };
 use canopy_http::Request;
-use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, doc, oid::ObjectId};
+use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, RawDocumentBuf, doc, oid::ObjectId};
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_protocol::json::{Json, js_number_string, parse_json, write_json_string};
-use futures_util::TryStreamExt as _;
+use canopy_protocol::{CanopyError, Value};
+use futures_util::{StreamExt as _, TryStreamExt as _};
 use regex::Regex;
 
 const ORIGIN: &str = "https://admin.example.test";
@@ -57,9 +57,7 @@ fn delegated(path: &str) -> Option<&'static str> {
     let route = route.split('?').next().unwrap_or_default();
     let first = route.split('/').next().unwrap_or_default();
     match first {
-        "realtime" => Some("realtime"),
         "users" => Some("users"),
-        "doctor" => Some("doctor (reports the policies and realtime)"),
         _ => None,
     }
 }
@@ -366,6 +364,52 @@ async fn snapshot(meta: &Database, normalizer: &Normalizer) -> BTreeMap<String, 
     state
 }
 
+struct OracleInspector(std::sync::Mutex<canopy_engine::Engine>);
+
+impl Inspector for OracleInspector {
+    fn read(&self, query: InspectionQuery) -> BoxFuture<'_, Result<Option<Value>, CanopyError>> {
+        Box::pin(async move {
+            let engine = self.0.lock().unwrap();
+            Ok(match query {
+                InspectionQuery::Stats => Some(Value::Document(engine.inspection_stats())),
+                InspectionQuery::Connections => Some(Value::Array(engine.inspection_connections())),
+                InspectionQuery::Observers => Some(Value::Array(engine.inspection_observers())),
+                InspectionQuery::Events => Some(Value::Array(engine.inspection_events())),
+                InspectionQuery::Trace { id, viewer } => {
+                    engine.inspection_trace(&id, viewer).map(Value::Document)
+                }
+                InspectionQuery::Tail => None,
+            })
+        })
+    }
+}
+
+struct OracleStatus(MetaStatus, Arc<OracleInspector>);
+
+impl Status for OracleStatus {
+    fn policies(&self) -> BoxFuture<'_, Option<PolicyStatus>> {
+        self.0.policies()
+    }
+
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>> {
+        Box::pin(async {
+            let engine = self.1.0.lock().unwrap();
+            Some(RealtimeStatus {
+                connections: engine.inspection_connection_count(),
+                stream_position: engine.position().to_string(),
+            })
+        })
+    }
+
+    fn revocations_following(&self) -> Option<bool> {
+        Some(true)
+    }
+
+    fn revoke_all_user_sessions(&self) -> BoxFuture<'_, Result<u64, CanopyError>> {
+        self.0.revoke_all_user_sessions()
+    }
+}
+
 struct Outcome {
     matched: usize,
     pending: Vec<String>,
@@ -435,7 +479,34 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
             canopy_data::ReadLimits::default(),
         ));
     options.services.data = Some(data.clone());
-    options.status = Arc::new(MetaStatus::new(&meta));
+    let set = canopy_mongo::load_policies(&meta).await.map_err(|error| error.message().to_owned())?;
+    let mut engine = canopy_engine::Engine::new(
+        canopy_engine::Config { node_id: "oracle".into(), ..Default::default() },
+        set,
+    );
+    engine.enable_inspection(epoch as u64, None);
+    let inspector = Arc::new(OracleInspector(std::sync::Mutex::new(engine)));
+    let revocations = canopy_auth::Revocations::new(&meta);
+    let _revocation_stream = revocations.start().await.map_err(|error| error.to_string())?;
+    options.status = Arc::new(OracleStatus(MetaStatus::new(&meta), inspector.clone()));
+    options.services.realtime = Some(Arc::new(RealtimeRoutes::new(
+        inspector.clone(),
+        Some(Arc::new(
+            ViewSigner::new(options.master_key.as_deref()).map_err(|error| error.message().to_owned())?,
+        )),
+        Some("pk_fixture".into()),
+        meta.clone(),
+        Arc::clone(&clock),
+    )));
+    let mut stream = client
+        .database(&database)
+        .watch()
+        .pipeline([doc! {
+            "$match": { "operationType": "insert", "ns.coll": "notes", "documentKey._id": "write" }
+        }])
+        .await
+        .map_err(|error| error.to_string())?
+        .with_type::<RawDocumentBuf>();
     let keys = SigningKeyRoutes::new(
         client.database(&auth_name),
         SigningKeyOptions {
@@ -499,7 +570,26 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
                 .ok_or("Bad secret")?;
             bindings.bind("<totp-code:cookie>", &totp(&secret, epoch + 30_000, TotpOptions::default()));
         }
+        if id == "realtime-lag-after-insert" {
+            inspector.0.lock().unwrap().sample_inspection(now.load(Ordering::SeqCst) as u64);
+        }
         advance(100);
+        if id == "realtime-stats" || id == "doctor" {
+            let set = canopy_mongo::load_policies(&meta).await.map_err(|error| error.message().to_owned())?;
+            inspector.0.lock().unwrap().set_policies(set, now.load(Ordering::SeqCst) as u64);
+        }
+        if id == "realtime-events-after-insert" {
+            let raw = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+                .await
+                .map_err(|error| error.to_string())?
+                .ok_or("Fixture change stream ended")?
+                .map_err(|error| error.to_string())?;
+            let Some(canopy_engine::Normalized::Data(event)) = canopy_engine::normalize(raw.as_bytes())
+            else {
+                return Err("Could not normalize the fixture insert".into());
+            };
+            inspector.0.lock().unwrap().events(vec![event], now.load(Ordering::SeqCst) as u64);
+        }
         let request = get(&step, "request");
         let target = string(get(request, "target"));
         let group = delegated(&target);
@@ -590,7 +680,8 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
             problems.push(format!("extra cookies {cookies:?}"));
         }
         let actual_body = normalizer.apply(&String::from_utf8_lossy(&response.body));
-        match next.unify(&string(get(expected, "body")), &actual_body) {
+        let expected_body = string(get(expected, "body"));
+        match next.unify(&expected_body, &actual_body) {
             Ok(bound) => next = bound,
             Err(error) => problems.push(format!("body: {error}")),
         }

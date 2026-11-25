@@ -63,6 +63,10 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   with their state diffs (owner 75, admin 79, developer 82, viewer 95). This includes every template
   step and the audit list. The 102 pending steps in that run include policy diagnostics under parallel
   development, the other delegated groups, and the doctor (its realtime and revocation checks).
+- With policy diagnostics and email templates enabled, before the data delegate, both replica sets matched
+  343 of 433 steps byte for byte (owner 79, admin 83, developer 86, viewer 95). This includes policy
+  validate, simulate, explain, context validate and collection policy details. The authoring replay covers
+  all 10 lint rules, 72 access reports and 15 in process simulations.
 - With the data delegate and policy diagnostics, the oracle matches 391 of 433 steps on MongoDB 8.0.34
   (port 37017) and 9.0.8 (port 37090). Owner matches 92 with 14 pending, admin 96 with 14 pending,
   developer 99 with 11 pending, and viewer 104 with 3 pending. All data steps match byte for byte
@@ -77,10 +81,26 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   `CANOPY_MASTER_KEY_PREVIOUS` and `CANOPY_WEBHOOK_SECRET`. The [role test](../../../crates/canopyd/tests/control.rs)
   checks the migrations, the setup token, the schedule state and that data routes answer `404`.
 - Fixed in `canopy-webhooks`: requeueing a dead letter writes the delivery fields in the TypeScript order.
-- Remaining for R1: the realtime inspector (needs engine introspection in `canopyd`),
-  the providers document from the config in `canopyd`, app user session
+- Remaining for R1: the providers document from the config in `canopyd`, app user session
   revocation in the danger zone (R5), compose, Helm and Kubernetes running `control` as a role of the
   `canopy` image, and the edge routing `/admin/v1` to it.
+
+### Realtime inspector and doctor
+
+- With the signing key and realtime delegates, MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090)
+  each match all 433 admin steps after the oracle substitutions. Owner matches 106, admin 110,
+  developer 110 and viewer 107. Each role has zero pending steps. The replay reads the fixture insert
+  from a MongoDB change stream and feeds it to the Rust engine. Doctor compares all recorded checks.
+- In the all role, the control routes read the engine through its command queue. The inspector starts
+  collecting events and lag on its first request. Capture stops when five minutes have elapsed since the last request
+  and no tail remains attached. The data event path adds no allocation or locking while capture is inactive.
+  The buffer holds 256 traces and the events route returns the latest 100 summaries.
+- In the split stack, set `CANOPY_REALTIME_INTERNAL_URL` on the control process to the data process URL on
+  the private network. The control process authenticates with a bearer credential derived from the shared
+  master key. The data process serves inspection independently of control. Without the internal URL,
+  control returns the realtime off response. Doctor reports revocation following when the local process
+  owns that watcher. The standalone control tests passed on both replica sets, covering rejected internal
+  credentials, engine reads through the admin API and continued data process service after control exits.
 
 ## Checkpoint (2026-11-25): R0 `/admin/v1/users` over HTTP
 

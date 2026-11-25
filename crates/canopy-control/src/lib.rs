@@ -22,6 +22,7 @@ mod passwords;
 mod policies;
 mod rate_limit;
 mod rbac;
+mod realtime;
 mod routes;
 mod schema;
 mod secrets;
@@ -43,6 +44,7 @@ pub use crate::data::DataRoutes;
 pub use crate::http::{API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE};
 pub use crate::policies::PolicyRoutes;
 pub use crate::rbac::{ADMIN_ROLES, AdminRole, Permission, ROLE_NAMES, can};
+pub use crate::realtime::{InspectionQuery, Inspector, RealtimeRoutes, ViewSigner};
 pub use crate::services::{
     BoxFuture, Call, Delegate, MetaStatus, NoStatus, PolicyStatus, RealtimeStatus, Reply, Status,
 };

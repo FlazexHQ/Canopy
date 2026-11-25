@@ -248,6 +248,10 @@ impl Session {
         }
     }
 
+    pub(crate) fn inspection_documents(&self) -> usize {
+        self.merge_box.len()
+    }
+
     /// The last sequence number sent.
     pub(crate) fn last_seq(&self) -> u64 {
         self.seq

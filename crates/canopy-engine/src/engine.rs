@@ -1,3 +1,8 @@
+mod inspector;
+
+pub use inspector::InspectionTail;
+pub(crate) use inspector::inspection_number;
+
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
@@ -140,8 +145,8 @@ enum ConnState {
     Closed,
 }
 
-#[derive(Debug)]
 struct Conn {
+    queued_bytes: Option<Box<dyn Fn() -> usize + Send>>,
     state: ConnState,
     last_inbound: u64,
     watch: bool,
@@ -166,6 +171,7 @@ struct Bucket {
 
 #[derive(Debug)]
 struct SessionState {
+    opened_at: u64,
     session: Session,
     key: String,
     token: Option<String>,
@@ -291,6 +297,7 @@ pub struct Engine {
     notes: Vec<Note>,
     memo: HeadMemo,
     metrics: Metrics,
+    inspection: Option<inspector::Inspection>,
 }
 
 impl Engine {
@@ -327,6 +334,7 @@ impl Engine {
             notes: Vec::new(),
             memo: HeadMemo::default(),
             metrics: Metrics::default(),
+            inspection: None,
         };
         engine.watched = engine.realtime_collections();
         engine
@@ -409,12 +417,20 @@ impl Engine {
         self.conns.insert(
             conn,
             Conn {
+                queued_bytes: None,
                 state: ConnState::AwaitHello { deadline: now + 10_000 },
                 last_inbound: now,
                 address,
                 watch: false,
             },
         );
+    }
+
+    /// Sets the transport's queue reader for a connection, used only by the inspector.
+    pub fn set_inspection_queue(&mut self, conn: ConnId, queued_bytes: Box<dyn Fn() -> usize + Send>) {
+        if let Some(connection) = self.conns.get_mut(&conn) {
+            connection.queued_bytes = Some(queued_bytes);
+        }
     }
 
     /// Opens a local change stream connection for a principal already verified by the transport.
@@ -629,6 +645,7 @@ impl Engine {
         self.sessions.insert(
             sid.clone(),
             SessionState {
+                opened_at: now,
                 session,
                 key,
                 token,
@@ -1900,12 +1917,24 @@ impl Engine {
             let event = Arc::new(event);
             self.metrics.events += 1;
             let candidates = self.registry.candidates(&event);
+            let mut outcomes = self.inspection.as_ref().map(|_| Vec::new());
             self.metrics.candidates += candidates.len() as u64;
             for id in candidates {
+                let mut before = false;
                 let mut notes = std::mem::take(&mut self.notes);
                 match self.registry.get_mut(id) {
-                    Some(observer) => observer.apply(&event, now, &mut notes),
+                    Some(observer) => {
+                        if outcomes.is_some() {
+                            before = observer.inspection_has(&event.key);
+                        }
+                        observer.apply(&event, now, &mut notes);
+                    }
                     None => continue,
+                }
+                if let Some(outcomes) = &mut outcomes
+                    && let Some(outcome) = self.inspect_outcome(id, &event, before, now)
+                {
+                    outcomes.push(Value::Document(outcome));
                 }
                 self.metrics.matches += 1;
                 if let Some((_, subscriptions)) = &mut matching
@@ -1925,6 +1954,15 @@ impl Engine {
                 } else {
                     self.after_observer(id, notes, now);
                 }
+            }
+            if let Some(inspection) = &mut self.inspection {
+                inspection.record(
+                    &self.config.node_id,
+                    self.policy.version(),
+                    &event,
+                    outcomes.unwrap_or_default(),
+                    now,
+                );
             }
             last = last.max(event.ct);
             seen.push((event.key.clone(), event.ct));

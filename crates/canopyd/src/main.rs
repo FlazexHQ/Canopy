@@ -11,6 +11,7 @@ mod forward;
 mod graphql_ws;
 mod log;
 mod proxy;
+mod realtime_inspection;
 mod request_log;
 mod server;
 mod studio;
@@ -20,7 +21,7 @@ mod wire;
 use std::convert::Infallible;
 use std::io::BufRead as _;
 use std::process::ExitCode;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -57,7 +58,9 @@ with policies read from the meta database.
 CANOPY_ROLE=control runs the control plane instead: it migrates the meta database, publishes
 CANOPY_POLICY_BUNDLE, runs the webhooks of the config's webhooks section (or of CANOPY_WEBHOOKS) and serves
 /admin/v1, reading CANOPY_ENV, CANOPY_PUBLIC_URL, CANOPY_ADMIN_ORIGINS, CANOPY_MASTER_KEY,
-CANOPY_MASTER_KEY_PREVIOUS and CANOPY_WEBHOOK_SECRET. CANOPY_ROLE=studio serves Studio alone.
+CANOPY_MASTER_KEY_PREVIOUS and CANOPY_WEBHOOK_SECRET. Set CANOPY_REALTIME_INTERNAL_URL
+on the control role to inspect a data role with the same CANOPY_MASTER_KEY.
+CANOPY_ROLE=studio serves Studio alone.
 
 --probe asks the gateway listening on PORT (8080 by default) on this host for /readyz and exits 0 when it
 answers 200, so a container without a shell can check its own readiness.
@@ -133,7 +136,8 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let role = std::env::var("CANOPY_ROLE").unwrap_or_else(|_| "all".to_owned());
+    let declared_role = std::env::var("CANOPY_ROLE").ok();
+    let role = declared_role.as_deref().unwrap_or("all");
     if role == "studio" {
         return match studio::start() {
             Ok(()) => ExitCode::SUCCESS,
@@ -172,7 +176,8 @@ fn main() -> ExitCode {
     }
     let studio = studio::Studio::from_env();
     let studio = (role == "all" && config.proxy_url.is_none() && studio.configured()).then_some(studio);
-    match runtime.block_on(start(config, log, control, studio)) {
+    let local_admin = role == "all" && (declared_role.is_some() || (!control && config.proxy_url.is_none()));
+    match runtime.block_on(start(config, log, control, studio, local_admin.then_some(text))) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             log.error("canopyd failed", &[("err", &message)]);
@@ -214,8 +219,10 @@ async fn start(
     log: Log,
     control: bool,
     studio: Option<studio::Studio>,
+    all_config: Option<Option<String>>,
 ) -> Result<(), String> {
     let proxy = config.proxy_url.as_deref().map(proxy::Upstream::parse).transpose()?;
+    let local_admin = all_config;
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
@@ -307,21 +314,42 @@ async fn start(
             .await;
     });
     auth.api_keys = Some(api_keys);
-    auth.view_key = config.view_key.clone().map(Arc::new);
+    let master = control::env("CANOPY_MASTER_KEY");
+    let signer = if local_admin.is_some() || (master.is_some() && config.view_key.is_none()) {
+        let signer =
+            canopy_control::ViewSigner::new(master.as_deref()).map_err(|error| error.message().to_owned())?;
+        config.view_key.as_ref().is_none_or(|key| key == signer.public_key()).then(|| Arc::new(signer))
+    } else {
+        None
+    };
+    auth.view_key = config
+        .view_key
+        .clone()
+        .or_else(|| signer.as_ref().map(|key| key.public_key().to_vec()))
+        .map(Arc::new);
+    let following = config.check_revocations.then(|| Arc::new(AtomicBool::new(true)));
+
     let revocation_watch = if config.check_revocations {
         let revocations = Arc::new(Revocations::new(&meta));
         let stream =
             revocations.start().await.map_err(|error| format!("Could not load revocations: {error}"))?;
         auth.revocations = Some(Arc::clone(&revocations));
         let tx = engine_tx.clone();
+        let following = following.clone();
         Some(tokio::spawn(async move {
             revocations
                 .watch(
                     stream,
                     || {
+                        if let Some(following) = &following {
+                            following.store(true, Ordering::Release);
+                        }
                         tx.sessions_revoked();
                     },
                     |error| {
+                        if let Some(following) = &following {
+                            following.store(false, Ordering::Release);
+                        }
                         log.warn(
                             "Session revocation stream failed; reopening",
                             &[("err", &error.to_string())],
@@ -366,12 +394,43 @@ async fn start(
     if let Some(plane) = &data_plane {
         plane.start_storage_sweep(log);
     }
+    let mut private_admin = None;
+    let mut webhooks = None;
+    let admin = if let Some(text) = local_admin {
+        let local = control::LocalRealtime { engine: engine_tx.clone(), signer, following };
+        let (admin, handle) =
+            control::build(&config, text.as_deref(), client.clone(), log, Some(local), None).await?;
+        webhooks = handle;
+        let admin = Arc::new(admin);
+        if let Some(address) = control::env("CANOPY_ADMIN_LISTEN") {
+            let listener = tokio::net::TcpListener::bind(&address)
+                .await
+                .map_err(|error| format!("Could not listen for admin on {address}: {error}"))?;
+            private_admin = Some(tokio::spawn(control::serve(
+                listener,
+                admin,
+                config.trusted_proxies.clone(),
+                Some(engine_tx.clone()),
+                None,
+                log,
+            )));
+            None
+        } else {
+            Some((admin, engine_tx.clone()))
+        }
+    } else {
+        None
+    };
     let routes = Arc::new(Routes {
+        inspector: master
+            .as_deref()
+            .map(|key| realtime_inspection::InternalInspector::new(engine_tx.clone(), key)),
         ready: Arc::clone(&stream_open),
         trusted_proxies: config.trusted_proxies.clone(),
         proxy,
         data_plane,
         studio,
+        admin,
     });
     for _ in 0..config.shards {
         let routes = Arc::clone(&routes);
@@ -527,6 +586,12 @@ async fn start(
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     realtime.close_http();
+    if let Some(task) = private_admin {
+        task.abort();
+    }
+    if let Some(handle) = webhooks {
+        handle.shutdown().await.map_err(|error| error.message().to_owned())?;
+    }
     if let Some(wire) = wire {
         let _ = wire.await;
     }

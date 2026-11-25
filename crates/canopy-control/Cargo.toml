@@ -29,6 +29,7 @@ tokio = { version = "1", features = ["macros", "rt", "sync", "time"] }
 unicode-normalization = "0.1"
 
 [dev-dependencies]
+canopy-engine = { path = "../canopy-engine" }
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }

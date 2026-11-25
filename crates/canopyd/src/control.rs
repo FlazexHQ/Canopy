@@ -4,31 +4,39 @@
 //! `/readyz`. It serves no data route, so stopping it leaves the data plane serving.
 
 use std::convert::Infallible;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
+use std::time::Duration;
 
 use canopy_config::GatewayConfig;
 use canopy_control::{
-    Control, ControlOptions, DataRoutes, Environment, MetaStatus, PolicyRoutes, SigningAlgorithm,
-    SigningKeyOptions, SigningKeyRoutes, TemplateRoutes, WebhookAdmin,
+    BoxFuture, Control, ControlOptions, DataRoutes, Environment, InspectionQuery, Inspector, MetaStatus,
+    PolicyRoutes, PolicyStatus, RealtimeRoutes, RealtimeStatus, SigningAlgorithm, SigningKeyOptions,
+    SigningKeyRoutes, Status, TemplateRoutes, ViewSigner, WebhookAdmin,
 };
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::mongodb::{self, Client};
-use canopy_protocol::CanopyError;
 use canopy_protocol::ejson::{DecodeOptions, decode};
 use canopy_protocol::json::{Json, parse_json};
-use http_body_util::{BodyExt as _, Full, Limited};
-use hyper::body::{Bytes, Incoming};
+use canopy_protocol::{CanopyError, Value};
+use canopy_realtime::{Body, EngineSender, full};
+use http_body_util::{BodyExt as _, Limited, StreamBody};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::TokioIo;
 use tokio::sync::Notify;
+
+use crate::realtime_inspection::RemoteInspector;
 
 use crate::client_address;
 use crate::log::Log;
 
 const MAX_BODY: usize = 1024 * 1024;
 
-fn env(name: &str) -> Option<String> {
+pub(crate) fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
 }
 
@@ -216,19 +224,136 @@ async fn read(
     (out, address)
 }
 
-fn plain(status: u16, body: &'static str) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from_static(body.as_bytes())));
-    *response.status_mut() =
-        hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
-    response
+fn plain(status: u16, body: &'static str) -> Response<Body> {
+    full(hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR), body)
 }
 
-async fn handle(
+pub(crate) struct LocalInspector(pub(crate) EngineSender);
+
+impl Inspector for LocalInspector {
+    fn read(&self, query: InspectionQuery) -> BoxFuture<'_, Result<Option<Value>, CanopyError>> {
+        Box::pin(self.0.inspect(move |engine| match query {
+            InspectionQuery::Stats => Some(Value::Document(engine.inspection_stats())),
+            InspectionQuery::Connections => Some(Value::Array(engine.inspection_connections())),
+            InspectionQuery::Observers => Some(Value::Array(engine.inspection_observers())),
+            InspectionQuery::Events => Some(Value::Array(engine.inspection_events())),
+            InspectionQuery::Trace { id, viewer } => {
+                engine.inspection_trace(&id, viewer).map(Value::Document)
+            }
+            InspectionQuery::Tail => None,
+        }))
+    }
+}
+
+struct LocalStatus {
+    meta: MetaStatus,
+    engine: EngineSender,
+    following: Option<Arc<AtomicBool>>,
+}
+
+impl Status for LocalStatus {
+    fn policies(&self) -> BoxFuture<'_, Option<PolicyStatus>> {
+        Box::pin(async {
+            self.engine
+                .inspect(|engine| PolicyStatus {
+                    bundle: engine.policy_version().to_owned(),
+                    collections: engine.policy_collection_count(),
+                })
+                .await
+                .ok()
+        })
+    }
+
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>> {
+        Box::pin(async {
+            self.engine
+                .inspect(|engine| RealtimeStatus {
+                    connections: engine.inspection_connection_count(),
+                    stream_position: engine.position().to_string(),
+                })
+                .await
+                .ok()
+        })
+    }
+
+    fn revocations_following(&self) -> Option<bool> {
+        self.following.as_ref().map(|value| value.load(Ordering::Acquire))
+    }
+
+    fn revoke_all_user_sessions(&self) -> BoxFuture<'_, Result<u64, CanopyError>> {
+        self.meta.revoke_all_user_sessions()
+    }
+}
+
+struct RemoteStatus {
+    meta: MetaStatus,
+    inspector: RemoteInspector,
+}
+
+impl Status for RemoteStatus {
+    fn policies(&self) -> BoxFuture<'_, Option<PolicyStatus>> {
+        self.meta.policies()
+    }
+
+    fn realtime(&self) -> BoxFuture<'_, Option<RealtimeStatus>> {
+        Box::pin(async {
+            let Value::Document(stats) = self.inspector.read(InspectionQuery::Stats).await.ok()?? else {
+                return None;
+            };
+            let connections = match stats.get("connections")? {
+                Value::Int32(value) => u64::try_from(*value).ok()?,
+                Value::Double(value) => *value as u64,
+                _ => return None,
+            };
+            let stream_position = stats.get("streamPosition")?.as_str()?.to_owned();
+            Some(RealtimeStatus { connections, stream_position })
+        })
+    }
+
+    fn revocations_following(&self) -> Option<bool> {
+        None
+    }
+
+    fn revoke_all_user_sessions(&self) -> BoxFuture<'_, Result<u64, CanopyError>> {
+        self.meta.revoke_all_user_sessions()
+    }
+}
+
+pub(crate) fn tail_body(opening: Vec<u8>, receiver: canopy_realtime::InspectionReceiver) -> Body {
+    let tick = tokio::time::interval_at(
+        tokio::time::Instant::now() + Duration::from_secs(15),
+        Duration::from_secs(15),
+    );
+    let frames = futures_util::stream::unfold(
+        (Some(opening), receiver, tick),
+        |(opening, mut receiver, mut tick)| async move {
+            let bytes = if let Some(opening) = opening {
+                Bytes::from(opening)
+            } else {
+                tokio::select! {
+                    _ = tick.tick() => Bytes::from_static(b": ping\n\n"),
+                    event = receiver.recv() => {
+                        let event = event.ok()?;
+                        let id = event.get("id")?.as_str()?.to_owned();
+                        let json = canopy_protocol::ejson::stringify(&Value::Document(event)).ok()?;
+                        Bytes::from(format!("id: {id}\nevent: change\ndata: {json}\n\n"))
+                    }
+                }
+            };
+            Some((Ok(Frame::data(bytes)), (None, receiver, tick)))
+        },
+    );
+    StreamBody::new(frames).boxed_unsync()
+}
+
+pub(crate) async fn handle(
     control: &Control,
     request: Request<Incoming>,
     peer: &str,
     trusted: &[canopy_config::TrustedProxy],
-) -> Response<Full<Bytes>> {
+    engine: Option<&EngineSender>,
+    remote: Option<&RemoteInspector>,
+) -> Response<Body> {
     let path = request.uri().path();
     if path == "/healthz" || path == "/readyz" {
         return plain(200, "ok");
@@ -236,11 +361,31 @@ async fn handle(
     if path != "/admin/v1" && !path.starts_with("/admin/v1/") {
         return plain(404, "Not found");
     }
+    let wants_tail = path == "/admin/v1/realtime/tail" && request.method() == hyper::Method::GET;
     let (request, address) = read(request, peer, trusted).await;
     let answer = control.fetch(&request, Some(&address)).await;
-    let mut response = Response::new(Full::new(Bytes::from(answer.body)));
-    *response.status_mut() =
+    let status =
         hyper::StatusCode::from_u16(answer.status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    let tail = if wants_tail && status == hyper::StatusCode::OK {
+        engine.map(EngineSender::inspection_tail)
+    } else {
+        None
+    };
+    let mut response = match tail {
+        Some(receiver) => {
+            let mut response = Response::new(tail_body(answer.body, receiver));
+            *response.status_mut() = status;
+            response
+        }
+        _ if wants_tail && status == hyper::StatusCode::OK && remote.is_some() => match remote {
+            Some(remote) => match remote.tail().await {
+                Some(body) => Response::new(body),
+                None => return plain(503, "The realtime engine is unavailable"),
+            },
+            None => full(status, answer.body),
+        },
+        _ => full(status, answer.body),
+    };
     for (name, value) in answer.headers {
         if let (Ok(name), Ok(value)) = (
             hyper::header::HeaderName::from_bytes(name.as_bytes()),
@@ -259,18 +404,56 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
     options.app_name = Some("canopy-control".to_owned());
     let client = Client::with_options(options).map_err(|error| error.to_string())?;
+    let remote = RemoteInspector::configured()?;
+    let (control, webhooks_handle) =
+        build(&config, text.as_deref(), client, log, None, remote.clone()).await?;
+    let control = Arc::new(control);
+    let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
+        .await
+        .map_err(|error| format!("Could not listen on {}: {error}", config.port))?;
+    let port = listener.local_addr().map(|addr| addr.port().to_string()).unwrap_or_default();
+    {
+        use std::io::Write as _;
+        let mut stdout = std::io::stdout().lock();
+        let _ = writeln!(stdout, "{{\"t\":\"listening\",\"port\":{port}}}");
+        let _ = stdout.flush();
+    }
+    log.info("canopy control listening", &[("port", &port), ("meta", &config.meta_database)]);
+    serve(listener, control, config.trusted_proxies, None, remote, log).await?;
+    if let Some(handle) = webhooks_handle {
+        handle.shutdown().await.map_err(|error| message(&error))?;
+    }
+    Ok(())
+}
+
+pub(crate) struct LocalRealtime {
+    pub(crate) engine: EngineSender,
+    pub(crate) signer: Option<Arc<ViewSigner>>,
+    pub(crate) following: Option<Arc<AtomicBool>>,
+}
+
+pub(crate) async fn build(
+    config: &GatewayConfig,
+    text: Option<&str>,
+    client: Client,
+    log: Log,
+    realtime: Option<LocalRealtime>,
+    remote: Option<RemoteInspector>,
+) -> Result<(Control, Option<canopy_webhooks::Handle>), String> {
     let meta = client.database(&config.meta_database);
     let migrated = canopy_migrations::migrate(&meta, canopy_migrations::MigrationOptions::default())
         .await
         .map_err(|error| message(&error))?;
     log.info("meta database migrated", &[("version", &migrated.version.to_string())]);
-    if let Some(path) = std::env::var_os("CANOPY_POLICY_BUNDLE") {
+    if realtime.is_none()
+        && let Some(path) = std::env::var_os("CANOPY_POLICY_BUNDLE")
+    {
         canopy_mongo::publish::PolicyPublisher::new(&meta)
             .publish_startup_file(std::path::Path::new(&path))
             .await
             .map_err(|error| message(&error))?;
     }
-    let (secret, definitions) = match webhooks_section(text.as_deref())? {
+    let (secret, definitions) = match webhooks_section(text)? {
         Some(section) => webhook_definitions(&section)?,
         None => (None, Vec::new()),
     };
@@ -307,7 +490,7 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
     control_options.admin_listen = env("CANOPY_ADMIN_LISTEN");
     control_options.search_collections = config.search_collections.clone();
     control_options.webhooks = webhook_admin;
-    let raw_config = text.as_deref().map(parse_json).transpose().map_err(|error| message(&error))?;
+    let raw_config = text.map(parse_json).transpose().map_err(|error| message(&error))?;
     let raw_auth = raw_config.as_ref().and_then(|config| config.get("auth"));
     if matches!(raw_auth.and_then(|auth| auth.get("kind")), Some(Json::String(kind)) if kind == "builtin")
         || config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
@@ -365,29 +548,55 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
         data = data.with_graphql(auth, options, limits);
     }
     control_options.services.data = Some(Arc::new(data));
-    control_options.status = Arc::new(MetaStatus::new(&meta));
+    if let Some(LocalRealtime { engine, signer, following }) = realtime {
+        let key = config.publishable.as_ref().and_then(|keys| keys.first()).cloned();
+        control_options.services.realtime = Some(Arc::new(RealtimeRoutes::new(
+            Arc::new(LocalInspector(engine.clone())),
+            signer,
+            key,
+            meta.clone(),
+            Arc::clone(&control_options.now),
+        )));
+        control_options.status = Arc::new(LocalStatus { meta: MetaStatus::new(&meta), engine, following });
+    } else if let Some(remote) = remote {
+        let signer =
+            ViewSigner::new(control_options.master_key.as_deref()).map_err(|error| message(&error))?;
+        let signer =
+            config.view_key.as_ref().is_none_or(|key| key == signer.public_key()).then(|| Arc::new(signer));
+        let key = config.publishable.as_ref().and_then(|keys| keys.first()).cloned();
+        control_options.services.realtime = Some(Arc::new(RealtimeRoutes::new(
+            Arc::new(remote.clone()),
+            signer,
+            key,
+            meta.clone(),
+            Arc::clone(&control_options.now),
+        )));
+        control_options.status = Arc::new(RemoteStatus { meta: MetaStatus::new(&meta), inspector: remote });
+    } else {
+        control_options.status = Arc::new(MetaStatus::new(&meta));
+    }
     if control_options.environment == Environment::Production && control_options.master_key.is_none() {
         return Err("CANOPY_MASTER_KEY is required in production".to_owned());
     }
-    let control = Arc::new(Control::new(control_options));
+    let control = Control::new(control_options);
     if let Some(token) = control.create_setup_token().await.map_err(|error| message(&error))? {
         log.info(
             "this server has no owner yet: claim it in Studio with the setup token",
             &[("token", &token)],
         );
     }
-    let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
-        .await
-        .map_err(|error| format!("Could not listen on {}: {error}", config.port))?;
-    let port = listener.local_addr().map(|addr| addr.port().to_string()).unwrap_or_default();
-    {
-        use std::io::Write as _;
-        let mut stdout = std::io::stdout().lock();
-        let _ = writeln!(stdout, "{{\"t\":\"listening\",\"port\":{port}}}");
-        let _ = stdout.flush();
-    }
-    log.info("canopy control listening", &[("port", &port), ("meta", &config.meta_database)]);
-    let trusted = Arc::new(config.trusted_proxies.clone());
+    Ok((control, webhooks_handle))
+}
+
+pub(crate) async fn serve(
+    listener: tokio::net::TcpListener,
+    control: Arc<Control>,
+    trusted: Vec<canopy_config::TrustedProxy>,
+    engine: Option<EngineSender>,
+    remote: Option<RemoteInspector>,
+    log: Log,
+) -> Result<(), String> {
+    let trusted = Arc::new(trusted);
     let shutdown = crate::shutdown_signal(Arc::new(Notify::new()));
     tokio::pin!(shutdown);
     loop {
@@ -403,10 +612,16 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
         };
         let (control, trusted) = (Arc::clone(&control), Arc::clone(&trusted));
         let peer = peer.ip().to_string();
+        let (engine, remote) = (engine.clone(), remote.clone());
         tokio::spawn(async move {
             let service = service_fn(move |request| {
                 let (control, trusted, peer) = (Arc::clone(&control), Arc::clone(&trusted), peer.clone());
-                async move { Ok::<_, Infallible>(handle(&control, request, &peer, &trusted).await) }
+                let (engine, remote) = (engine.clone(), remote.clone());
+                async move {
+                    Ok::<_, Infallible>(
+                        handle(&control, request, &peer, &trusted, engine.as_ref(), remote.as_ref()).await,
+                    )
+                }
             });
             let _ = hyper::server::conn::http1::Builder::new()
                 .serve_connection(TokioIo::new(socket), service)
@@ -414,9 +629,6 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
         });
     }
     log.info("draining", &[]);
-    if let Some(handle) = webhooks_handle {
-        handle.shutdown().await.map_err(|error| message(&error))?;
-    }
     log.info("stopped", &[]);
     Ok(())
 }

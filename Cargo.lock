@@ -475,6 +475,7 @@ dependencies = [
  "canopy-authn",
  "canopy-config",
  "canopy-data",
+ "canopy-engine",
  "canopy-graphql",
  "canopy-http",
  "canopy-mail",

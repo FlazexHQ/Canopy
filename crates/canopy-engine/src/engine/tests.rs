@@ -230,6 +230,49 @@ fn events_of_documents_the_caller_may_not_read_are_never_delivered() {
 }
 
 #[test]
+fn inspects_denials_without_exposing_hidden_policy_fields_to_viewers() -> Result<(), CanopyError> {
+    use canopy_policy::{CollectionFields, FieldKind, FieldRule};
+
+    let mut items = CollectionPolicies::new("items");
+    items.exposed = true;
+    items.realtime = true;
+    items.policies.push(PolicyDefinition {
+        name: "score".into(),
+        kind: PolicyKind::Permissive,
+        ops: vec![Operation::Read],
+        roles: vec!["authenticated".into()],
+        using: Some(doc(r#"{"score":{"$gt":10}}"#)),
+        check: None,
+    });
+    let mut fields = CollectionFields::new();
+    fields.insert(FieldKind::Read, vec![("authenticated".into(), FieldRule::Omit(vec!["score".into()]))]);
+    items.fields = Some(fields);
+    let mut h = Harness::new(create_policy_set(vec![items], Vec::new())?);
+    h.connect(1, user("alice", &[]));
+    h.send(1, r#"{"t":"sub","id":"s1","c":"items","q":{}}"#);
+    h.answer_reads(&[], Ct(10));
+    h.events(vec![event(Op::Insert, 1, Some(r#"{"_id":1,"score":4}"#), 11)]);
+    assert!(h.engine.inspection_events().is_empty());
+    h.engine.enable_inspection(h.now, None);
+    h.events(vec![event(Op::Insert, 2, Some(r#"{"_id":2,"score":4}"#), 12)]);
+    let denial = |viewer| {
+        let trace = h.engine.inspection_trace("n1.2", viewer)?;
+        let candidate = trace.get("candidates")?.as_array()?.first()?.as_document()?;
+        candidate.get("dls").cloned()
+    };
+    assert_eq!(
+        denial(false),
+        Some(Value::Document(doc(
+            r#"{"reason":"no_permissive","responsible":["score"],"policies":[{"name":"score","kind":"permissive","matched":false,"fields":["score"]}]}"#
+        )))
+    );
+    assert_eq!(denial(true), Some(Value::Document(doc(r#"{"masked":true}"#))));
+    h.engine.disable_inspection();
+    assert!(h.engine.inspection_trace("n1.2", false).is_none());
+    Ok(())
+}
+
+#[test]
 fn a_document_moving_out_of_the_policy_is_removed_and_one_moving_in_is_added() {
     let mut h = Harness::new(policies(None));
     h.connect(1, user("alice", &[]));

@@ -624,7 +624,13 @@ impl HttpTransport {
             first: Notify::new(),
         });
         (origin.register)(conn, Arc::clone(&session));
-        if origin.engine.send(Command::Open { conn, address: origin.address, shard: origin.shard }).is_err() {
+        let weak = Arc::downgrade(&session);
+        let queued_bytes = Box::new(move || weak.upgrade().map_or(0, |session| session.lock().pending));
+        if origin
+            .engine
+            .send(Command::Open { conn, address: origin.address, shard: origin.shard, queued_bytes })
+            .is_err()
+        {
             return problem(
                 StatusCode::SERVICE_UNAVAILABLE,
                 ErrorCode::Unavailable,

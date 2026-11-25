@@ -292,6 +292,45 @@ fn compare(sort: &CompiledSort, a: &Document, b: &Document) -> Ordering {
 }
 
 impl Observer {
+    pub(crate) fn inspection_listeners(&self) -> impl Iterator<Item = ListenerId> + '_ {
+        self.listeners.iter().chain(&self.waiting).copied()
+    }
+
+    pub(crate) fn inspection_has(&self, key: &str) -> bool {
+        match &self.members {
+            Members::Filter(members) => members.get(key).is_some(),
+            Members::Window { known, .. } => {
+                known.iter().take(self.query.limit.unwrap_or(0) as usize).any(|entry| entry.key == key)
+            }
+            Members::Polling { members, .. } => members.contains_key(key),
+        }
+    }
+
+    pub(crate) fn inspection(&self) -> Document {
+        use crate::engine::inspection_number as number;
+        let mut out = Document::new();
+        out.insert("key", Value::String(self.key.clone()));
+        out.insert("coll", Value::String(self.query.coll.clone()));
+        out.insert("type", Value::String(self.kind.as_str().to_owned()));
+        let status = match self.status {
+            Status::Idle => "idle",
+            Status::Loading => "loading",
+            Status::Live => "live",
+            Status::Failed => "failed",
+        };
+        out.insert("status", Value::String(status.to_owned()));
+        out.insert("subscribers", number(self.size() as u64));
+        out.insert("filter", Value::Document(self.query.filter.clone()));
+        if let Some(sort) = &self.query.sort {
+            out.insert("sort", Value::Document(sort.clone()));
+        }
+        if let Some(limit) = self.query.limit {
+            out.insert("limit", number(u64::from(limit)));
+        }
+        out.insert("clusterTime", Value::String(self.ct.to_string()));
+        out
+    }
+
     /// Creates an idle observer.
     pub(crate) fn new(
         key: String,

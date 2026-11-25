@@ -678,7 +678,7 @@ async fn doctor(control: &Control) -> Result<Response, CanopyError> {
     if let Some(policies) = control.status.policies().await {
         add("policies", "ok", format!("Bundle {}, {} collection(s)", policies.bundle, policies.collections));
     }
-    if let Some(realtime) = control.status.realtime() {
+    if let Some(realtime) = control.status.realtime().await {
         add(
             "realtime",
             "ok",

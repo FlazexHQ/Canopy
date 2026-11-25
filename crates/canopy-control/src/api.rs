@@ -711,6 +711,9 @@ fn reply_response(reply: Reply) -> Result<Response, CanopyError> {
         Some(body) => crate::http::json(body, reply.status)?,
         None => empty(reply.status),
     };
+    if let Some(opening) = reply.stream_opening {
+        response.body = opening;
+    }
     for (name, value) in reply.headers {
         response.headers.push((name, value));
     }
