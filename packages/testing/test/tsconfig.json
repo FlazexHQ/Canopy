@@ -14,7 +14,8 @@
     ".",
     "../scripts/gate.ts",
     "../scripts/bench-gate.ts",
-    "../scripts/publish-tarballs.ts"
+    "../scripts/publish-tarballs.ts",
+    "../scripts/mongod.ts"
   ],
   "references": [{ "path": ".." }, { "path": "../../native/test" }]
 }

@@ -22,7 +22,8 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
+import { pathToFileURL } from "node:url"
 import { MongoClient, MongoServerError } from "mongodb"
 
 function usage(message: string): never {
@@ -82,34 +83,13 @@ function reports(mongod: string, version: string): boolean {
   }
 }
 
-/** Extracts a verified archive from memory. The Windows ZIP reader needs a seekable stream. */
-function extract(archive: Uint8Array, staging: string): void {
-  if (process.platform === "win32") {
-    const script = `
-      $ErrorActionPreference = 'Stop'
-      Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
-      $archive = [System.IO.MemoryStream]::new()
-      [Console]::OpenStandardInput().CopyTo($archive)
-      $archive.Position = 0
-      $zip = [System.IO.Compression.ZipArchive]::new($archive)
-      try {
-        [System.IO.Compression.ZipFileExtensions]::ExtractToDirectory($zip, (Get-Location).Path)
-      } finally {
-        $zip.Dispose()
-      }
-    `
-    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-      cwd: staging,
-      input: archive,
-      stdio: ["pipe", "inherit", "inherit"],
-    })
-    return
-  }
-  execFileSync("tar", ["-xzf", "-"], {
-    cwd: staging,
-    input: archive,
-    stdio: ["pipe", "inherit", "inherit"],
-  })
+/** Extracts a verified ZIP or gzipped tar archive without unpacking Windows debug symbols. */
+export function extract(archive: string, staging: string): void {
+  const tar =
+    process.platform === "win32"
+      ? join(process.env["SystemRoot"] ?? "C:\\Windows", "System32", "tar.exe")
+      : "tar"
+  execFileSync(tar, ["-xf", archive, "-C", staging, "--exclude", "*.pdb"], { stdio: "inherit" })
 }
 
 /**
@@ -139,13 +119,16 @@ async function install(version: string, dir: string): Promise<string> {
   const staging = `${target}.partial`
   rmSync(staging, { recursive: true, force: true })
   mkdirSync(staging, { recursive: true })
-  extract(archive, staging)
-  rmSync(target, { recursive: true, force: true })
-  renameSync(staging, target)
-  const mongod = findMongod(target)
+  const archivePath = join(staging, process.platform === "win32" ? "mongodb.zip" : "mongodb.tgz")
+  writeFileSync(archivePath, archive)
+  extract(archivePath, staging)
+  rmSync(archivePath)
+  const mongod = findMongod(staging)
   if (mongod === undefined) throw new Error(`The archive from ${url} has no mongod`)
   if (!reports(mongod, version)) throw new Error(`${mongod} does not report version ${version}`)
-  return mongod
+  rmSync(target, { recursive: true, force: true })
+  renameSync(staging, target)
+  return join(target, relative(staging, mongod))
 }
 
 async function waitFor<T>(what: string, attempt: () => Promise<T | undefined>): Promise<T> {
@@ -249,12 +232,17 @@ async function main(): Promise<void> {
   process.stdout.write(`mongodb://localhost:${port}/?replicaSet=rs0\n`)
 }
 
-main().then(
-  () => process.exit(0),
-  (error: unknown) => {
-    process.stderr.write(
-      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-    )
-    process.exit(1)
-  },
-)
+if (
+  import.meta.main ??
+  (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url)
+) {
+  main().then(
+    () => process.exit(0),
+    (error: unknown) => {
+      process.stderr.write(
+        `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+      )
+      process.exit(1)
+    },
+  )
+}
