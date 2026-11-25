@@ -406,6 +406,11 @@ jobs:
           - { target: webauthn_client_data, dict: dict/webauthn.dict }
           - { target: webauthn_registration, dict: dict/webauthn.dict }
           - { target: webauthn_authentication, dict: dict/webauthn.dict }
+          - { target: authn_cookies, dict: dict/authn.dict }
+          - { target: authn_secrets, dict: dict/authn.dict }
+          - { target: authn_passwords, dict: dict/authn.dict }
+          - { target: authn_tokens, dict: dict/authn.dict }
+          - { target: authn_totp, dict: dict/authn.dict }
     env:
       FUZZ_TOOLCHAIN: nightly-2026-11-15
       CARGO_FUZZ_VERSION: 0.13.2
