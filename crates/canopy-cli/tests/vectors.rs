@@ -186,9 +186,12 @@ fn replay(fixture: &Path, step: &Step) -> Result<(), Box<dyn std::error::Error>>
         Some(url) => text.replace("<admin-url>", url).replace("<admin-token-id>", TOKEN_ID),
         None => text.to_owned(),
     };
+    let resolved = fs::canonicalize(project)?.to_string_lossy().replace('\\', "/");
     let normalize = |text: &str| {
         let text = text.replace("\r\n", "\n").replace('\\', "/");
-        let text = text.replace(&project.to_string_lossy().replace('\\', "/"), "<project>");
+        let text = text
+            .replace(&resolved, "<project>")
+            .replace(&project.to_string_lossy().replace('\\', "/"), "<project>");
         match &admin_url {
             Some(url) => text
                 .replace(url, "<admin-url>")
