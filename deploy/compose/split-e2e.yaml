@@ -1,4 +1,7 @@
 services:
+  control:
+    environment:
+      CANOPY_POLICY_BUNDLE: null
   edge:
     extra_hosts:
       - host.docker.internal:host-gateway

@@ -1,10 +1,10 @@
 {{- if .Values.split.enabled }}
-Canopy is starting the data, control, Studio and edge deployments.
-Control publishes files from /app/policies to the shared meta database at startup.
-{{- if .Values.split.control.policiesConfigMap }}
-Policies come from ConfigMap {{ .Values.split.control.policiesConfigMap }}. Restart control after updating it.
-{{- else }}
-Define policy files under split.control.policies. Helm rolls control when those files change.
+Canopy is starting the data, control, auth, Studio and edge deployments.
+{{- if .Values.split.control.policyBundleConfigMap }}
+Control publishes policy-bundle.json from ConfigMap {{ .Values.split.control.policyBundleConfigMap }} at startup.
+Restart control after updating it.
+{{- else if .Values.split.control.policyBundle }}
+Control publishes split.control.policyBundle at startup. Helm rolls control when it changes.
 {{- end }}
 {{- else }}
 Canopy is starting as {{ include "canopy.fullname" . }} with {{ .Values.replicaCount }} pods.

@@ -528,7 +528,7 @@ jobs:
       - uses: ./.github/actions/canopy-js
       - name: Build the Rust canopy image
         run: docker build -f deploy/docker/canopyd.Dockerfile --build-context canopyjs=../Canopy.js -t canopy:ci .
-      - name: Build the control plane image
+      - name: Build the TypeScript auth image
         run: docker build -f deploy/docker/canopy-control.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-control:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
@@ -575,7 +575,7 @@ jobs:
         run: node node_modules/@playwright/test/cli.js install --with-deps chromium
       - name: Start the split stack with built in auth
         env: *split-env
-        run: CANOPY_PUBLISH_POLICIES=off docker compose up -d --no-build --wait --wait-timeout 240
+        run: docker compose up -d --no-build --wait --wait-timeout 240
       - name: Run Studio Playwright against the canopy Studio role
         env: *split-env
         run: |
@@ -586,8 +586,8 @@ jobs:
       - name: Run SDK auth through the split edge
         env: *split-env
         run: |
-          export CANOPY_PUBLISH_POLICIES=off CANOPY_CONTROL_CONFIG=./split-e2e-control.ts
-          docker compose up -d --no-build --wait --wait-timeout 120 control
+          export CANOPY_AUTH_CONFIG=./split-e2e-control.ts
+          docker compose up -d --no-build --wait --wait-timeout 120 auth
           bun run test:all --project sdk-e2e test/auth.e2e.test.ts
       - name: Run SDK data and realtime through the split edge
         env: *split-env

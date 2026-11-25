@@ -134,10 +134,11 @@ keeps the transactional write path for mutations and runs no admin API, Studio, 
 `api` role runs no realtime engine and follows GraphQL subscriptions through the realtime service. This
 `edge` is the front door of a self hosted stack; the Cloudflare fan out tier of mode D is separate.
 
-After Phase 5b the same stack runs the Rust data plane in the `canopy` image (`CANOPY_ROLE=api`, `realtime`
-or `all`, as today) and the TypeScript control plane in a `canopy-control` image that serves `/auth/v1` and
-`/admin`. The edge routes by path as before, and a failing control plane leaves every data route serving.
-The same binary connects to a local replica set or to Atlas by URI alone.
+The split stack uses the `canopy` image for data routes and runs a separate instance with
+`CANOPY_ROLE=control` for the admin API, migrations, policy publishing and webhooks. The `auth` service
+uses the TypeScript `canopy-control` image for `/auth/v1`, `/.well-known/jwks.json` and `/admin/v1/users`.
+The edge sends the rest of `/admin/v1` to Rust control and refuses `/internal/*`. Data routes keep serving
+when control stops. The same binary connects to a local replica set or to Atlas by URI alone.
 
 Mode A, minimum configuration:
 

@@ -3,7 +3,7 @@
 # For production, configure public HTTPS and require email verification.
 
 services:
-  control:
+  auth:
     environment:
       CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
       CANOPY_SPLIT_BUILTIN_AUTH: "on"
@@ -12,11 +12,21 @@ services:
       CANOPY_JWT_AUDIENCE: ""
       CANOPY_JWT_ROLES_CLAIM: ""
       CANOPY_JWT_ALGORITHMS: ""
-  data:
+  data: &builtin-config
     configs:
       - source: builtin-gateway
         target: /app/builtin-gateway.json
     command: ["--config", "/app/builtin-gateway.json"]
+
+  control:
+    <<: *builtin-config
+    environment:
+      CANOPY_SPLIT_BUILTIN_AUTH: "on"
+      CANOPY_JWT_JWKS_URL: ""
+      CANOPY_JWT_ISSUER: ""
+      CANOPY_JWT_AUDIENCE: ""
+      CANOPY_JWT_ROLES_CLAIM: ""
+      CANOPY_JWT_ALGORITHMS: ""
 
 configs:
   builtin-gateway:

@@ -17,6 +17,7 @@ const USAGE = `Usage: canopy-control [--config <file>]
 Starts the Canopy control plane with auth, the admin API, webhooks, health and metrics.
 At startup it migrates the meta database and publishes policies from the configured folder.
 Set CANOPY_PUBLISH_POLICIES=off to manage published policies separately.
+Set CANOPY_SPLIT_AUTH_ONLY=on to serve app auth and user administration beside Rust control.
 
 Options:
   --config <file>  The config file. Defaults to the same lookup as canopy-server.

@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest"
 import { parse, parseAllDocuments } from "yaml"
 
 const root = fileURLToPath(new URL("../../../", import.meta.url))
-const read = (path: string): string => readFileSync(join(root, path), "utf8")
+const read = (path: string): string =>
+  readFileSync(join(root, path), "utf8").replaceAll("\r\n", "\n")
 
 type Node = Record<string, unknown>
 
@@ -287,5 +288,40 @@ describe("edge routes", () => {
     const api = /\thandle \{\n([\s\S]*?)\n\t\}/.exec(caddyfile)?.[1] ?? ""
     expect(api).toContain("reverse_proxy api:8080")
     expect(api).toContain("flush_interval -1")
+  })
+})
+
+describe("split deployment", () => {
+  it("runs Rust control and TypeScript auth independently of data in Compose", () => {
+    const { services } = compose("deploy/compose/split.yaml")
+    const data = services["data"] ?? {}
+    const control = services["control"] ?? {}
+    const auth = services["auth"] ?? {}
+    expect(data["image"]).toBe(control["image"])
+    expect(environmentOf(control)["CANOPY_ROLE"]).toBe("control")
+    expect(environmentOf(control)["CANOPY_REALTIME_INTERNAL_URL"]).toBe("http://data:8080")
+    expect(environmentOf(control)["CANOPY_MASTER_KEY"]).toBe(
+      environmentOf(data)["CANOPY_MASTER_KEY"],
+    )
+    expect(auth["image"]).toContain("canopy-control")
+    expect(environmentOf(auth)["CANOPY_SPLIT_AUTH_ONLY"]).toBe("on")
+    for (const service of [data, control, auth])
+      expect(Object.keys((service["depends_on"] ?? {}) as Node)).toEqual(["database"])
+    expect(services["edge"]?.["depends_on"]).toBeUndefined()
+  })
+
+  it("handles auth and private paths before forwarding requests to control or data", () => {
+    const caddyfile = read("deploy/helm/canopy/files/Caddyfile.split")
+    expect(caddyfile).toContain(
+      "@auth path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin/v1/users /admin/v1/users/*",
+    )
+    expect(caddyfile).toContain(
+      "handle @auth {\n\t\treverse_proxy {$CANOPY_AUTH_UPSTREAM:auth:8080}",
+    )
+    expect(caddyfile).toContain("@control path /admin/v1 /admin/v1/*")
+    expect(caddyfile.indexOf("handle @auth")).toBeLessThan(caddyfile.indexOf("handle @control"))
+    expect(caddyfile).toContain("@internal path /internal /internal/*")
+    expect(caddyfile).toContain('handle @internal {\n\t\trespond "Not found" 404')
+    expect(caddyfile).toContain("handle {\n\t\treverse_proxy {$CANOPY_DATA_UPSTREAM:data:8080}")
   })
 })

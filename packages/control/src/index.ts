@@ -47,15 +47,38 @@ export async function createControlPlane(
   options: CreateControlPlaneOptions = {},
 ): Promise<Canopy> {
   const { policyDir = "dir" in config.policies ? config.policies.dir : false, ...server } = options
-  const local = policyDir === false ? undefined : await directoryPolicies(policyDir).load()
+  const authOnly = process.env["CANOPY_SPLIT_AUTH_ONLY"] === "on"
+  const local =
+    authOnly || policyDir === false ? undefined : await directoryPolicies(policyDir).load()
   const plan = planServerRole(config, "control")
   const metaDatabase = config.mongodb.metaDatabase
   return createCanopy(
-    amendConfig(plan.config, { policies: { source: "database", watch: config.policies.watch } }),
+    amendConfig(plan.config, {
+      policies: { source: "database", watch: config.policies.watch },
+      ...(authOnly
+        ? {
+            server: { ...plan.config.server, adminListen: undefined },
+            webhooks: { ...config.webhooks, triggers: {}, schedules: {} },
+          }
+        : {}),
+    }),
     {
       ...server,
       ...plan.options,
-      migrate: true,
+      migrate: !authOnly,
+      ...(authOnly
+        ? {
+            onSetupToken: false,
+            serves: (path: string) =>
+              path === "/healthz" ||
+              path === "/readyz" ||
+              path === "/.well-known/jwks.json" ||
+              path === "/auth/v1" ||
+              path.startsWith("/auth/v1/") ||
+              path === "/admin/v1/users" ||
+              path.startsWith("/admin/v1/users/"),
+          }
+        : {}),
       ...(local === undefined
         ? {}
         : {

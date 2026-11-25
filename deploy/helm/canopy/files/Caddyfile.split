@@ -3,13 +3,23 @@
 }
 
 {$CANOPY_SITE::8080} {
+	@internal path /internal /internal/*
+	handle @internal {
+		respond "Not found" 404
+	}
+
 	handle /edge/healthz {
 		respond "ok" 200
 	}
 
 	import /etc/caddy/extra/*.caddy
 
-	@control path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin /admin/*
+	@auth path /auth/v1 /auth/v1/* /.well-known/jwks.json /admin/v1/users /admin/v1/users/*
+	handle @auth {
+		reverse_proxy {$CANOPY_AUTH_UPSTREAM:auth:8080}
+	}
+
+	@control path /admin/v1 /admin/v1/*
 	handle @control {
 		reverse_proxy {$CANOPY_CONTROL_UPSTREAM:control:8080}
 	}

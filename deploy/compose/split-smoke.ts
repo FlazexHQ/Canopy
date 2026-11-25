@@ -5,6 +5,7 @@ const base = new URL(
 )
 const secretKeys = process.env["CANOPY_SECRET_KEYS"] ?? "sk_dev_change_me"
 const publishableKeys = process.env["CANOPY_PUBLISHABLE_KEYS"] ?? "pk_dev"
+const masterKey = process.env["CANOPY_MASTER_KEY"] ?? crypto.randomUUID().replaceAll("-", "")
 const key = secretKeys.split(",")[0]?.trim() ?? ""
 const publishable = publishableKeys.split(",")[0]?.trim() ?? ""
 const builtin = !process.argv.includes("--without-builtin-auth")
@@ -22,6 +23,8 @@ async function run(args: string[], requireSuccess = true): Promise<void> {
     env: {
       ...process.env,
       CANOPY_SECRET_KEYS: secretKeys,
+      CANOPY_MASTER_KEY: masterKey,
+      CANOPY_MONGO_PORT: "0",
       CANOPY_PUBLISHABLE_KEYS: publishableKeys,
     },
     stdout: "inherit",
@@ -128,6 +131,16 @@ try {
     "240",
   ])
   await request("/edge/healthz", 200)
+  const setup = await request("/admin/v1/setup", 200)
+  const state: unknown = await setup.json()
+  assert(
+    state && typeof state === "object" && "claimed" in state && state.claimed === false,
+    "admin setup did not report an unclaimed deployment",
+  )
+  await request("/admin/v1/users", 401)
+  await request("/admin/v1/users/split-smoke", 401)
+  const internal = await request("/internal/realtime", 404)
+  assert((await internal.text()) === "Not found", "edge did not refuse the internal route")
   const studio = await request("/studio/", 200)
   assert((await studio.text()).includes("<title>Canopy Studio</title>"), "Studio index is missing")
   const icon = await request("/studio/favicon.svg", 200)
@@ -140,7 +153,8 @@ try {
   }
 
   await run([...compose, "stop", "control"])
-  const reply = await request("/admin/v1", 503)
+  const reply = await request("/admin/v1/setup", 503)
+  await request("/admin/v1/users", 401)
   const problem: unknown = await reply.json()
   assert(
     problem &&
@@ -151,8 +165,7 @@ try {
   )
   await writeAndRead("service", { apikey: key })
   if (user) {
-    await request("/.well-known/jwks.json", 503)
-    await Bun.sleep(5_100)
+    await request("/.well-known/jwks.json", 200)
     await writeAndRead(user.sub, user.headers)
   }
   const ws = new URL("/realtime/v1", base)
@@ -164,6 +177,8 @@ try {
     key,
   ])
   await request("/studio/", 200)
+  await run([...compose, "stop", "auth"])
+  await request("/admin/v1/users", 503)
   process.stdout.write("Split stack smoke passed with the control service stopped\n")
 } catch (error: unknown) {
   await run([...compose, "logs", "--tail", "100"], false)

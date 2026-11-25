@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "collections": [
+    {
+      "collection": "notes",
+      "exposed": true,
+      "realtime": true,
+      "policies": [
+        {
+          "name": "permissive read #1",
+          "kind": "permissive",
+          "ops": ["read"],
+          "roles": ["authenticated"],
+          "using": {
+            "ownerId": {
+              "$auth": "sub"
+            }
+          }
+        },
+        {
+          "name": "permissive insert #2",
+          "kind": "permissive",
+          "ops": ["insert"],
+          "roles": ["authenticated"],
+          "check": {
+            "ownerId": {
+              "$auth": "sub"
+            }
+          }
+        },
+        {
+          "name": "permissive update #3",
+          "kind": "permissive",
+          "ops": ["update"],
+          "roles": ["authenticated"],
+          "using": {
+            "ownerId": {
+              "$auth": "sub"
+            }
+          },
+          "check": {
+            "ownerId": {
+              "$auth": "sub"
+            }
+          }
+        },
+        {
+          "name": "permissive delete #4",
+          "kind": "permissive",
+          "ops": ["delete"],
+          "roles": ["authenticated"],
+          "using": {
+            "ownerId": {
+              "$auth": "sub"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "contexts": {}
+}

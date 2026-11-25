@@ -8,7 +8,7 @@ handle @todo {
 	header X-Forwarded-For 10.7.0.*
 }
 handle @sdk_auth {
-	reverse_proxy control:8080 {
+	reverse_proxy auth:8080 {
 		header_up X-Forwarded-For {http.request.header.X-Forwarded-For}
 	}
 }

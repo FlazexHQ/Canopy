@@ -51,22 +51,25 @@ tolerations: []
 affinity: {}
 
 # The split stack uses the same external MongoDB replica set as the default deployment.
-# Control publishes mounted policies at startup. Both planes read from the meta database.
+# Control can publish a canonical policy bundle at startup. The services share the meta database.
 split:
   enabled: false
   data:
     image: canopy:latest
   control:
     replicaCount: 1
+    # Canonical policy bundle with version, collections and contexts.
+    policyBundle: {}
+    # Optional ConfigMap with a policy-bundle.json key. Restart control after updating it.
+    policyBundleConfigMap: ""
+  auth:
+    replicaCount: 1
+    # Optional ConfigMap key canopy.config.ts for custom TypeScript auth settings.
+    configMap: ""
     image:
       repository: canopy-control
       tag: latest
       pullPolicy: IfNotPresent
-    # Map policy filenames to their contents. An empty map publishes no definitions.
-    policies: {}
-    # Use an existing ConfigMap instead of creating one from policies.
-    # Restart the control deployment after changing files in the existing ConfigMap.
-    policiesConfigMap: ""
   studio:
     replicaCount: 1
   edge:
@@ -76,8 +79,6 @@ split:
   wirePort: 27018
   # Set the public HTTPS URL without a trailing slash to enable built in auth.
   publicUrl: ""
-  # Optional ConfigMap key canopy.config.ts for custom control settings.
-  controlConfigMap: ""
   # Optional Secret key gateway.json for a complete gateway config, including any storage credentials.
   # This file replaces the generated gateway config. Include the built in auth settings if enabled
   # and keep the listener aligned with wirePort. Use S3 or R2, or provision storage for a local backend.
