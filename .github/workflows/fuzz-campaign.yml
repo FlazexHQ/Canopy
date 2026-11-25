@@ -1,0 +1,179 @@
+name: Fuzz campaign
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: Comma separated fuzz target names from fuzz/Cargo.toml
+        type: string
+        default: authn_cookies,authn_secrets,authn_passwords,authn_tokens,authn_totp
+        required: true
+      hours:
+        description: Fuzzing hours per target (greater than zero, at most 5.5)
+        type: number
+        default: 5.5
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  configure:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      targets: ${{ steps.inputs.outputs.targets }}
+      seconds: ${{ steps.inputs.outputs.seconds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Validate campaign inputs
+        id: inputs
+        env:
+          REQUESTED_TARGETS: ${{ inputs.targets }}
+          REQUESTED_HOURS: ${{ inputs.hours }}
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          import tomllib
+          from decimal import Decimal
+
+          with open("fuzz/Cargo.toml", "rb") as manifest:
+              available = {binary["name"] for binary in tomllib.load(manifest)["bin"]}
+          targets = [name.strip() for name in os.environ["REQUESTED_TARGETS"].split(",")]
+          if any(name not in available for name in targets) or len(set(targets)) != len(targets):
+              raise SystemExit("Provide distinct target names from fuzz/Cargo.toml")
+          hours = Decimal(os.environ["REQUESTED_HOURS"])
+          if not hours.is_finite() or not 0 < hours <= Decimal("5.5") or hours * 3600 < 1:
+              raise SystemExit("Fuzzing duration must be between one second and 5.5 hours")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"targets={json.dumps(targets)}", file=output)
+              print(f"seconds={int(hours * 3600)}", file=output)
+          PY
+
+  fuzz:
+    needs: configure
+    name: Fuzz campaign (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.configure.outputs.targets) }}
+    env:
+      FUZZ_TOOLCHAIN: nightly-2026-11-15
+      CARGO_FUZZ_VERSION: 0.13.2
+      FUZZ_TARGET: ${{ matrix.target }}
+      FUZZ_SECONDS: ${{ needs.configure.outputs.seconds }}
+      FUZZ_TRIPLE: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Install the pinned toolchain and build the fuzz target
+        timeout-minutes: 19
+        working-directory: fuzz
+        run: |
+          if [[ ! -x /usr/bin/time ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq time
+          fi
+          rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+          cargo +"$FUZZ_TOOLCHAIN" install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+          cargo +"$FUZZ_TOOLCHAIN" fuzz build "$FUZZ_TARGET" --target "$FUZZ_TRIPLE" --target-dir "$PWD/target"
+      - name: Restore the corpus of earlier runs
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz on all available cores
+        id: fuzz
+        timeout-minutes: 332
+        working-directory: fuzz
+        env:
+          ASAN_OPTIONS: detect_odr_violation=0
+          LC_ALL: C
+        run: |
+          corpus="corpus/$FUZZ_TARGET"
+          artifacts="artifacts/$FUZZ_TARGET"
+          mkdir -p "$corpus" "$artifacts"
+          dictionary=()
+          case "$FUZZ_TARGET" in
+            authn_*) dictionary=(-dict=dict/authn.dict) ;;
+            webauthn_*) dictionary=(-dict=dict/webauthn.dict) ;;
+            ejson|filter|update|frame) dictionary=(-dict=dict/ejson.dict) ;;
+            regex) dictionary=(-dict=dict/regex.dict) ;;
+          esac
+          cores=$(nproc)
+          status=0
+          /usr/bin/time -o "$RUNNER_TEMP/fuzz-time" -f '%U %S %e' \
+            "target/$FUZZ_TRIPLE/release/$FUZZ_TARGET" "$corpus" \
+            "${dictionary[@]}" "-artifact_prefix=$artifacts/" "-max_total_time=$FUZZ_SECONDS" \
+            "-jobs=$cores" "-workers=$cores" -timeout=60 -max_len=4096 -report_slow_units=0 || status=$?
+          echo "cores=$cores" >> "$GITHUB_OUTPUT"
+          exit "$status"
+      - name: Write the CPU time ledger
+        if: "!cancelled()"
+        env:
+          CORES: ${{ steps.fuzz.outputs.cores }}
+          FUZZ_OUTCOME: ${{ steps.fuzz.outcome }}
+        run: |
+          user=0 system=0 elapsed=0
+          if [[ -s "$RUNNER_TEMP/fuzz-time" ]]; then
+            read -r user system elapsed < <(tail -n 1 "$RUNNER_TEMP/fuzz-time")
+          fi
+          result=incomplete
+          if [[ "$FUZZ_OUTCOME" == success ]]; then
+            result=clean
+          fi
+          artifacts="fuzz/artifacts/$FUZZ_TARGET"
+          if [[ -d "$artifacts" && -n "$(find "$artifacts" -type f -print -quit)" ]]; then
+            result=finding
+          fi
+          files=0 bytes=0
+          corpus="fuzz/corpus/$FUZZ_TARGET"
+          if [[ -d "$corpus" ]]; then
+            read -r files bytes < <(find "$corpus" -type f -printf '%s\n' |
+              awk '{bytes += $1} END {printf "%d %.0f\n", NR, bytes}')
+          fi
+          jq -cn --arg target "$FUZZ_TARGET" --arg date "$(date -u +%FT%TZ)" \
+            --arg commit "$GITHUB_SHA" --arg result "$result" \
+            --argjson run_id "$GITHUB_RUN_ID" --argjson attempt "$GITHUB_RUN_ATTEMPT" \
+            --argjson cores "${CORES:-0}" --argjson elapsed "$elapsed" \
+            --argjson user "$user" --argjson system "$system" \
+            --argjson files "$files" --argjson bytes "$bytes" \
+            '{target: $target, date: $date, commit: $commit, run_id: $run_id, attempt: $attempt,
+              result: $result, cores: $cores, elapsed_seconds: $elapsed,
+              estimated_cpu_seconds: ($cores * $elapsed), cpu_seconds: (($user + $system) | floor),
+              corpus_files: $files, corpus_bytes: $bytes}' | tee "$RUNNER_TEMP/fuzz-ledger.jsonl"
+          {
+            printf '### %s\n\n' "$FUZZ_TARGET"
+            jq -r '"Result: \(.result)\n\nMeasured CPU seconds: \(.cpu_seconds)\n\nEstimated CPU seconds (cores times elapsed): \(.estimated_cpu_seconds)\n\nCorpus: \(.corpus_files) inputs, \(.corpus_bytes) bytes"' \
+              "$RUNNER_TEMP/fuzz-ledger.jsonl"
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ "$result" == clean ]]
+      - name: Upload the CPU time ledger
+        if: "!cancelled()"
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fuzz-ledger-${{ matrix.target }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fuzz-ledger.jsonl
+          if-no-files-found: error
+      - name: Save the corpus
+        if: "!cancelled() && steps.fuzz.outcome != 'skipped'"
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      - name: Upload crash artifacts and worker logs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}-${{ github.run_attempt }}
+          path: |
+            fuzz/artifacts/${{ matrix.target }}
+            fuzz/fuzz-*.log
+          if-no-files-found: ignore

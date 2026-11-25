@@ -3,6 +3,19 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R5 auth fuzz campaign
+
+[Dispatch the campaign](../../../.github/workflows/fuzz-campaign.yml) with
+`gh workflow run fuzz-campaign.yml -f hours=5.5` once the workflow is on the default branch. The default
+selection covers the five `authn_*` targets. Pass `-f targets=authn_cookies,authn_tokens` to select specific
+targets. The campaign and nightly workflow share the corpus cache within the same branch.
+
+On a four core runner one 5.5 hour job budgets 22 CPU hours per target, so two full campaigns budget 44.
+Download the `fuzz-ledger-*` artifacts from each run and sum `cpu_seconds` from `fuzz-ledger.jsonl` by target
+for the commit being qualified. Count each run and attempt once. Each target needs at least 86,400 measured
+CPU seconds from clean jobs. Check the job summaries for the result, time and corpus size. Investigate
+findings or incomplete runs before claiming the gate. The campaign has yet to run on GitHub Actions.
+
 ## Checkpoint (2026-11-25): account linking, error page, native /admin/v1/users, test replica sets recreated
 
 ### Commits since 6135ea14
