@@ -37,7 +37,7 @@ const HOST: &str = "admin.example.test";
 const PEER: &str = "127.0.0.1";
 const FIXTURE_SECRET: &str = "fixture private field";
 
-const COLLECTIONS: [&str; 11] = [
+const COLLECTIONS: [&str; 12] = [
     "admin_sessions",
     "admin_tokens",
     "admin_users",
@@ -46,6 +46,7 @@ const COLLECTIONS: [&str; 11] = [
     "policies",
     "policy_history",
     "settings",
+    "revocations",
     "webhook_dead_letters",
     "webhook_deliveries",
     "webhook_schedules",
@@ -415,10 +416,19 @@ struct Outcome {
     pending: Vec<String>,
 }
 
-async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
-    let file = format!("{}/../../conformance/http/admin/{role}.json", env!("CARGO_MANIFEST_DIR"));
+async fn replay(client: &Client, role: &str, users: bool) -> Result<Outcome, String> {
+    let fixture = if users { "users" } else { role };
+    let file = format!("{}/../../conformance/http/admin/{fixture}.json", env!("CARGO_MANIFEST_DIR"));
     let recorded = parse_json(&std::fs::read_to_string(&file).map_err(|error| format!("{file}: {error}"))?)
         .map_err(|error| error.message().to_owned())?;
+    let recorded = if users {
+        items(get(&recorded, "captures"))
+            .into_iter()
+            .find(|capture| string(get(capture, "role")) == role)
+            .ok_or("Missing user capture")?
+    } else {
+        recorded
+    };
     let database = format!("canopy_admin_replay_{}", &ObjectId::new().to_hex()[16..]);
     let meta_name = format!("{database}_meta");
     let meta = client.database(&meta_name);
@@ -520,6 +530,31 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     assert!(keys.tick("oracle", 30_000).await.map_err(|error| error.message().to_owned())?);
     assert!(!keys.tick("other node", 30_000).await.map_err(|error| error.message().to_owned())?);
     options.services.auth_keys = Some(Arc::new(keys));
+    let outbox = Arc::new(UserOutbox::default());
+    let auth_router = if users {
+        let auth = client.database(&auth_name);
+        let public_url = url::Url::parse(ORIGIN).map_err(|error| error.to_string())?;
+        let auth_options = canopy_authn::server::AuthOptions::new(public_url.clone(), "m".repeat(48));
+        let router =
+            canopy_authn::server::AuthRouter::open(auth.clone(), meta.clone(), auth_options, outbox.clone())
+                .await
+                .map_err(|error| error.message().to_owned())?;
+        options.services.users = Some(Arc::new(canopy_control::UserRoutes::new(
+            auth,
+            meta.clone(),
+            canopy_control::UserOptions {
+                public_url,
+                redirect_origins: Vec::new(),
+                min_password_length: 10,
+                access_token_ttl_seconds: 600,
+            },
+            outbox.clone(),
+            Arc::clone(&clock),
+        )));
+        Some(router)
+    } else {
+        None
+    };
     let control = Control::new(options);
     let setup = control
         .create_setup_token()
@@ -558,12 +593,58 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     bindings.bind("<database>", &database);
     bindings.bind("<secret:documents>", FIXTURE_SECRET);
 
+    if users {
+        let invalid_hash = if role == "owner" { "<stored-secret:5>" } else { "<stored-secret:10>" };
+        bindings.bind(invalid_hash, "nope");
+    }
     let mut previous: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut matched = 0;
     let mut pending = Vec::new();
     let mut failures = Vec::new();
     for step in items(get(&recorded, "steps")) {
         let id = string(get(&step, "id"));
+        if id == "users-list"
+            && let Some(router) = &auth_router
+        {
+            let mut first_session = None;
+            for _ in 0..2 {
+                advance(100);
+                let mut sign_in = Request::new("POST", "/auth/v1/sign-in/email")
+                    .with_header("content-type", "application/json")
+                    .with_header("origin", ORIGIN)
+                    .with_body(
+                        br#"{"email":"Fixture.User@Example.test","password":"app user fixture password 1"}"#,
+                    );
+                sign_in.client_address = Some(PEER.into());
+                let response = router.handle_endpoint_at(&sign_in, now.load(Ordering::SeqCst)).await;
+                if response.status != 200 {
+                    return Err(format!(
+                        "Fixture sign in: {} {}",
+                        response.status,
+                        String::from_utf8_lossy(&response.body)
+                    ));
+                }
+                if first_session.is_none() {
+                    let database = client.database(&auth_name);
+                    let session = database
+                        .collection::<Document>("sessions")
+                        .find_one(doc! {})
+                        .await
+                        .map_err(|error| error.to_string())?
+                        .ok_or("Missing fixture session")?;
+                    first_session =
+                        Some(session.get_object_id("_id").map_err(|error| error.to_string())?.to_hex());
+                }
+            }
+            let revoke = items(get(&recorded, "steps"))
+                .into_iter()
+                .find(|step| string(get(step, "id")) == "user-session-revoke")
+                .ok_or("Missing session revoke step")?;
+            let path = string(get(get(&revoke, "request"), "target"));
+            let sid = path.rsplit('/').next().ok_or("Missing session placeholder")?;
+            bindings.bind(sid, &first_session.ok_or("Missing fixture session id")?);
+            previous = snapshot(&meta, &normalizer).await;
+        }
         if id == "login-cookie" {
             advance(30_000);
             let secret = base32_decode(bindings.values.get("<secret:setup-claim>").ok_or("No setup secret")?)
@@ -592,7 +673,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
         }
         let request = get(&step, "request");
         let target = string(get(request, "target"));
-        let group = delegated(&target);
+        let group = if users { None } else { delegated(&target) };
         let resolved_target = bindings.resolve(&target, epoch);
         let mut headers = Vec::new();
         let mut unresolved = resolved_target.is_none();
@@ -740,7 +821,8 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
             }
         }
     }
-    if role == "owner"
+    if !users
+        && role == "owner"
         && let Err(error) = check_view_as(&data, &client.database(&database), &meta).await
     {
         failures.push(error);
@@ -833,7 +915,7 @@ async fn replays_the_typescript_admin_oracle() -> Result<(), String> {
     let client = Client::with_uri_str(uri).await.map_err(|error| error.to_string())?;
     let mut failures = Vec::new();
     for role in ROLE_NAMES {
-        match replay(&client, role).await {
+        match replay(&client, role, false).await {
             Ok(outcome) => {
                 eprintln!("{role}: {} steps matched, {} pending", outcome.matched, outcome.pending.len());
                 for step in outcome.pending {
@@ -844,4 +926,43 @@ async fn replays_the_typescript_admin_oracle() -> Result<(), String> {
         }
     }
     if failures.is_empty() { Ok(()) } else { Err(failures.join("\n")) }
+}
+
+#[derive(Default)]
+struct UserOutbox(std::sync::Mutex<Vec<(canopy_mail::EmailKind, String, String)>>);
+
+impl canopy_authn::server::AuthMail for UserOutbox {
+    fn send<'a>(
+        self: Arc<Self>,
+        kind: canopy_mail::EmailKind,
+        recipient: canopy_mail::Recipient<'a>,
+    ) -> BoxFuture<'a, ()> {
+        self.0.lock().unwrap().push((kind, recipient.email.into(), recipient.url.unwrap_or_default().into()));
+        Box::pin(std::future::ready(()))
+    }
+}
+
+#[tokio::test]
+async fn replays_the_typescript_admin_users_oracle() -> Result<(), String> {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        eprintln!("Skipping the admin users oracle replay because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let client = Client::with_uri_str(uri).await.map_err(|error| error.to_string())?;
+    let mut matched = 0;
+    let mut failures = Vec::new();
+    for role in ROLE_NAMES {
+        match replay(&client, role, true).await {
+            Ok(outcome) => {
+                assert!(outcome.pending.is_empty());
+                matched += outcome.matched;
+            }
+            Err(error) => failures.push(error),
+        }
+    }
+    if !failures.is_empty() {
+        return Err(failures.join("\n"));
+    }
+    assert_eq!(matched, 204);
+    Ok(())
 }

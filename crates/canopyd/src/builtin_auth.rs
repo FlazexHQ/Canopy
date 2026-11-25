@@ -5,7 +5,7 @@ use canopy_authn::server::{
     oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
 };
 use canopy_config::{GatewayConfig, JwtConfig, TrustedProxy};
-use canopy_control::{SigningKeyOptions, SigningKeyRoutes, system_clock};
+use canopy_control::{SigningKeyOptions, SigningKeyRoutes, UserOptions, UserRoutes, system_clock};
 use canopy_mail::{LoggedMail, MailSettings, Mailer, TransportSettings};
 use canopy_mongo::mongodb::{
     Database,
@@ -326,7 +326,11 @@ impl Settings {
         &self.database
     }
 
-    pub(crate) async fn open(self, meta: &Database, log: Log) -> Result<AuthRouter, String> {
+    pub(crate) async fn open(
+        self,
+        meta: &Database,
+        log: Log,
+    ) -> Result<(Arc<AuthRouter>, Arc<UserRoutes>), String> {
         let auth = meta.client().database(&self.database);
         let algorithm = match self.keys.algorithm {
             canopy_authn::tokens::Algorithm::EdDSA => "EdDSA",
@@ -341,7 +345,20 @@ impl Settings {
                     &[("to", mail.to), ("subject", mail.subject), ("body", mail.body)],
                 );
             }));
-        let router = AuthRouter::open(auth.clone(), meta.clone(), self.auth, Arc::new(mail))
+        let mail = Arc::new(mail);
+        let users = UserRoutes::new(
+            auth.clone(),
+            meta.clone(),
+            UserOptions {
+                public_url: self.auth.public_url.clone(),
+                redirect_origins: self.auth.trusted_origins.clone(),
+                min_password_length: self.auth.min_password_length,
+                access_token_ttl_seconds: self.auth.access_token_ttl_seconds,
+            },
+            mail.clone(),
+            system_clock(),
+        );
+        let router = AuthRouter::open(auth.clone(), meta.clone(), self.auth, mail)
             .await
             .map_err(|error| message(&error))?;
         let keys = SigningKeyRoutes::new(auth.clone(), self.keys, system_clock())
@@ -372,7 +389,7 @@ impl Settings {
                         }
                     }
                 });
-                return Ok(router);
+                return Ok((Arc::new(router), Arc::new(users)));
             }
             if attempt < 50 {
                 tokio::time::sleep(Duration::from_millis(100)).await;

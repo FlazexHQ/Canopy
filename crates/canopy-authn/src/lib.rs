@@ -9,3 +9,6 @@ pub mod totp;
 
 /// Built in authentication HTTP routes.
 pub mod server;
+
+/// Shared accessors for stored app users.
+pub mod users;

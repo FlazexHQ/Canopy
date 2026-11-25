@@ -515,13 +515,22 @@ pub(crate) async fn start(
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
     options.app_name = Some("canopy-control".to_owned());
     let client = Client::with_options(options).map_err(|error| error.to_string())?;
-    let auth = match auth {
-        Some(settings) => Some(Arc::new(settings.open(&client.database(&config.meta_database), log).await?)),
-        None => None,
+    let (auth, users) = match auth {
+        Some(settings) => {
+            let (auth, users) = settings.open(&client.database(&config.meta_database), log).await?;
+            (Some(auth), Some(users))
+        }
+        None => (None, None),
     };
     let remote = RemoteInspector::configured()?;
-    let (mut control, webhooks_handle) =
-        build(&config, text.as_deref(), client, log, None, remote.clone(), None).await?;
+    let (mut control, webhooks_handle) = build(
+        &config,
+        text.as_deref(),
+        client,
+        log,
+        Services { remote: remote.clone(), users, ..Services::default() },
+    )
+    .await?;
     control.builtin_auth = auth;
     let control = Arc::new(control);
     let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
@@ -548,15 +557,22 @@ pub(crate) struct LocalRealtime {
     pub(crate) following: Option<Arc<AtomicBool>>,
 }
 
+#[derive(Default)]
+pub(crate) struct Services {
+    pub(crate) realtime: Option<LocalRealtime>,
+    pub(crate) remote: Option<RemoteInspector>,
+    pub(crate) request_log: Option<Arc<RequestLog>>,
+    pub(crate) users: Option<Arc<canopy_control::UserRoutes>>,
+}
+
 pub(crate) async fn build(
     config: &GatewayConfig,
     text: Option<&str>,
     client: Client,
     log: Log,
-    realtime: Option<LocalRealtime>,
-    remote: Option<RemoteInspector>,
-    request_log: Option<Arc<RequestLog>>,
+    services: Services,
 ) -> Result<(Admin, Option<canopy_webhooks::Handle>), String> {
+    let Services { realtime, remote, request_log, users } = services;
     let meta = client.database(&config.meta_database);
     let migrated = canopy_migrations::migrate(&meta, canopy_migrations::MigrationOptions::default())
         .await
@@ -612,6 +628,7 @@ pub(crate) async fn build(
     let builtin = matches!(raw_auth.and_then(|auth| auth.get("kind")), Some(Json::String(kind)) if kind == "builtin")
         || config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
         || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on");
+    control_options.services.users = users.map(|users| users as Arc<dyn canopy_control::Delegate>);
     control_options.auth_providers = providers(raw_auth, config.auth.as_ref(), builtin);
     control_options.error_logger = Some(Arc::new(move |path, code| log.admin_failure(path, code)));
     if builtin {

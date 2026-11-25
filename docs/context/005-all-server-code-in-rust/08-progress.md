@@ -144,11 +144,25 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 ### In progress (uncommitted)
 
 - R2 BSON crossing and deferred sort: built and re-measured (see the checkpoint above); matching and the optimistic update still miss their gates, uncommitted pending the maintainer's choice.
-- R5.6b `/admin/v1/users` (paused on a usage limit).
+
+### R5.6b app user administration
+
+- Rust serves `/admin/v1/users` in the `control` and `all` roles with `CANOPY_AUTH_ENGINE=rust`.
+  The routes support user lookup, creation, updates, banning, deletion, invites, legacy imports and
+  session revocation on the shared auth database.
+- The HTTP oracle covers 204 recorded steps across all four admin roles. The auth effects oracle
+  covers role changes, bans, invites, and imported passwords that rehash on sign in.
+- Both oracles passed on MongoDB 8.0.34 and 9.0.8. Authenticated HTTP smoke checks created and listed
+  an app user through each daemon role on both versions. Clippy passed for `canopy-authn`,
+  `canopy-control`, and `canopyd` with all targets and warnings denied.
+- The full `canopy-control` and `canopyd` suites passed on both versions with `RUST_TEST_THREADS=1`
+  after an earlier parallel run hit a Windows socket abort in the wire connection capacity test.
+- Both auth engines gate magic link verification on `auth.magicLink`. Accepting an admin invite
+  requires that setting to be enabled.
 
 ### What remains of plan 005
 
-- R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), the HTTPS claims hook, `/admin/v1/users`, switching the stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review.
+- R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), the HTTPS claims hook, switching the stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review.
 - R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher.
 
 ## Checkpoint (2026-11-25): R5.3 social and OIDC sign in in Rust (commit 34e64c65)

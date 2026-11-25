@@ -30,6 +30,7 @@ mod services;
 mod settings;
 mod templates;
 mod tokens;
+mod users;
 pub use canopy_authn::totp;
 
 use std::sync::Arc;
@@ -49,6 +50,7 @@ pub use crate::services::{
     BoxFuture, Call, Delegate, MetaStatus, NoStatus, PolicyStatus, RealtimeStatus, Reply, Status,
 };
 pub use crate::templates::TemplateRoutes;
+pub use crate::users::{UserOptions, UserRoutes};
 
 use crate::accounts::AdminAccounts;
 use crate::api_keys::ApiKeyStore;

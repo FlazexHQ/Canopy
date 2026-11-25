@@ -508,8 +508,10 @@ dependencies = [
  "ring",
  "rustls",
  "scrypt",
+ "serde_json",
  "tokio",
  "unicode-normalization",
+ "url",
 ]
 
 [[package]]

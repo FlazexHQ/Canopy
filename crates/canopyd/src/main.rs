@@ -249,9 +249,12 @@ async fn start(
     let meta = client.database(&config.meta_database);
     let auth_database = auth_settings.as_ref().map_or("canopy_auth", builtin_auth::Settings::database);
     let auth_database = client.database(auth_database);
-    let builtin_auth = match auth_settings {
-        Some(settings) => Some(Arc::new(settings.open(&meta, log).await?)),
-        None => None,
+    let (builtin_auth, user_routes) = match auth_settings {
+        Some(settings) => {
+            let (auth, users) = settings.open(&meta, log).await?;
+            (Some(auth), Some(users))
+        }
+        None => (None, None),
     };
     if let Some(path) = std::env::var_os("CANOPY_POLICY_BUNDLE") {
         if !matches!(config.policies, Policies::Database { .. }) {
@@ -406,9 +409,19 @@ async fn start(
     let mut webhooks = None;
     let admin = if let Some(text) = local_admin {
         let local = control::LocalRealtime { engine: engine_tx.clone(), signer, following };
-        let (admin, handle) =
-            control::build(&config, text.as_deref(), client.clone(), log, Some(local), None, request_log)
-                .await?;
+        let (admin, handle) = control::build(
+            &config,
+            text.as_deref(),
+            client.clone(),
+            log,
+            control::Services {
+                realtime: Some(local),
+                request_log,
+                users: user_routes,
+                ..control::Services::default()
+            },
+        )
+        .await?;
         webhooks = handle;
         let admin = Arc::new(admin);
         if let Some(address) = control::env("CANOPY_ADMIN_LISTEN") {
