@@ -22,6 +22,8 @@
       "!!conformance/graphql/schema.json",
       "!!conformance/cursor",
       "!!conformance/auth",
+      "!!conformance/webhooks",
+      "!!conformance/migrations",
       "!!.changeset/*.md",
       "!!apps/docs/src/content",
       "!!**/routeTree.gen.ts",

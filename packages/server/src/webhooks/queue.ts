@@ -69,14 +69,16 @@ function onlyDuplicates(error: unknown): boolean {
 export class DeliveryQueue {
   private readonly deliveries: Collection<Delivery>
   private readonly dead: Collection<DeadLetter>
+  private readonly now: () => Date
 
-  constructor(meta: Db) {
+  constructor(meta: Db, now: () => Date = () => new Date()) {
     this.deliveries = meta.collection<Delivery>("webhook_deliveries")
     this.dead = meta.collection<DeadLetter>("webhook_dead_letters")
+    this.now = now
   }
 
   /** Stores deliveries due now. Ids already stored are skipped. Returns how many were new. */
-  async enqueue(items: readonly NewDelivery[], now: Date = new Date()): Promise<number> {
+  async enqueue(items: readonly NewDelivery[], now: Date = this.now()): Promise<number> {
     if (items.length === 0) return 0
     const documents: Delivery[] = items.map((item) => ({
       _id: item.id,

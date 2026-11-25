@@ -23,6 +23,7 @@ export interface DispatcherOptions {
   readonly retryMaxMs?: number
   readonly fetch?: typeof fetch
   readonly now?: () => number
+  readonly random?: () => number
 }
 
 /** The metrics of webhook deliveries. */
@@ -193,7 +194,7 @@ export class Dispatcher {
   private delay(attempts: number, retryAfterMs: number | undefined): number {
     const max = this.options.retryMaxMs ?? 3_600_000
     const base = (this.options.retryBaseMs ?? 10_000) * 2 ** Math.max(0, attempts - 1)
-    const jittered = Math.min(base, max) * (0.8 + Math.random() * 0.4)
+    const jittered = Math.min(base, max) * (0.8 + (this.options.random ?? Math.random)() * 0.4)
     return Math.min(Math.max(jittered, retryAfterMs ?? 0), max)
   }
 }
