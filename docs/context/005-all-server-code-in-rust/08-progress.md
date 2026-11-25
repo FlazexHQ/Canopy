@@ -3,7 +3,7 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
-## Checkpoint (2026-11-25): R5 HTTPS claims hook in Rust
+## Checkpoint (2026-11-25): R5 HTTPS claims hook in Rust (commit 9af1d9c1)
 
 The last R5 gap the SDK auth suite exposed (decision O3). The contract is documented in
 [07-auth §4](../../design/07-auth.md#4-claims).
@@ -63,9 +63,42 @@ The last R5 gap the SDK auth suite exposed (decision O3). The contract is docume
 - The CI split stack still runs the TypeScript auth service; a Docker canopyd would need an HTTPS hook URL
   (loopback HTTP only reaches its own container).
 
-## Checkpoint (2026-11-25): R5 auth fuzz campaign
+## Checkpoint (2026-11-25): R5 provider ID token sign in and token refresh in Rust (commit ccadaaad)
 
-[Dispatch the campaign](../../../.github/workflows/fuzz-campaign.yml) with
+### What was built
+
+- [`crates/canopy-authn/src/server/oauth/flow.rs`](../../../crates/canopy-authn/src/server/oauth/flow.rs):
+  `POST /sign-in/social` accepts provider ID tokens for Google, Apple, Microsoft and discovery configured
+  OIDC providers. The router checks signatures against the provider key set (including Google, since the token
+  does not originate from the token endpoint here) and validates issuer, audience, expiry and nonce claims
+  before applying OAuth account linking rules.
+- [`crates/canopy-authn/src/server/oauth/account_tokens.rs`](../../../crates/canopy-authn/src/server/oauth/account_tokens.rs):
+  `POST /refresh-token` and `POST /get-access-token` refresh a linked account's provider tokens using the
+  stored refresh token for the live session of its owner, preserving existing scopes and refusing concurrent
+  token overwrites.
+- [`crates/canopy-authn/src/server/oauth/providers.rs`](../../../crates/canopy-authn/src/server/oauth/providers.rs):
+  provider token verification and key set lookup for direct ID token validation.
+- [`conformance/http/auth/cases/provider-tokens.json`](../../../conformance/http/auth/cases/provider-tokens.json):
+  four new recorded oracle cases in the `provider-tokens` group.
+
+### Evidence
+
+- [`tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs): replays 16 groups and 48 cases
+  (adding `provider-tokens`), matching on MongoDB 8.0.34 and 9.0.8.
+
+## Checkpoint (2026-11-25): test servers on port 0 and profiler wait (commit 8ffaac62)
+
+- [`packages/testing/src/listening.ts`](../../../packages/testing/src/listening.ts): servers start on port 0
+  and parse the bound port from the startup log, preventing port collisions under concurrent test runs.
+  Used by express drop in, realtime server and chaos test suites.
+- [`packages/realtime/src/bin/canopy-realtime.ts`](../../../packages/realtime/src/bin/canopy-realtime.ts):
+  logs the port actually bound.
+- [`packages/rest/test/cursor-pages.test.ts`](../../../packages/rest/test/cursor-pages.test.ts): tags measured
+  queries with a unique comment and awaits the matching profiler entry rather than giving up under load.
+
+## Checkpoint (2026-11-25): R5 auth fuzz campaign (commit a3e547f6)
+
+Commit a3e547f6 added the workflow [fuzz-campaign.yml](../../../.github/workflows/fuzz-campaign.yml). Dispatch it with
 `gh workflow run fuzz-campaign.yml -f hours=5.5` once the workflow is on the default branch. The default
 selection covers the five `authn_*` targets. Pass `-f targets=authn_cookies,authn_tokens` to select specific
 targets. The campaign and nightly workflow share the corpus cache within the same branch.
@@ -91,6 +124,9 @@ findings or incomplete runs before claiming the gate. The campaign has yet to ru
 - `9ed38c26` (`feat(control): serve /admin/v1/users from the Rust control plane`):
   `/admin/v1/users` served natively by `canopyd` (control and all roles, `CANOPY_AUTH_ENGINE=rust`): 204
   recorded steps across four admin roles, plus an auth side effects oracle.
+- `5eb14a81` (`fix(testing): install MongoDB from a file and without its debug symbols`):
+  the test mongod installer writes the verified archive into the staging folder and extracts it
+  with tar on Windows, skipping the 2.3 GB of .pdb debug symbols and fixing the 9.0.8 extraction failure.
 - `963df093` (`perf(matcher): stop copying the update while applying it`):
   Committed earlier today (recorded in the R2 checkpoint below without its commit hash), made the in process
   updater about 40 % faster natively.
@@ -111,17 +147,16 @@ or a drive root. (Also recorded in [README.md](README.md)).
 
 ### In progress (uncommitted)
 
-- The HTTPS claims hook (`claudeAgent`).
-- ID token sign in and provider token refresh (`codex`).
-- Fix for `mongod.ts` failing to install MongoDB 9.0.8 on Windows ("archive has no mongod"; the archive
-  layout is fine, the extraction of the large archive fails).
+- The HTTPS claims hook: committed in `9af1d9c1` (`claudeAgent`).
+- ID token sign in and provider token refresh: committed in `ccadaaad` (`codex`).
+- Fix for `mongod.ts` failing to install MongoDB 9.0.8 on Windows: committed in `5eb14a81`.
 - R2 (uncommitted, waiting on a quiet machine to measure; see the R2 checkpoints below).
 
 ### What remains of plan 005
 
-- R5 remaining: R5.3 leftovers now only ID token sign in and provider token refresh (in progress);
-  `/admin/v1/users` done; the claims hook in progress; then switching the stacks and the CI split job to
-  Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh committed in `ccadaaad`);
+  `/admin/v1/users` done; the claims hook done (committed in `9af1d9c1`); then switching the stacks and the
+  CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
 - R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
   init, doctor, type generation, platform packages and launcher.
 
@@ -285,9 +320,9 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 
 ### What remains of plan 005
 
-- R5 remaining: R5.3 leftovers now only ID token sign in and provider token refresh (in progress);
-  `/admin/v1/users` done; the claims hook in progress; then switching the stacks and the CI split job to
-  Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
+- R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh committed in `ccadaaad`);
+  `/admin/v1/users` done; the claims hook done (committed in `9af1d9c1`); then switching the stacks and the
+  CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, the external review.
 - R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev,
   init, doctor, type generation, platform packages and launcher.
 
@@ -367,8 +402,8 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 ### What remains
 
 - `/link-social`, `/unlink-account`, and `/auth/v1/error` built in `2191a195`.
-- Still not built: ID token sign in (`idToken` in the body answers 404 `ID_TOKEN_NOT_SUPPORTED`), refresh of
-  provider access tokens (both in progress), Microsoft profile photo, encrypted provider tokens.
+- ID token sign in and refresh of provider access tokens built in `ccadaaad`.
+- Still not built: Microsoft profile photo, encrypted provider tokens.
 - Apple, Microsoft and Discord have no recorded oracle; they follow Better Auth 1.7.18's provider code.
 
 ## Checkpoint (2026-11-25): R4 Rust CLI groundwork (commits d6258983 and e5b1cba4)
@@ -926,12 +961,11 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5 remaining: R5.3 leftovers (ID token sign in and provider token refresh, in progress), HTTPS claims hook (in progress), switching the stacks and the CI split job to Rust auth, 24 CPU hours per fuzz target in nightly, external review | R5 | Big | `claudeAgent` |
-| 2 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
-| 3 | R1 leftovers: providers document from config in `canopyd`, server error logging | R1 | Small | Codex |
-| 4 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |
-| 5 | R3: Canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 6 | R7: Removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
+| 1 | R5 remaining: switching the stacks and the CI split job to Rust auth (in progress, `claudeAgent`), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review | R5 | Big | `claudeAgent` |
+| 2 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |
+| 3 | R3 (next after R2 gate decision): canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 4 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
+| 5 | R7: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
 
 ## Done
 
