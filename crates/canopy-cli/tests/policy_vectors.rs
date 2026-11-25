@@ -459,12 +459,17 @@ fn reports_an_installed_canopy_js_without_an_emitter_and_an_unknown_runtime() ->
         .env_remove("CANOPY_EMITTER")
         .output()?;
     assert_eq!(output.status.code(), Some(1));
-    assert_eq!(
-        String::from_utf8(output.stderr)?.trim_end(),
+    let stderr = String::from_utf8(output.stderr)?;
+    let missing = |root: &std::path::Path| {
         format!(
             "The canopy.js installed in {} has no emitter (canopy.js/emit/cli); update canopy.js.",
-            project.path().display()
+            root.display()
         )
+    };
+    let resolved = std::fs::canonicalize(project.path())?;
+    assert!(
+        stderr.trim_end() == missing(project.path()) || stderr.trim_end() == missing(&resolved),
+        "{stderr}"
     );
     let refused = Command::new(env!("CARGO_BIN_EXE_canopy"))
         .current_dir(project.path())
