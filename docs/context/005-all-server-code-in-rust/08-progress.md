@@ -69,6 +69,29 @@ filter, and one update pays encoding, decoding in Rust (about 4 to 5 µs for the
 update itself (about 7 µs for a six field document at `opt-level = "z"`) and decoding the result in
 JavaScript.
 
+### Follow up: optimistic updates on documents kept in Rust (maintainer's choice 1, not committed)
+
+- `packages/wasm`: the transforms module gained `UpdateCache` (`retain`, `release`, `update`). An update
+  reads the document of one slot, keeps the result in a new slot (so earlier versions stay valid) and
+  returns the new slot plus only the top level fields the update touched, with the field names in order
+  when they changed (added, removed or renamed fields, replacements). Four host tests cover the reported
+  changes. The client module is byte for byte unchanged (81,646 Brotli bytes); transforms grew to 103,649
+  (wasm2js 178,862).
+- Canopy.js: `engine.ts` applies updates through it, decoding a document once and building the result from
+  the original and the touched fields; without `FinalizationRegistry` it keeps the whole document path.
+  Three new tests (every earlier version stays valid, MongoDB field order on add, remove, rename and
+  replacement, a refused update leaves the document usable). All four suite configurations pass 247 of
+  248 (the compose drift), including the 812 applied update vectors of the conformance replay.
+- Measured with about half the CPU used by other programs, so absolute times are noisy; the TypeScript and
+  Rust times of each pass are comparable. One update on Bun: 12.4 to 15.4 µs repeating on one document
+  object, 8.7 to 10.5 µs chained on its own results, against 3.3 to 5.3 µs. Chromium 4x: 56 to 101 µs
+  against 14 to 15.5 µs. Fresh document objects cost more (20 to 28 µs on Bun) because each is decoded once.
+- Where the time goes (Bun): the Rust updater alone takes 5.5 to 8.6 µs on the kept document, more than the
+  whole TypeScript update; decoding the touched fields 0.7 µs; slot bookkeeping under 0.2 µs. The crossing
+  is no longer the cost: the updater (`canopy_matcher::update::apply_update` at `opt-level = "z"`) is. The
+  update gate stays missed; the next lever is the speed of that updater (its per call parsing and copying,
+  or a faster build of the transforms module, which is not size gated).
+
 ### Options for the maintainer (the stage stops here, per §7)
 
 1. Keep documents on the Rust side for updates too: apply an optimistic update to the retained slot and
