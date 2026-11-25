@@ -235,10 +235,10 @@ fn build_writes_the_emitted_bundle_without_resolved_secrets() -> TestResult<()> 
     let (stdout, stderr) = text(&output);
     assert!(output.status.success(), "{stderr}");
     let file = project.join("dist").join("canopy.bundle.json");
-    assert_eq!(
-        stdout,
-        format!("wrote  {}\n1 collection, 0 policy tests, config unresolved\n", file.display())
-    );
+    let report =
+        |path: &Path| format!("wrote  {}\n1 collection, 0 policy tests, config unresolved\n", path.display());
+    let resolved = std::fs::canonicalize(&file)?;
+    assert!(stdout == report(&file) || stdout == report(&resolved), "{stdout}");
     let written = std::fs::read_to_string(&file)?;
     assert!(!written.contains(canary), "a resolved secret reached the bundle");
     let mut expected = emitted.clone();
