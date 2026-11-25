@@ -18,6 +18,8 @@
       "!!conformance/query",
       "!!conformance/policy",
       "!!conformance/http",
+      "!!conformance/http/admin",
+      "!!conformance/http/studio",
       "!!conformance/http/storage",
       "!!conformance/graphql/schema.json",
       "!!conformance/cursor",

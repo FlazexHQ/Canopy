@@ -1,0 +1,415 @@
+{
+  "origin": "https://studio.example.test",
+  "modified": 1700000000,
+  "assets": {
+    "index.html": "<!doctype html><title>Studio fixture</title>",
+    "assets/app.123.js": "export const fixture = true\n",
+    "manifest.webmanifest": "{}\n",
+    "assets/raw": "fixture bytes"
+  },
+  "cases": [
+    {
+      "id": "health",
+      "request": {
+        "method": "GET",
+        "target": "/healthz",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "ok"
+      }
+    },
+    {
+      "id": "readiness",
+      "request": {
+        "method": "GET",
+        "target": "/readyz",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {},
+        "body": "ok"
+      }
+    },
+    {
+      "id": "origin-redirect",
+      "request": {
+        "method": "GET",
+        "target": "/?source=fixture",
+        "headers": {}
+      },
+      "response": {
+        "status": 302,
+        "headers": {
+          "location": "https://studio.example.test/studio/"
+        },
+        "body": ""
+      }
+    },
+    {
+      "id": "studio-redirect",
+      "request": {
+        "method": "GET",
+        "target": "/studio?source=fixture",
+        "headers": {}
+      },
+      "response": {
+        "status": 308,
+        "headers": {
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "location": "/studio/?source=fixture",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": ""
+      }
+    },
+    {
+      "id": "index",
+      "request": {
+        "method": "GET",
+        "target": "/studio/",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-length": "44",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"2c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "<!doctype html><title>Studio fixture</title>"
+      }
+    },
+    {
+      "id": "index-explicit",
+      "request": {
+        "method": "GET",
+        "target": "/studio/index.html",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-length": "44",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"2c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "<!doctype html><title>Studio fixture</title>"
+      }
+    },
+    {
+      "id": "spa-fallback",
+      "request": {
+        "method": "GET",
+        "target": "/studio/data/notes",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-length": "44",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"2c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "<!doctype html><title>Studio fixture</title>"
+      }
+    },
+    {
+      "id": "index-head",
+      "request": {
+        "method": "HEAD",
+        "target": "/studio/",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-length": "44",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"2c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": ""
+      }
+    },
+    {
+      "id": "index-revalidate",
+      "request": {
+        "method": "GET",
+        "target": "/studio/",
+        "headers": {
+          "if-none-match": "W/\"2c-18bcfe56800\""
+        }
+      },
+      "response": {
+        "status": 304,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/html; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"2c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": ""
+      }
+    },
+    {
+      "id": "hashed-asset",
+      "request": {
+        "method": "GET",
+        "target": "/studio/assets/app.123.js",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-length": "28",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/javascript; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"1c-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "export const fixture = true\n"
+      }
+    },
+    {
+      "id": "unknown-media-type",
+      "request": {
+        "method": "GET",
+        "target": "/studio/assets/raw",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "public, max-age=31536000, immutable",
+          "content-length": "13",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "application/octet-stream",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"d-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "fixture bytes"
+      }
+    },
+    {
+      "id": "manifest",
+      "request": {
+        "method": "GET",
+        "target": "/studio/manifest.webmanifest",
+        "headers": {}
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-length": "3",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "application/manifest+json; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "etag": "W/\"3-18bcfe56800\"",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "{}\n"
+      }
+    },
+    {
+      "id": "asset-missing",
+      "request": {
+        "method": "GET",
+        "target": "/studio/assets/missing",
+        "headers": {}
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Not found"
+      }
+    },
+    {
+      "id": "file-missing",
+      "request": {
+        "method": "GET",
+        "target": "/studio/missing.txt",
+        "headers": {}
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Not found"
+      }
+    },
+    {
+      "id": "malformed-path",
+      "request": {
+        "method": "GET",
+        "target": "/studio/%FF",
+        "headers": {}
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Not found"
+      }
+    },
+    {
+      "id": "method-refused",
+      "request": {
+        "method": "POST",
+        "target": "/studio/",
+        "headers": {}
+      },
+      "response": {
+        "status": 405,
+        "headers": {
+          "allow": "GET, HEAD",
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Method not allowed"
+      }
+    },
+    {
+      "id": "outside-studio",
+      "request": {
+        "method": "GET",
+        "target": "/rest/v1/notes",
+        "headers": {}
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Not found"
+      }
+    },
+    {
+      "id": "unbuilt",
+      "request": {
+        "method": "GET",
+        "target": "/studio/",
+        "headers": {}
+      },
+      "response": {
+        "status": 503,
+        "headers": {
+          "cache-control": "no-cache",
+          "content-security-policy": "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+          "content-type": "text/plain; charset=utf-8",
+          "cross-origin-opener-policy": "same-origin",
+          "cross-origin-resource-policy": "same-origin",
+          "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=()",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "x-frame-options": "DENY"
+        },
+        "body": "Canopy Studio is not built. Run `bun --filter @canopy/studio-app build` and restart the server."
+      }
+    }
+  ]
+}

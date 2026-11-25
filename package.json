@@ -116,6 +116,8 @@
     "vectors:graphql-schema": "bun --conditions=@canopy/source packages/testing/scripts/graphql-schema-vectors.ts",
     "vectors:rate-limits": "bun --conditions=@canopy/source packages/testing/scripts/rate-limit-vectors.ts",
     "vectors:http": "bun --conditions=@canopy/source packages/testing/scripts/http-find-vectors.ts",
+    "vectors:http-admin": "bun --conditions=@canopy/source packages/testing/scripts/http-admin-vectors.ts",
+    "vectors:http-studio": "bun --conditions=@canopy/source packages/testing/scripts/http-studio-vectors.ts",
     "vectors:http-writes": "bun --conditions=@canopy/source packages/testing/scripts/http-writes-vectors.ts",
     "vectors:webhooks": "bun --conditions=@canopy/source packages/testing/scripts/webhooks-vectors.ts",
     "vectors:migrations": "bun --conditions=@canopy/source packages/testing/scripts/migrations-vectors.ts",
