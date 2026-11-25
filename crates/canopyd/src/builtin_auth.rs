@@ -1,6 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
-use canopy_authn::server::{AuthOptions, AuthRouter};
+use canopy_authn::server::{
+    AuthOptions, AuthRouter,
+    oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
+};
 use canopy_config::{GatewayConfig, JwtConfig, TrustedProxy};
 use canopy_control::{SigningKeyOptions, SigningKeyRoutes, system_clock};
 use canopy_mail::{MailSettings, Mailer, TransportSettings};
@@ -44,12 +47,6 @@ pub(crate) fn resolve(
     }
 
     for (field, feature, enabled) in [
-        (
-            "providers",
-            "social providers",
-            matches!(auth.get("providers"), Some(Json::Object(items)) if !items.is_empty()),
-        ),
-        ("oidc", "OIDC providers", matches!(auth.get("oidc"), Some(Json::Array(items)) if !items.is_empty())),
         ("anonymous", "anonymous authentication", flag(auth, "anonymous", false)?),
         ("claims", "custom claims", auth.get("claims").is_some_and(|value| *value != Json::Null)),
         (
@@ -115,6 +112,8 @@ pub(crate) fn resolve(
     ] {
         options.external.insert(method, flag(auth, field, default)?.into());
     }
+    options.social_providers = social_providers(auth)?;
+    options.oidc_providers = oidc_providers(auth, production)?;
     options.access_token_ttl_seconds =
         seconds(auth, "accessTokenTtl", "accessTokenTtlSeconds", 600, 300, 3600)?;
     if let Some(rotation) = auth.get("keyRotation") {
@@ -170,6 +169,88 @@ pub(crate) fn resolve(
     });
     config.check_revocations = true;
     Ok(Some(Settings { database, auth: options, keys, mail }))
+}
+
+fn social_providers(auth: &Json) -> Result<Vec<SocialProvider>, String> {
+    let entries = match auth.get("providers") {
+        None | Some(Json::Null) => return Ok(Vec::new()),
+        Some(Json::Object(entries)) => entries,
+        Some(_) => return Err("auth.providers must be an object".into()),
+    };
+    let mut providers = Vec::new();
+    for (id, provider) in entries {
+        let path = format!("auth.providers.{id}");
+        let kind = SocialProviderKind::from_id(id).ok_or_else(|| {
+            format!("{path} is not a provider; use google, github, apple, microsoft or discord")
+        })?;
+        if !matches!(provider, Json::Object(_)) {
+            return Err(format!("{path} must be an object"));
+        }
+        let text = |field: &str| config_text(provider, field).filter(|value| !value.is_empty());
+        let client_id = text("clientId").ok_or_else(|| format!("Set {path}.clientId"))?;
+        let client_secret = match (text("clientSecret"), kind) {
+            (Some(secret), _) => ClientSecret::Static(secret.to_owned()),
+            (None, SocialProviderKind::Apple) => match (text("teamId"), text("keyId"), text("privateKey")) {
+                (Some(team_id), Some(key_id), Some(private_key)) => ClientSecret::AppleKey {
+                    team_id: team_id.to_owned(),
+                    key_id: key_id.to_owned(),
+                    private_key: private_key.to_owned(),
+                },
+                _ => return Err(format!("Set {path}.clientSecret, or teamId, keyId and privateKey")),
+            },
+            (None, _) => return Err(format!("Set {path}.clientSecret")),
+        };
+        let tenant_id = match provider.get("tenantId") {
+            None | Some(Json::Null) => None,
+            Some(Json::String(tenant)) if kind == SocialProviderKind::Microsoft => Some(tenant.clone()),
+            Some(_) => return Err(format!("{path}.tenantId is only for microsoft and must be a string")),
+        };
+        providers.push(SocialProvider { kind, client_id: client_id.to_owned(), client_secret, tenant_id });
+    }
+    Ok(providers)
+}
+
+fn oidc_providers(auth: &Json, production: bool) -> Result<Vec<OidcProvider>, String> {
+    let items = match auth.get("oidc") {
+        None | Some(Json::Null) => return Ok(Vec::new()),
+        Some(Json::Array(items)) => items,
+        Some(_) => return Err("auth.oidc must be a list".into()),
+    };
+    items
+        .iter()
+        .enumerate()
+        .map(|(index, item)| {
+            let path = format!("auth.oidc.{index}");
+            let text = |field: &str| {
+                config_text(item, field)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_owned)
+                    .ok_or_else(|| format!("Set {path}.{field}"))
+            };
+            let discovery_url = Url::parse(&text("discoveryUrl")?)
+                .ok()
+                .filter(|url| url.scheme() == "https" || (!production && url.scheme() == "http"))
+                .ok_or_else(|| format!("{path}.discoveryUrl must be an https URL"))?;
+            let scopes = match item.get("scopes") {
+                None | Some(Json::Null) => Vec::new(),
+                Some(Json::Array(scopes)) => scopes
+                    .iter()
+                    .map(|scope| match scope {
+                        Json::String(scope) if !scope.is_empty() => Ok(scope.clone()),
+                        _ => Err(format!("{path}.scopes must be a list of scopes")),
+                    })
+                    .collect::<Result<_, _>>()?,
+                Some(_) => return Err(format!("{path}.scopes must be a list of scopes")),
+            };
+            Ok(OidcProvider {
+                id: text("id")?,
+                discovery_url,
+                client_id: text("clientId")?,
+                client_secret: text("clientSecret")?,
+                scopes,
+            })
+        })
+        .collect()
 }
 
 fn flag(config: &Json, field: &str, default: bool) -> Result<bool, String> {

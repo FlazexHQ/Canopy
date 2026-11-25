@@ -186,6 +186,24 @@ impl Session {
     }
 }
 
+impl Account {
+    pub(super) fn public(&self) -> Value {
+        let scopes: Vec<&str> = self
+            .extra
+            .get_str("scope")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|scope| !scope.is_empty())
+            .collect();
+        object!(
+            "accountId": self.account_id, "providerId": self.provider_id, "userId": id_text(&self.user_id),
+            "createdAt": iso(self.created_at), "updatedAt": iso(self.updated_at), "id": id_text(&self.id),
+            "scopes": scopes
+        )
+    }
+}
+
 impl User {
     pub(super) fn metadata(&self, field: &str) -> Map<ByteString, Value> {
         self.extra.get_str(field).ok().and_then(|value| serde_json::from_str(value).ok()).unwrap_or_default()

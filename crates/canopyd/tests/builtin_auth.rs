@@ -229,18 +229,111 @@ async fn built_in_auth_issues_and_revokes_data_tokens() {
 }
 
 #[test]
-fn rust_auth_rejects_social_providers_on_startup() {
+fn rust_auth_rejects_incomplete_social_providers_on_startup() {
+    for (providers, problem) in [
+        (json!({"github": {"clientId": "test"}}), "Set auth.providers.github.clientSecret"),
+        (
+            json!({"myspace": {"clientId": "test", "clientSecret": "test"}}),
+            "auth.providers.myspace is not a provider",
+        ),
+        (
+            json!({"apple": {"clientId": "test", "teamId": "TEAM", "keyId": "KEY", "privateKey": "not a key"}}),
+            "The Apple signing key is not a PKCS#8 P-256 private key",
+        ),
+    ] {
+        let config = config(
+            "mongodb://127.0.0.1:37017/?replicaSet=rs0",
+            "unused_auth",
+            json!({"kind": "builtin", "providers": providers}),
+        );
+        let output = spawn(&config, "all", Some("rust")).wait_with_output().expect("startup exits");
+        assert_eq!(output.status.code(), Some(1));
+        let err = String::from_utf8(output.stderr).expect("startup error");
+        assert!(err.contains(problem), "{err}");
+        assert!(output.stdout.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn rust_auth_starts_social_and_oidc_sign_in() {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return };
+    let database = format!("gateway_social_{}", std::process::id());
+    let mongo = Client::with_uri_str(&uri).await.expect("backing database");
     let config = config(
-        "mongodb://127.0.0.1:37017/?replicaSet=rs0",
-        "unused_auth",
+        &uri,
+        &database,
         json!({
             "kind": "builtin",
-            "providers": {"github": {"clientId": "test", "clientSecret": "test"}},
+            "redirectUrls": [APP_ORIGIN],
+            "providers": {
+                "github": {"clientId": "github-client", "clientSecret": "github-secret"},
+                "microsoft": {"clientId": "ms-client", "clientSecret": "ms-secret", "tenantId": "contoso.example"},
+            },
+            "oidc": [{
+                "id": "acme", "discoveryUrl": "http://127.0.0.1:9/.well-known/openid-configuration",
+                "clientId": "acme-client", "clientSecret": "acme-secret",
+            }],
+            "email": {"transport": {"kind": "log"}},
         }),
     );
-    let output = spawn(&config, "all", Some("rust")).wait_with_output().expect("startup exits");
-    assert_eq!(output.status.code(), Some(1));
-    let err = String::from_utf8(output.stderr).expect("startup error");
-    assert!(err.contains("CANOPY_AUTH_ENGINE=rust does not support social providers"), "{err}");
-    assert!(output.stdout.is_empty());
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let http = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("HTTP client");
+    let (gateway, url) = Gateway::start(&config, "all", Some("rust")).await;
+    let settings =
+        body(http.get(format!("{url}/auth/v1/settings")).send().await.unwrap(), StatusCode::OK).await;
+    assert_eq!(settings["external"]["github"], true);
+    assert_eq!(settings["external"]["microsoft"], true);
+    assert_eq!(settings["external"]["acme"], true);
+    let sign_in = |provider: &str| {
+        http.post(format!("{url}/auth/v1/sign-in/social"))
+            .header("origin", APP_ORIGIN)
+            .header("content-type", "application/json")
+            .body(json!({"provider": provider, "callbackURL": format!("{APP_ORIGIN}/home")}).to_string())
+            .send()
+    };
+    let started = sign_in("github").await.unwrap();
+    let cookie = started.headers().get("set-cookie").expect("state cookie").to_str().unwrap().to_owned();
+    assert!(cookie.starts_with("canopy.state="), "{cookie}");
+    let started = body(started, StatusCode::OK).await;
+    let authorize = reqwest::Url::parse(started["url"].as_str().unwrap()).unwrap();
+    assert_eq!(authorize.host_str(), Some("github.com"));
+    let params: std::collections::HashMap<_, _> = authorize.query_pairs().into_owned().collect();
+    assert_eq!(params["client_id"], "github-client");
+    assert_eq!(params["redirect_uri"], format!("{PUBLIC_URL}/auth/v1/callback/github"));
+    assert_eq!(params["code_challenge_method"], "S256");
+    let state = mongo
+        .database(&format!("{database}_auth"))
+        .collection::<Document>("verifications")
+        .find_one(doc! {"identifier": format!("auth-state:{}", params["state"])})
+        .await
+        .unwrap();
+    assert!(state.is_some(), "the flow state is stored");
+    let microsoft = body(sign_in("microsoft").await.unwrap(), StatusCode::OK).await;
+    assert!(
+        microsoft["url"]
+            .as_str()
+            .unwrap()
+            .starts_with("https://login.microsoftonline.com/contoso.example/oauth2/v2.0/authorize?"),
+        "{microsoft}"
+    );
+    let unreachable = body(sign_in("acme").await.unwrap(), StatusCode::NOT_FOUND).await;
+    assert_eq!(unreachable["code"], "PROVIDER_NOT_FOUND");
+    let foreign = http
+        .get(format!("{url}/auth/v1/callback/github?code=abc&state={}", params["state"]))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(foreign.status(), StatusCode::FOUND);
+    assert_eq!(
+        foreign.headers()["location"].to_str().unwrap(),
+        format!("{PUBLIC_URL}/auth/v1/error?error=state_mismatch")
+    );
+    drop(gateway);
+    for suffix in ["", "_auth", "_meta"] {
+        mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
+    }
 }

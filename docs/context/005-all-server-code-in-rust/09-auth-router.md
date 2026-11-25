@@ -19,6 +19,7 @@ The HTTP server implementation lives in [`crates/canopy-authn/src/server/`](../.
 | [`magic_link.rs`](../../../crates/canopy-authn/src/server/magic_link.rs) | Magic link dispatch (`/sign-in/magic-link`) and verification (`/magic-link/verify`) |
 | [`otp.rs`](../../../crates/canopy-authn/src/server/otp.rs) | Email OTP verification, password reset, and sign in flows |
 | [`email.rs`](../../../crates/canopy-authn/src/server/email.rs) | Email token generation, callback URL rendering, and delivery handoff |
+| [`oauth/`](../../../crates/canopy-authn/src/server/oauth/) | Social and generic OIDC sign in (`/sign-in/social`, `/callback/{id}`, `/list-accounts`), the `ProviderHttp` transport the replay mocks, discovery, key sets and ID token checks |
 
 ## How to add a route
 

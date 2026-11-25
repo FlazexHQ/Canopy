@@ -15,7 +15,10 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use bson::{Bson, DateTime, Document, doc};
 use canopy_authn::{
     cookies::verify_session,
-    server::{AuthMail, AuthOptions, AuthRouter},
+    server::{
+        AuthMail, AuthOptions, AuthRouter,
+        oauth::{ClientSecret, OidcProvider, SocialProvider, SocialProviderKind},
+    },
 };
 use canopy_http::{Request, Response};
 use canopy_mail::{EmailKind, Recipient, TemplateData, render_default};
@@ -27,13 +30,15 @@ use ring::{hmac, signature};
 use serde_json_bytes::{Value, json};
 use url::Url;
 
+#[path = "support/idp.rs"]
+mod idp;
 #[path = "support/passkey_replay.rs"]
 mod passkey_replay;
 #[path = "../../canopy-webauthn/tests/support/mod.rs"]
 mod webauthn_support;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 13] = [
+const GROUPS: [&str; 15] = [
     "email-password",
     "email-verification",
     "password-reset",
@@ -47,6 +52,8 @@ const GROUPS: [&str; 13] = [
     "bearer",
     "rate-limits",
     "errors",
+    "social",
+    "oidc",
 ];
 
 macro_rules! object {
@@ -152,6 +159,11 @@ impl Bindings {
                     "argon2id-salt" => "[A-Za-z0-9+/]{22}",
                     "argon2id-tag" => "[A-Za-z0-9+/]{43}",
                     "text" => r"test/auth/v1/reset-password/[A-Za-z0-9]{16,64}",
+                    "state-cookie" | "nonce" => "[A-Za-z0-9_-]{32}",
+                    "code-challenge" => "[A-Za-z0-9_-]{43}",
+                    "code-verifier" | "verification-value" => "[A-Za-z0-9_-]{128}",
+                    "code" => "code-[0-9]+",
+                    "account-id-token" | "id-token-signature" => "[A-Za-z0-9_-]+",
                     _ => return Err(format!("Unknown placeholder {name}").into()),
                 };
                 captures.push(name);
@@ -427,18 +439,40 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             ),
         );
     }
-    for key in fixture["options"]["socialProviders"].as_object().ok_or("Social providers")?.keys() {
-        options.external.insert(key.clone(), json!(true));
+    for (key, provider) in fixture["options"]["socialProviders"].as_object().ok_or("Social providers")? {
+        options.social_providers.push(SocialProvider {
+            kind: SocialProviderKind::from_id(key.as_str()).ok_or("Social provider kind")?,
+            client_id: str_at(provider, "clientId")?,
+            client_secret: ClientSecret::Static(str_at(provider, "clientSecret")?),
+            tenant_id: None,
+        });
     }
     for provider in fixture["options"]["oidcProviders"].as_array().ok_or("OIDC providers")? {
-        options.external.insert(str_at(provider, "id")?, json!(true));
+        options.oidc_providers.push(OidcProvider {
+            id: str_at(provider, "id")?,
+            discovery_url: Url::parse(&str_at(provider, "discoveryUrl")?)?,
+            client_id: str_at(provider, "clientId")?,
+            client_secret: str_at(provider, "clientSecret")?,
+            scopes: Vec::new(),
+        });
     }
+    let providers = Arc::new(idp::MockIdp::default());
+    match case["id"].as_str() {
+        Some("github") => providers.set_user("4242", "gh@example.com", "Octo Cat"),
+        Some("google") => providers.set_user("1093", "goo@example.com", "Goo Gle"),
+        _ => {}
+    }
+    options.provider_http = Some(providers.clone());
     let outbox = Arc::new(Outbox {
         messages: Mutex::default(),
         app: str_at(&fixture["options"], "appName")?,
         from: "Canopy Oracle <auth@canopy.test>".into(),
     });
     let router = AuthRouter::open(auth.clone(), meta.clone(), options, outbox.clone()).await?;
+    let discovery = providers.take_calls();
+    if discovery.len() != 1 || discovery[0]["url"] != idp::DISCOVERY || discovery[0]["method"] != "GET" {
+        return Err(format!("Expected one discovery request at startup, got {}", json!(discovery)).into());
+    }
     let mut bindings = Bindings::default();
     let mut jars: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let steps = case["steps"].as_array().ok_or("Steps")?;
@@ -459,6 +493,23 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         .then(passkey_replay::ReplayPasskeys::load)
         .transpose()?;
     for (index, step) in steps.iter().enumerate() {
+        let now = DateTime::parse_rfc3339_str(str_at(step, "clock")?)?.timestamp_millis();
+        providers.set_now(now);
+        let client = str_at(step, "client")?;
+        providers.set_faults(idp::Faults {
+            refuse_code: client == "refused",
+            wrong_nonce: client == "wrongNonce",
+            wrong_audience: client == "wrongAudience",
+            ..idp::Faults::default()
+        });
+        if let Some(expected) = step.get("provider") {
+            let url = bindings.resolve(&str_at(expected, "url")?)?;
+            let (status, location) = providers.authorize(&url);
+            bindings
+                .compare(expected, &object!("url": url, "status": status, "location": location), "provider")
+                .map_err(|error| format!("step {} provider: {error}", index + 1))?;
+            continue;
+        }
         if step["request"]["headers"]["authorization"] == "Bearer <forged-bearer-1>" {
             let token = bindings.resolve("<session-token-2>")?;
             let prefix = token.get(..10).ok_or("Session token prefix")?;
@@ -482,14 +533,12 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                     bindings.resolve(value.as_str().ok_or("Request header value")?)?,
                 );
             }
-            let client = str_at(step, "client")?;
             let jar = jars.entry(client.clone()).or_default();
             if !jar.is_empty() {
                 let pairs: Vec<_> =
                     jar.iter().map(|(name, value)| format!("{name}={}", percent_encode(value))).collect();
                 http = http.with_header("cookie", pairs.join("; "));
             }
-            let now = DateTime::parse_rfc3339_str(str_at(step, "clock")?)?.timestamp_millis();
             if let Some(body) = request.get("body") {
                 if let Some(code) = body["code"].as_str().filter(|code| code.starts_with("<totp-")) {
                     use canopy_authn::totp::{TotpOptions, base32_decode, totp};
@@ -563,6 +612,8 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             for (actual, expected) in captured.into_iter().zip(expected) {
                 mail_with_jwts(actual, &secret, expected, &mut bindings)?;
             }
+            let calls = Value::Array(providers.take_calls());
+            bindings.compare(step.get("outbound").unwrap_or(&json!([])), &calls, "outbound")?;
             Ok::<(), Box<dyn Error>>(())
         }
         .await;
@@ -654,8 +705,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 36);
-    assert_eq!(steps, 276);
+    assert_eq!(cases, 41);
+    assert_eq!(steps, 310);
     Ok(())
 }
 

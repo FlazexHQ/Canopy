@@ -33,6 +33,7 @@ mod documents;
 mod email;
 mod floor;
 mod magic_link;
+pub mod oauth;
 mod otp;
 mod passkeys;
 mod password;
@@ -109,6 +110,12 @@ pub struct AuthOptions {
     pub key_grace_ms: i64,
     /// The shortest time an answer that could reveal whether an address has an account takes.
     pub response_floor: Duration,
+    /// Named OAuth providers offered through `/sign-in/social`.
+    pub social_providers: Vec<oauth::SocialProvider>,
+    /// Generic OpenID Connect providers, configured through discovery.
+    pub oidc_providers: Vec<oauth::OidcProvider>,
+    /// The transport of calls to identity providers; reqwest over rustls when unset.
+    pub provider_http: Option<Arc<dyn oauth::ProviderHttp>>,
 }
 
 impl AuthOptions {
@@ -128,6 +135,9 @@ impl AuthOptions {
             algorithm: Algorithm::EdDSA,
             key_grace_ms: 2_592_000_000,
             response_floor: Duration::from_millis(80),
+            social_providers: Vec::new(),
+            oidc_providers: Vec::new(),
+            provider_http: None,
         }
     }
 }
@@ -140,14 +150,16 @@ pub struct AuthRouter {
     mail: Arc<dyn AuthMail>,
     password_slots: Arc<tokio::sync::Semaphore>,
     floor: ResponseFloor,
+    oauth: oauth::Registry,
 }
 
 impl AuthRouter {
-    /// Opens the router and ensures uniqueness for credentials and sessions.
+    /// Opens the router, ensures uniqueness for credentials and sessions, and fetches the discovery
+    /// documents of the OpenID Connect providers.
     pub async fn open(
         auth: Database,
         meta: Database,
-        options: AuthOptions,
+        mut options: AuthOptions,
         mail: Arc<dyn AuthMail>,
     ) -> Result<Self> {
         if !matches!(options.public_url.scheme(), "http" | "https")
@@ -161,6 +173,24 @@ impl AuthRouter {
             return Err(CanopyError::new(ErrorCode::Internal, "Invalid built in auth settings"));
         }
         let floor = ResponseFloor::new(options.response_floor);
+        let ids: Vec<String> = options
+            .social_providers
+            .iter()
+            .map(|provider| provider.kind.id().to_owned())
+            .chain(options.oidc_providers.iter().map(|provider| provider.id.clone()))
+            .collect();
+        for id in ids {
+            if !options.external.contains_key(id.as_str()) {
+                options.external.insert(id, json!(true));
+            }
+        }
+        let oauth = oauth::Registry::open(
+            std::mem::take(&mut options.social_providers),
+            std::mem::take(&mut options.oidc_providers),
+            options.provider_http.take(),
+        )
+        .await
+        .map_err(|message| CanopyError::new(ErrorCode::Internal, message))?;
         let router = Self {
             auth,
             meta,
@@ -168,6 +198,7 @@ impl AuthRouter {
             mail,
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             floor,
+            oauth,
         };
         for (collection, indexes) in auth_indexes() {
             match router.collection(collection).create_indexes(indexes).await {
@@ -409,7 +440,8 @@ impl Call<'_> {
         }
         let reset_link = get && self.route.starts_with("/reset-password/");
         let allowed = match self.route {
-            "/verify-email" | "/get-session" | "/list-sessions" => get,
+            "/verify-email" | "/get-session" | "/list-sessions" | "/list-accounts" => get,
+            route if route.starts_with("/callback/") => get || post,
             "/magic-link/verify" => get && self.feature("magic_link"),
             "/sign-in/magic-link" => self.request.method == "POST" && self.feature("magic_link"),
             route if passkeys::method(route).is_some() => {
@@ -432,7 +464,8 @@ impl Call<'_> {
             | "/change-email"
             | "/revoke-session"
             | "/revoke-other-sessions"
-            | "/revoke-sessions" => self.request.method == "POST",
+            | "/revoke-sessions"
+            | "/sign-in/social" => self.request.method == "POST",
             _ => reset_link,
         };
         if let Some(retry) = self.address_retry().await? {
@@ -449,6 +482,9 @@ impl Call<'_> {
             } else {
                 Response { status: 404, ..Response::default() }
             });
+        }
+        if let Some(provider) = self.route.strip_prefix("/callback/") {
+            return self.oauth_callback(provider, query).await;
         }
         if !get {
             match self.request.header("origin") {
@@ -478,6 +514,20 @@ impl Call<'_> {
                 return Ok(error(403, code, message));
             }
         }
+        if self.route == "/sign-in/social" {
+            for (field, code) in [
+                ("errorCallbackURL", "INVALID_ERROR_CALLBACK_URL"),
+                ("newUserCallbackURL", "INVALID_NEW_USER_CALLBACK_URL"),
+            ] {
+                if body
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .is_some_and(|callback| !callback.is_empty() && !self.router.trusts_callback(callback))
+                {
+                    return Ok(error(403, code, &format!("Invalid {field}")));
+                }
+            }
+        }
         if matches!(self.route, "/sign-in/magic-link" | "/magic-link/verify") {
             for field in ["newUserCallbackURL", "errorCallbackURL"] {
                 let callback =
@@ -494,6 +544,8 @@ impl Call<'_> {
             "/sign-up/email" => self.sign_up(&body).await,
             "/sign-in/email" => self.sign_in(&body).await,
             "/sign-in/anonymous" => self.sign_in_anonymous().await,
+            "/sign-in/social" => self.sign_in_social(&body).await,
+            "/list-accounts" => self.list_accounts().await,
             "/delete-anonymous-user" => self.delete_anonymous_user().await,
             "/sign-in/magic-link" => self.send_magic_link(&body).await,
             "/magic-link/verify" => self.verify_magic_link(&params).await,

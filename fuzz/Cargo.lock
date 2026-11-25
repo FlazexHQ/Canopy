@@ -272,6 +272,7 @@ dependencies = [
  "http",
  "httpdate",
  "pbkdf2 0.13.0",
+ "reqwest",
  "ring",
  "scrypt",
  "serde",

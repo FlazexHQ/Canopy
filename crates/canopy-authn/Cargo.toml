@@ -29,6 +29,7 @@ hex = "0.4"
 http = "1"
 httpdate = "1"
 pbkdf2 = "0.13"
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 ring = "0.17"
 scrypt = { version = "0.11", default-features = false }
 serde = { version = "1", features = ["derive"] }
@@ -46,7 +47,6 @@ regex = "1"
 percent-encoding = "2"
 canopy-auth = { path = "../canopy-auth" }
 proptest = { version = "1.11", default-features = false, features = ["std"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 
 [lints]
