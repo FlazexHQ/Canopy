@@ -272,6 +272,7 @@ dependencies = [
  "rand 0.9.5",
  "serde",
  "serde_bytes",
+ "serde_json",
  "simdutf8",
  "thiserror 2.0.21",
  "time",
@@ -525,6 +526,31 @@ dependencies = [
  "canopy-protocol",
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "canopy-webhooks"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "bson",
+ "canopy-engine",
+ "canopy-matcher",
+ "canopy-mongo",
+ "canopy-protocol",
+ "futures-util",
+ "http-body-util",
+ "httpdate",
+ "hyper",
+ "hyper-util",
+ "reqwest",
+ "ring",
+ "rustls",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
