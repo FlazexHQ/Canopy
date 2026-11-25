@@ -36,6 +36,8 @@
   "devDependencies": {
     "@canopy/testing": "workspace:*",
     "@types/node": "catalog:",
+    "ajv": "catalog:",
+    "canopy.js": "catalog:",
     "fast-check": "catalog:",
     "mongodb": "catalog:",
     "typescript": "catalog:",

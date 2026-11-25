@@ -38,6 +38,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "ajv": "catalog:",
+    "canopy.js": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }
