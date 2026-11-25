@@ -3,6 +3,37 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R2 committed on branches, allocator measured, CI fixes
+
+### Commits on refactor/rust-port
+
+- `f1955faf` (`test(authn)`): the claims hook unit test case with a credential URI (`https://user:pass@...` in [`crates/canopy-authn/src/server/claims.rs`](../../../crates/canopy-authn/src/server/claims.rs)) carries a `trufflehog:ignore` marker, because TruffleHog reported it as an unverified URI secret and failed the Security workflow on `9af1d9c1`. Security on PR #6 still fails, and the `trufflehog:ignore` marker of `f1955faf` does not fix it: the Security workflow runs on `pull_request`, so TruffleHog scans every commit from master to the PR head. Run locally (TruffleHog 3.100.1 over `git merge-base origin/master HEAD`..refactor/rust-port with the workflow's arguments), it reports one finding only: the original unmarked line `https://user:pass@hooks.example.test/claims` in commit `9af1d9c1`, `crates/canopy-authn/src/server/claims.rs` line 276. A later commit cannot clear a line in an older commit, and history is not rewritten (no force push). The remaining options, a path exclusion for that file in `.github/trufflehog-exclude.txt` or excluding the URI detector, both weaken scanning, so they are a maintainer decision.
+- `34fee103` (`test(rest)`): the cursor-pages deep page plan test flaked because, under load, MongoDB abandons a `system.profile` write when it cannot take a ticket within its zero millisecond lock deadline (log event 20703); the test now profiles only its tagged finds through a profiling filter (which also writes them to the diagnostic log) and reads the same metrics (`keysExamined`, `docsExamined`, `nreturned`, `planSummary`) from `getLog` when the profiler entry is missing. Found and fixed by `codex_sudhan`; before, 1 broader parallel run reproduced the flake on 8.0.34; after, 7 targeted runs passed on each of 8.0.34 and 9.0.8.
+- `a0aa019c` (`feat(wasm)`): the R2 work of [`packages/wasm`](../../../packages/wasm) (`DocumentCache` in the client module; `sortBson`, `projectBson`, `updateBson` and `UpdateCache` in the transforms module; the Node-API compatible handles behind a `binding` feature; transforms at `opt-level = 3` and `wasm-opt -O3`) and [`bench/baselines/r2`](../../../bench/baselines/r2) `root-entry.ts` and `startup.mjs`, committed after clippy for every feature set on the host and Wasm target, rustfmt, the package tests and the R2 replay on Bun and Node 26 (wasm and js) passed.
+- `5388379f` (`fix(wasm)`): `build.ts` writes the wasm2js translations with LF, because wasm2js on Windows writes CRLF and the manifest hash then disagreed with the LF bytes Git commits.
+
+### Canopy.js
+
+- The R2 adoption is committed on a new branch `refactor/rust-core` (pushed to origin; master untouched): `a3e4a12` `fix(core)` syncs `realtime.server` `auto` and BSON symbols from Canopy; `a4bcb19` `feat(client)` runs the client paths on the Rust core (vendored Wasm under `src/core/wasm` with manifest, `src/client/bson.ts`, `src/client/engine.ts`, the store changes, removal of the vendored lite matcher and updater, devtools warnings asking the core, a changeset `rust-core.md`).
+- Suites: 247 of 248 pass with the Wasm core and with `CANOPY_TEST_CORE=js`; the one failure is `test/cli/compose.test.ts`, real drift because Canopy now runs Studio as a canopyd role while the Canopy.js template and canopy-stack still use a separate `canopy-studio` image (being fixed, see below).
+
+### R2 optimistic update, allocator measurement and native probe
+
+- Measured on a loaded machine (two Codex agents building), so only ratios are meaningful. Bun, one update of a six field document: TypeScript 3.1 to 3.4 µs; Rust retained update plus decoding its change set 8.0 to 8.7 µs; bare `updateBson` 7.8 to 8.2 µs. Node 26: 2.4, 6.3 and 6.2 µs. Ratio about 2.6x (gate: at most 2x).
+- A talc global allocator for the transforms module (A/B interleaved in one process) was about 10 % slower than the default dlmalloc on both runtimes, so it was reverted.
+- A native probe of the same pipeline (opt-level 3, fat LTO, Windows) took 6.1 µs: decoding the two field update 1.46 µs, decoding the document 2.11 µs, cloning it 0.85 µs, applying the update 1.75 µs, encoding the document 0.99 µs. So Wasm adds only about 1.3x over native; the cost is the allocation heavy Document tree (`Vec<(String, Value)>`, one heap allocation per key and per string value).
+- The next lever is a small inline key representation in canopy-protocol's Document, a refactor across every crate that uses `Document::fields()` or its `(String, Value)` iterators, estimated at 30 to 35 % fewer allocations, while the gate needs about 42 % off the Wasm side. This is a maintainer decision ([plan 005 §7](../../plans/005-all-server-code-in-rust.md#7-the-wasm-core-in-canopyjs-bundle-and-startup-gate): the stage stops when a gate is missed).
+
+### R3 readiness
+
+- [Plan 005 §5](../../plans/005-all-server-code-in-rust.md#5-stages) lists R3's dependencies as the R2 authoring module and R1 publishing, both available, so R3 does not wait on the matching and update gates.
+- One open maintainer question from [`conformance/authoring/README.md`](../../../conformance/authoring/README.md) remains: the semantics of the filter form of a policy test case for empty or mixed matches.
+
+### In progress (not committed)
+
+- The R4 CLI task (admin list, create and reset-totp; realtime enable-images and disable-images; auth import --from csv --dry-run) was stopped at the maintainer's request before it finished. Its partial, unverified changes stay uncommitted in `crates/canopy-cli` (`Cargo.toml`, `src/main.rs`, `src/meta.rs`, `src/remote.rs`, `tests/meta_vectors.rs`, `tests/vectors.rs`), `crates/canopy-control` (`src/accounts.rs`, `src/lib.rs`) and `Cargo.lock`; they must be reviewed, finished and verified (clippy, the golden replay on 8.0.34 and 9.0.8) before any commit.
+- The Canopy.js Studio alignment is done but uncommitted on `refactor/rust-core` and not yet correct. Changed: `templates/cli/compose.yaml` (Studio from the canopy image with `CANOPY_ROLE` studio and the canopyd probe healthcheck), `test/cli/compose.test.ts`, `test/cli/cli.test.ts`, `src/cli/cli.ts`, `examples/chatapp/compose.yaml`, the existing `templates/cli/Caddyfile` change (an `@internal` 404, matching Canopy's edge Caddyfile), and a changeset `studio-canopy-image.md`; lint, format, typecheck and all 248 tests passed. The problem: `canopy-stack up --build` now builds only `canopyd.Dockerfile`, but Canopy's reference stack (`deploy/compose/canopy.yaml`) runs api and realtime on `canopy.Dockerfile` (the TypeScript image, tagged `canopy-legacy:dev`, with a Bun healthcheck) and only Studio on the canopyd image through `CANOPY_GATEWAY_IMAGE`. The fix still to do: build both images (`canopy.Dockerfile` into `CANOPY_IMAGE`, `canopyd.Dockerfile` into `CANOPY_GATEWAY_IMAGE`), give the template's studio service `${CANOPY_GATEWAY_IMAGE:-ghcr.io/flazexhq/canopy:${CANOPY_VERSION:-__CANOPY_VERSION__}}`, and adjust `compose.test.ts` and `cli.test.ts` to match.
+
 ## Checkpoint (2026-11-25): R5 split stacks and the CI split job on Rust auth (not committed)
 
 The default split stacks no longer need the TypeScript `canopy-control` image: `/auth/v1`, `/auth/v1/jwks`,
@@ -1048,10 +1079,11 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5 remaining: confirm the switched split stack in CI (images job: Rust auth smoke, TypeScript fallback smoke, SDK auth through the claims relay), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review; then drop `split-auth-typescript.yaml` and the `canopy-control` image build | R5 | Medium | `claudeAgent` |
-| 2 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |
-| 3 | R3 (next after R2 gate decision): canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 4 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
+| 2 | R2: maintainer decision on the missed matching and update gates (options: inline keys in canopy-protocol Document, accept the measured ratios, or keep the TypeScript updater for optimistic updates); merge Canopy.js refactor/rust-core when decided | R2 | Big | `claudeAgent` |
+| 3 | R3: canonical JSON Schemas, bundle emitter, CLI publishing (depends only on the R2 authoring module and R1 publishing, with the filter case question open) | R3 | Big | `claudeAgent` |
+| 4 | R4 remaining: admin, realtime images and auth import work is partial and uncommitted; every command that needs the project config (blocked on R3's emitter), dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
 | 5 | R7: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
+| 6 | Security workflow on PR #6: decide between a path exclusion and excluding the URI detector for the 9af1d9c1 finding | CI | Small | `claudeAgent` |
 
 ## Done
 
