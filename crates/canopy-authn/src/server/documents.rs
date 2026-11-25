@@ -63,6 +63,18 @@ pub(super) struct Verification {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct TwoFactor {
+    #[serde(rename = "_id")]
+    pub id: Bson,
+    pub secret: String,
+    pub backup_codes: String,
+    pub user_id: Bson,
+    #[serde(flatten)]
+    pub extra: Document,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct AddressLimit {
     #[serde(rename = "_id")]
     id: Bson,
@@ -178,6 +190,7 @@ mod tests {
         round_trip::<IdentifierLimit>(include_str!(
             "../../../../conformance/auth/documents/identifier_limits.json"
         ));
+        round_trip::<TwoFactor>(include_str!("../../../../conformance/auth/documents/two_factors.json"));
         round_trip::<Verification>(include_str!("../../../../conformance/auth/documents/verifications.json"));
     }
 }

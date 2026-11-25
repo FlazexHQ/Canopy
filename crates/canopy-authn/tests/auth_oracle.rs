@@ -28,12 +28,13 @@ use serde_json_bytes::{Value, json};
 use url::Url;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 7] = [
+const GROUPS: [&str; 8] = [
     "email-password",
     "email-verification",
     "password-reset",
     "magic-link",
     "email-otp",
+    "two-factor",
     "sessions",
     "tokens",
 ];
@@ -119,9 +120,15 @@ impl Bindings {
                 let (kind, _) = name.trim_matches(['<', '>']).rsplit_once('-').ok_or("placeholder kind")?;
                 let shape = match kind {
                     "user-id" | "account-id" | "session-id" | "audit-id" | "revocation-id"
-                    | "verification-id" | "rate-limit-id" | "target-id" => "[a-f0-9]{24}",
+                    | "verification-id" | "rate-limit-id" | "target-id" | "two-factor-id" => "[a-f0-9]{24}",
                     "session-token" => "[A-Za-z0-9]{32}",
                     "otp" => "[0-9]{6}",
+                    "totp-secret" => "[A-Z2-7]{52}",
+                    "backup-code" => "[A-Za-z0-9]{5}-[A-Za-z0-9]{5}",
+                    "two-factor-cookie" => "2fa-[A-Za-z0-9]{20}",
+                    "verification-identifier" => "2fa-attempts-2fa-[A-Za-z0-9]{20}",
+                    "two-factor-secret" => "[0-9a-f]{144}",
+                    "two-factor-backup-codes" => "[0-9a-f]{362}",
                     "mail-token" => "[A-Za-z0-9]{16,64}",
                     "mail-jwt-claims" => "[A-Za-z0-9_-]+",
                     "mail-jwt-signature" | "tampered-signature" => "[A-Za-z0-9_-]{43}",
@@ -377,6 +384,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         .collect::<std::result::Result<Vec<_>, _>>()?;
     auth.collection::<Document>("signing_keys").insert_many(keys).await?;
     let mut options = AuthOptions::new(Url::parse(&public)?, secret.clone());
+    options.app_name = str_at(&fixture["options"], "appName")?;
     options.trusted_origins = vec![str_at(fixture, "appOrigin")?];
     options.require_email_verification =
         selected["emailPassword"]["requireEmailVerification"].as_bool().unwrap_or(true);
@@ -406,6 +414,15 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
     let mut bindings = Bindings::default();
     let mut jars: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let steps = case["steps"].as_array().ok_or("Steps")?;
+    let bearer_clients: std::collections::HashSet<_> = steps
+        .iter()
+        .filter(|step| {
+            ["authorization", "x-canopy-ceremony"]
+                .iter()
+                .any(|name| step["request"]["headers"].get(*name).is_some())
+        })
+        .filter_map(|step| step["client"].as_str())
+        .collect();
     for (index, step) in steps.iter().enumerate() {
         let request = &step["request"];
         let original = str_at(request, "path")?;
@@ -425,20 +442,27 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                     bindings.resolve(value.as_str().ok_or("Request header value")?)?,
                 );
             }
-            let jar = jars.entry(str_at(step, "client")?).or_default();
+            let client = str_at(step, "client")?;
+            let jar = jars.entry(client.clone()).or_default();
             if !jar.is_empty() {
                 let pairs: Vec<_> =
                     jar.iter().map(|(name, value)| format!("{name}={}", percent_encode(value))).collect();
                 http = http.with_header("cookie", pairs.join("; "));
             }
+            let now = DateTime::parse_rfc3339_str(str_at(step, "clock")?)?.timestamp_millis();
             if let Some(body) = request.get("body") {
+                if let Some(code) = body["code"].as_str().filter(|code| code.starts_with("<totp-")) {
+                    use canopy_authn::totp::{TotpOptions, base32_decode, totp};
+                    let secret = base32_decode(&bindings.resolve("<totp-secret-1>")?).ok_or("TOTP secret")?;
+                    assert_eq!(step["details"]["totpStep"].as_i64(), Some(now.div_euclid(30_000)));
+                    bindings.bind(code, &totp(&secret, now, TotpOptions::default()))?;
+                }
                 let text = match body {
                     Value::String(text) => text.as_str().to_owned(),
                     _ => body.to_string(),
                 };
                 http = http.with_body(bindings.resolve(&text)?.into_bytes());
             }
-            let now = DateTime::parse_rfc3339_str(str_at(step, "clock")?)?.timestamp_millis();
             let started = Instant::now();
             let response = router.handle_at(&http, now).await.ok_or("Unserved auth route")?;
             if let Some(held) = step["heldForTheFloor"].as_bool() {
@@ -446,7 +470,12 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             }
             let response = response_value(response, &secret, jwks)?;
             bindings.compare(&step["response"], &response, "response")?;
-            for cookie in response["cookies"].as_array().ok_or("Response cookies")? {
+            for cookie in response["cookies"]
+                .as_array()
+                .ok_or("Response cookies")?
+                .iter()
+                .filter(|_| !bearer_clients.contains(client.as_str()))
+            {
                 let name = str_at(cookie, "name")?;
                 let value = str_at(cookie, "value")?;
                 if value.is_empty() {
@@ -488,6 +517,19 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         )
         .into());
     }
+    if let Some(proofs) = expected.get("canopy_auth.verifications").and_then(Value::as_array) {
+        let mut challenge = None;
+        for proof in proofs {
+            let identifier = str_at(proof, "identifier")?;
+            if identifier.starts_with("<two-factor-cookie-") {
+                challenge = Some(bindings.resolve(&identifier)?);
+            } else if identifier.starts_with("<verification-identifier-")
+                && let Some(challenge) = challenge.take()
+            {
+                bindings.bind(&identifier, &format!("2fa-attempts-{challenge}"))?;
+            }
+        }
+    }
     for (name, docs) in expected {
         if !name.as_str().starts_with("canopy.") {
             bindings.compare(docs, &Value::Array(actual[name.as_str()].clone()), name.as_str())?;
@@ -502,6 +544,18 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 name.as_str(),
             )?;
         }
+    }
+    if expected.contains_key("canopy_auth.two_factors") {
+        use canopy_authn::{secrets, totp::base32_encode};
+        let encrypted = bindings.resolve("<two-factor-secret-1>")?;
+        let plain = secrets::decrypt(&secret, &encrypted).ok_or("Stored TOTP secret")?;
+        assert_eq!(base32_encode(plain.as_bytes()), bindings.resolve("<totp-secret-1>")?);
+        let encrypted = bindings.resolve("<two-factor-backup-codes-1>")?;
+        let plain = secrets::decrypt(&secret, &encrypted).ok_or("Stored backup codes")?;
+        let expected = (1..=10)
+            .map(|index| bindings.resolve(&format!("<backup-code-{index}>")))
+            .collect::<Result<Vec<_>>>()?;
+        assert_eq!(serde_json::from_str::<Vec<String>>(&plain)?, expected);
     }
     Ok(steps.len())
 }
@@ -538,8 +592,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 20);
-    assert_eq!(steps, 114);
+    assert_eq!(cases, 23);
+    assert_eq!(steps, 149);
     Ok(())
 }
 
@@ -647,7 +701,128 @@ async fn opens_over_the_indexes_the_typescript_server_created() -> Result<()> {
         .iter()
         .map(|(collection, index)| format!("{collection}.{}", index.get_str("name").unwrap_or_default()))
         .collect();
+    expected.push("two_factors.user".into());
     expected.sort();
     assert_eq!(result?, expected);
+    Ok(())
+}
+
+#[tokio::test]
+async fn requires_a_fresh_session_for_two_factor_enrolment() -> Result<()> {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = Client::with_uri_str(uri).await?;
+    let name = uuid::Uuid::new_v4().simple().to_string();
+    let auth = client.database(&format!("auth_fresh_{name}"));
+    let meta = client.database(&format!("meta_fresh_{name}"));
+    let result = async {
+        let now = DateTime::parse_rfc3339_str("2031-01-01T00:00:00Z")?;
+        let secret = "a".repeat(32);
+        let origin = "https://auth.canopy.test";
+        let outbox =
+            Arc::new(Outbox { messages: Mutex::default(), app: "Canopy".into(), from: String::new() });
+        let router = AuthRouter::open(
+            auth.clone(),
+            meta.clone(),
+            AuthOptions::new(Url::parse(origin)?, secret.clone()),
+            outbox,
+        )
+        .await?;
+        auth.collection::<Document>("users")
+            .insert_one(doc! {
+                "_id": "user", "name": "User", "email": "user@example.test", "emailVerified": true,
+                "createdAt": now, "updatedAt": now,
+            })
+            .await?;
+        auth.collection::<Document>("accounts")
+            .insert_one(doc! {
+                "accountId": "user", "providerId": "credential", "userId": "user",
+                "password": canopy_authn::passwords::hash_password("correct password")?,
+                "createdAt": now, "updatedAt": now,
+            })
+            .await?;
+        auth.collection::<Document>("sessions")
+            .insert_one(doc! {
+                "userId": "user", "token": "session", "createdAt": now, "updatedAt": now,
+                "expiresAt": DateTime::from_millis(now.timestamp_millis() + 1_800_000),
+                "ipAddress": "", "userAgent": "", "aal": "aal1",
+            })
+            .await?;
+        let cookie = canopy_authn::cookies::sign_session(&secret, "session");
+        let request = Request::new("POST", "/auth/v1/two-factor/enable")
+            .with_header("origin", origin)
+            .with_header("cookie", format!("__Secure-canopy.session_token={cookie}"))
+            .with_body(br#"{"password":"correct password"}"#.to_vec());
+        let expired =
+            router.handle_at(&request, now.timestamp_millis() + 900_000).await.ok_or("Auth response")?;
+        assert_eq!(expired.status, 403);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&expired.body)?,
+            object!("message":"Session is not fresh", "code":"SESSION_NOT_FRESH")
+        );
+        assert_eq!(auth.collection::<Document>("two_factors").count_documents(doc! {}).await?, 0);
+        let fresh =
+            router.handle_at(&request, now.timestamp_millis() + 899_999).await.ok_or("Auth response")?;
+        assert_eq!(fresh.status, 200);
+        assert_eq!(
+            auth.collection::<Document>("two_factors").count_documents(doc! {"verified": false}).await?,
+            1
+        );
+        Ok::<_, Box<dyn Error>>(())
+    }
+    .await;
+    auth.drop().await?;
+    meta.drop().await?;
+    result
+}
+
+#[tokio::test]
+async fn opens_over_duplicate_factor_documents_the_typescript_server_allowed() -> Result<()> {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = Client::with_uri_str(uri).await?;
+    let name = uuid::Uuid::new_v4().simple().to_string();
+    let auth = client.database(&format!("auth_factors_{name}"));
+    let meta = client.database(&format!("meta_factors_{name}"));
+    let result = async {
+        let factors = auth.collection::<Document>("two_factors");
+        factors
+            .insert_many([doc! {"userId": "user-1", "secret": "a"}, doc! {"userId": "user-1", "secret": "b"}])
+            .await?;
+        let outbox =
+            Arc::new(Outbox { messages: Mutex::default(), app: "Canopy".into(), from: String::new() });
+        let options = AuthOptions::new(Url::parse("https://auth.canopy.test")?, "a".repeat(32));
+        AuthRouter::open(auth.clone(), meta.clone(), options, outbox).await?;
+        let mut names = Vec::new();
+        for collection in ["two_factors", "identifier_limits"] {
+            let mut cursor = auth.collection::<Document>(collection).list_indexes().await?;
+            while let Some(index) = cursor.try_next().await? {
+                names.push(format!(
+                    "{collection}.{}",
+                    index.options.and_then(|options| options.name).unwrap_or_default()
+                ));
+            }
+        }
+        names.sort();
+        Ok::<_, Box<dyn Error>>((names, factors.count_documents(doc! {}).await?))
+    }
+    .await;
+    auth.drop().await?;
+    meta.drop().await?;
+    assert_eq!(
+        result?,
+        (
+            vec![
+                "identifier_limits._id_".to_owned(),
+                "identifier_limits.ttl_expires".to_owned(),
+                "two_factors._id_".to_owned()
+            ],
+            2
+        )
+    );
     Ok(())
 }

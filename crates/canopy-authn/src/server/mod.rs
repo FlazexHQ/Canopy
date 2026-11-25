@@ -32,6 +32,7 @@ mod magic_link;
 mod otp;
 mod password;
 mod session;
+mod two_factor;
 
 use documents::{AddressLimit, IdentifierLimit, User, id_text};
 use floor::ResponseFloor;
@@ -81,6 +82,8 @@ pub struct AuthOptions {
     pub public_url: Url,
     /// The secret shared with existing cookies and encrypted signing keys.
     pub secret: String,
+    /// Application name used as the authenticator issuer.
+    pub app_name: String,
     /// Trusted browser origins and redirect origins.
     pub trusted_origins: Vec<String>,
     /// Require a verified address before issuing a password session.
@@ -109,6 +112,7 @@ impl AuthOptions {
         Self {
             public_url,
             secret,
+            app_name: "Canopy".into(),
             trusted_origins: Vec::new(),
             require_email_verification: true,
             min_password_length: 10,
@@ -161,7 +165,11 @@ impl AuthRouter {
             floor,
         };
         for (collection, indexes) in auth_indexes() {
-            router.collection(collection).create_indexes(indexes).await.map_err(internal)?;
+            match router.collection(collection).create_indexes(indexes).await {
+                Ok(_) => {}
+                Err(error) if collection == "two_factors" && duplicate_key(&error) => {}
+                Err(error) => return Err(internal(error)),
+            }
         }
         Ok(router)
     }
@@ -311,6 +319,9 @@ impl Call<'_> {
             "/verify-email" | "/get-session" | "/list-sessions" => get,
             "/magic-link/verify" => get && self.feature("magic_link"),
             "/sign-in/magic-link" => self.request.method == "POST" && self.feature("magic_link"),
+            route if two_factor::is_route(route) => {
+                self.request.method == "POST" && self.feature("two_factor")
+            }
             route if otp::is_route(route) => self.request.method == "POST" && self.feature("email_otp"),
             "/sign-up/email"
             | "/sign-in/email"
@@ -333,6 +344,12 @@ impl Call<'_> {
             match self.request.header("origin") {
                 Some(origin) if !self.router.trusts_origin(&origin) => {
                     return Ok(error(403, "INVALID_ORIGIN", "Invalid origin"));
+                }
+                None if self.ceremony_cookie().is_some() => {
+                    if !self.address_hit().await? {
+                        return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
+                    }
+                    return Ok(error(403, "MISSING_OR_NULL_ORIGIN", "Missing or null Origin"));
                 }
                 None if self.request.header("cookie").is_some() => {
                     return Ok(error(403, "MISSING_OR_NULL_ORIGIN", "Missing or null Origin"));
@@ -398,6 +415,7 @@ impl Call<'_> {
             "/sign-in/email" => self.sign_in(&body).await,
             "/sign-in/magic-link" => self.send_magic_link(&body).await,
             "/magic-link/verify" => self.verify_magic_link(&params).await,
+            route if two_factor::is_route(route) => self.two_factor_route(&body).await,
             route if otp::is_route(route) => self.otp_route(&body).await,
             "/verify-email" => self.verify_email(&params).await,
             "/send-verification-email" => self.resend(&body).await,
@@ -496,7 +514,12 @@ impl Call<'_> {
     }
 
     fn session_token(&self) -> Option<String> {
-        verify_session(&self.router.options.secret, &self.cookie(AuthCookie::SessionToken)?)
+        let signed = self.cookie(AuthCookie::SessionToken).or_else(|| {
+            let authorization = self.request.header("authorization")?;
+            let (scheme, value) = authorization.split_once(' ')?;
+            scheme.eq_ignore_ascii_case("bearer").then(|| value.trim().to_owned())
+        })?;
+        verify_session(&self.router.options.secret, &signed)
     }
 
     fn set_cookie(&self, response: &mut Response, kind: AuthCookie, value: &str, expiration: Expiration) {
@@ -547,7 +570,8 @@ impl Call<'_> {
     async fn address_hit(&self) -> Result<bool> {
         let key = format!("{}|{}", self.ip(), self.route);
         let sensitive =
-            matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email");
+            matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email")
+                || two_factor::is_route(self.route);
         let window = if sensitive { 10_000 } else { 60_000 };
         let max = match self.route {
             "/sign-in/magic-link" | "/magic-link/verify" => 5,
@@ -595,8 +619,8 @@ impl Call<'_> {
     }
 }
 
-/// The indexes of `canopy_auth`, the same names and keys the TypeScript server creates.
-fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 7] {
+/// The indexes of `canopy_auth`, including the single factor per user constraint.
+fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 8] {
     fn index(keys: Document, name: &str, unique: bool, expire_after: Option<u64>) -> IndexModel {
         let mut options = IndexOptions::builder().name(name.to_owned()).build();
         if unique {
@@ -630,9 +654,18 @@ fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 7] {
             ],
         ),
         ("rate_limits", vec![index(doc! {"key": 1}, "key", true, None)]),
+        ("two_factors", vec![index(doc! {"userId": 1}, "user", true, None)]),
         ("signing_keys", vec![index(doc! {"createdAt": -1}, "created", false, None)]),
         ("identifier_limits", vec![index(doc! {"expiresAt": 1}, "ttl_expires", false, Some(0))]),
     ]
+}
+
+/// A unique index that existing documents violate. The TypeScript server never created the unique index on
+/// `two_factors.userId`, so a database it wrote may hold two factor documents for one user; such a database
+/// still opens, without the index.
+fn duplicate_key(error: &canopy_mongo::mongodb::error::Error) -> bool {
+    use canopy_mongo::mongodb::error::ErrorKind;
+    matches!(error.kind.as_ref(), ErrorKind::Command(command) if command.code == 11000)
 }
 
 fn object_id(now: DateTime) -> bson::oid::ObjectId {

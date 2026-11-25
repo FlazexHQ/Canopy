@@ -1,8 +1,9 @@
 //! One time passwords: HOTP (RFC 4226) and TOTP (RFC 6238) over `ring`'s HMAC, and the RFC 4648 base32 text
-//! that authenticator apps read. Admin sign in uses them today; app user two factor auth reuses them.
+//! that authenticator apps read. Admin and app user sign in share these primitives.
 
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
+use subtle::ConstantTimeEq;
 
 const BASE32: &[u8; 32] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
@@ -53,13 +54,13 @@ pub fn base32_encode(bytes: &[u8]) -> String {
         value = (value << 8) | u32::from(*byte);
         bits += 8;
         while bits >= 5 {
-            out.push(char::from(BASE32[((value >> (bits - 5)) & 31) as usize]));
+            out.extend(BASE32.get(((value >> (bits - 5)) & 31) as usize).copied().map(char::from));
             bits -= 5;
         }
         value &= (1 << bits) - 1;
     }
     if bits > 0 {
-        out.push(char::from(BASE32[((value << (5 - bits)) & 31) as usize]));
+        out.extend(BASE32.get(((value << (5 - bits)) & 31) as usize).copied().map(char::from));
     }
     out
 }
@@ -114,7 +115,7 @@ pub fn totp(secret: &[u8], time_ms: i64, options: TotpOptions) -> String {
 }
 
 fn same_bytes(a: &[u8], b: &[u8]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    bool::from(a.ct_eq(b))
 }
 
 /// Checks a code against the current step and `window` steps either side, for clock drift. Returns the
@@ -133,7 +134,7 @@ pub fn verify_totp(
     }
     let current = totp_step(time_ms, options.step_seconds);
     let mut matched = None;
-    for step in current - window..=current + window {
+    for step in current.saturating_sub(window)..=current.saturating_add(window) {
         if step < 0 || last_step.is_some_and(|last| step <= last) {
             continue;
         }
@@ -197,7 +198,7 @@ mod tests {
         let sha1 = b"12345678901234567890".as_slice();
         let sha256 = b"12345678901234567890123456789012".as_slice();
         let sha512 = b"1234567890123456789012345678901234567890123456789012345678901234".as_slice();
-        let table: [(i64, &str, &str, &str); 6] = [
+        let vectors: [(i64, &str, &str, &str); 6] = [
             (59, "94287082", "46119246", "90693936"),
             (1_111_111_109, "07081804", "68084774", "25091201"),
             (1_111_111_111, "14050471", "67062674", "99943326"),
@@ -205,7 +206,7 @@ mod tests {
             (2_000_000_000, "69279037", "90698825", "38618901"),
             (20_000_000_000, "65353130", "77737706", "47863826"),
         ];
-        for (seconds, one, two, five) in table {
+        for (seconds, one, two, five) in vectors {
             let at = seconds * 1000;
             let options = |algorithm| TotpOptions { step_seconds: 30, digits: 8, algorithm };
             assert_eq!(totp(sha1, at, options(Algorithm::Sha1)), one, "SHA-1 at {seconds}");

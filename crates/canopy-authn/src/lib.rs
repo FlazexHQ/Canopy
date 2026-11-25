@@ -5,6 +5,7 @@ pub mod key_material;
 pub mod passwords;
 pub mod secrets;
 pub mod tokens;
+pub mod totp;
 
 /// Built in authentication HTTP routes.
 pub mod server;

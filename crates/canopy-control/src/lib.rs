@@ -30,7 +30,7 @@ mod services;
 mod settings;
 mod templates;
 mod tokens;
-pub mod totp;
+pub use canopy_authn::totp;
 
 use std::sync::Arc;
 

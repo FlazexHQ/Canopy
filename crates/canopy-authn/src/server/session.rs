@@ -33,7 +33,19 @@ impl Call<'_> {
     }
 
     pub(super) async fn create_session(&self, user: &User, remember: bool, method: &str) -> Result<Session> {
-        let session = Session {
+        let session = self.new_session(user, remember, "aal1")?;
+        self.router.auth.collection::<Session>("sessions").insert_one(&session).await.map_err(internal)?;
+        self.router
+            .meta
+            .collection::<Document>("audit_log")
+            .insert_one(self.session_audit(&session, method))
+            .await
+            .map_err(internal)?;
+        Ok(session)
+    }
+
+    pub(super) fn new_session(&self, user: &User, remember: bool, aal: &str) -> Result<Session> {
+        Ok(Session {
             id: Bson::ObjectId(object_id(self.now)),
             expires_at: self.date_after(if remember { self.session_ttl_ms() } else { DAY_MS }),
             token: random_token(32)?,
@@ -42,18 +54,32 @@ impl Call<'_> {
             ip_address: self.ip().into(),
             user_agent: self.request.header("user-agent").unwrap_or_default(),
             user_id: user.id.clone(),
-            extra: doc! {"aal": "aal1"},
-        };
-        self.router.auth.collection::<Session>("sessions").insert_one(&session).await.map_err(internal)?;
-        self.audit(
-            "auth.sign_in",
-            doc! {"type":"user", "id": id_text(&user.id)},
-            Some(doc! {"type": "session", "id": id_text(&session.id)}),
-            Some(doc! {"method": method}),
-            false,
-        )
-        .await?;
-        Ok(session)
+            extra: doc! {"aal": aal},
+        })
+    }
+
+    pub(super) fn session_audit(&self, session: &Session, method: &str) -> Document {
+        doc! {
+            "_id": object_id(self.now), "action": "auth.sign_in",
+            "actor": {"type":"user", "id": id_text(&session.user_id)},
+            "target": {"type": "session", "id": id_text(&session.id)},
+            "details": {"method": method}, "at": self.now,
+        }
+    }
+
+    pub(super) async fn insert_session_in(
+        &self,
+        tx: &mut canopy_mongo::mongodb::ClientSession,
+        session: &Session,
+    ) -> canopy_mongo::mongodb::error::Result<()> {
+        self.router.auth.collection::<Session>("sessions").insert_one(session).session(&mut *tx).await?;
+        self.router
+            .meta
+            .collection::<Document>("audit_log")
+            .insert_one(self.session_audit(session, "two_factor"))
+            .session(tx)
+            .await?;
+        Ok(())
     }
 
     async fn end_session(&self, filter: Document) -> Result<()> {
@@ -85,22 +111,31 @@ impl Call<'_> {
         }
         sessions.delete_many(filter).session(&mut *session).await?;
         for ended in found {
-            let sub = id_text(&ended.user_id);
-            let sid = id_text(&ended.id);
-            self.router
-                .meta
-                .collection::<Document>("revocations")
-                .insert_one(doc! {
-                    "_id": object_id(self.now), "kind": "session", "sub": &sub, "sid": &sid, "at": self.now,
-                    "expiresAt": self.date_after((self.router.options.access_token_ttl_seconds + 120) * 1000)
-                })
-                .session(&mut *session)
-                .await?;
-            self.router.meta.collection::<Document>("audit_log").insert_one(doc! {
+            self.revoke_session_in(session, &ended).await?;
+        }
+        Ok(())
+    }
+
+    pub(super) async fn revoke_session_in(
+        &self,
+        session: &mut canopy_mongo::mongodb::ClientSession,
+        ended: &Session,
+    ) -> canopy_mongo::mongodb::error::Result<()> {
+        let sub = id_text(&ended.user_id);
+        let sid = id_text(&ended.id);
+        self.router
+            .meta
+            .collection::<Document>("revocations")
+            .insert_one(doc! {
+                "_id": object_id(self.now), "kind": "session", "sub": &sub, "sid": &sid, "at": self.now,
+                "expiresAt": self.date_after((self.router.options.access_token_ttl_seconds + 120) * 1000)
+            })
+            .session(&mut *session)
+            .await?;
+        self.router.meta.collection::<Document>("audit_log").insert_one(doc! {
                 "_id": object_id(self.now), "action": "auth.session_ended", "actor": {"type":"user", "id": sub},
                 "target": {"type":"session", "id": sid}, "at": self.now
             }).session(&mut *session).await?;
-        }
         Ok(())
     }
     pub(super) fn remember_session(&self) -> bool {
