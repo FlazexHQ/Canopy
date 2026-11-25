@@ -7,7 +7,7 @@ This folder contains the complete technical context gathered for implementing [0
 An engineer continuing the implementation of Plan 004 should read the context documents in the following sequence:
 
 1. [08-progress.md](08-progress.md)
-   **Start here.** The Checkpoint at the top records the completion of stages D1, D2, and D3, Stage D4 benchmarked, Stage D5 wire endpoint in progress, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for stages D4 through D7.
+   **Start here.** The Checkpoint at the top records the completion of stages D1 through D6 with their gate evidence, Stage D7 done in code, and the ordered backlog of remaining tasks. The "Remaining Work by Stage" section provides the sequential execution roadmap for remaining work.
 
 2. [02-current-rust-workspace.md](02-current-rust-workspace.md)
    **Understand the current Rust codebase.** Details every crate under `crates/`, its architectural role, public interface, module organization, and dependencies. Covers the data plane crates: `canopy-data` (reads and transactional writes execution), `canopy-http` (Data API read, document, and write routes), `canopy-auth` (JWT cache and rate limits), `canopy-config` (configuration contract), `canopy-mongo`, and `canopy-realtime`.
@@ -32,8 +32,8 @@ An engineer continuing the implementation of Plan 004 should read the context do
 
 ## Agent Roster and Responsibilities
 
-- Coding agents: `codex_prajo_s_codex` and `codex` (both gpt-6.2-sol, medium effort, medium sized tasks, one agent per account, may run in parallel).
-- Verification and context agent: `antigravity_sudhan_s_antigravity` (gemini-3.8-flash) updates the context, runs tests and runs benchmarks on GitHub Actions.
+- Coding agents: `codex_prajo_s_codex` and `codex_sudhan_s_codex` (gpt-6.2-sol, medium effort, medium sized tasks), `claudeAgent` with claude-opus-5-5 at high effort for big tasks, and `antigravity_sudhan_s_antigravity` (gemini-3.8-flash) for context updates and tests.
+- One agent at a time per account. The `codex` account is out of use until 2026-11-26.
 - Every brief tells the agent to read this context instead of searching.
 
 ## Key Source References

@@ -28,7 +28,8 @@ canopy/
 ├── packages/                    TypeScript packages
 │   ├── protocol/ matcher/ query/ policy/   Universal core, synced to canopy.js, equivalence reference
 │   ├── schema/ config/          DSLs, schema inference, and type generation
-│   ├── cli/                     CLI tool, carries canopyd as optional platform dependencies
+│   ├── realtime/                Sidecar and engine, carries canopyd as optional platform dependencies
+│   ├── cli/                     CLI tool (depends on realtime; canopyd binary resolved through realtime)
 │   ├── control/                 Control plane service (New, Stage D6: auth-builtin, admin, migrations)
 │   ├── auth/                    AuthProvider contract and token helpers
 │   ├── auth-builtin/            Better Auth provider (control plane only)
