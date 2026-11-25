@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { measureClientSize } from "./client-size.ts"
 
 /**
  * Builds the WebAssembly port into `generated/`: compiles the `canopy-wasm` crate for
@@ -19,6 +20,7 @@ const packageDir = fileURLToPath(new URL("..", import.meta.url))
 const root = join(packageDir, "..", "..")
 const generated = join(packageDir, "generated")
 const TARGET = "wasm32-unknown-unknown"
+const CLIENT_SIZE_LIMIT = 81_920
 
 const ARCHIVE_VERSION = "0.2.130"
 
@@ -201,6 +203,11 @@ async function main(): Promise<void> {
         "-o",
         wasm,
       ])
+      const size = measureClientSize(readFileSync(wasm))
+      const headroom = CLIENT_SIZE_LIMIT - size
+      const summary = `Client WebAssembly module is ${size} Brotli bytes (quality 11, limit ${CLIENT_SIZE_LIMIT} bytes)`
+      if (headroom < 0) throw new Error(`${summary}, exceeding the limit by ${-headroom} bytes`)
+      process.stdout.write(`${summary}, with ${headroom} bytes of headroom\n`)
     }
     const translated = join(dir, `${name}_translated.js`)
     run(translator, ["-O", "--pedantic", "--emscripten", ...features, wasm, "-o", translated])
