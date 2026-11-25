@@ -157,9 +157,9 @@ async function main(): Promise<void> {
     const portable = join(target, `${name}_portable.wasm`)
     run(optimizer, [...features, "--strip-target-features", splitInput, "-o", portable])
     const bindgenEnv: Record<string, string | undefined> = { ...env }
-    delete bindgenEnv.WASM_BINDGEN_ANYREF
-    delete bindgenEnv.WASM_BINDGEN_EXTERNREF
-    delete bindgenEnv.WASM_BINDGEN_MULTI_VALUE
+    delete bindgenEnv["WASM_BINDGEN_ANYREF"]
+    delete bindgenEnv["WASM_BINDGEN_EXTERNREF"]
+    delete bindgenEnv["WASM_BINDGEN_MULTI_VALUE"]
     run(
       bindgen,
       [

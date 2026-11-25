@@ -1,0 +1,5 @@
+^conformance/
+^packages/[^/]+/test/
+^crates/[^/]+/tests/
+^apps/[^/]+/e2e/
+^examples/[^/]+/e2e/

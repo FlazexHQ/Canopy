@@ -150,6 +150,7 @@ function substitutions() {
     return text
       .replaceAll("\r\n", "\n")
       .replace(/<project>(?:[/\\]+[\w.-]+)+/g, (path) => path.replace(/\\+/g, "/"))
+      .replace(/\bcli:(?!<user>)[\w.$-]+/g, "cli:<user>")
       .replace(/("userAgent":\s*")(?:Bun|node)[^"]*(?=")/gi, "$1<runtime-user-agent>")
       .replace(/("(?:salt|storedKey|serverKey)":")[A-Za-z0-9+/]+=*(?=")/g, "$1<scram-value>")
       .replace(/\b[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}\b/gi, (value) => numbered(value, "uuid"))
