@@ -3,3 +3,4 @@
 ^crates/[^/]+/tests/
 ^apps/[^/]+/e2e/
 ^examples/[^/]+/e2e/
+^crates/canopy-authn/src/server/claims\.rs$
