@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { measureClientSize } from "./client-size.ts"
@@ -78,6 +79,47 @@ function versionOf(command: string): string | undefined {
   }
 }
 
+function splitCargoEnv(): NodeJS.ProcessEnv {
+  const encoded = process.env["CARGO_ENCODED_RUSTFLAGS"]
+  const flags =
+    encoded === undefined
+      ? (process.env["RUSTFLAGS"] ?? "").split(" ").filter(Boolean)
+      : encoded === ""
+        ? []
+        : encoded.split("\x1f")
+  const cargoHome = resolve(root, process.env["CARGO_HOME"] ?? join(homedir(), ".cargo"))
+  const rustc = process.env["RUSTC"] ?? run("rustup", ["which", "rustc"]).trim()
+  const sysroot = run(rustc, ["--print", "sysroot"]).trim()
+  return {
+    ...process.env,
+    CANOPY_WASM_CARGO_HOME: cargoHome,
+    CANOPY_WASM_RUSTC: rustc,
+    CANOPY_WASM_RUSTC_WRAPPER: process.env["RUSTC_WRAPPER"],
+    CANOPY_WASM_RUSTC_WORKSPACE_WRAPPER: process.env["RUSTC_WORKSPACE_WRAPPER"],
+    RUSTC: join(packageDir, "scripts", "rustc.ts"),
+    RUSTC_WRAPPER: process.execPath,
+    RUSTC_WORKSPACE_WRAPPER: "",
+    RUSTC_BOOTSTRAP: "1",
+    CARGO_ENCODED_RUSTFLAGS: [
+      ...flags,
+      // Rust keeps host path separators in caller locations even after prefix remapping.
+      "-Z",
+      "location-detail=none",
+      "-Z",
+      "translate-remapped-path-to-local-path=no",
+      "-C",
+      "target-feature=-reference-types,-multivalue",
+      "-C",
+      "panic=abort",
+      "-C",
+      "metadata=canopy-wasm",
+      `--remap-path-prefix=${root}=/canopy`,
+      `--remap-path-prefix=${cargoHome}=/cargo`,
+      `--remap-path-prefix=${sysroot}=/rust`,
+    ].join("\x1f"),
+  }
+}
+
 async function download(version: string): Promise<string> {
   const install = `cargo install wasm-bindgen-cli --version ${version} --locked`
   const host = HOSTS[`${process.platform}-${process.arch}`]
@@ -140,15 +182,14 @@ async function main(): Promise<void> {
     "--enable-mutable-globals",
   ]
   const splitInput = join(target, TARGET, "wasm", "canopy_wasm.wasm")
+  const cargoEnv = splitCargoEnv()
   for (const feature of ["client", "transforms", "authoring"]) {
     const name = `canopy_${feature}`
     const dir = join(generated, feature)
     const speed = feature === "transforms"
     const env = {
-      ...process.env,
+      ...cargoEnv,
       ...(speed ? { CARGO_PROFILE_WASM_OPT_LEVEL: "3" } : {}),
-      RUSTFLAGS:
-        `${process.env["RUSTFLAGS"] ?? ""} -C target-feature=-reference-types,-multivalue -C panic=abort`.trim(),
     }
     run(
       "cargo",
@@ -160,7 +201,7 @@ async function main(): Promise<void> {
     mkdirSync(dir, { recursive: true })
     const portable = join(target, `${name}_portable.wasm`)
     run(optimizer, [...features, "--strip-target-features", splitInput, "-o", portable])
-    const bindgenEnv: Record<string, string | undefined> = { ...env }
+    const bindgenEnv: Record<string, string | undefined> = { ...process.env }
     delete bindgenEnv["WASM_BINDGEN_ANYREF"]
     delete bindgenEnv["WASM_BINDGEN_EXTERNREF"]
     delete bindgenEnv["WASM_BINDGEN_MULTI_VALUE"]
