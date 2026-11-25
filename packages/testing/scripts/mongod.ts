@@ -8,7 +8,8 @@
  * The binaries go to `<folder>/binaries/<version>`, and a later run with the same version reuses them instead
  * of downloading again (CI caches that folder alone). The data, `mongod.log` and `mongod.pid` (the process
  * id of the server) go to `<folder>`; a run over the data of an earlier one restarts that replica set.
- * Prints the connection string on success. The server keeps running after the script exits.
+ * Prints the connection string on success. The server keeps running after the script exits. Its storage cache
+ * is capped at 1 GB, which a test replica set never fills, so the server leaves memory to the test processes.
  */
 import { execFileSync, spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -184,6 +185,8 @@ async function main(): Promise<void> {
     data,
     "--logpath",
     log,
+    "--wiredTigerCacheSizeGB",
+    "1",
   ]
   // macOS starts processes with a soft limit of 256 open files, which a test run that creates many
   // databases exhausts, so the server starts from a shell that raises its own limit first.

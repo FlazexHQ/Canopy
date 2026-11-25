@@ -18,7 +18,6 @@ export interface AuditEvent {
 
 /** A stored audit entry. */
 export interface AuditDocument extends AuditEvent {
-  readonly _id?: ObjectId
   readonly at: Date
 }
 
