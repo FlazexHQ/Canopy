@@ -355,3 +355,34 @@ longer waits for it. The same R0 app, measured again in two interleaved rounds o
 | Rust core, Wasm             |                    21,040 | glue 4,763, Wasm 81,646 and 102,006 |              202.3 and 183.9 |
 | TypeScript core, strict CSP |                    23,787 | update engine chunk 4,437           |                        194.9 |
 | Rust core, strict CSP       |                    21,040 | wasm2js 110,828 and 137,803         |                        192.9 |
+
+### Canopy.js engine microbenchmark
+
+Install Canopy's workspace dependencies and have a built Canopy.js checkout available with
+`dist/client/engine.js` and the Wasm assets under `dist/core/wasm`. To prepare a checkout that
+already vendors the desired Wasm build, run `bun install --frozen-lockfile` and `bun run build`
+inside Canopy.js. From the Canopy repository root:
+
+```sh
+node apps/studio/node_modules/@playwright/test/cli.js install chromium
+bun bench/baselines/r2/engine-bench.mjs
+fnm exec --using=26 -- node bench/baselines/r2/engine-bench.mjs
+fnm exec --using=26 -- node bench/baselines/r2/engine-bench.mjs --chromium
+```
+
+The default checkout is the sibling `../Canopy.js`. Use `--canopy-js <checkout>` to select another
+build and `--rounds <count>` to change the default of three rounds. Chromium runs headless through
+Studio's Playwright install with CDP CPU throttling set to 4x.
+
+Each round alternates TypeScript and Wasm within each workload. Matching times are nanoseconds per
+document from the fastest of 15 passes after warmup, with ten scans of 1,000 documents per pass.
+Both implementations are checked against the six handwritten predicates. The dotted path fixture
+uses the frozen full matcher because the lite matcher refuses its regex. The other five use the
+[frozen lite matcher](./reference/README.md). Matching times include reading the decisions and the
+engine call on a warmed document cache. They exclude filter compilation and engine startup.
+
+Optimistic update times are microseconds per application, from the median of 30 batches of 200
+applications. `single` reuses the same input document and update, `chained` feeds each result into
+the next update within its batch, and `fresh` uses new documents and update specs prepared before the
+clock starts. JSON output includes each round and the minimum and maximum across rounds for both
+implementations and their paired Wasm to TypeScript ratios. Use a quiet machine for gate measurements.
