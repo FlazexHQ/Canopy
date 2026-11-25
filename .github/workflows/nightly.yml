@@ -400,6 +400,12 @@ jobs:
           - { target: update, dict: dict/ejson.dict }
           - { target: regex, dict: dict/regex.dict }
           - { target: frame, dict: dict/ejson.dict }
+          - { target: webauthn_cbor, dict: dict/webauthn.dict }
+          - { target: webauthn_cose_key, dict: dict/webauthn.dict }
+          - { target: webauthn_authenticator_data, dict: dict/webauthn.dict }
+          - { target: webauthn_client_data, dict: dict/webauthn.dict }
+          - { target: webauthn_registration, dict: dict/webauthn.dict }
+          - { target: webauthn_authentication, dict: dict/webauthn.dict }
     env:
       FUZZ_TOOLCHAIN: nightly-2026-11-15
       CARGO_FUZZ_VERSION: 0.13.2

@@ -713,6 +713,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-webauthn"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "proptest",
+ "ring",
+ "serde",
+ "serde_json",
+ "subtle",
+]
+
+[[package]]
 name = "canopy-webhooks"
 version = "0.0.0"
 dependencies = [

@@ -5,7 +5,7 @@
 
 [package]
 name = "canopy-fuzz"
-description = "cargo fuzz targets for EJSON, BSON, filters, updates, regular expressions and client frames."
+description = "cargo fuzz targets for EJSON, BSON, filters, updates, regular expressions, client frames and WebAuthn."
 version = "0.0.0"
 edition = "2024"
 publish = false
@@ -17,9 +17,11 @@ cargo-fuzz = true
 members = ["."]
 
 [dependencies]
+base64 = "0.22"
 canopy-engine = { path = "../crates/canopy-engine" }
 canopy-matcher = { path = "../crates/canopy-matcher" }
 canopy-protocol = { path = "../crates/canopy-protocol" }
+canopy-webauthn = { path = "../crates/canopy-webauthn" }
 canopy-wire = { path = "../crates/canopy-wire" }
 libfuzzer-sys = "0.4.10"
 
@@ -68,6 +70,48 @@ bench = false
 [[bin]]
 name = "wire_frame"
 path = "fuzz_targets/wire_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cbor"
+path = "fuzz_targets/webauthn_cbor.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_cose_key"
+path = "fuzz_targets/webauthn_cose_key.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_authenticator_data"
+path = "fuzz_targets/webauthn_authenticator_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_client_data"
+path = "fuzz_targets/webauthn_client_data.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_registration"
+path = "fuzz_targets/webauthn_registration.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "webauthn_authentication"
+path = "fuzz_targets/webauthn_authentication.rs"
 test = false
 doc = false
 bench = false
