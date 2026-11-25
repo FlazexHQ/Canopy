@@ -10,6 +10,7 @@ use crate::client_address;
 use crate::data_plane::DataPlane;
 use crate::graphql_ws;
 use crate::proxy::{Pool, Upstream, forward};
+use crate::studio::Studio;
 
 pub(crate) struct Routes {
     pub(crate) ready: Arc<AtomicBool>,
@@ -17,6 +18,8 @@ pub(crate) struct Routes {
     pub(crate) proxy: Option<Upstream>,
     /// The Data API routes the gateway serves itself, when `dataPlane.routes` selects any.
     pub(crate) data_plane: Option<DataPlane>,
+    /// Studio assets on the shared listener.
+    pub(crate) studio: Option<Studio>,
 }
 
 pub(crate) struct ShardRoutes {
@@ -36,6 +39,11 @@ impl HttpRoutes for ShardRoutes {
     }
 
     async fn fallback(&self, request: Request<Incoming>, peer: &str) -> Response<Body> {
+        if let Some(studio) = &self.routes.studio
+            && Studio::matches(request.uri().path())
+        {
+            return studio.serve(request).await;
+        }
         if let Some(graphql) = self.routes.data_plane.as_ref().and_then(DataPlane::graphql)
             && graphql_ws::wants(graphql, &request)
         {

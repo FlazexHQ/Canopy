@@ -12,6 +12,7 @@ mod log;
 mod proxy;
 mod request_log;
 mod server;
+mod studio;
 mod telemetry;
 mod wire;
 
@@ -126,6 +127,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    let role = std::env::var("CANOPY_ROLE").unwrap_or_else(|_| "all".to_owned());
+    if role == "studio" {
+        return match studio::start() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                Log::new("info").error("Studio failed", &[("err", &message)]);
+                ExitCode::from(1)
+            }
+        };
+    }
     let config = match config::resolve(text.as_deref()) {
         Ok(config) => config,
         Err(message) => {
@@ -144,7 +155,9 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         };
-    match runtime.block_on(start(config, log, control)) {
+    let studio = studio::Studio::from_env();
+    let studio = (role == "all" && config.proxy_url.is_none() && studio.configured()).then_some(studio);
+    match runtime.block_on(start(config, log, control, studio)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             log.error("canopyd failed", &[("err", &message)]);
@@ -181,7 +194,12 @@ fn engine_config(config: &GatewayConfig) -> Config {
     }
 }
 
-async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), String> {
+async fn start(
+    config: GatewayConfig,
+    log: Log,
+    control: bool,
+    studio: Option<studio::Studio>,
+) -> Result<(), String> {
     let proxy = config.proxy_url.as_deref().map(proxy::Upstream::parse).transpose()?;
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
         .await
@@ -338,6 +356,7 @@ async fn start(config: GatewayConfig, log: Log, control: bool) -> Result<(), Str
         trusted_proxies: config.trusted_proxies.clone(),
         proxy,
         data_plane,
+        studio,
     });
     for _ in 0..config.shards {
         let routes = Arc::clone(&routes);
