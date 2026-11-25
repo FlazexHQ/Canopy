@@ -13,6 +13,7 @@ mod engine;
 mod explain;
 mod fields;
 mod implication;
+mod indexes;
 mod lint;
 mod model;
 mod search;
@@ -38,6 +39,7 @@ pub use fields::{
     field_access, immutable_violations, intersect_projection, project_readable, to_projection,
 };
 pub use implication::{check_implied, equality_fields};
+pub use indexes::{IndexAdvice, IndexCreation, IndexMode, IndexPlan, advise_indexes, plan_indexes};
 pub use lint::{LintEnvironment, LintFinding, lint_policies};
 pub use model::{
     CollectionFields, CollectionPolicies, ContextDefinitions, ContextLookup, FieldKind, FieldRule,

@@ -662,6 +662,8 @@ dependencies = [
  "canopy-matcher",
  "canopy-protocol",
  "canopy-query",
+ "mongodb",
+ "tokio",
 ]
 
 [[package]]
