@@ -449,6 +449,9 @@ run(
           ),
         ),
       )
+      for (const name of realtime) {
+        await db.createCollection(name, { changeStreamPreAndPostImages: { enabled: true } })
+      }
       const configured = [
         ...new Set([...suites.map(({ collectionName }) => collectionName), ...realtime]),
       ]
