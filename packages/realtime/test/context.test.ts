@@ -70,6 +70,7 @@ suite("context lookups in realtime", () => {
   })
 
   beforeEach(async () => {
+    engine.realtime.contexts.invalidateAll()
     await members().deleteMany({})
     await documents().deleteMany({})
     await documents().insertMany([
@@ -150,6 +151,7 @@ suite("context lookups in realtime", () => {
     await members().insertOne({ _id: "m1", userId: "alice", projectId: "p1" })
     const alice = await connect("alice")
     await alice.subscribe("s", "tasks")
+    await alice.until(() => ids(alice, "s").length === 2)
     const before = alice.messages.length
     const rebinds = engine.realtime.metrics.rebinds.get({ reason: "ctx" })
     await members().insertOne({ _id: "m2", userId: "bob", projectId: "p2" })
