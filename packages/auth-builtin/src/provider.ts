@@ -216,6 +216,14 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/** Monotonic time and delay used only by the response floor. */
+export interface ResponseFloorTiming {
+  now(): number
+  sleep(ms: number): Promise<void>
+}
+
+const responseFloorTiming: ResponseFloorTiming = { now: () => performance.now(), sleep }
+
 function originOf(value: string): string | undefined {
   try {
     const url = new URL(value)
@@ -257,11 +265,17 @@ class BetterAuthProvider implements BuiltinAuth {
   private readonly audience: string
   private readonly ttl: number
   private readonly floor: ResponseFloor
+  private readonly floorTiming: ResponseFloorTiming
   private keyStream: ChangeStream<SigningKeyDocument> | undefined
   private pruneTimer: ReturnType<typeof setInterval> | undefined
   private closed = false
 
-  constructor(options: BuiltinAuthOptions, settings: EngineSettings) {
+  constructor(
+    options: BuiltinAuthOptions,
+    settings: EngineSettings,
+    floorTiming: ResponseFloorTiming,
+  ) {
+    this.floorTiming = floorTiming
     this.options = options
     const logger = options.logger ?? silentAuthLogger
     this.logger = logger
@@ -524,7 +538,7 @@ class BetterAuthProvider implements BuiltinAuth {
   }
 
   private async route(request: Request, info: RequestInfo): Promise<Response> {
-    const started = performance.now()
+    const started = this.floorTiming.now()
     const url = new URL(request.url)
     const pathname = url.pathname
     if (request.method === "OPTIONS") {
@@ -613,10 +627,10 @@ class BetterAuthProvider implements BuiltinAuth {
       await this.afterEngine(path, request.method, response, email, ip)
     }
     if (FLOOR_PATHS.has(path) && request.method === "POST") {
-      const took = performance.now() - started
+      const took = this.floorTiming.now() - started
       const wait = this.floor.target(path) - took
       this.floor.record(path, took)
-      if (wait > 0) await sleep(wait)
+      if (wait > 0) await this.floorTiming.sleep(wait)
     }
     return response
   }
@@ -1002,7 +1016,15 @@ function resolveSettings(options: BuiltinAuthOptions): EngineSettings {
  * revocations in force and starts the key rotation schedule. Close it with `close()`.
  */
 export async function createBuiltinAuth(options: BuiltinAuthOptions): Promise<BuiltinAuth> {
-  const provider = new BetterAuthProvider(options, resolveSettings(options))
+  return startBuiltinAuth(options)
+}
+
+/** Starts built in auth with an optional response floor clock for conformance recording. */
+export async function startBuiltinAuth(
+  options: BuiltinAuthOptions,
+  floorTiming = responseFloorTiming,
+): Promise<BuiltinAuth> {
+  const provider = new BetterAuthProvider(options, resolveSettings(options), floorTiming)
   await provider.start()
   return provider
 }

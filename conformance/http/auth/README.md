@@ -85,11 +85,14 @@ records again and fails when a file would change. `--group <name>` records one g
     "body": { }                          // JSON with its key order, text, or null when empty
   },
   "details": { },                        // what the client computed: decoded WebAuthn data, the TOTP step
-  "heldForTheFloor": true,               // on the routes of the response floor: the answer took at least 75 ms
+  "heldForTheFloor": true,               // on floor routes: the answer awaited the full 80 ms on a controlled clock
   "mails": [{ "to": "...", "from": "...", "subject": "...", "text": "...", "html": "...", "jwts": [] }],
   "outbound": [{ "method": "POST", "url": "...", "headers": { }, "body": "..." }]  // calls to a provider
 }
 ```
+
+For `heldForTheFloor`, the monotonic clock advances only when the handler awaits the floor timer.
+`false` means the handler returned without a floor delay, as it does for identifier rate limits.
 
 Request cookies are sent as `name=value` pairs joined by `; `, each value percent encoded with
 `encodeURIComponent`; the files hold them decoded, like `set-auth-ceremony` and `x-canopy-ceremony`. A

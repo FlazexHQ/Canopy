@@ -3,6 +3,7 @@
 #![allow(clippy::expect_used, clippy::print_stderr)]
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, HashMap},
     error::Error,
     fs,
@@ -574,10 +575,23 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 };
                 http = http.with_body(bindings.resolve(&text)?.into_bytes());
             }
-            let started = Instant::now();
-            let response = router.handle_endpoint_at(&http, now).await;
-            if let Some(held) = step["heldForTheFloor"].as_bool() {
-                assert_eq!(started.elapsed() >= Duration::from_millis(75), held, "{path} floor");
+            let instant = Instant::now();
+            let waited = &Cell::new(Duration::ZERO);
+            let response = router
+                .handle_endpoint_with_floor_timing(
+                    &http,
+                    now,
+                    || instant + waited.get(),
+                    |delay| async move { waited.set(delay) },
+                )
+                .await;
+            let expected_wait = if step["heldForTheFloor"].as_bool() == Some(true) {
+                Duration::from_millis(80)
+            } else {
+                Duration::ZERO
+            };
+            if waited.get() != expected_wait {
+                return Err(format!("{path} floor waited {:?}, expected {expected_wait:?}", waited.get()).into());
             }
             let response = response_value(response, &secret, jwks)?;
             if case["id"] == "fresh-session-required"

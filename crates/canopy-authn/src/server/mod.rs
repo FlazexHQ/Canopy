@@ -252,9 +252,21 @@ impl AuthRouter {
 
     /// Handles a request sent directly to the auth endpoint at a supplied Unix time in milliseconds.
     pub async fn handle_endpoint_at(&self, request: &Request, now_ms: i64) -> Response {
+        self.handle_endpoint_with_floor_timing(request, now_ms, Instant::now, tokio::time::sleep).await
+    }
+
+    /// Handles an endpoint with a supplied monotonic clock and response floor timer for conformance replay.
+    #[doc(hidden)]
+    pub async fn handle_endpoint_with_floor_timing<Sleep: Future<Output = ()>>(
+        &self,
+        request: &Request,
+        now_ms: i64,
+        monotonic_now: impl Fn() -> Instant,
+        sleep: impl FnOnce(Duration) -> Sleep,
+    ) -> Response {
         let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
         let route = path.strip_prefix("/auth/v1").unwrap_or(path);
-        let started = Instant::now();
+        let started = monotonic_now();
         let request_context = Call { router: self, request, route, now: DateTime::from_millis(now_ms) };
         let mut response = request_context
             .dispatch(path, query)
@@ -265,10 +277,10 @@ impl AuthRouter {
             && response.header("retry-after").is_none()
             && let Some(route) = ResponseFloor::route(route)
         {
-            let took = started.elapsed();
+            let took = monotonic_now().duration_since(started);
             let target = self.floor.target(route);
             self.floor.record(route, took);
-            tokio::time::sleep(target.saturating_sub(took)).await;
+            sleep(target.saturating_sub(took)).await;
         }
         if let Some(origin) = request.header("origin").filter(|origin| self.trusts_origin(origin)) {
             header(&mut response, "access-control-allow-origin", origin);

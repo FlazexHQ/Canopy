@@ -1,13 +1,14 @@
 import { createHmac } from "node:crypto"
+import { setImmediate } from "node:timers/promises"
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose"
 import { BSON, type Db, type Document, type MongoClient, ObjectId } from "mongodb"
 import {
   type BuiltinAuth,
   type BuiltinAuthOptions,
-  createBuiltinAuth,
   type EmailMessage,
   memoryTransport,
 } from "../../src/index.ts"
+import { type ResponseFloorTiming, startBuiltinAuth } from "../../src/provider.ts"
 import { EPOCH, FakeClock, installDeterminism, SeededRandom, scratchName } from "./determinism.ts"
 import { MockProviders } from "./idp.ts"
 
@@ -277,6 +278,7 @@ export class Recorder {
   async start(
     options: CaseOptions = {},
     reuse?: DatabaseNames,
+    floorTiming?: ResponseFloorTiming,
   ): Promise<{
     auth: BuiltinAuth
     outbox: EmailMessage[]
@@ -296,15 +298,18 @@ export class Recorder {
       meta: scratchName("canopy_oracle"),
       auth: scratchName("canopy_auth_oracle"),
     }
-    const auth = await createBuiltinAuth({
-      ...baseOptions(),
-      ...options,
-      mongo: this.mongo,
-      appDatabase: names.app,
-      metaDatabase: names.meta,
-      authDatabase: names.auth,
-      email: { from: "Canopy Oracle <auth@canopy.test>", transport, perRecipientLimit: 50 },
-    })
+    const auth = await startBuiltinAuth(
+      {
+        ...baseOptions(),
+        ...options,
+        mongo: this.mongo,
+        appDatabase: names.app,
+        metaDatabase: names.meta,
+        authDatabase: names.auth,
+        email: { from: "Canopy Oracle <auth@canopy.test>", transport, perRecipientLimit: 50 },
+      },
+      floorTiming,
+    )
     const mongo = this.mongo
     return {
       auth,
@@ -326,7 +331,14 @@ export class Recorder {
   }
 
   private async run(spec: CaseSpec, seed: string): Promise<RunResult> {
-    const started = await this.start(spec.options)
+    let floorTime = 0
+    const started = await this.start(spec.options, undefined, {
+      now: () => floorTime,
+      async sleep(ms) {
+        await setImmediate()
+        floorTime += ms
+      },
+    })
     const { auth, outbox, meta, authDb } = started
     this.random.reseed(`${spec.id}:${seed}`)
     const kinds = new Map<string, string>()
@@ -516,7 +528,7 @@ export class Recorder {
       const mailsBefore = outbox.length
       const outboundBefore = outbound.length
       const clockAt = clock.iso()
-      const startedAt = performance.now()
+      const floorStartedAt = floorTime
       const response = await auth.handler(
         new Request(url, {
           method,
@@ -525,15 +537,17 @@ export class Recorder {
         }),
         { clientAddress: client.ip },
       )
+      const floorDelay = floorTime - floorStartedAt
+      const floorPath = method === "POST" && FLOOR_PATHS.has(url.pathname)
+      if (floorDelay !== 0 && (!floorPath || floorDelay !== FLOOR_MS))
+        throw new Error(`${method} ${url.pathname} waited ${floorDelay} ms at the response floor`)
       const text = await response.text()
-      const took = performance.now() - startedAt
       client.absorb(response.headers, clock)
       const mails = await waitMails(mailsBefore, options.mails ?? 0).catch((error: unknown) => {
         throw new Error(`${method} ${url.pathname} answered ${response.status} ${text}`, {
           cause: error,
         })
       })
-      const floorPath = method === "POST" && FLOOR_PATHS.has(url.pathname)
       steps.push({
         clock: clockAt,
         client: client.name,
@@ -564,7 +578,7 @@ export class Recorder {
           body: await bodyRecord(text, response.headers.get("content-type")),
         },
         ...(options.details === undefined ? {} : { details: options.details }),
-        ...(floorPath ? { heldForTheFloor: took >= FLOOR_MS - 5 } : {}),
+        ...(floorPath ? { heldForTheFloor: floorDelay === FLOOR_MS } : {}),
         ...(mails.length === 0 ? {} : { mails: mails.map(mailRecord) }),
         ...(outbound.length === outboundBefore ? {} : { outbound: outboundRecord(outboundBefore) }),
       })
