@@ -12,5 +12,9 @@ canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 regex = "1"
 
+[dev-dependencies]
+mongodb = { version = "=3.10.1", default-features = false, features = ["bson-3", "compat-3-3-0", "dns-resolver", "rustls-tls"] }
+tokio = { version = "1", features = ["macros", "rt"] }
+
 [lints]
 workspace = true

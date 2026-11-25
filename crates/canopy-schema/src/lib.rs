@@ -1,18 +1,25 @@
 //! Collection shapes and schema inference over BSON values.
 
 mod canonical;
+mod diff;
 mod emit;
 mod infer;
 mod json_schema;
 mod pull;
+mod push;
 mod shape;
 mod typescript;
 
 pub use canonical::parse_collection_schemas;
+pub use diff::{
+    SchemaDiffOptions, SchemaDiffReport, parse_diff_sample_size, schema_diff, schema_diff_actual,
+    schema_diff_collections,
+};
 pub use emit::{EmitOptions, emit_schema_file};
 pub use infer::{EnumOptions, InferOptions, infer_schema};
 pub use json_schema::from_json_schema;
 pub use pull::{DEFAULT_SAMPLE_SIZE, PullUpdate, parse_sample_size, update_schema_file};
+pub use push::{SchemaPushPlan, ValidatorChange, schema_push, to_validator};
 pub use shape::{Field, ObjectShape, RestrictMode, ScalarType, Shape, restrict_shape, union};
 pub use typescript::{GenerateOptions, generate_types};
 
