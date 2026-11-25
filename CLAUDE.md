@@ -32,9 +32,11 @@ Playwright tests), and the sidecar quickstart is `packages/realtime/README.md`.
 library: one package, `canopy.js`, with the client at its root and subpaths for the bindings, devtools and the
 DSLs (`canopy.js/react`, `/vue`, `/svelte`, `/solid`, `/tanstack-db`, `/devtools`, `/policy`, `/schema`,
 `/config`, `/protocol`, plus the client entry points). The client SDK and framework bindings live **only**
-there now (ADR 0016). This repository stays the source of truth for the universal core; Canopy.js vendors it
-into `src/core` with `bun scripts/sync-core.ts` (and `--check`), so a change to protocol, matcher, query,
-policy, config or the schema DSL here must be synced there. Canopy depends on `canopy.js` (Studio, mounted policy
+there now (ADR 0016). This repository stays the source of truth for the universal core, the Rust crates: Canopy.js
+vendors their Wasm and wasm2js builds into `src/core/wasm` with `bun scripts/sync-wasm.ts` (checked by its
+`check:wasm` script) and keeps no TypeScript copy of their semantics, so a change to the matcher, query,
+policy, config or schema crates here must be rebuilt (`bun packages/wasm/scripts/build.ts --split`) and
+synced there. Canopy.js copies the protocol and authoring vectors into its `test/vectors`. Canopy depends on `canopy.js` (Studio, mounted policy
 and config files, the CLI tests, `sdk-e2e`, the examples) by version `0.0.0`; the root `overrides` points it at
 `../Canopy.js` until it is on npm. After changing Canopy.js, run `bun run build` there and `bun install` here.
 Use the built package, never its sources: Canopy.js exports them under its own `canopy-js-source` condition,
