@@ -191,28 +191,20 @@ fn negate_leaf(leaf: Leaf) -> Leaf {
 }
 
 fn expand(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
-    let parts = Arc::clone(parts);
-    Arc::new(move |item| test_path(item, &parts, true, &*leaf))
+    path_test(parts, true, leaf)
 }
 
 fn reach(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
+    path_test(parts, false, leaf)
+}
+
+fn path_test(parts: &Arc<Vec<Segment>>, expand_last: bool, leaf: Leaf) -> DocTest {
     let parts = Arc::clone(parts);
-    Arc::new(move |item| test_path(item, &parts, false, &*leaf))
+    Arc::new(move |item| test_path(item, &parts, expand_last, &*leaf))
 }
 
 fn string_matches(expected: &str, value: Option<ValueRef<'_>>) -> Outcome {
     Ok(matches!(value, Some(ValueRef::String(text) | ValueRef::Symbol(text)) if text == expected))
-}
-
-fn compile_equality(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
-    if let Value::String(expected) | Value::Symbol(expected) = operand {
-        let expected = expected.clone();
-        let parts = Arc::clone(parts);
-        return Arc::new(move |item| {
-            test_path(item, &parts, true, &|value| string_matches(&expected, value))
-        });
-    }
-    expand(parts, eq_leaf(operand))
 }
 
 fn compile_document(filter: &Document) -> Result<DocTest, CanopyError> {
@@ -268,7 +260,7 @@ fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyE
         let Value::Document(ops) = value else { return Err(invalid("expected operators")) };
         return compile_operators(&parts, ops);
     }
-    Ok(compile_equality(&parts, value))
+    Ok(expand(&parts, eq_leaf(value)))
 }
 
 fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTest, CanopyError> {
@@ -295,12 +287,12 @@ fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTes
 
 fn compile_operator(parts: &Arc<Vec<Segment>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
     Ok(match op {
-        "$eq" => compile_equality(parts, operand),
+        "$eq" => expand(parts, eq_leaf(operand)),
         "$ne" => {
             if regex_of(operand).is_some() {
                 return Err(invalid("Can't have regex as arg to $ne."));
             }
-            negate(compile_equality(parts, operand))
+            negate(expand(parts, eq_leaf(operand)))
         }
         "$gt" | "$gte" | "$lt" | "$lte" => expand(parts, comparison_leaf(op, operand)?),
         "$in" => expand(parts, in_leaf(operand, op)?),
@@ -371,23 +363,21 @@ fn eq_leaf(operand: &Value) -> Leaf {
 }
 
 fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
-    match op {
-        "$gt" => compile_comparison::<false>(operand, Ordering::is_gt),
-        "$gte" => compile_comparison::<true>(operand, Ordering::is_ge),
-        "$lt" => compile_comparison::<false>(operand, Ordering::is_lt),
-        _ => compile_comparison::<true>(operand, Ordering::is_le),
-    }
+    let direction = match op {
+        "$gt" | "$gte" => Ordering::Greater,
+        _ => Ordering::Less,
+    };
+    let inclusive = matches!(op, "$gte" | "$lte");
+    compile_comparison(operand, direction, inclusive)
 }
 
-fn compile_comparison<const INCLUSIVE: bool>(
-    operand: &Value,
-    accept: impl Fn(Ordering) -> bool + Send + Sync + 'static,
-) -> Result<Leaf, CanopyError> {
+fn compile_comparison(operand: &Value, direction: Ordering, inclusive: bool) -> Result<Leaf, CanopyError> {
+    let accept = move |order| order == direction || (inclusive && order == Ordering::Equal);
     if regex_of(operand).is_some() {
         return Err(invalid("Can't have RegEx as arg to non-equality predicate"));
     }
     if matches!(operand, Value::Null) {
-        return Ok(if INCLUSIVE { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
+        return Ok(if inclusive { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
     }
     let operand = operand.clone();
     let expected = bracket_of(&operand);
@@ -405,7 +395,7 @@ fn compile_comparison<const INCLUSIVE: bool>(
             };
             let value_nan = is_nan(value);
             if value_nan || operand_nan {
-                return Ok(INCLUSIVE && value_nan && operand_nan);
+                return Ok(inclusive && value_nan && operand_nan);
             }
             Ok(accept(compare_numeric(value, operand)))
         }));

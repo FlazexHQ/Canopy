@@ -17,31 +17,6 @@ impl Segment {
     }
 }
 
-trait PathPart {
-    fn name(&self) -> &str;
-    fn position(&self) -> Option<usize>;
-}
-
-impl PathPart for Segment {
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    fn position(&self) -> Option<usize> {
-        self.position
-    }
-}
-
-impl PathPart for String {
-    fn name(&self) -> &str {
-        self
-    }
-
-    fn position(&self) -> Option<usize> {
-        is_array_index(self).then(|| self.parse().ok()).flatten()
-    }
-}
-
 /// A node reached while walking a path: a document, an array read as a document of its positions (the
 /// `$elemMatch` object form), or any value.
 #[derive(Debug, Clone, Copy)]
@@ -52,22 +27,6 @@ pub enum Item<'a> {
     Positions(ArrayRef<'a>),
     /// Any value.
     Value(ValueRef<'a>),
-}
-
-impl<'a> Item<'a> {
-    fn field(self, segment: &impl PathPart) -> Option<ValueRef<'a>> {
-        match self {
-            Item::Document(document) | Item::Value(ValueRef::Document(document)) => {
-                present(document.get(segment.name())?)
-            }
-            Item::Positions(items) => present(items.get(segment.position()?)?),
-            Item::Value(_) => None,
-        }
-    }
-
-    fn is_document(self) -> bool {
-        matches!(self, Item::Document(_) | Item::Positions(_) | Item::Value(ValueRef::Document(_)))
-    }
 }
 
 /// Returns `None` for the deprecated `undefined`, which the matcher treats as a missing value.
@@ -90,16 +49,12 @@ pub type LeafFn<'f> = dyn Fn(Option<ValueRef<'_>>) -> Outcome + 'f;
 /// numeric segments), and when `expand_last` is set an array found at the end is tested element by element
 /// and then as a whole.
 pub fn any_path_value(root: Item<'_>, parts: &[String], expand_last: bool, leaf: &LeafFn<'_>) -> Outcome {
-    walk(Some(root), parts, expand_last, leaf, false)
+    let parts: Vec<_> = parts.iter().map(|part| Segment::new(part)).collect();
+    test_path(root, &parts, expand_last, leaf)
 }
 
 #[inline]
-pub(crate) fn test_path(
-    root: Item<'_>,
-    parts: &[Segment],
-    expand_last: bool,
-    leaf: &(impl Fn(Option<ValueRef<'_>>) -> Outcome + ?Sized),
-) -> Outcome {
+pub(crate) fn test_path(root: Item<'_>, parts: &[Segment], expand_last: bool, leaf: &LeafFn<'_>) -> Outcome {
     if let Item::Document(DocRef::Owned(document)) = root
         && !parts.is_empty()
     {
@@ -113,7 +68,7 @@ fn walk_owned(
     mut document: &Document,
     mut parts: &[Segment],
     expand_last: bool,
-    leaf: &(impl Fn(Option<ValueRef<'_>>) -> Outcome + ?Sized),
+    leaf: &LeafFn<'_>,
 ) -> Outcome {
     while let [part, rest @ ..] = parts {
         match document.get(&part.name) {
@@ -132,12 +87,11 @@ fn walk_owned(
     Ok(false)
 }
 
-#[inline]
 fn walk(
     mut item: Option<Item<'_>>,
-    mut parts: &[impl PathPart],
+    mut parts: &[Segment],
     expand_last: bool,
-    leaf: &(impl Fn(Option<ValueRef<'_>>) -> Outcome + ?Sized),
+    leaf: &LeafFn<'_>,
     mut via_position: bool,
 ) -> Outcome {
     while let [part, rest @ ..] = parts {
@@ -145,7 +99,13 @@ fn walk(
             Some(Item::Value(ValueRef::Array(items))) => {
                 return walk_array(items, part, rest, expand_last, leaf);
             }
-            Some(node) if node.is_document() => item = node.field(part).map(Item::Value),
+            Some(Item::Document(document) | Item::Value(ValueRef::Document(document))) => {
+                item = document.get(&part.name).and_then(present).map(Item::Value);
+            }
+            Some(Item::Positions(items)) => {
+                item =
+                    part.position.and_then(|position| items.get(position)).and_then(present).map(Item::Value);
+            }
             Some(_) if via_position => return Ok(false),
             _ => return leaf(None),
         }
@@ -160,36 +120,44 @@ fn walk(
 }
 
 #[inline]
-fn test_value(
-    value: ValueRef<'_>,
-    expand: bool,
-    leaf: &(impl Fn(Option<ValueRef<'_>>) -> Outcome + ?Sized),
-) -> Outcome {
+fn test_value(value: ValueRef<'_>, expand: bool, leaf: &LeafFn<'_>) -> Outcome {
     if let (true, ValueRef::Array(items)) = (expand, value) {
-        for element in items.iter() {
-            if leaf(present(element))? {
-                return Ok(true);
-            }
-        }
+        return test_array(items, leaf);
     }
     leaf(Some(value))
 }
 
-fn walk_array<P: PathPart>(
+#[inline(never)]
+fn test_array(items: ArrayRef<'_>, leaf: &LeafFn<'_>) -> Outcome {
+    for element in items.iter() {
+        if leaf(present(element))? {
+            return Ok(true);
+        }
+    }
+    leaf(Some(ValueRef::Array(items)))
+}
+
+fn walk_array(
     items: ArrayRef<'_>,
-    part: &P,
-    rest: &[P],
+    part: &Segment,
+    rest: &[Segment],
     expand_last: bool,
-    leaf: &(impl Fn(Option<ValueRef<'_>>) -> Outcome + ?Sized),
+    leaf: &LeafFn<'_>,
 ) -> Outcome {
-    if let Some(element) = part.position().and_then(|position| items.get(position))
+    if let Some(element) = part.position.and_then(|position| items.get(position))
         && walk(present(element).map(Item::Value), rest, expand_last && !rest.is_empty(), leaf, true)?
     {
         return Ok(true);
     }
     for element in items.iter() {
-        if matches!(element, ValueRef::Document(_))
-            && walk(Item::Value(element).field(part).map(Item::Value), rest, expand_last, leaf, false)?
+        if let ValueRef::Document(document) = element
+            && walk(
+                document.get(&part.name).and_then(present).map(Item::Value),
+                rest,
+                expand_last,
+                leaf,
+                false,
+            )?
         {
             return Ok(true);
         }
