@@ -21,8 +21,27 @@ pub struct FilterHandle {
     compiled: CompiledFilter,
 }
 
+impl Filter {
+    pub(crate) fn decide_document(&self, document: &canopy_protocol::Document) -> u8 {
+        match self.compiled.matches(document) {
+            Ok(true) => canopy_port::MATCH,
+            Ok(false) => canopy_port::NO_MATCH,
+            Err(_) => UNDECIDED,
+        }
+    }
+}
+
 #[wasm_bindgen]
 impl Filter {
+    /// Compiles a BSON filter, preserving legacy BSON values and field order.
+    #[wasm_bindgen(js_name = "fromBson")]
+    pub fn from_bson(bytes: &[u8]) -> Result<Filter, JsValue> {
+        let compiled = canopy_protocol::bson::decode_document(bytes)
+            .and_then(|document| canopy_matcher::compile_filter(&canopy_protocol::Value::Document(document)))
+            .map_err(|error| thrown(&error))?;
+        Ok(Self { compiled })
+    }
+
     /// Compiles a filter given as EJSON text (relaxed or canonical).
     #[wasm_bindgen(js_name = "fromEjson")]
     pub fn from_ejson(text: &str) -> Result<Filter, JsValue> {

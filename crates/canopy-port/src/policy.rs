@@ -3,8 +3,8 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use canopy_policy::{
-    Compiled, EngineHooks, FieldAccess, Operation, PolicyEngine, PolicyVariableIssue, RequestContext, Roles,
-    contexts_from_stored, create_policy_set, from_stored,
+    Compiled, EngineHooks, FieldAccess, Operation, PolicyEngine, PolicySet, PolicyVariableIssue,
+    RequestContext, Roles, contexts_from_stored, create_policy_set, from_stored,
 };
 use canopy_protocol::{CanopyError, Document, Value};
 
@@ -149,10 +149,14 @@ impl PortPolicyEngine {
         let definitions =
             collections.iter().map(|text| from_stored(&value_of(text)?)).collect::<Result<Vec<_>, _>>()?;
         let contexts = contexts_from_stored(Some(&value_of(contexts)?))?;
-        let set = create_policy_set(definitions, contexts)?;
+        Ok(Self::from_set(create_policy_set(definitions, contexts)?))
+    }
+
+    /// Builds an engine from an already validated policy set.
+    pub fn from_set(set: PolicySet) -> Self {
         let recorded = Arc::new(Recorded::default());
         let engine = PolicyEngine::with_hooks(set, Box::new(Hooks(Arc::clone(&recorded))));
-        Ok(PortPolicyEngine { engine, recorded })
+        Self { engine, recorded }
     }
 
     fn evaluation(&self, compiled: &Compiled) -> Result<Evaluation, CanopyError> {

@@ -14,6 +14,7 @@ canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-query = { path = "../canopy-query" }
+canopy-schema = { path = "../canopy-schema" }
 base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 ring = "0.17"

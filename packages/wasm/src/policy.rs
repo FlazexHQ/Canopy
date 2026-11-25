@@ -56,6 +56,13 @@ pub struct WasmPolicyEngine {
 
 #[wasm_bindgen(js_class = "PolicyEngine")]
 impl WasmPolicyEngine {
+    /// Parses and compiles a canonical authoring bundle.
+    #[wasm_bindgen(js_name = "fromCanonical")]
+    pub fn from_canonical(text: &str) -> Result<WasmPolicyEngine, JsValue> {
+        let set = canopy_policy::parse_policy_set(text).map_err(|error| thrown(&error))?;
+        Ok(Self { engine: PortPolicyEngine::from_set(set) })
+    }
+
     /// Validates the policies of each collection, given in their stored form as EJSON text, and the context
     /// lookups, given as the EJSON text of their stored form or `null`, and builds the engine. Throws the same
     /// refusals as the TypeScript `createPolicySet`.

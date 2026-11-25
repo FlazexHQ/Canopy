@@ -347,6 +347,7 @@ dependencies = [
  "canopy-policy",
  "canopy-protocol",
  "canopy-query",
+ "canopy-schema",
  "futures-util",
  "ring",
  "tokio",
@@ -514,6 +515,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-schema"
+version = "0.0.0"
+dependencies = [
+ "canopy-policy",
+ "canopy-protocol",
+]
+
+[[package]]
 name = "canopy-sigv4"
 version = "0.0.0"
 dependencies = [
@@ -551,9 +560,13 @@ dependencies = [
 name = "canopy-wasm"
 version = "0.0.0"
 dependencies = [
+ "canopy-config",
  "canopy-matcher",
+ "canopy-policy",
  "canopy-port",
  "canopy-protocol",
+ "canopy-query",
+ "canopy-schema",
  "js-sys",
  "wasm-bindgen",
 ]
