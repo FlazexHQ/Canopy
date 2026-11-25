@@ -80,7 +80,7 @@ The conformance replay in [`crates/canopy-authn/tests/auth_oracle.rs`](../../../
 4. **Unification:** Unifies the recorder's numbered placeholders (`<user-id-1>`, `<session-token-1>`, `<mail-jwt-signature-1>` and the like) through `Bindings`, ensuring dynamic values match consistently across requests, headers, cookies, and database state without relying on hardcoded secrets.
 5. **Validation:** Checks HTTP status, application headers, `Set-Cookie` attributes, response bodies, outgoing email content, audit log documents in `canopy.audit_log`, and user or session documents in `canopy_auth`.
 
-Currently, 15 groups are replayed across 44 cases (`email-password`, `email-verification`, `password-reset`, `magic-link`, `email-otp`, `two-factor`, `passkeys`, `sessions`, `tokens`, `anonymous`, `bearer`, `rate-limits`, `errors`, `social`, and `oidc`).
+Currently, 16 groups are replayed across 48 cases (`email-password`, `email-verification`, `password-reset`, `magic-link`, `email-otp`, `two-factor`, `passkeys`, `sessions`, `tokens`, `anonymous`, `bearer`, `rate-limits`, `errors`, `social`, `provider-tokens`, and `oidc`).
 
 ## Running the replay tests
 
@@ -111,5 +111,12 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
   younger than 15 minutes. It refuses to remove the last account.
 - **OAuth errors:** `GET /auth/v1/error` serves Better Auth's HTML with escaped descriptions and security
   headers. With `NODE_ENV=production`, it redirects to the home path with the error query.
-- **R5.3 leftovers:** Direct ID token sign in and provider token refresh remain outstanding (in progress by `codex`).
+- **Direct ID token sign in:** `POST /auth/v1/sign-in/social` accepts provider ID tokens for Google, Apple,
+  Microsoft and discovery configured OIDC. The router verifies the signature and claims against the
+  provider key set and uses the OAuth account linking rules. The resulting response includes the session
+  token, public user and session cookie. Direct sign in stores the ID token and any submitted access token.
+- **Provider access tokens:** `POST /auth/v1/refresh-token` refreshes a linked account by its Canopy account
+  id. `POST /auth/v1/get-access-token` refreshes when the stored access token has less than five seconds left
+  and the account has a refresh token. Both require a live session for the account owner. A successful
+  refresh preserves existing scopes and retains credentials the provider does not replace.
 - **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. With that setting `canopyd` now serves app user administration (`/admin/v1/users`) natively under the `control` and `all` roles. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1` and `/.well-known/jwks.json` until the stacks and `sdk-e2e` switch to Rust auth.

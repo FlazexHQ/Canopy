@@ -40,6 +40,7 @@ pub(crate) struct Faults {
     pub(crate) wrong_nonce: bool,
     pub(crate) wrong_audience: bool,
     pub(crate) refuse_code: bool,
+    pub(crate) refuse_refresh: bool,
     pub(crate) wrong_issuer: bool,
     pub(crate) expired: bool,
     pub(crate) alg_none: bool,
@@ -293,20 +294,28 @@ impl MockIdp {
         let user = || self.state.lock().expect("IdP state").user.clone();
         match (origin.as_str(), path, request.method) {
             (ISSUER, "/.well-known/openid-configuration", "GET") => {
-                let algorithm = if self.state.lock().expect("IdP state").rs256 { "RS256" } else { "ES256" };
+                let algorithms = if self.state.lock().expect("IdP state").rs256 {
+                    vec!["RS256"]
+                } else {
+                    vec!["ES256", "RS256"]
+                };
                 reply(
                     200,
                     &json!({
                         "issuer": ISSUER, "authorization_endpoint": format!("{ISSUER}/authorize"),
                         "token_endpoint": format!("{ISSUER}/token"), "userinfo_endpoint": format!("{ISSUER}/userinfo"),
                         "jwks_uri": format!("{ISSUER}/jwks"), "response_types_supported": ["code"],
-                        "subject_types_supported": ["public"], "id_token_signing_alg_values_supported": [algorithm],
+                        "subject_types_supported": ["public"], "id_token_signing_alg_values_supported": algorithms,
                         "code_challenge_methods_supported": ["S256"],
                         "token_endpoint_auth_methods_supported": ["client_secret_basic", "client_secret_post"],
                     }),
                 )
             }
-            (ISSUER, "/jwks", "GET") => reply(200, &json!({"keys": [self.jwk(), self.rsa_jwk()]})),
+            (ISSUER, "/jwks", "GET") => {
+                let mut key = self.rsa_jwk();
+                key["kid"] = json!("google-key-1");
+                reply(200, &json!({"keys": [self.jwk(), self.rsa_jwk(), key]}))
+            }
             (ISSUER, "/token", "POST") => match self.grant(&form) {
                 None => reply(400, &json!({"error": "invalid_grant"})),
                 Some(grant) => reply(
@@ -339,15 +348,52 @@ impl MockIdp {
             ("https://api.github.com", "/user/emails", "GET") => {
                 reply(200, &json!([{"email": user().email, "primary": true, "verified": true}]))
             }
+            ("https://www.googleapis.com", "/oauth2/v3/certs", "GET")
+            | ("https://appleid.apple.com", "/auth/keys", "GET")
+            | ("https://login.microsoftonline.com", "/common/discovery/v2.0/keys", "GET") => {
+                let mut key = self.rsa_jwk();
+                key["kid"] = json!("google-key-1");
+                reply(200, &json!({"keys": [key]}))
+            }
+            ("https://oauth2.googleapis.com", "/token", "POST")
+                if form.get("grant_type").is_some_and(|value| value == "refresh_token") =>
+            {
+                let valid_client = form.get("client_id").is_some_and(|id| id == "google-client")
+                    && form.get("client_secret").is_some_and(|secret| secret == "google-secret");
+                let refresh = form.get("refresh_token").map(String::as_str);
+                if !valid_client || self.state.lock().expect("IdP state").faults.refuse_refresh {
+                    return reply(400, &json!({"error": "invalid_grant"}));
+                }
+                match refresh {
+                    Some("google-refresh") => reply(
+                        200,
+                        &json!({"access_token": "google-refreshed",
+                        "refresh_token": "google-rotated", "refresh_token_expires_in": 600,
+                        "expires_in": 60, "scope": "openid"}),
+                    ),
+                    Some("google-rotated") => reply(
+                        200,
+                        &json!({"access_token": "google-refreshed-again",
+                        "expires_in": 60, "scope": "openid"}),
+                    ),
+                    _ => reply(400, &json!({"error": "invalid_grant"})),
+                }
+            }
             ("https://oauth2.googleapis.com", "/token", "POST") => match self.grant(&form) {
                 None => reply(400, &json!({"error": "invalid_grant"})),
-                Some(grant) => reply(
-                    200,
-                    &json!({"access_token": format!("google-access-{}", codes()),
+                Some(grant) => {
+                    let mut tokens = json!({"access_token": format!("google-access-{}", codes()),
                         "id_token": self.id_token("https://accounts.google.com", &grant, true),
-                        "token_type": "Bearer", "expires_in": 3599, "scope": "openid email profile"}),
-                ),
+                        "token_type": "Bearer", "expires_in": 3599, "scope": "openid email profile"});
+                    if user().sub == "refresh-user" {
+                        tokens["refresh_token"] = json!("google-refresh");
+                    }
+                    reply(200, &tokens)
+                }
             },
+            ("https://graph.microsoft.com", "/v1.0/me/photos/48x48/%24value", "GET") => {
+                ProviderResponse { status: 200, body: vec![1, 2, 3] }
+            }
             _ => ProviderResponse { status: 404, body: b"Not Found".to_vec() },
         }
     }

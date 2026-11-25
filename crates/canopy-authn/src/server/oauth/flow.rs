@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json_bytes::Value;
 use zeroize::Zeroizing;
 
-use super::providers::{Identity, Provider, Tokens};
+use super::providers::{Identity, IdentityError, Provider, Tokens};
 use crate::{
     cookies::{AuthCookie, Expiration, sign_value, verify_session},
     secrets,
@@ -64,7 +64,7 @@ fn link_session_key(secret: &str) -> Zeroizing<String> {
     Zeroizing::new(hex::encode(hmac::sign(&key, b"better-auth:oauth-link-session-token:v1\x01")))
 }
 
-fn matching_ids(id: &str) -> Vec<Bson> {
+pub(super) fn matching_ids(id: &str) -> Vec<Bson> {
     let mut ids = vec![Bson::String(id.to_owned())];
     if let Ok(object_id) = bson::oid::ObjectId::parse_str(id)
         && object_id.to_hex() == id
@@ -80,6 +80,23 @@ fn optional_text<'a>(body: &'a Value, field: &str) -> std::result::Result<Option
         Some(Value::String(text)) => Ok(Some(text.as_str())),
         Some(_) => Err(validation(body, field)),
     }
+}
+
+fn id_token_validation(value: Option<&Value>, field: &str, expected: &str) -> Response {
+    let received = match value {
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::Array(_)) => "array",
+        Some(Value::String(_)) => "string",
+        Some(Value::Object(_)) => "object",
+    };
+    error(
+        400,
+        "VALIDATION_ERROR",
+        &format!("[body.{field}] Invalid input: expected {expected}, received {received}"),
+    )
 }
 
 fn with_query(target: &str, pairs: &[(&str, &str)]) -> String {
@@ -143,8 +160,13 @@ impl Call<'_> {
         let Some(provider) = self.router.oauth.provider(provider_id).await else {
             return Ok(error(404, "PROVIDER_NOT_FOUND", "Provider not found"));
         };
-        if body.get("idToken").is_some_and(|token| !token.is_null()) {
-            return Ok(error(404, "ID_TOKEN_NOT_SUPPORTED", "id_token not supported"));
+        if let Some(token) = body.get("idToken") {
+            if !linking {
+                return self.sign_in_id_token(&provider, token).await;
+            }
+            if !token.is_null() {
+                return Ok(error(404, "ID_TOKEN_NOT_SUPPORTED", "id_token not supported"));
+            }
         }
         let state = random_token_from(32, RANDOM_ALPHABET)?;
         let verifier = random_token_from(128, RANDOM_ALPHABET)?;
@@ -207,6 +229,89 @@ impl Call<'_> {
             }
         }
         Some(params)
+    }
+
+    async fn sign_in_id_token(&self, provider: &Provider<'_>, body: &Value) -> Result<Response> {
+        if !body.is_object() {
+            return Ok(id_token_validation(Some(body), "idToken", "object"));
+        }
+        let Some(token) = body.get("token").and_then(Value::as_str) else {
+            return Ok(id_token_validation(body.get("token"), "idToken.token", "string"));
+        };
+        for key in ["nonce", "accessToken", "refreshToken"] {
+            if let Some(value) = body.get(key).filter(|value| !value.is_string()) {
+                return Ok(id_token_validation(Some(value), &format!("idToken.{key}"), "string"));
+            }
+        }
+        if let Some(value) = body.get("expiresAt").filter(|value| !value.is_number()) {
+            return Ok(id_token_validation(Some(value), "idToken.expiresAt", "number"));
+        }
+        if let Some(user) = body.get("user") {
+            if !user.is_object() {
+                return Ok(id_token_validation(Some(user), "idToken.user", "object"));
+            }
+            if let Some(email) = user.get("email").filter(|value| !value.is_string()) {
+                return Ok(id_token_validation(Some(email), "idToken.user.email", "string"));
+            }
+            if let Some(name) = user.get("name") {
+                if !name.is_object() {
+                    return Ok(id_token_validation(Some(name), "idToken.user.name", "object"));
+                }
+                for key in ["firstName", "lastName"] {
+                    if let Some(value) = name.get(key).filter(|value| !value.is_string()) {
+                        return Ok(id_token_validation(
+                            Some(value),
+                            &format!("idToken.user.name.{key}"),
+                            "string",
+                        ));
+                    }
+                }
+            }
+        }
+        if !provider.supports_id_token() {
+            return Ok(error(404, "ID_TOKEN_NOT_SUPPORTED", "id_token not supported"));
+        }
+        let apple_user = body.get("user").map(Value::to_string);
+        let tokens = Tokens {
+            access_token: body.get("accessToken").and_then(Value::as_str).map(str::to_owned),
+            id_token: Some(token.to_owned()),
+            refresh_token: None,
+            access_expires_in_s: None,
+            refresh_expires_in_s: None,
+            scopes: None,
+        };
+        let identity = match provider
+            .identity(
+                &self.router.oauth,
+                &tokens,
+                body.get("nonce").and_then(Value::as_str),
+                apple_user.as_deref(),
+                true,
+                self.now.timestamp_millis(),
+            )
+            .await
+        {
+            Ok(identity) => identity,
+            Err(IdentityError::InvalidToken) => return Ok(error(401, "INVALID_TOKEN", "Invalid token")),
+            Err(IdentityError::UserInfo) => {
+                return Ok(error(401, "FAILED_TO_GET_USER_INFO", "Failed to get user info"));
+            }
+        };
+        let Some(email) = identity.email.as_deref().map(str::to_lowercase) else {
+            return Ok(error(401, "USER_EMAIL_NOT_FOUND", "User email not found"));
+        };
+        let user = match self.oauth_user(provider, &identity, &tokens, &email, "sign-in/social").await? {
+            Outcome::SignedIn(user, _) => user,
+            Outcome::Refused(code) => return Ok(error(401, "OAUTH_LINK_ERROR", &code.replace('_', " "))),
+        };
+        if self.banned(&user) {
+            return Ok(error(403, "BANNED_USER", BANNED_MESSAGE));
+        }
+        let session = self.create_session(&user, true, "sign-in/social").await?;
+        let mut reply =
+            response(200, object!("redirect": false, "token": session.token, "user": user.public()));
+        self.set_session(&mut reply, &session.token, true);
+        Ok(reply)
     }
 
     fn callback_post(&self, provider_id: &str, query: &str) -> Response {
@@ -339,12 +444,13 @@ impl Call<'_> {
         else {
             return Ok(fail(reply, &error_url, "invalid_code", None));
         };
-        let Some(identity) = provider
+        let Ok(identity) = provider
             .identity(
                 &self.router.oauth,
                 &tokens,
                 flow.id_token_nonce.as_deref(),
                 params.get("user").map(String::as_str),
+                false,
                 now,
             )
             .await
@@ -360,7 +466,8 @@ impl Call<'_> {
         let Some(email) = identity.email.as_deref().map(str::to_lowercase) else {
             return Ok(fail(reply, &error_url, "email_not_found", None));
         };
-        let (user, registered) = match self.oauth_user(&provider, &identity, &tokens, &email).await? {
+        let (user, registered) = match self.oauth_user(&provider, &identity, &tokens, &email, "oauth").await?
+        {
             Outcome::SignedIn(user, registered) => (user, registered),
             Outcome::Refused(code) => return Ok(fail(reply, &error_url, code, None)),
         };
@@ -420,7 +527,7 @@ impl Call<'_> {
                     .get_str("scope")
                     .unwrap_or_default()
                     .split(',')
-                    .chain(tokens.scopes.iter().map(String::as_str))
+                    .chain(tokens.scopes.as_deref().unwrap_or_default().iter().map(String::as_str))
                 {
                     let value = value.trim();
                     if !value.is_empty() && !scope.contains(&value) {
@@ -428,7 +535,7 @@ impl Call<'_> {
                     }
                 }
                 let mut fields = self.token_fields(tokens);
-                fields.extend(doc! {"accessToken": &tokens.access_token, "updatedAt": self.now});
+                fields.insert("updatedAt", self.now);
                 if !scope.is_empty() {
                     fields.insert("scope", scope.join(","));
                 }
@@ -519,19 +626,24 @@ impl Call<'_> {
     ) -> Document {
         let mut account = doc! {
             "_id": object_id(self.now), "accountId": &identity.account_id, "providerId": provider,
-            "userId": user_id.clone(), "accessToken": &tokens.access_token,
+            "userId": user_id.clone(),
         };
         account.extend(self.token_fields(tokens));
-        account.insert("scope", tokens.scopes.join(","));
+        if let Some(scopes) = &tokens.scopes {
+            account.insert("scope", scopes.join(","));
+        }
         account.insert("createdAt", self.now);
         account.insert("updatedAt", self.now);
         account
     }
 
-    fn token_fields(&self, tokens: &Tokens) -> Document {
+    pub(super) fn token_fields(&self, tokens: &Tokens) -> Document {
         #[allow(clippy::cast_possible_truncation)]
         let after = |seconds: f64| self.date_after((seconds * 1000.0).round() as i64);
         let mut fields = doc! {};
+        if let Some(access) = &tokens.access_token {
+            fields.insert("accessToken", access);
+        }
         if let Some(refresh) = &tokens.refresh_token {
             fields.insert("refreshToken", refresh);
         }
@@ -553,6 +665,7 @@ impl Call<'_> {
         identity: &Identity,
         tokens: &Tokens,
         email: &str,
+        method: &str,
     ) -> Result<Outcome> {
         let provider_id = provider.id();
         for attempt in 0..2 {
@@ -565,14 +678,18 @@ impl Call<'_> {
                 let Some(user) = self.user(doc! {"_id": &account.user_id}).await? else {
                     return Ok(Outcome::Refused("unable_to_link_account"));
                 };
-                let mut fresh = doc! {"providerId": provider_id, "accessToken": &tokens.access_token};
+                let mut fresh = doc! {"providerId": provider_id};
                 fresh.extend(self.token_fields(tokens));
                 fresh.insert("updatedAt", self.now);
-                self.router
+                let updated = self
+                    .router
                     .collection("accounts")
-                    .update_one(doc! {"_id": &account.id}, doc! {"$set": fresh})
+                    .update_one(doc! {"_id": &account.id, "userId": &user.id}, doc! {"$set": fresh})
                     .await
                     .map_err(internal)?;
+                if updated.matched_count == 0 {
+                    return Ok(Outcome::Refused("unable_to_update_account"));
+                }
                 return Ok(Outcome::SignedIn(
                     Box::new(self.verify_address(user, identity, email).await?),
                     false,
@@ -625,7 +742,7 @@ impl Call<'_> {
                 "auth.sign_up",
                 doc! {"type": "user", "id": &uid},
                 Some(doc! {"type": "user", "id": uid}),
-                Some(doc! {"method": "oauth"}),
+                Some(doc! {"method": method}),
                 false,
             )
             .await?;

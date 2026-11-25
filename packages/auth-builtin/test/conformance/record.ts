@@ -11,7 +11,7 @@ import {
 } from "./cases/email.ts"
 import { passkeys, twoFactor } from "./cases/factors.ts"
 import { errors, rateLimits } from "./cases/limits.ts"
-import { oidc, social } from "./cases/providers.ts"
+import { oidc, providerTokens, social } from "./cases/providers.ts"
 import { anonymous, bearer, sessions, tokens } from "./cases/sessions.ts"
 import { EPOCH } from "./determinism.ts"
 import { proveDocuments, writeDocuments } from "./documents.ts"
@@ -37,6 +37,7 @@ const GROUPS: Readonly<Record<string, readonly CaseSpec[]>> = {
   passkeys,
   anonymous,
   social,
+  "provider-tokens": providerTokens,
   oidc,
   sessions,
   bearer,

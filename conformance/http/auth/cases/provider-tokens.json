@@ -1,0 +1,2609 @@
+{
+  "group": "provider-tokens",
+  "cases": [
+    {
+      "id": "google-direct",
+      "description": "Verifies a client submitted Google ID token and reuses the linked account",
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ],
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw",
+                "nonce": "client-nonce",
+                "accessToken": "client-access",
+                "refreshToken": "client-refresh",
+                "expiresAt": 1234
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "set-auth-token": "<session-token-1>.<cookie-signature-1>=",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "redirect": false,
+              "token": "<session-token-1>",
+              "user": {
+                "name": "OIDC User",
+                "email": "oidc@example.com",
+                "emailVerified": true,
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "isAnonymous": false,
+                "role": "user",
+                "banned": false,
+                "twoFactorEnabled": false,
+                "roles": [],
+                "id": "<user-id-1>"
+              }
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "again",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw"
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "set-auth-token": "<session-token-2>.<cookie-signature-2>=",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-2>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "redirect": false,
+              "token": "<session-token-2>",
+              "user": {
+                "name": "OIDC User",
+                "email": "oidc@example.com",
+                "emailVerified": true,
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "isAnonymous": false,
+                "role": "user",
+                "banned": false,
+                "twoFactorEnabled": false,
+                "roles": [],
+                "id": "<user-id-1>"
+              }
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/list-accounts",
+            "headers": {
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ]
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": [
+              {
+                "accountId": "idp-user-1",
+                "providerId": "google",
+                "userId": "<user-id-1>",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "id": "<account-id-1>",
+                "scopes": []
+              }
+            ]
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/refresh-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Refresh token not found",
+              "code": "REFRESH_TOKEN_NOT_FOUND"
+            }
+          }
+        }
+      ],
+      "documents": {
+        "canopy_auth.accounts": [
+          {
+            "_id": {
+              "$oid": "<account-id-1>"
+            },
+            "accountId": "idp-user-1",
+            "providerId": "google",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "accessToken": "client-access",
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.2|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-3>"
+            },
+            "key": "203.0.113.1|/list-accounts",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-4>"
+            },
+            "key": "203.0.113.1|/refresh-token",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          }
+        ],
+        "canopy_auth.sessions": [
+          {
+            "_id": {
+              "$oid": "<session-id-1>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.1",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "aal": "aal1"
+          },
+          {
+            "_id": {
+              "$oid": "<session-id-2>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.2",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "aal": "aal1"
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.users": [
+          {
+            "_id": {
+              "$oid": "<user-id-1>"
+            },
+            "name": "OIDC User",
+            "email": "oidc@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          }
+        ],
+        "canopy.audit_log": [
+          {
+            "_id": {
+              "$oid": "<audit-id-1>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-1>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-2>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-2>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-3>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "google-direct-refusals",
+      "description": "Refuses invalid signatures, audiences, nonces, expiry and unavailable providers",
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "signature",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.AmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw",
+                "nonce": "client-nonce"
+              }
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Invalid token",
+              "code": "INVALID_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "audience",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiYW5vdGhlci1jbGllbnQiLCJzdWIiOiJpZHAtdXNlci0xIiwiaWF0IjoxOTI0OTkyMDAwLCJleHAiOjE5MjQ5OTIzMDB9.DJZ-0ZeHl2XZY2P_q072viH2CfK1V2HpvZSQJs0ZxfkDNZNFeMe4qWfQqBLARIdcYdR6Qj59F-MY_Lhun-P3i7YzEQvcskHi5kSOmiPXEfRcwZdVIPAR-MuUYcKt-x60L7TDS5LXO0nBeJmaChw9g_9loHRMqTO89eWPEuekVqvDeTps9KhdidtLjUbwfnuSgqt4WhOnOSuu3xmzqc2x3lY0P0j9Qktzzlic6CGPYGSbeidAI4aK91vY8VzvQr_DCRtKbkGECZ4RpuYiMuRJvpwV4L3of7CR6X3w7mXUL9JNtueXURHWlxQ711oi0uTg53xc52wSS9184LNxxbwY3Q",
+                "nonce": "client-nonce"
+              }
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Invalid token",
+              "code": "INVALID_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "nonce",
+          "request": {
+            "ip": "203.0.113.3",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw",
+                "nonce": "wrong-nonce"
+              }
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Invalid token",
+              "code": "INVALID_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "expiry",
+          "request": {
+            "ip": "203.0.113.4",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "google",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MTkxMH0.T_pWE_98o7hCUBfqNsrdR6k0XgMNyBVvZIGQyGXv4V-YiP3bgmwZhBaQXdHenFIOr7PSrVfsMF1Rz2ecviTgrEFEdSQ2C0Oul0bop2FPpPo3y8LB_zT76WNkwF--P9j3FIX9R55BN6oS__qSHvOeWsBSF_YOaQwRYnK8_Oq5O_DC8-j51QvWAGDvzs1RKcBxePglL9VJWrssWB0tAnt6P7nMOoMtLIJgpuJEMhgawr3IwlPB0AAEq9nSpnlkAycA_2wXoyCAsFCPcNYuDypLjZGmegrWf56yb0yUDBi7Yyzvbq1PYInVrR5eqV5is-3wWIhMdZyDE9nnoYgVBvuS7A",
+                "nonce": "client-nonce"
+              }
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Invalid token",
+              "code": "INVALID_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://www.googleapis.com/oauth2/v3/certs",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "discord",
+          "request": {
+            "ip": "203.0.113.5",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "discord",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw"
+              }
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Provider not found",
+              "code": "PROVIDER_NOT_FOUND"
+            }
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "github",
+          "request": {
+            "ip": "203.0.113.6",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "provider": "github",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im9pZGNAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6Ik9JREMgVXNlciIsIm5vbmNlIjoiY2xpZW50LW5vbmNlIiwiaXNzIjoiaHR0cHM6Ly9hY2NvdW50cy5nb29nbGUuY29tIiwiYXVkIjoiZ29vZ2xlLWNsaWVudCIsInN1YiI6ImlkcC11c2VyLTEiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.LmVY2Acm_f10mjw_APwGPSVPZ_N7s7h1fPFEANTT7L7QROv1uzOxvIVxAVXjVI8gXTS4whBOwUmMu6DMrOtrnw1k2D7JRR4ohwQnNZdBiy5aB6cW3ZC_VtAE6t0q3ucG4bZzEqEP6IIIkzGX-RWJu0FwCkVhLAiLZNtbh3cLHIMB_XSPHo1fz-VxQ2DOCeRFMH19E_34cfeX_sN9IYIfy-lxyft3v52DgXcuT5sDQ_4nZ7jwgIe-P6L0WHu7148YkF4Z1e9hvBPBAB81YuNqengH6mYlBoHPWXgT39oTBUBYltfNBu5mt63rgaSRKXSmUwlXvJm838Fw59sVUdNvkw"
+              }
+            }
+          },
+          "response": {
+            "status": 404,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "id_token not supported",
+              "code": "ID_TOKEN_NOT_SUPPORTED"
+            }
+          }
+        }
+      ],
+      "documents": {
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.2|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-3>"
+            },
+            "key": "203.0.113.3|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-4>"
+            },
+            "key": "203.0.113.4|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-5>"
+            },
+            "key": "203.0.113.5|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-6>"
+            },
+            "key": "203.0.113.6|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "direct-provider-profiles",
+      "description": "Verifies direct Apple, Microsoft and discovery configured OIDC ID tokens",
+      "options": {
+        "socialProviders": {
+          "apple": {
+            "clientId": "apple-client",
+            "clientSecret": "apple-secret"
+          },
+          "microsoft": {
+            "clientId": "microsoft-client",
+            "clientSecret": "microsoft-secret"
+          }
+        }
+      },
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "apple",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ],
+            "body": {
+              "provider": "apple",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6ImFwcGxlQGV4YW1wbGUuY29tIiwibmFtZSI6IlByb3ZpZGVyIFVzZXIiLCJlbWFpbF92ZXJpZmllZCI6InRydWUiLCJub25jZSI6IjllY2E3MDI5MjFiYzk1ZDcwMTUxYmZhOWYzYmQwZGY2ZGRkNmVlZDQ2ZjNhMDM4MmU1OGYzOWM4Y2I0NjM0NjAiLCJpc3MiOiJodHRwczovL2FwcGxlaWQuYXBwbGUuY29tIiwiYXVkIjoiYXBwbGUtY2xpZW50Iiwic3ViIjoiYXBwbGUtc3ViamVjdCIsImlhdCI6MTkyNDk5MjAwMCwiZXhwIjoxOTI0OTkyMzAwfQ.LvBHqohhwh3xaFh9drGalwiWdXS1gLV0abwDPN3xn0vpQcBbRnucQWaKLUwfn854vDb3XsIfzKffe_l3Or66zWOQVfvor1V1In8PyZCzIHgAujxLxB7PHJ7tzZq9mmYa7krM9BmwvvEegMnCyTirNqCxWplzbpGWMLheA9sBJ7fqQmghaC3PvTwH_p_6yx5GjkwXipEIEC5hjr7Z6yHVnQud6s2H9gy5gI8KzZYg0jScPywg_iKBL11hVKpEqghEC4tDWCiQXlm7PFWlacX9BnjfwT2KQAPpBz0zfq9GeAWFRq_eQVnvBN63mWWaCL_RIRr_5HXQOPRIVzwyOLBU-Q",
+                "nonce": "native-client-nonce",
+                "user": {
+                  "name": {
+                    "firstName": "App",
+                    "lastName": "User"
+                  }
+                }
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "set-auth-token": "<session-token-1>.<cookie-signature-1>=",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "redirect": false,
+              "token": "<session-token-1>",
+              "user": {
+                "name": "App User",
+                "email": "apple@example.com",
+                "emailVerified": true,
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "isAnonymous": false,
+                "role": "user",
+                "banned": false,
+                "twoFactorEnabled": false,
+                "roles": [],
+                "id": "<user-id-1>"
+              }
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://appleid.apple.com/auth/keys",
+              "headers": {}
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "apple",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/list-accounts",
+            "headers": {
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-1>="
+              }
+            ]
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": [
+              {
+                "accountId": "apple-subject",
+                "providerId": "apple",
+                "userId": "<user-id-1>",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "id": "<account-id-1>",
+                "scopes": []
+              }
+            ]
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "microsoft",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "provider": "microsoft",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im1pY3Jvc29mdEBleGFtcGxlLmNvbSIsIm5hbWUiOiJQcm92aWRlciBVc2VyIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5vbmNlIjoibmF0aXZlLWNsaWVudC1ub25jZSIsIm9pZCI6ImVudHJhLW9iamVjdCIsInRpZCI6ImYzZDA2YTg5LThmMWQtNGM5YS04NTA4LTNjYWZlN2MxMmFmMSIsImlzcyI6Imh0dHBzOi8vbG9naW4ubWljcm9zb2Z0b25saW5lLmNvbS9mM2QwNmE4OS04ZjFkLTRjOWEtODUwOC0zY2FmZTdjMTJhZjEvdjIuMCIsImF1ZCI6Im1pY3Jvc29mdC1jbGllbnQiLCJzdWIiOiJtaWNyb3NvZnQtc3ViamVjdCIsImlhdCI6MTkyNDk5MjAwMCwiZXhwIjoxOTI0OTkyMzAwfQ.QpdYMei3AoyTlJTBxFTconDKawIMRVFUpRFaJy05I2LGYbsboW75VbytvWDE5ceVx6YOULWap9IycADROAJlu4mY-yKwuey3w-R4lgZLL26Msda-ZUQE6Hbfh6ogUGScCsGiLA2wPcje8KQ6UGRkYe2dZ8MaHu04zl6O_j5PJB0cngZUOxu3Eiv6BmlY1LNggcnI03eHJP2ZY-5w5f5_XZMYM2V353QQbf4GxrO6EXvvyMUAhrute6zwTJNFLOLaS3RhvMPkNkMIQ37Hwew8qVaSrv2V6z-JkWu_8fFHqniCsmAmQyz0_xIedBGwjl9r4IoHKuhOXLAjLBuQanjOhg",
+                "nonce": "native-client-nonce",
+                "accessToken": "graph-access"
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "set-auth-token": "<session-token-2>.<cookie-signature-2>=",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-2>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "redirect": false,
+              "token": "<session-token-2>",
+              "user": {
+                "name": "Provider User",
+                "email": "microsoft@example.com",
+                "emailVerified": true,
+                "image": "data:image/jpeg;base64, AQID",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "isAnonymous": false,
+                "role": "user",
+                "banned": false,
+                "twoFactorEnabled": false,
+                "roles": [],
+                "id": "<user-id-2>"
+              }
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://login.microsoftonline.com/common/discovery/v2.0/keys",
+              "headers": {}
+            },
+            {
+              "method": "GET",
+              "url": "https://graph.microsoft.com/v1.0/me/photos/48x48/%24value",
+              "headers": {
+                "authorization": "Bearer graph-access"
+              }
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "microsoft",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "GET",
+            "path": "/auth/v1/list-accounts",
+            "headers": {
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-2>="
+              }
+            ]
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": [
+              {
+                "accountId": "entra-object",
+                "providerId": "microsoft",
+                "userId": "<user-id-2>",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "id": "<account-id-2>",
+                "scopes": []
+              }
+            ]
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "acme",
+          "request": {
+            "ip": "203.0.113.3",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-3>.<cookie-signature-3>="
+              }
+            ],
+            "body": {
+              "provider": "acme",
+              "idToken": {
+                "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6ImFjbWVAZXhhbXBsZS5jb20iLCJuYW1lIjoiUHJvdmlkZXIgVXNlciIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJub25jZSI6Im5hdGl2ZS1jbGllbnQtbm9uY2UiLCJpc3MiOiJodHRwczovL2lkcC5jYW5vcHkudGVzdCIsImF1ZCI6ImFjbWUtY2xpZW50Iiwic3ViIjoiYWNtZS1zdWJqZWN0IiwiaWF0IjoxOTI0OTkyMDAwLCJleHAiOjE5MjQ5OTIzMDB9.dHcSxXbvkvMsr7eOZjFxiLWsB-RQOOjMzGm8SVZpLoLDSx7R5ktlD09TfGEK-jm2-hc69j9YGUo2aMYpExRMmdS0z5xlls0R2LbJE11rwELpM8aOcFX4HQaSV2Fg33kBXzfeKPW0uMMH2ntILe-jUbMkUbNkF30Rj23zcwMmr0dsRNJWaTuHsr4ulVW0yzqkMBC5fRuJb_OZ_oERpuIrKYYTDDJI_5FA6NGsq-IbKxpV4MalLniz_ZldhwUuWVlyDbL-xlf-OROhdnHeuaob0WnyoiZQuGdxk4ofxkLF35o7EHa-RsCFb0IOIMys60G4C0HwcAgNTVAuUN3RQvCH_Q",
+                "nonce": "native-client-nonce"
+              }
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "set-auth-token": "<session-token-3>.<cookie-signature-3>=",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-3>.<cookie-signature-3>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "redirect": false,
+              "token": "<session-token-3>",
+              "user": {
+                "name": "Provider User",
+                "email": "acme@example.com",
+                "emailVerified": true,
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "isAnonymous": false,
+                "role": "user",
+                "banned": false,
+                "twoFactorEnabled": false,
+                "roles": [],
+                "id": "<user-id-3>"
+              }
+            }
+          },
+          "outbound": [
+            {
+              "method": "GET",
+              "url": "https://idp.canopy.test/jwks",
+              "headers": {
+                "accept": "application/json, application/jwk-set+json"
+              }
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "acme",
+          "request": {
+            "ip": "203.0.113.3",
+            "method": "GET",
+            "path": "/auth/v1/list-accounts",
+            "headers": {
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-3>.<cookie-signature-3>="
+              }
+            ]
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": [
+              {
+                "accountId": "acme-subject",
+                "providerId": "acme",
+                "userId": "<user-id-3>",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "id": "<account-id-3>",
+                "scopes": []
+              }
+            ]
+          }
+        }
+      ],
+      "documents": {
+        "canopy_auth.accounts": [
+          {
+            "_id": {
+              "$oid": "<account-id-1>"
+            },
+            "accountId": "apple-subject",
+            "providerId": "apple",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6ImFwcGxlQGV4YW1wbGUuY29tIiwibmFtZSI6IlByb3ZpZGVyIFVzZXIiLCJlbWFpbF92ZXJpZmllZCI6InRydWUiLCJub25jZSI6IjllY2E3MDI5MjFiYzk1ZDcwMTUxYmZhOWYzYmQwZGY2ZGRkNmVlZDQ2ZjNhMDM4MmU1OGYzOWM4Y2I0NjM0NjAiLCJpc3MiOiJodHRwczovL2FwcGxlaWQuYXBwbGUuY29tIiwiYXVkIjoiYXBwbGUtY2xpZW50Iiwic3ViIjoiYXBwbGUtc3ViamVjdCIsImlhdCI6MTkyNDk5MjAwMCwiZXhwIjoxOTI0OTkyMzAwfQ.LvBHqohhwh3xaFh9drGalwiWdXS1gLV0abwDPN3xn0vpQcBbRnucQWaKLUwfn854vDb3XsIfzKffe_l3Or66zWOQVfvor1V1In8PyZCzIHgAujxLxB7PHJ7tzZq9mmYa7krM9BmwvvEegMnCyTirNqCxWplzbpGWMLheA9sBJ7fqQmghaC3PvTwH_p_6yx5GjkwXipEIEC5hjr7Z6yHVnQud6s2H9gy5gI8KzZYg0jScPywg_iKBL11hVKpEqghEC4tDWCiQXlm7PFWlacX9BnjfwT2KQAPpBz0zfq9GeAWFRq_eQVnvBN63mWWaCL_RIRr_5HXQOPRIVzwyOLBU-Q",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<account-id-2>"
+            },
+            "accountId": "entra-object",
+            "providerId": "microsoft",
+            "userId": {
+              "$oid": "<user-id-2>"
+            },
+            "accessToken": "graph-access",
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6Im1pY3Jvc29mdEBleGFtcGxlLmNvbSIsIm5hbWUiOiJQcm92aWRlciBVc2VyIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5vbmNlIjoibmF0aXZlLWNsaWVudC1ub25jZSIsIm9pZCI6ImVudHJhLW9iamVjdCIsInRpZCI6ImYzZDA2YTg5LThmMWQtNGM5YS04NTA4LTNjYWZlN2MxMmFmMSIsImlzcyI6Imh0dHBzOi8vbG9naW4ubWljcm9zb2Z0b25saW5lLmNvbS9mM2QwNmE4OS04ZjFkLTRjOWEtODUwOC0zY2FmZTdjMTJhZjEvdjIuMCIsImF1ZCI6Im1pY3Jvc29mdC1jbGllbnQiLCJzdWIiOiJtaWNyb3NvZnQtc3ViamVjdCIsImlhdCI6MTkyNDk5MjAwMCwiZXhwIjoxOTI0OTkyMzAwfQ.QpdYMei3AoyTlJTBxFTconDKawIMRVFUpRFaJy05I2LGYbsboW75VbytvWDE5ceVx6YOULWap9IycADROAJlu4mY-yKwuey3w-R4lgZLL26Msda-ZUQE6Hbfh6ogUGScCsGiLA2wPcje8KQ6UGRkYe2dZ8MaHu04zl6O_j5PJB0cngZUOxu3Eiv6BmlY1LNggcnI03eHJP2ZY-5w5f5_XZMYM2V353QQbf4GxrO6EXvvyMUAhrute6zwTJNFLOLaS3RhvMPkNkMIQ37Hwew8qVaSrv2V6z-JkWu_8fFHqniCsmAmQyz0_xIedBGwjl9r4IoHKuhOXLAjLBuQanjOhg",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<account-id-3>"
+            },
+            "accountId": "acme-subject",
+            "providerId": "acme",
+            "userId": {
+              "$oid": "<user-id-3>"
+            },
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6ImFjbWVAZXhhbXBsZS5jb20iLCJuYW1lIjoiUHJvdmlkZXIgVXNlciIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJub25jZSI6Im5hdGl2ZS1jbGllbnQtbm9uY2UiLCJpc3MiOiJodHRwczovL2lkcC5jYW5vcHkudGVzdCIsImF1ZCI6ImFjbWUtY2xpZW50Iiwic3ViIjoiYWNtZS1zdWJqZWN0IiwiaWF0IjoxOTI0OTkyMDAwLCJleHAiOjE5MjQ5OTIzMDB9.dHcSxXbvkvMsr7eOZjFxiLWsB-RQOOjMzGm8SVZpLoLDSx7R5ktlD09TfGEK-jm2-hc69j9YGUo2aMYpExRMmdS0z5xlls0R2LbJE11rwELpM8aOcFX4HQaSV2Fg33kBXzfeKPW0uMMH2ntILe-jUbMkUbNkF30Rj23zcwMmr0dsRNJWaTuHsr4ulVW0yzqkMBC5fRuJb_OZ_oERpuIrKYYTDDJI_5FA6NGsq-IbKxpV4MalLniz_ZldhwUuWVlyDbL-xlf-OROhdnHeuaob0WnyoiZQuGdxk4ofxkLF35o7EHa-RsCFb0IOIMys60G4C0HwcAgNTVAuUN3RQvCH_Q",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.1|/list-accounts",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-3>"
+            },
+            "key": "203.0.113.2|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-4>"
+            },
+            "key": "203.0.113.2|/list-accounts",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-5>"
+            },
+            "key": "203.0.113.3|/sign-in/social",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-6>"
+            },
+            "key": "203.0.113.3|/list-accounts",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992000000"
+            }
+          }
+        ],
+        "canopy_auth.sessions": [
+          {
+            "_id": {
+              "$oid": "<session-id-1>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.1",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "aal": "aal1"
+          },
+          {
+            "_id": {
+              "$oid": "<session-id-2>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.2",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-2>"
+            },
+            "aal": "aal1"
+          },
+          {
+            "_id": {
+              "$oid": "<session-id-3>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-3>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.3",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-3>"
+            },
+            "aal": "aal1"
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.users": [
+          {
+            "_id": {
+              "$oid": "<user-id-1>"
+            },
+            "name": "App User",
+            "email": "apple@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          },
+          {
+            "_id": {
+              "$oid": "<user-id-2>"
+            },
+            "name": "Provider User",
+            "email": "microsoft@example.com",
+            "emailVerified": true,
+            "image": "data:image/jpeg;base64, AQID",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          },
+          {
+            "_id": {
+              "$oid": "<user-id-3>"
+            },
+            "name": "Provider User",
+            "email": "acme@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          }
+        ],
+        "canopy.audit_log": [
+          {
+            "_id": {
+              "$oid": "<audit-id-1>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-1>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-2>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-2>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-3>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-3>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-3>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-4>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-5>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-6>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-3>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-3>"
+            },
+            "details": {
+              "method": "sign-in/social"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider-refresh",
+      "description": "Reads fresh access tokens, rotates stored credentials, refreshes near expiry and reports provider refusal",
+      "steps": [
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/sign-in/social",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.state",
+                "value": "<state-cookie-1>.<cookie-signature-1>="
+              }
+            ],
+            "body": {
+              "provider": "google",
+              "callbackURL": "https://app.canopy.test/home"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "location": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=google-client&state=<state-cookie-1>&scope=email+profile+openid&redirect_uri=https%3A%2F%2Fauth.canopy.test%2Fauth%2Fv1%2Fcallback%2Fgoogle&code_challenge_method=S256&code_challenge=<code-challenge-1>&include_granted_scopes=true",
+              "vary": "origin"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.state",
+                "value": "<state-cookie-1>.<cookie-signature-1>=",
+                "attributes": [
+                  "Max-Age=300",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": {
+              "url": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=google-client&state=<state-cookie-1>&scope=email+profile+openid&redirect_uri=https%3A%2F%2Fauth.canopy.test%2Fauth%2Fv1%2Fcallback%2Fgoogle&code_challenge_method=S256&code_challenge=<code-challenge-1>&include_granted_scopes=true",
+              "redirect": true
+            }
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "provider": {
+            "url": "https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=google-client&state=<state-cookie-1>&scope=email+profile+openid&redirect_uri=https%3A%2F%2Fauth.canopy.test%2Fauth%2Fv1%2Fcallback%2Fgoogle&code_challenge_method=S256&code_challenge=<code-challenge-1>&include_granted_scopes=true",
+            "status": 302,
+            "location": "https://auth.canopy.test/auth/v1/callback/google?code=<code-1>&state=<state-cookie-1>"
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/callback/google?code=<code-1>&state=<state-cookie-1>",
+            "headers": {},
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ]
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "access-control-expose-headers": "set-auth-token",
+              "content-type": "application/json",
+              "location": "https://app.canopy.test/home",
+              "set-auth-token": "<session-token-1>.<cookie-signature-2>="
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.state",
+                "value": "",
+                "attributes": [
+                  "Max-Age=0",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              },
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": null
+          },
+          "outbound": [
+            {
+              "method": "POST",
+              "url": "https://oauth2.googleapis.com/token",
+              "headers": {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded"
+              },
+              "body": "grant_type=authorization_code&code=<code-1>&code_verifier=<code-verifier-1>&redirect_uri=https%3A%2F%2Fauth.canopy.test%2Fauth%2Fv1%2Fcallback%2Fgoogle&client_id=google-client&client_secret=google-secret"
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "GET",
+            "path": "/auth/v1/list-accounts",
+            "headers": {
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ]
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": [
+              {
+                "accountId": "refresh-user",
+                "providerId": "google",
+                "userId": "<user-id-1>",
+                "createdAt": "2031-01-01T00:00:00.000Z",
+                "updatedAt": "2031-01-01T00:00:00.000Z",
+                "id": "<account-id-1>",
+                "scopes": [
+                  "openid",
+                  "email",
+                  "profile"
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "stranger",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/get-access-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 401,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": null
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "stranger",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/sign-up/email",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "body": {
+              "email": "stranger@example.com",
+              "password": "correct horse battery 1",
+              "name": "Ada"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "token": null,
+              "user": null,
+              "verification": "sent"
+            }
+          },
+          "heldForTheFloor": true,
+          "mails": [
+            {
+              "to": "stranger@example.com",
+              "from": "Canopy Oracle <auth@canopy.test>",
+              "subject": "Confirm your email for Canopy Oracle",
+              "text": "Follow this link to confirm your email address for Canopy Oracle:\n\nhttps://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2F\n\nIf you did not ask for this, you can ignore this email.\n",
+              "html": "<p>Follow this link to confirm your email address for Canopy Oracle:</p><p><a href=\"https://auth.canopy.test/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&amp;callbackURL=%2F\">Confirm email</a></p><p>If you did not ask for this, you can ignore this email.</p>",
+              "jwts": [
+                {
+                  "header": {
+                    "alg": "HS256"
+                  },
+                  "claims": {
+                    "email": "stranger@example.com",
+                    "userId": "<user-id-2>",
+                    "iat": 1924992000,
+                    "exp": 1924995600
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "stranger",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "GET",
+            "path": "/auth/v1/verify-email?token=eyJhbGciOiJIUzI1NiJ9.<mail-jwt-claims-1>.<mail-jwt-signature-1>&callbackURL=%2F",
+            "headers": {},
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-3>="
+              }
+            ]
+          },
+          "response": {
+            "status": 302,
+            "headers": {
+              "access-control-expose-headers": "set-auth-token",
+              "content-type": "application/json",
+              "location": "/",
+              "set-auth-token": "<session-token-2>.<cookie-signature-3>="
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-3>=",
+                "attributes": [
+                  "Max-Age=604800",
+                  "Path=/",
+                  "HttpOnly",
+                  "Secure",
+                  "SameSite=Lax"
+                ]
+              }
+            ],
+            "body": null
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "stranger",
+          "request": {
+            "ip": "203.0.113.2",
+            "method": "POST",
+            "path": "/auth/v1/refresh-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-2>.<cookie-signature-3>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Account not found",
+              "code": "ACCOUNT_NOT_FOUND"
+            }
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/get-access-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "accessToken": "google-access-1",
+              "accessTokenExpiresAt": "2031-01-01T00:59:59.000Z",
+              "scopes": [
+                "openid",
+                "email",
+                "profile"
+              ],
+              "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6InJlZnJlc2hAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJlZnJlc2ggVXNlciIsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsImF1ZCI6Imdvb2dsZS1jbGllbnQiLCJzdWIiOiJyZWZyZXNoLXVzZXIiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.<id-token-signature-1>"
+            }
+          }
+        },
+        {
+          "clock": "2031-01-01T00:00:00.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/refresh-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "accessToken": "google-refreshed",
+              "refreshToken": "google-rotated",
+              "accessTokenExpiresAt": "2031-01-01T00:01:00.000Z",
+              "refreshTokenExpiresAt": "2031-01-01T00:10:00.000Z",
+              "scope": "openid,email,profile",
+              "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6InJlZnJlc2hAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJlZnJlc2ggVXNlciIsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsImF1ZCI6Imdvb2dsZS1jbGllbnQiLCJzdWIiOiJyZWZyZXNoLXVzZXIiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.<id-token-signature-1>",
+              "providerId": "google",
+              "accountId": "<account-id-1>"
+            }
+          },
+          "outbound": [
+            {
+              "method": "POST",
+              "url": "https://oauth2.googleapis.com/token",
+              "headers": {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded"
+              },
+              "body": "grant_type=refresh_token&refresh_token=google-refresh&client_id=google-client&client_secret=google-secret"
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:56.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/get-access-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 200,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "accessToken": "google-refreshed-again",
+              "accessTokenExpiresAt": "2031-01-01T00:01:56.000Z",
+              "scopes": [
+                "openid",
+                "email",
+                "profile"
+              ],
+              "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6InJlZnJlc2hAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJlZnJlc2ggVXNlciIsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsImF1ZCI6Imdvb2dsZS1jbGllbnQiLCJzdWIiOiJyZWZyZXNoLXVzZXIiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.<id-token-signature-1>"
+            }
+          },
+          "outbound": [
+            {
+              "method": "POST",
+              "url": "https://oauth2.googleapis.com/token",
+              "headers": {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded"
+              },
+              "body": "grant_type=refresh_token&refresh_token=google-rotated&client_id=google-client&client_secret=google-secret"
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:00:56.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/refresh-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Failed to refresh access token",
+              "code": "FAILED_TO_REFRESH_ACCESS_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "POST",
+              "url": "https://oauth2.googleapis.com/token",
+              "headers": {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded"
+              },
+              "body": "grant_type=refresh_token&refresh_token=google-rotated&client_id=google-client&client_secret=google-secret"
+            }
+          ]
+        },
+        {
+          "clock": "2031-01-01T00:01:56.000Z",
+          "client": "web",
+          "request": {
+            "ip": "203.0.113.1",
+            "method": "POST",
+            "path": "/auth/v1/get-access-token",
+            "headers": {
+              "content-type": "application/json",
+              "origin": "https://app.canopy.test"
+            },
+            "cookies": [
+              {
+                "name": "__Secure-canopy.session_token",
+                "value": "<session-token-1>.<cookie-signature-2>="
+              }
+            ],
+            "body": {
+              "accountId": "<account-id-1>"
+            }
+          },
+          "response": {
+            "status": 400,
+            "headers": {
+              "access-control-allow-credentials": "true",
+              "access-control-allow-origin": "https://app.canopy.test",
+              "access-control-expose-headers": "set-auth-token, set-auth-ceremony",
+              "content-type": "application/json",
+              "vary": "origin"
+            },
+            "cookies": [],
+            "body": {
+              "message": "Failed to get a valid access token",
+              "code": "FAILED_TO_GET_ACCESS_TOKEN"
+            }
+          },
+          "outbound": [
+            {
+              "method": "POST",
+              "url": "https://oauth2.googleapis.com/token",
+              "headers": {
+                "accept": "application/json",
+                "content-type": "application/x-www-form-urlencoded"
+              },
+              "body": "grant_type=refresh_token&refresh_token=google-rotated&client_id=google-client&client_secret=google-secret"
+            }
+          ]
+        }
+      ],
+      "documents": {
+        "canopy_auth.accounts": [
+          {
+            "_id": {
+              "$oid": "<account-id-1>"
+            },
+            "accountId": "refresh-user",
+            "providerId": "google",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "accessToken": "google-refreshed-again",
+            "refreshToken": "google-rotated",
+            "idToken": "eyJhbGciOiJSUzI1NiIsImtpZCI6Imdvb2dsZS1rZXktMSJ9.eyJlbWFpbCI6InJlZnJlc2hAZXhhbXBsZS5jb20iLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZSwibmFtZSI6IlJlZnJlc2ggVXNlciIsImlzcyI6Imh0dHBzOi8vYWNjb3VudHMuZ29vZ2xlLmNvbSIsImF1ZCI6Imdvb2dsZS1jbGllbnQiLCJzdWIiOiJyZWZyZXNoLXVzZXIiLCJpYXQiOjE5MjQ5OTIwMDAsImV4cCI6MTkyNDk5MjMwMH0.<id-token-signature-1>",
+            "accessTokenExpiresAt": {
+              "$date": {
+                "$numberLong": "1924992116000"
+              }
+            },
+            "scope": "openid,email,profile",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992056000"
+              }
+            },
+            "refreshTokenExpiresAt": {
+              "$date": {
+                "$numberLong": "1924992600000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<account-id-2>"
+            },
+            "accountId": "<user-id-2>",
+            "providerId": "credential",
+            "userId": {
+              "$oid": "<user-id-2>"
+            },
+            "password": "$argon2id$v=19$m=19456,t=2,p=1$<argon2id-salt-1>$<argon2id-tag-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.identifier_limits": [
+          {
+            "_id": "hit|/sign-up/email|stranger@example.com",
+            "count": {
+              "$numberInt": "1"
+            },
+            "windowStart": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1924992060000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.rate_limits": [
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-1>"
+            },
+            "key": "203.0.113.1|/get-access-token",
+            "count": {
+              "$numberInt": "1"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992116000"
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<rate-limit-id-2>"
+            },
+            "key": "203.0.113.1|/refresh-token",
+            "count": {
+              "$numberInt": "2"
+            },
+            "lastRequest": {
+              "$numberLong": "1924992056000"
+            }
+          }
+        ],
+        "canopy_auth.sessions": [
+          {
+            "_id": {
+              "$oid": "<session-id-1>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-1>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.1",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-1>"
+            },
+            "aal": "aal1"
+          },
+          {
+            "_id": {
+              "$oid": "<session-id-2>"
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1925596800000"
+              }
+            },
+            "token": "<session-token-2>",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "ipAddress": "203.0.113.2",
+            "userAgent": "",
+            "userId": {
+              "$oid": "<user-id-2>"
+            },
+            "aal": "aal1"
+          }
+        ],
+        "canopy_auth.signing_keys": [
+          {
+            "_id": "07f7aec6-e2a2-4478-861e-fd01b9a7f01f",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"xPm2ls1mUXK2fQvVhAms7TC2BCt6d8JUX5M6YD5pJFw\"}",
+            "privateKey": "\"b1ea60454e04fb0d6251a72911e3760b429b7b3d9a5574bbbd07596ede37bee68c34240d3530209ad084fd0412c1c0faf04998c4560c8e5ab06016fbd03b7e6e5dd420bca7584023a9a53987c242f69fb7ec7a6e47cf5e4c0aa95b777057fdf7c9f5abcc172b17361a2bc7c473ffd028fde27bdf87de04e73cfd6bcc79b16602fa172042488096a5db1d3131df805c0965d2001314a5c6c51f24736bcb6eeaee81159b2d5c98a523f0\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            }
+          },
+          {
+            "_id": "7a40fb03-c8cb-41d6-9d83-73e2ddb17acb",
+            "publicKey": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"0i7yKZOzIPuKDG5RU-Zi-MWY6ophsm7vQtrrYmYIGE0\"}",
+            "privateKey": "\"87547bca755aa5837377d502d9d9a71ad620dc71ad17c903f5769e0740b33d2596af7319ce9dc22eedd983c59d586b908f734a1f73ad93aebc47d5205e53dcca594f0901bb2ffd168819aae6de694df58064d9c7a07389bb83074c8a03a1582969cbbfea65e0b74de598164fa1d4930c47870453550aaea2dbeebc70e5ac3a2870cf567e7fb5b26045cdfeedd321acaddc3de85317917000dfb8ac65e3b73c67032c7d5f9b6072f192\"",
+            "alg": "EdDSA",
+            "crv": "Ed25519",
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1927584000000"
+              }
+            },
+            "expiresAt": {
+              "$date": {
+                "$numberLong": "1930176000000"
+              }
+            }
+          }
+        ],
+        "canopy_auth.users": [
+          {
+            "_id": {
+              "$oid": "<user-id-1>"
+            },
+            "name": "Refresh User",
+            "email": "refresh@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          },
+          {
+            "_id": {
+              "$oid": "<user-id-2>"
+            },
+            "name": "Ada",
+            "email": "stranger@example.com",
+            "emailVerified": true,
+            "createdAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "updatedAt": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            },
+            "isAnonymous": false,
+            "role": "user",
+            "banned": false,
+            "twoFactorEnabled": false,
+            "roles": []
+          }
+        ],
+        "canopy.audit_log": [
+          {
+            "_id": {
+              "$oid": "<audit-id-1>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-1>"
+            },
+            "details": {
+              "method": "oauth"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-2>"
+            },
+            "action": "auth.sign_in",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "target": {
+              "type": "session",
+              "id": "<session-id-2>"
+            },
+            "details": {
+              "method": "email_verification"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-3>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-1>"
+            },
+            "details": {
+              "method": "oauth"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          },
+          {
+            "_id": {
+              "$oid": "<audit-id-4>"
+            },
+            "action": "auth.sign_up",
+            "actor": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "target": {
+              "type": "user",
+              "id": "<user-id-2>"
+            },
+            "details": {
+              "method": "password"
+            },
+            "at": {
+              "$date": {
+                "$numberLong": "1924992000000"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

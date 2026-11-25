@@ -244,3 +244,180 @@ export const oidc: CaseSpec[] = [
     },
   },
 ]
+
+/** Direct provider credentials and the linked account token endpoints. */
+export const providerTokens: CaseSpec[] = [
+  {
+    id: "google-direct",
+    description: "Verifies a client submitted Google ID token and reuses the linked account",
+    async run(context) {
+      const token = await context.providers.googleClientToken()
+      const body = {
+        provider: "google",
+        idToken: {
+          token,
+          nonce: "client-nonce",
+          accessToken: "client-access",
+          refreshToken: "client-refresh",
+          expiresAt: 1234,
+        },
+      }
+      const web = context.client("web")
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/sign-in/social", body),
+        200,
+        "direct sign in",
+      )
+      expectStatus(
+        await context.send(context.client("again"), "POST", "/auth/v1/sign-in/social", {
+          provider: "google",
+          idToken: { token },
+        }),
+        200,
+        "repeat sign in",
+      )
+      const listed = await context.send(web, "GET", "/auth/v1/list-accounts")
+      const [account] = JSON.parse(listed.text) as { id: string }[]
+      if (account === undefined) throw new Error("Missing linked account")
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/refresh-token", { accountId: account.id }),
+        400,
+        "no stored refresh token",
+      )
+    },
+  },
+  {
+    id: "google-direct-refusals",
+    description: "Refuses invalid signatures, audiences, nonces, expiry and unavailable providers",
+    async run(context) {
+      const token = await context.providers.googleClientToken()
+      context.providers.faults.wrongAudience = true
+      const wrongAudience = await context.providers.googleClientToken()
+      context.providers.faults.wrongAudience = false
+      const expired = await context.providers.googleClientToken(true)
+      const [header, payload, signature] = token.split(".")
+      if (signature === undefined) throw new Error("Missing test signature")
+      const tampered = `${header}.${payload}.${signature.startsWith("A") ? "B" : "A"}${signature.slice(1)}`
+      for (const [label, credential, nonce] of [
+        ["signature", tampered, "client-nonce"],
+        ["audience", wrongAudience, "client-nonce"],
+        ["nonce", token, "wrong-nonce"],
+        ["expiry", expired, "client-nonce"],
+      ] as const) {
+        expectStatus(
+          await context.send(context.client(label), "POST", "/auth/v1/sign-in/social", {
+            provider: "google",
+            idToken: { token: credential, nonce },
+          }),
+          401,
+          label,
+        )
+      }
+      for (const provider of ["discord", "github"]) {
+        expectStatus(
+          await context.send(context.client(provider), "POST", "/auth/v1/sign-in/social", {
+            provider,
+            idToken: { token },
+          }),
+          404,
+          provider,
+        )
+      }
+    },
+  },
+  {
+    id: "direct-provider-profiles",
+    description: "Verifies direct Apple, Microsoft and discovery configured OIDC ID tokens",
+    options: {
+      socialProviders: {
+        apple: { clientId: "apple-client", clientSecret: "apple-secret" },
+        microsoft: { clientId: "microsoft-client", clientSecret: "microsoft-secret" },
+      },
+    },
+    async run(context) {
+      const nonce = "native-client-nonce"
+      for (const provider of ["apple", "microsoft", "acme"] as const) {
+        const client = context.client(provider)
+        const token = await context.providers.clientToken(provider, nonce)
+        const extra =
+          provider === "apple"
+            ? { user: { name: { firstName: "App", lastName: "User" } } }
+            : provider === "microsoft"
+              ? { accessToken: "graph-access" }
+              : {}
+        expectStatus(
+          await context.send(client, "POST", "/auth/v1/sign-in/social", {
+            provider,
+            idToken: { token, nonce, ...extra },
+          }),
+          200,
+          provider,
+        )
+        await context.send(client, "GET", "/auth/v1/list-accounts")
+      }
+    },
+  },
+  {
+    id: "provider-refresh",
+    description:
+      "Reads fresh access tokens, rotates stored credentials, refreshes near expiry and reports provider refusal",
+    async run(context) {
+      context.providers.user = {
+        sub: "refresh-user",
+        email: "refresh@example.com",
+        name: "Refresh User",
+      }
+      const web = context.client("web")
+      const { callback } = await viaProvider(context, web, "/auth/v1/sign-in/social", {
+        provider: "google",
+        callbackURL: HOME,
+      })
+      if (callback === undefined) throw new Error("Missing Google callback")
+      await context.visit(web, callback)
+      const listed = await context.send(web, "GET", "/auth/v1/list-accounts")
+      const [account] = JSON.parse(listed.text) as { id: string }[]
+      if (account === undefined) throw new Error("Missing linked account")
+      const selection = { accountId: account.id }
+      const stranger = context.client("stranger")
+      expectStatus(
+        await context.send(stranger, "POST", "/auth/v1/get-access-token", selection),
+        401,
+        "no session",
+      )
+      await signUpVerified(context, stranger, "stranger@example.com", "correct horse battery 1")
+      expectStatus(
+        await context.send(stranger, "POST", "/auth/v1/refresh-token", selection),
+        400,
+        "foreign account",
+      )
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/get-access-token", selection),
+        200,
+        "fresh access token",
+      )
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/refresh-token", selection),
+        200,
+        "rotated refresh token",
+      )
+      context.clock.advance(56_000)
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/get-access-token", selection),
+        200,
+        "refreshed near expiry",
+      )
+      context.providers.faults.refuseRefresh = true
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/refresh-token", selection),
+        400,
+        "provider refusal",
+      )
+      context.clock.advance(60_000)
+      expectStatus(
+        await context.send(web, "POST", "/auth/v1/get-access-token", selection),
+        400,
+        "expired access token and provider refusal",
+      )
+    },
+  },
+]

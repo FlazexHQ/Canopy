@@ -472,7 +472,9 @@ impl Call<'_> {
             | "/revoke-sessions"
             | "/sign-in/social"
             | "/link-social"
-            | "/unlink-account" => self.request.method == "POST",
+            | "/unlink-account"
+            | "/refresh-token"
+            | "/get-access-token" => self.request.method == "POST",
             _ => reset_link,
         };
         if let Some(retry) = self.address_retry().await? {
@@ -556,6 +558,7 @@ impl Call<'_> {
             "/sign-in/anonymous" => self.sign_in_anonymous().await,
             "/sign-in/social" | "/link-social" => self.sign_in_social(&body).await,
             "/unlink-account" => self.unlink_account(&body).await,
+            "/refresh-token" | "/get-access-token" => self.oauth_access_token(&body).await,
             "/list-accounts" => self.list_accounts().await,
             "/delete-anonymous-user" => self.delete_anonymous_user().await,
             "/sign-in/magic-link" => self.send_magic_link(&body).await,

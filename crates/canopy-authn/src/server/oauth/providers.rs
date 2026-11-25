@@ -18,12 +18,12 @@ pub(in crate::server) enum Provider<'a> {
 }
 
 pub(super) struct Tokens {
-    pub access_token: String,
+    pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub id_token: Option<String>,
     pub access_expires_in_s: Option<f64>,
     pub refresh_expires_in_s: Option<f64>,
-    pub scopes: Vec<String>,
+    pub scopes: Option<Vec<String>>,
 }
 
 pub(super) struct Identity {
@@ -32,6 +32,11 @@ pub(super) struct Identity {
     pub name: String,
     pub image: Option<String>,
     pub email_verified: bool,
+}
+
+pub(super) enum IdentityError {
+    InvalidToken,
+    UserInfo,
 }
 
 fn text(fields: &Map<String, Value>, name: &str) -> Option<String> {
@@ -104,6 +109,10 @@ impl Provider<'_> {
             Self::Oidc(_, discovered) => Some(&discovered.issuer),
             Self::Social(_) => None,
         }
+    }
+
+    pub(super) fn supports_id_token(&self) -> bool {
+        !matches!(self.kind(), Some(SocialProviderKind::Github | SocialProviderKind::Discord))
     }
 
     fn uses_pkce(&self) -> bool {
@@ -248,6 +257,33 @@ impl Provider<'_> {
             form.append_pair("client_secret", &self.client_secret(now_ms)?);
             form.finish()
         };
+        self.request_tokens(registry, body).await
+    }
+
+    pub(super) async fn refresh(
+        &self,
+        registry: &Registry,
+        refresh_token: &str,
+        now_ms: i64,
+    ) -> Option<Tokens> {
+        let body = {
+            let mut form = url::form_urlencoded::Serializer::new(String::new());
+            form.append_pair("grant_type", "refresh_token");
+            form.append_pair("refresh_token", refresh_token);
+            if self.kind() == Some(SocialProviderKind::Microsoft) {
+                form.append_pair("scope", "openid profile email User.Read offline_access");
+            }
+            form.append_pair("client_id", self.client_id());
+            let secret = self.client_secret(now_ms)?;
+            if !secret.is_empty() {
+                form.append_pair("client_secret", &secret);
+            }
+            form.finish()
+        };
+        self.request_tokens(registry, body).await
+    }
+
+    async fn request_tokens(&self, registry: &Registry, body: String) -> Option<Tokens> {
         let answer = registry
             .json(ProviderRequest {
                 method: "POST",
@@ -275,12 +311,12 @@ impl Provider<'_> {
             _ => Vec::new(),
         };
         Some(Tokens {
-            access_token: text(&answer, "access_token")?,
+            access_token: Some(text(&answer, "access_token")?),
             refresh_token: text(&answer, "refresh_token"),
             id_token: text(&answer, "id_token"),
             access_expires_in_s: seconds(answer.get("expires_in")),
             refresh_expires_in_s: seconds(answer.get("refresh_token_expires_in")),
-            scopes,
+            scopes: Some(scopes),
         })
     }
 
@@ -290,8 +326,11 @@ impl Provider<'_> {
         tokens: &Tokens,
         nonce: Option<&str>,
         apple_user: Option<&str>,
+        direct: bool,
         now_ms: i64,
-    ) -> Option<Identity> {
+    ) -> Result<Identity, IdentityError> {
+        use IdentityError::{InvalidToken, UserInfo};
+
         #[allow(clippy::cast_precision_loss)]
         let now_s = now_ms as f64 / 1000.0;
         let audience = self.client_id();
@@ -301,34 +340,43 @@ impl Provider<'_> {
                 let expected = jwt::Expected { issuers: &issuers, audience, now_s, max_age_s: None, nonce };
                 let claims = registry
                     .verified_claims(
-                        tokens.id_token.as_deref()?,
+                        tokens.id_token.as_deref().ok_or(InvalidToken)?,
                         &discovered.jwks_uri,
                         &discovered.algorithms,
                         &expected,
                         now_ms,
                     )
-                    .await?;
-                let account_id = subject(claims.get("sub"))?;
-                let profile = if claims.contains_key("email") {
+                    .await
+                    .ok_or(InvalidToken)?;
+                let account_id = subject(claims.get("sub")).ok_or(UserInfo)?;
+                let has_email =
+                    if direct { text(&claims, "email").is_some() } else { claims.contains_key("email") };
+                let profile = if has_email {
                     claims
+                } else if direct {
+                    return Err(UserInfo);
                 } else {
                     let profile = registry
                         .json(ProviderRequest {
                             method: "GET",
-                            url: discovered.userinfo_endpoint.clone()?,
-                            headers: vec![bearer(&tokens.access_token), ("user-agent", "canopy".into())],
+                            url: discovered.userinfo_endpoint.clone().ok_or(UserInfo)?,
+                            headers: vec![
+                                bearer(tokens.access_token.as_deref().ok_or(UserInfo)?),
+                                ("user-agent", "canopy".into()),
+                            ],
                             body: None,
                         })
-                        .await?;
+                        .await
+                        .ok_or(InvalidToken)?;
                     if profile
                         .get("sub")
                         .is_some_and(|sub| subject(Some(sub)).as_deref() != Some(account_id.as_str()))
                     {
-                        return None;
+                        return Err(InvalidToken);
                     }
                     profile
                 };
-                Some(Identity {
+                Ok(Identity {
                     account_id,
                     email: text(&profile, "email"),
                     name: text(&profile, "name").unwrap_or_default(),
@@ -337,10 +385,14 @@ impl Provider<'_> {
                 })
             }
             Self::Social(provider) => match provider.kind {
-                SocialProviderKind::Github => github(registry, &tokens.access_token).await,
-                SocialProviderKind::Discord => discord(registry, &tokens.access_token).await,
+                SocialProviderKind::Github => {
+                    github(registry, tokens.access_token.as_deref().ok_or(UserInfo)?).await.ok_or(UserInfo)
+                }
+                SocialProviderKind::Discord => {
+                    discord(registry, tokens.access_token.as_deref().ok_or(UserInfo)?).await.ok_or(UserInfo)
+                }
                 SocialProviderKind::Google => {
-                    let claims = jwt::decode(tokens.id_token.as_deref()?)?.claims;
+                    let token = tokens.id_token.as_deref().ok_or(InvalidToken)?;
                     let issuers =
                         ["https://accounts.google.com".to_owned(), "accounts.google.com".to_owned()];
                     let expected = jwt::Expected {
@@ -348,11 +400,23 @@ impl Provider<'_> {
                         audience,
                         now_s,
                         max_age_s: Some(ONE_HOUR_S),
-                        nonce: None,
+                        nonce,
                     };
-                    jwt::claims_hold(&claims, &expected).then_some(())?;
-                    Some(Identity {
-                        account_id: subject(claims.get("sub"))?,
+                    let claims = if direct {
+                        let keys = Url::parse("https://www.googleapis.com/oauth2/v3/certs")
+                            .ok()
+                            .ok_or(InvalidToken)?;
+                        registry
+                            .verified_claims(token, &keys, &["RS256".into()], &expected, now_ms)
+                            .await
+                            .ok_or(InvalidToken)?
+                    } else {
+                        let claims = jwt::decode(token).ok_or(InvalidToken)?.claims;
+                        jwt::claims_hold(&claims, &expected).then_some(()).ok_or(InvalidToken)?;
+                        claims
+                    };
+                    Ok(Identity {
+                        account_id: subject(claims.get("sub")).ok_or(UserInfo)?,
                         email: text(&claims, "email"),
                         name: text(&claims, "name").unwrap_or_default(),
                         image: text(&claims, "picture"),
@@ -368,26 +432,35 @@ impl Provider<'_> {
                         max_age_s: Some(ONE_HOUR_S),
                         nonce: None,
                     };
-                    let keys = Url::parse("https://appleid.apple.com/auth/keys").ok()?;
+                    let keys = Url::parse("https://appleid.apple.com/auth/keys").ok().ok_or(InvalidToken)?;
                     let claims = registry
                         .verified_claims(
-                            tokens.id_token.as_deref()?,
+                            tokens.id_token.as_deref().ok_or(InvalidToken)?,
                             &keys,
                             &["RS256".into()],
                             &expected,
                             now_ms,
                         )
-                        .await?;
+                        .await
+                        .ok_or(InvalidToken)?;
+                    if let Some(nonce) = nonce {
+                        let hashed =
+                            hex::encode(ring::digest::digest(&ring::digest::SHA256, nonce.as_bytes()));
+                        let actual = claims.get("nonce").and_then(Value::as_str).ok_or(InvalidToken)?;
+                        if actual != nonce && actual != hashed {
+                            return Err(InvalidToken);
+                        }
+                    }
                     let named = apple_user
                         .and_then(|user| serde_json::from_str::<Value>(user).ok())
-                        .map(|user| {
-                            let part =
-                                |name: &str| user["name"][name].as_str().unwrap_or_default().to_owned();
-                            format!("{} {}", part("firstName"), part("lastName")).trim().to_owned()
+                        .and_then(|user| {
+                            let name = user.get("name")?.as_object()?;
+                            let part = |key| name.get(key).and_then(Value::as_str).unwrap_or_default();
+                            Some(format!("{} {}", part("firstName"), part("lastName")).trim().to_owned())
                         })
-                        .filter(|name| !name.is_empty());
-                    Some(Identity {
-                        account_id: subject(claims.get("sub"))?,
+                        .filter(|name| direct || !name.is_empty());
+                    Ok(Identity {
+                        account_id: subject(claims.get("sub")).ok_or(UserInfo)?,
                         email: text(&claims, "email"),
                         name: named.or_else(|| text(&claims, "name")).unwrap_or_default(),
                         image: None,
@@ -396,26 +469,23 @@ impl Provider<'_> {
                 }
                 SocialProviderKind::Microsoft => {
                     let tenant = self.tenant();
-                    let expected = jwt::Expected {
-                        issuers: &[],
-                        audience,
-                        now_s,
-                        max_age_s: Some(ONE_HOUR_S),
-                        nonce: None,
-                    };
-                    let keys =
-                        Url::parse(&format!("{MICROSOFT_AUTHORITY}/{tenant}/discovery/v2.0/keys")).ok()?;
+                    let expected =
+                        jwt::Expected { issuers: &[], audience, now_s, max_age_s: Some(ONE_HOUR_S), nonce };
+                    let keys = Url::parse(&format!("{MICROSOFT_AUTHORITY}/{tenant}/discovery/v2.0/keys"))
+                        .ok()
+                        .ok_or(InvalidToken)?;
                     let claims = registry
                         .verified_claims(
-                            tokens.id_token.as_deref()?,
+                            tokens.id_token.as_deref().ok_or(InvalidToken)?,
                             &keys,
                             &["RS256".into()],
                             &expected,
                             now_ms,
                         )
-                        .await?;
-                    let tid = claims.get("tid").and_then(Value::as_str)?;
-                    let issuer = claims.get("iss").and_then(Value::as_str)?;
+                        .await
+                        .ok_or(InvalidToken)?;
+                    let tid = claims.get("tid").and_then(Value::as_str).ok_or(InvalidToken)?;
+                    let issuer = claims.get("iss").and_then(Value::as_str).ok_or(InvalidToken)?;
                     let tenant_bound = issuer == format!("{MICROSOFT_AUTHORITY}/{tid}/v2.0")
                         && match tenant {
                             "common" => true,
@@ -424,7 +494,7 @@ impl Provider<'_> {
                             tenant => issuer == format!("{MICROSOFT_AUTHORITY}/{tenant}/v2.0"),
                         };
                     if !tenant_bound {
-                        return None;
+                        return Err(InvalidToken);
                     }
                     let email = text(&claims, "email");
                     let listed = |name: &str| {
@@ -438,15 +508,37 @@ impl Provider<'_> {
                         Some(value) => truthy(Some(value)),
                         None => listed("verified_primary_email") || listed("verified_secondary_email"),
                     };
-                    Some(Identity {
-                        account_id: claims
-                            .get("oid")
-                            .and_then(Value::as_str)
-                            .filter(|oid| !oid.trim().is_empty())?
-                            .to_owned(),
+                    let account_id =
+                        text(&claims, "oid").filter(|oid| !oid.trim().is_empty()).ok_or(UserInfo)?;
+                    let mut image = None;
+                    if direct {
+                        image = text(&claims, "picture");
+                        if let Some(token) = tokens.access_token.as_deref().filter(|value| !value.is_empty())
+                        {
+                            use base64::{Engine as _, engine::general_purpose::STANDARD};
+                            let url = Url::parse("https://graph.microsoft.com/v1.0/me/photos/48x48/%24value")
+                                .ok()
+                                .ok_or(UserInfo)?;
+                            if let Some(photo) = registry
+                                .call(ProviderRequest {
+                                    method: "GET",
+                                    url,
+                                    headers: vec![bearer(token)],
+                                    body: None,
+                                })
+                                .await
+                                .filter(|reply| (200..300).contains(&reply.status))
+                            {
+                                image =
+                                    Some(format!("data:image/jpeg;base64, {}", STANDARD.encode(photo.body)));
+                            }
+                        }
+                    }
+                    Ok(Identity {
+                        account_id,
                         email,
                         name: text(&claims, "name").unwrap_or_default(),
-                        image: None,
+                        image,
                         email_verified,
                     })
                 }

@@ -61,6 +61,7 @@ export type CaseOptions = Partial<
     | "identifierLimit"
     | "rateLimit"
     | "session"
+    | "socialProviders"
     | "accessTokenTtlSeconds"
   >
 >
@@ -398,6 +399,7 @@ export class Recorder {
         attributes: attributes.map((attribute) => attribute.trim()),
       }
     }
+    const submittedIdTokens = new Set<string>()
     const bodyRecord = async (text: string, contentType: string | null): Promise<Json> => {
       if (text === "") return null
       if (contentType?.includes("json") !== true) return text
@@ -419,7 +421,8 @@ export class Recorder {
         if (Array.isArray(value)) return Promise.all(value.map(walk))
         if (typeof value === "object" && value !== null) {
           const out: Record<string, Json> = {}
-          for (const [key, item] of Object.entries(value)) out[key] = await walk(item)
+          for (const [key, item] of Object.entries(value))
+            out[key] = key === "idToken" ? item : await walk(item)
           return out
         }
         return value
@@ -431,7 +434,7 @@ export class Recorder {
       if (kind !== undefined) name(idText(document["_id"]), kind)
       if (typeof document["token"] === "string") name(document["token"], "session-token")
       const idToken = document["idToken"]
-      if (typeof idToken === "string" && JWT.test(idToken))
+      if (typeof idToken === "string" && JWT.test(idToken) && !submittedIdTokens.has(idToken))
         name(idToken.slice(idToken.lastIndexOf(".") + 1), "id-token-signature")
       const hash = /^\$argon2id\$v=19\$[^$]+\$([^$]+)\$([^$]+)$/.exec(String(document["password"]))
       if (hash?.[1] !== undefined && hash[2] !== undefined) {
@@ -491,6 +494,21 @@ export class Recorder {
         )
       if (client.mode === "bearer" && client.bearer !== undefined)
         headers.set("authorization", `Bearer ${client.bearer}`)
+      if (
+        url.pathname === "/auth/v1/sign-in/social" &&
+        typeof body === "object" &&
+        body !== null &&
+        "idToken" in body
+      ) {
+        const idToken = body.idToken
+        if (
+          typeof idToken === "object" &&
+          idToken !== null &&
+          "token" in idToken &&
+          typeof idToken.token === "string"
+        )
+          submittedIdTokens.add(idToken.token)
+      }
       const payload = options.raw ?? (body === undefined ? undefined : JSON.stringify(body as Json))
       if (payload !== undefined) headers.set("content-type", "application/json")
       for (const [header, value] of Object.entries(options.headers ?? {}))

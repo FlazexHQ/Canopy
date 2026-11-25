@@ -38,7 +38,7 @@ mod passkey_replay;
 mod webauthn_support;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 15] = [
+const GROUPS: [&str; 16] = [
     "email-password",
     "email-verification",
     "password-reset",
@@ -53,6 +53,7 @@ const GROUPS: [&str; 15] = [
     "rate-limits",
     "errors",
     "social",
+    "provider-tokens",
     "oidc",
 ];
 
@@ -439,7 +440,11 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             ),
         );
     }
-    for (key, provider) in fixture["options"]["socialProviders"].as_object().ok_or("Social providers")? {
+    let social = selected["socialProviders"]
+        .as_object()
+        .or_else(|| fixture["options"]["socialProviders"].as_object())
+        .ok_or("Social providers")?;
+    for (key, provider) in social {
         options.social_providers.push(SocialProvider {
             kind: SocialProviderKind::from_id(key.as_str()).ok_or("Social provider kind")?,
             client_id: str_at(provider, "clientId")?,
@@ -461,6 +466,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         Some("generic-oidc-link") => providers.set_user("oidc-link", "oidc-link@example.com", "OIDC Link"),
         Some("social-link-and-unlink") => providers.set_user("4242", "link@example.com", "Octo Cat"),
         Some("github") => providers.set_user("4242", "gh@example.com", "Octo Cat"),
+        Some("provider-refresh") => providers.set_user("refresh-user", "refresh@example.com", "Refresh User"),
         Some("google") => providers.set_user("1093", "goo@example.com", "Goo Gle"),
         _ => {}
     }
@@ -500,6 +506,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         let client = str_at(step, "client")?;
         providers.set_faults(idp::Faults {
             refuse_code: client == "refused",
+            refuse_refresh: case["id"] == "provider-refresh" && index >= 11,
             wrong_nonce: client == "wrongNonce",
             wrong_audience: client == "wrongAudience",
             ..idp::Faults::default()
@@ -635,7 +642,20 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 mail_with_jwts(actual, &secret, expected, &mut bindings)?;
             }
             let calls = Value::Array(providers.take_calls());
-            bindings.compare(step.get("outbound").unwrap_or(&json!([])), &calls, "outbound")?;
+            let mut outbound = step.get("outbound").cloned().unwrap_or_else(|| json!([]));
+            let social_jwks = outbound[0]["url"].as_str().is_some_and(|url| matches!(url,
+                "https://www.googleapis.com/oauth2/v3/certs"
+                | "https://appleid.apple.com/auth/keys"
+                | "https://login.microsoftonline.com/common/discovery/v2.0/keys"
+            ));
+            if social_jwks {
+                if index > 0 && matches!(case["id"].as_str(), Some("google-direct" | "google-direct-refusals")) {
+                    outbound = json!([]);
+                } else {
+                    outbound[0]["headers"]["accept"] = json!("application/json, application/jwk-set+json");
+                }
+            }
+            bindings.compare(&outbound, &calls, "outbound")?;
             Ok::<(), Box<dyn Error>>(())
         }
         .await;
@@ -727,8 +747,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 44);
-    assert_eq!(steps, 342);
+    assert_eq!(cases, 48);
+    assert_eq!(steps, 371);
     Ok(())
 }
 

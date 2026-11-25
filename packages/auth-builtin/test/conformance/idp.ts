@@ -1,4 +1,5 @@
-import { createHash, generateKeyPairSync } from "node:crypto"
+import { createHash, createPrivateKey } from "node:crypto"
+import { readFileSync } from "node:fs"
 import { importJWK, type JWK, SignJWT } from "jose"
 import { derivedJwk, type Route } from "./determinism.ts"
 
@@ -17,6 +18,7 @@ export interface IdpFaults {
   wrongAudience?: boolean
   /** The token endpoint refuses the code. */
   refuseCode?: boolean
+  refuseRefresh?: boolean
 }
 
 interface Grant {
@@ -42,15 +44,26 @@ export class MockProviders {
       createHash("sha256").update("canopy auth oracle idp key").digest(),
     )
     this.oidcJwk = { ...publicJwk, d, kid: "idp-key-1", alg: "ES256", use: "sig" }
-    const rsa = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
-      format: "jwk",
-    })
+    const rsa = createPrivateKey({
+      key: readFileSync(
+        new URL("../../../../crates/canopy-authn/tests/support/rsa-test-key.der", import.meta.url),
+      ),
+      format: "der",
+      type: "pkcs1",
+    }).export({ format: "jwk" })
     this.googleJwk = { ...rsa, kid: "google-key-1", alg: "RS256", use: "sig" }
     this.routes.set(this.oidcIssuer, (request) => this.oidc(request))
     this.routes.set("https://github.com", (request) => this.githubToken(request))
     this.routes.set("https://api.github.com", (request) => this.githubApi(request))
     this.routes.set("https://accounts.google.com", (request) => this.authorize(request))
     this.routes.set("https://oauth2.googleapis.com", (request) => this.googleToken(request))
+    for (const origin of ["https://appleid.apple.com", "https://login.microsoftonline.com"])
+      this.routes.set(origin, async () => Response.json({ keys: [publicOf(this.googleJwk)] }))
+    this.routes.set(
+      "https://graph.microsoft.com",
+      async () =>
+        new Response(new Uint8Array([1, 2, 3]), { headers: { "content-type": "image/jpeg" } }),
+    )
     this.routes.set("https://www.googleapis.com", async () =>
       Response.json({ keys: [publicOf(this.googleJwk)] }),
     )
@@ -93,7 +106,7 @@ export class MockProviders {
     return grant
   }
 
-  private async idToken(jwk: JWK, issuer: string, grant: Grant): Promise<string> {
+  private async idToken(jwk: JWK, issuer: string, grant: Grant, expired = false): Promise<string> {
     const nonce = this.faults.wrongNonce === true ? "not-the-nonce" : grant.nonce
     const now = Math.floor(Date.now() / 1000)
     return new SignJWT({
@@ -107,7 +120,7 @@ export class MockProviders {
       .setAudience(this.faults.wrongAudience === true ? "another-client" : grant.clientId)
       .setSubject(this.user.sub)
       .setIssuedAt(now)
-      .setExpirationTime(now + 300)
+      .setExpirationTime(expired ? now - 90 : now + 300)
       .sign(await importJWK(jwk, String(jwk.alg)))
   }
 
@@ -123,11 +136,12 @@ export class MockProviders {
         jwks_uri: `${issuer}/jwks`,
         response_types_supported: ["code"],
         subject_types_supported: ["public"],
-        id_token_signing_alg_values_supported: ["ES256"],
+        id_token_signing_alg_values_supported: ["ES256", "RS256"],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["client_secret_basic", "client_secret_post"],
       })
-    if (url.pathname === "/jwks") return Response.json({ keys: [publicOf(this.oidcJwk)] })
+    if (url.pathname === "/jwks")
+      return Response.json({ keys: [publicOf(this.oidcJwk), publicOf(this.googleJwk)] })
     if (url.pathname === "/authorize") return this.authorize(request)
     if (url.pathname === "/token" && request.method === "POST") {
       const grant = this.grant(await this.form(request))
@@ -180,14 +194,69 @@ export class MockProviders {
     return new Response("Not Found", { status: 404 })
   }
 
+  async googleClientToken(expired = false): Promise<string> {
+    return this.idToken(
+      this.googleJwk,
+      "https://accounts.google.com",
+      {
+        clientId: "google-client",
+        nonce: "client-nonce",
+        redirectUri: "",
+      },
+      expired,
+    )
+  }
+
+  async clientToken(provider: "apple" | "acme" | "microsoft", nonce: string): Promise<string> {
+    const now = Math.floor(Date.now() / 1000)
+    const tenant = "f3d06a89-8f1d-4c9a-8508-3cafe7c12af1"
+    const issuers = {
+      apple: "https://appleid.apple.com",
+      acme: this.oidcIssuer,
+      microsoft: `https://login.microsoftonline.com/${tenant}/v2.0`,
+    }
+    return new SignJWT({
+      email: `${provider}@example.com`,
+      name: "Provider User",
+      email_verified: provider === "apple" ? "true" : true,
+      nonce: provider === "apple" ? createHash("sha256").update(nonce).digest("hex") : nonce,
+      ...(provider === "microsoft" ? { oid: "entra-object", tid: tenant } : {}),
+    })
+      .setProtectedHeader({ alg: "RS256", kid: "google-key-1" })
+      .setIssuer(issuers[provider])
+      .setAudience(`${provider}-client`)
+      .setSubject(`${provider}-subject`)
+      .setIssuedAt(now)
+      .setExpirationTime(now + 300)
+      .sign(await importJWK(this.googleJwk, "RS256"))
+  }
+
   private async googleToken(request: Request): Promise<Response> {
-    const grant = this.grant(await this.form(request))
+    const form = await this.form(request)
+    if (form.get("grant_type") === "refresh_token") {
+      const refresh = form.get("refresh_token")
+      if (
+        this.faults.refuseRefresh === true ||
+        (refresh !== "google-refresh" && refresh !== "google-rotated")
+      )
+        return Response.json({ error: "invalid_grant" }, { status: 400 })
+      return Response.json({
+        access_token: refresh === "google-refresh" ? "google-refreshed" : "google-refreshed-again",
+        ...(refresh === "google-refresh"
+          ? { refresh_token: "google-rotated", refresh_token_expires_in: 600 }
+          : {}),
+        expires_in: 60,
+        scope: "openid",
+      })
+    }
+    const grant = this.grant(form)
     if (grant === undefined) return Response.json({ error: "invalid_grant" }, { status: 400 })
     return Response.json({
       access_token: `google-access-${this.codes}`,
       id_token: await this.idToken(this.googleJwk, "https://accounts.google.com", grant),
       token_type: "Bearer",
       expires_in: 3599,
+      ...(this.user.sub === "refresh-user" ? { refresh_token: "google-refresh" } : {}),
       scope: "openid email profile",
     })
   }
