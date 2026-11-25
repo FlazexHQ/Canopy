@@ -187,6 +187,10 @@ async function main(): Promise<void> {
     log,
     "--wiredTigerCacheSizeGB",
     "1",
+    "--setParameter",
+    "wiredTigerFileHandleCloseIdleTime=30",
+    "--setParameter",
+    "wiredTigerFileHandleCloseMinimum=250",
   ]
   // macOS starts processes with a soft limit of 256 open files, which a test run that creates many
   // databases exhausts, so the server starts from a shell that raises its own limit first.

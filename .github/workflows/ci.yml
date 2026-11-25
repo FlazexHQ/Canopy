@@ -339,6 +339,9 @@ jobs:
         with:
           path: ${{ runner.temp }}/mongodb/binaries/8.0.34
           key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-8.0.34
+      - if: runner.os == 'macOS'
+        name: Let one process hold more open files than the macOS default allows
+        run: sudo sysctl -w kern.maxfiles=131072 kern.maxfilesperproc=65536
       - name: Start a MongoDB 8.0 replica set from the official binaries
         run: bun packages/testing/scripts/mongod.ts --version 8.0.34 --dir "${{ runner.temp }}/mongodb"
       - if: steps.mongodb-cache.outputs.cache-hit != 'true'
