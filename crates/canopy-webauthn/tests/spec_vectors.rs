@@ -173,7 +173,11 @@ fn the_three_algorithms_come_from_the_vectors() {
     assert_eq!(algorithms, [-7, -8, -257]);
     let rsa = register(&rp, section(&sections, "packed-rs256")).unwrap();
     let CoseKey::Rs256 { n, .. } = rsa.public_key else { panic!("not RSA") };
-    assert_eq!(n.len() * 8 - n[0].leading_zeros() as usize, 3482, "the product of 2^1279 minus 1 and 2^2203 minus 1");
+    assert_eq!(
+        n.len() * 8 - n[0].leading_zeros() as usize,
+        3482,
+        "the product of 2^1279 minus 1 and 2^2203 minus 1"
+    );
 }
 
 #[test]
