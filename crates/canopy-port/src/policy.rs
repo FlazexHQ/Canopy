@@ -3,8 +3,9 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use canopy_policy::{
-    Compiled, EngineHooks, FieldAccess, Operation, PolicyEngine, PolicySet, PolicyVariableIssue,
-    RequestContext, Roles, contexts_from_stored, create_policy_set, from_stored,
+    Compiled, EngineHooks, FieldAccess, Operation, PipelineLimits, PolicyEngine, PolicySet,
+    PolicyVariableIssue, RequestContext, Roles, SecurePipelineOptions, contexts_from_stored,
+    create_policy_set, from_stored, secure_pipeline,
 };
 use canopy_protocol::{CanopyError, Document, Value};
 
@@ -220,6 +221,22 @@ impl PortPolicyEngine {
         self.clear();
         let compiled = self.engine.effective_read(collection, &filter, &request)?;
         self.evaluation(&compiled)
+    }
+
+    /// Secures an aggregation pipeline given as EJSON and returns the stages as canonical EJSON.
+    pub fn secure_pipeline(
+        &self,
+        collection: &str,
+        pipeline: &str,
+        request: &str,
+        limits: &PipelineLimits,
+        options: SecurePipelineOptions,
+    ) -> Result<String, CanopyError> {
+        let pipeline = value_of(pipeline)?;
+        let request = request_of(request)?;
+        let result = secure_pipeline(&self.engine, collection, &pipeline, &request, limits, options);
+        self.clear();
+        canonical(&Value::Array(result?.into_iter().map(Value::Document).collect()))
     }
 
     /// The fields the request may read.

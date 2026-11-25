@@ -24,6 +24,7 @@ const fixtures = [
   "matcher/sorts",
   "matcher/updates",
   "policy/policy",
+  "policy/pipeline",
   "protocol/07-typed-values",
   "query/query",
   "schema/schema",

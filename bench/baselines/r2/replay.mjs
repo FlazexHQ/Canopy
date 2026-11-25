@@ -209,6 +209,40 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     }
   }
 
+  const pipeline = await vectors("policy/pipeline")
+  const pipelineEngine = new authoring.PolicyEngine(pipeline.collections, "null")
+  counts.pipelinesAccepted = 0
+  counts.pipelinesRefused = 0
+  try {
+    for (const [index, item] of pipeline.cases.entries()) {
+      const label = `pipeline ${index} (${item.caller} on ${item.collection})`
+      const secure = () =>
+        pipelineEngine.securePipeline(
+          item.collection,
+          item.pipeline,
+          pipeline.callers[item.caller],
+          item.search,
+          item.maxStages,
+          item.maxSample,
+        )
+      if (item.error !== undefined) {
+        assert.throws(
+          secure,
+          { code: item.code, message: `InvalidQueryError: ${item.error}` },
+          label,
+        )
+        counts.pipelinesRefused++
+      } else {
+        assert.equal(secure(), item.result, label)
+        counts.pipelinesAccepted++
+      }
+    }
+  } finally {
+    pipelineEngine.free()
+  }
+  assert.equal(counts.pipelinesAccepted, 431)
+  assert.equal(counts.pipelinesRefused, 1811)
+
   const query = await vectors("query/query")
   for (const { input, result, error, code } of query.cases.filter(
     (item) => item.kind === "query",
