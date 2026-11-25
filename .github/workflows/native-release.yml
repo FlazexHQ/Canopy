@@ -15,6 +15,7 @@ on:
       - "packages/wasm/**"
       - "packages/realtime/scripts/**"
       - "packages/realtime/src/gateway-package.ts"
+      - "packages/realtime/src/gateway.ts"
       - "Cargo.toml"
       - "Cargo.lock"
       - "rust-toolchain.toml"
@@ -258,8 +259,8 @@ jobs:
         run: |
           rustup toolchain install
           bun --filter @canopy/wasm build:native
-      - name: Install with Bun, npm, pnpm and Yarn; only the linux-x64-gnu addon and WebAssembly are installed, both load
-        run: bun packages/testing/scripts/install-test.ts --build
+      - name: Install and check the native addon, WebAssembly fallback and canopyd across package managers
+        run: bun packages/testing/scripts/install-test.ts --build --canopyd-packs packages/realtime/packs
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-release
