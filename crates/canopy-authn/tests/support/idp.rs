@@ -24,6 +24,7 @@ use url::Url;
 pub(crate) const ISSUER: &str = "https://idp.canopy.test";
 /// Its discovery document.
 pub(crate) const DISCOVERY: &str = "https://idp.canopy.test/.well-known/openid-configuration";
+const MICROSOFT_TENANT: &str = "f3d06a89-8f1d-4c9a-8508-3cafe7c12af1";
 const RSA_KEY: &[u8] = include_bytes!("rsa-test-key.der");
 
 /// The person every mock provider signs in.
@@ -94,6 +95,7 @@ impl Default for MockIdp {
                 secrets: [
                     ("github-client", "github-secret"),
                     ("google-client", "google-secret"),
+                    ("microsoft-client", "microsoft-secret"),
                     ("acme-client", "acme-secret"),
                 ]
                 .into_iter()
@@ -234,12 +236,35 @@ impl MockIdp {
         } else {
             (signing, key)
         };
+        self.sign_id_token(&Value::Object(claims), alg, kid, faults.hs256.as_deref())
+    }
+
+    fn microsoft_id_token(&self, grant: &Grant) -> String {
+        let now = self.state.lock().expect("IdP state").now_s;
+        let claims = [
+            ("email", json!("microsoft@example.com")),
+            ("name", json!("Provider User")),
+            ("email_verified", json!(true)),
+            ("nonce", json!(grant.nonce.as_deref().unwrap_or_default())),
+            ("oid", json!("entra-object")),
+            ("tid", json!(MICROSOFT_TENANT)),
+            ("iss", json!(format!("https://login.microsoftonline.com/{MICROSOFT_TENANT}/v2.0"))),
+            ("aud", json!(grant.client_id)),
+            ("sub", json!("microsoft-subject")),
+            ("iat", json!(now)),
+            ("exp", json!(now + 300)),
+        ];
+        let claims = Value::Object(claims.into_iter().map(|(key, value)| (key.into(), value)).collect());
+        self.sign_id_token(&claims, "RS256", "google-key-1", None)
+    }
+
+    fn sign_id_token(&self, claims: &Value, alg: &str, kid: &str, hs256: Option<&str>) -> String {
         let signed = format!(
             "{}.{}",
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&json!({"alg": alg, "kid": kid})).expect("header")),
-            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&Value::Object(claims)).expect("claims"))
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).expect("claims"))
         );
-        let tag = match (alg, &faults.hs256) {
+        let tag = match (alg, hs256) {
             ("none", _) => Vec::new(),
             ("HS256", Some(secret)) => {
                 hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes()), signed.as_bytes())
@@ -391,6 +416,16 @@ impl MockIdp {
                     reply(200, &tokens)
                 }
             },
+            ("https://login.microsoftonline.com", "/common/oauth2/v2.0/token", "POST") => {
+                match self.grant(&form) {
+                    None => reply(400, &json!({"error": "invalid_grant"})),
+                    Some(grant) => reply(
+                        200,
+                        &json!({"access_token": "graph-access",
+                            "id_token": self.microsoft_id_token(&grant), "token_type": "Bearer"}),
+                    ),
+                }
+            }
             ("https://graph.microsoft.com", "/v1.0/me/photos/48x48/%24value", "GET") => {
                 ProviderResponse { status: 200, body: vec![1, 2, 3] }
             }

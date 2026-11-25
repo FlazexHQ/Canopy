@@ -358,6 +358,31 @@ export const providerTokens: CaseSpec[] = [
     },
   },
   {
+    id: "microsoft-redirect-photo",
+    description: "Stores the Microsoft Graph photo when signing in through the provider callback",
+    options: {
+      socialProviders: {
+        microsoft: { clientId: "microsoft-client", clientSecret: "microsoft-secret" },
+      },
+    },
+    async run(context) {
+      const web = context.client("web")
+      const { callback } = await viaProvider(context, web, "/auth/v1/sign-in/social", {
+        provider: "microsoft",
+        callbackURL: HOME,
+      })
+      if (callback === undefined) throw new Error("Missing Microsoft callback")
+      const result = await context.visit(web, callback)
+      expectStatus(result, 302, "Microsoft callback")
+      if (result.location !== HOME) throw new Error("Microsoft callback did not reach the app")
+      const session = await context.send(web, "GET", "/auth/v1/get-session")
+      expectStatus(session, 200, "Microsoft session")
+      const body = JSON.parse(session.text) as { user?: { image?: string } } | null
+      if (body?.user?.image !== "data:image/jpeg;base64, AQID")
+        throw new Error("Missing Microsoft Graph photo")
+    },
+  },
+  {
     id: "provider-refresh",
     description:
       "Reads fresh access tokens, rotates stored credentials, refreshes near expiry and reports provider refusal",

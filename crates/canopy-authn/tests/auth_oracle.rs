@@ -655,6 +655,13 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                     outbound[0]["headers"]["accept"] = json!("application/json, application/jwk-set+json");
                 }
             }
+            if case["id"] == "microsoft-redirect-photo" && path.starts_with("/auth/v1/callback/microsoft?") {
+                let mut jwks = serde_json_bytes::Map::new();
+                jwks.insert("method", json!("GET"));
+                jwks.insert("url", json!("https://login.microsoftonline.com/common/discovery/v2.0/keys"));
+                jwks.insert("headers", json!({"accept": "application/json, application/jwk-set+json"}));
+                outbound.as_array_mut().expect("provider calls").insert(1, Value::Object(jwks));
+            }
             bindings.compare(&outbound, &calls, "outbound")?;
             Ok::<(), Box<dyn Error>>(())
         }
@@ -747,8 +754,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 48);
-    assert_eq!(steps, 371);
+    assert_eq!(cases, 49);
+    assert_eq!(steps, 375);
     Ok(())
 }
 

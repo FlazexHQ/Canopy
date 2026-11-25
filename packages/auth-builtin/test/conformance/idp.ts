@@ -57,8 +57,10 @@ export class MockProviders {
     this.routes.set("https://api.github.com", (request) => this.githubApi(request))
     this.routes.set("https://accounts.google.com", (request) => this.authorize(request))
     this.routes.set("https://oauth2.googleapis.com", (request) => this.googleToken(request))
-    for (const origin of ["https://appleid.apple.com", "https://login.microsoftonline.com"])
-      this.routes.set(origin, async () => Response.json({ keys: [publicOf(this.googleJwk)] }))
+    this.routes.set("https://appleid.apple.com", async () =>
+      Response.json({ keys: [publicOf(this.googleJwk)] }),
+    )
+    this.routes.set("https://login.microsoftonline.com", (request) => this.microsoft(request))
     this.routes.set(
       "https://graph.microsoft.com",
       async () =>
@@ -229,6 +231,26 @@ export class MockProviders {
       .setIssuedAt(now)
       .setExpirationTime(now + 300)
       .sign(await importJWK(this.googleJwk, "RS256"))
+  }
+
+  private async microsoft(request: Request): Promise<Response> {
+    switch (new URL(request.url).pathname) {
+      case "/common/discovery/v2.0/keys":
+        return Response.json({ keys: [publicOf(this.googleJwk)] })
+      case "/common/oauth2/v2.0/authorize":
+        return this.authorize(request)
+      case "/common/oauth2/v2.0/token": {
+        const grant = this.grant(await this.form(request))
+        if (grant === undefined) return Response.json({ error: "invalid_grant" }, { status: 400 })
+        return Response.json({
+          access_token: "graph-access",
+          id_token: await this.clientToken("microsoft", grant.nonce ?? ""),
+          token_type: "Bearer",
+        })
+      }
+      default:
+        return new Response("Not Found", { status: 404 })
+    }
   }
 
   private async googleToken(request: Request): Promise<Response> {

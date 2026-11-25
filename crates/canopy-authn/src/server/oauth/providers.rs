@@ -510,30 +510,9 @@ impl Provider<'_> {
                     };
                     let account_id =
                         text(&claims, "oid").filter(|oid| !oid.trim().is_empty()).ok_or(UserInfo)?;
-                    let mut image = None;
-                    if direct {
-                        image = text(&claims, "picture");
-                        if let Some(token) = tokens.access_token.as_deref().filter(|value| !value.is_empty())
-                        {
-                            use base64::{Engine as _, engine::general_purpose::STANDARD};
-                            let url = Url::parse("https://graph.microsoft.com/v1.0/me/photos/48x48/%24value")
-                                .ok()
-                                .ok_or(UserInfo)?;
-                            if let Some(photo) = registry
-                                .call(ProviderRequest {
-                                    method: "GET",
-                                    url,
-                                    headers: vec![bearer(token)],
-                                    body: None,
-                                })
-                                .await
-                                .filter(|reply| (200..300).contains(&reply.status))
-                            {
-                                image =
-                                    Some(format!("data:image/jpeg;base64, {}", STANDARD.encode(photo.body)));
-                            }
-                        }
-                    }
+                    let image = microsoft_photo(registry, tokens.access_token.as_deref())
+                        .await
+                        .or_else(|| text(&claims, "picture"));
                     Ok(Identity {
                         account_id,
                         email,
@@ -545,6 +524,22 @@ impl Provider<'_> {
             },
         }
     }
+}
+
+async fn microsoft_photo(registry: &Registry, access_token: Option<&str>) -> Option<String> {
+    use base64::{Engine as _, engine::general_purpose::STANDARD};
+
+    let token = access_token.filter(|value| !value.is_empty())?;
+    let photo = registry
+        .call(ProviderRequest {
+            method: "GET",
+            url: Url::parse("https://graph.microsoft.com/v1.0/me/photos/48x48/%24value").ok()?,
+            headers: vec![bearer(token)],
+            body: None,
+        })
+        .await
+        .filter(|reply| (200..300).contains(&reply.status))?;
+    Some(format!("data:image/jpeg;base64, {}", STANDARD.encode(photo.body)))
 }
 
 async fn github(registry: &Registry, access_token: &str) -> Option<Identity> {
@@ -616,4 +611,41 @@ async fn discord(registry: &Registry, access_token: &str) -> Option<Identity> {
         image: Some(image),
         account_id: id,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use futures_util::future::BoxFuture;
+
+    use super::*;
+    use crate::server::oauth::{MAX_RESPONSE_BYTES, ProviderHttp, ProviderResponse};
+
+    struct PhotoReply {
+        status: u16,
+        size: usize,
+    }
+
+    impl ProviderHttp for PhotoReply {
+        fn send(&self, request: ProviderRequest) -> BoxFuture<'_, Result<ProviderResponse, String>> {
+            assert_eq!(request.headers, [bearer("graph-access")]);
+            Box::pin(std::future::ready(Ok(ProviderResponse {
+                status: self.status,
+                body: vec![0; self.size],
+            })))
+        }
+    }
+
+    #[tokio::test]
+    async fn microsoft_photo_ignores_missing_and_oversized_responses() {
+        for (status, size) in [(404, 3), (200, MAX_RESPONSE_BYTES + 1)] {
+            let registry =
+                Registry::open(Vec::new(), Vec::new(), Some(Arc::new(PhotoReply { status, size })))
+                    .await
+                    .expect("provider registry");
+            assert_eq!(microsoft_photo(&registry, Some("graph-access")).await, None);
+            assert_eq!(microsoft_photo(&registry, Some("")).await, None);
+        }
+    }
 }
