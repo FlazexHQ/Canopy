@@ -24,23 +24,25 @@ the repository: read the files below, then open only the source files your brief
 
 ## Agent roster
 
-The maintainer asked on 2026-11-25 not to spawn claude-opus-5-5 agents until told. Available agents are
-`codex_prajo_s_codex` and `codex_sudhan_s_codex` (gpt-6.2-sol, medium effort) for code, and
-`antigravity_sudhan_s_antigravity` (gemini-3.8-flash) for tests and context. One agent at a time per account.
+Every agent reads this folder first. Opus (`claudeAgent/claude-opus-5-5`) is allowed again for big tasks;
+Codex (`codex_prajo_s_codex` and `codex_sudhan_s_codex`, gpt-6.2-sol, medium effort) for small and medium code;
+Gemini (`antigravity_sudhan_s_antigravity`, gemini-3.8-flash) for tests and context. One agent at a time per account.
 
 | Agent | Model and effort | Use for |
 |---|---|---|
+| `claudeAgent` | claude-opus-5-5, high effort | Big tasks: complex protocol oracles, multi-crate orchestration, major subsystem migrations |
 | `codex_prajo_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks: one route group, one crate module, one oracle group |
 | `codex_sudhan_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks, in parallel with the other Codex account |
-| `antigravity_sudhan_s_antigravity` | gemini-3.8-flash | Updates of this context folder and test runs |
+| `antigravity_sudhan_s_antigravity` | gemini-3.8-flash | Updates of this context folder, verification, and test runs |
 
 ## Reading order
 
-1. [08-progress.md](08-progress.md): the starting state and the next tasks.
-2. [Plan 005](../../plans/005-all-server-code-in-rust.md): target, stages and gates (§5), auth (§6), the Wasm
+1. [08-progress.md](08-progress.md): the starting state, recent checkpoints, and the next tasks.
+2. [09-auth-router.md](09-auth-router.md): guide to the Rust auth router for agents working on R5 auth routes.
+3. [Plan 005](../../plans/005-all-server-code-in-rust.md): target, stages and gates (§5), auth (§6), the Wasm
    gate (§7), invariants (§8), what moves (§9), risks and open questions.
-3. [ADR-0018](../../adr/0018-all-server-code-in-rust.md): the decision and the auth building blocks.
-4. Plan 004's context for the data plane that already exists: [current Rust workspace](../004-rust-data-plane/02-current-rust-workspace.md),
+4. [ADR-0018](../../adr/0018-all-server-code-in-rust.md): the decision and the auth building blocks.
+5. Plan 004's context for the data plane that already exists: [current Rust workspace](../004-rust-data-plane/02-current-rust-workspace.md),
    [security invariants and compliance](../004-rust-data-plane/07-security-invariants-and-compliance.md).
 
 ## Key sources by stage
@@ -48,11 +50,11 @@ The maintainer asked on 2026-11-25 not to spawn claude-opus-5-5 agents until tol
 | Stage | TypeScript to read (the behavior) | Rust to extend |
 |---|---|---|
 | R0 | `packages/auth-builtin/src/` (`engine.ts` for the plugins and collections, `provider.ts` for the routes and ceremony cookies, `keyring.ts`, `legacy-passwords.ts`, `passwords.ts`); `packages/server/src/admin/`; `packages/server/src/webhooks/`; `packages/server/src/migrations.ts`; `packages/studio/src/handler.ts`; `packages/cli/src/cli.ts`; the existing recorders in `packages/testing/scripts/` | `conformance/` (see its README for the recorder pattern) |
-| R1 | `packages/control/src/index.ts`, `packages/server/src/admin/routes/`, `admin/rbac.ts`, `admin/totp.ts`, `admin/tokens.ts`, `policy-store.ts`, `webhooks/`, `migrations.ts`, `packages/auth-builtin/src/email/` | `crates/canopyd`, `crates/canopy-mongo`, `crates/canopy-config` |
+| R1 | `packages/control/src/index.ts`, `packages/server/src/admin/routes/`, `admin/rbac.ts`, `admin/totp.ts`, `admin/tokens.ts`, `policy-store.ts`, `webhooks/`, `migrations.ts`, `packages/auth-builtin/src/email/` | `crates/canopyd`, `crates/canopy-control`, `crates/canopy-mongo`, `crates/canopy-config` |
 | R2 | `packages/wasm/`, `../Canopy.js/src/core/`, `../Canopy.js/scripts/sync-core.ts`, `../Canopy.js/src/client/store.ts` and `live-queries.ts` (uses of the lite matcher) | `crates/canopy-port`, `crates/canopy-matcher`, `crates/canopy-policy`, `crates/canopy-query` |
 | R3 | `packages/config/src/` (`env.ts`, `load.ts`, `resolve.ts`), `packages/policy/src/dsl.ts`, `stored.ts`, `testing.ts`, `packages/schema/src/define/`, `packages/cli/src/policies.ts` | `crates/canopy-config`, `crates/canopy-policy`, `crates/canopy-data` (schema) |
 | R4 | `packages/cli/src/` (every command), `packages/schema/src/emit.ts`, `typescript.ts`, `diff.ts`, `packages/cli/src/dsl-writer.ts` | New `crates/canopy-cli`; the platform packages built by `.github/workflows/native-release.yml` |
-| R5 | `packages/auth-builtin/src/`, `packages/auth/src/` (`imported-hash.ts`, `rate-limit.ts`, `revocations.ts`), `packages/server/src/builtin-auth.ts`, `admin/routes/users.ts` | `crates/canopy-auth` (verification, JWKS, rate limits) and the new auth crate |
+| R5 | `packages/auth-builtin/src/`, `packages/auth/src/` (`imported-hash.ts`, `rate-limit.ts`, `revocations.ts`), `packages/server/src/builtin-auth.ts`, `admin/routes/users.ts` | `crates/canopy-auth` (verification, JWKS, rate limits), `crates/canopy-authn` (see [09-auth-router.md](09-auth-router.md)), `crates/canopy-webauthn` |
 | R6 | `packages/studio/src/` | `crates/canopyd` |
 | R7 | Everything listed in plan 005 §9 | CI workflows, `knip.json`, `biome.json`, `tsconfig.json`, `tools/repo-check` |
 

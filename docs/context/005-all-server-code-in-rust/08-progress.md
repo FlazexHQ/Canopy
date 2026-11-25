@@ -3,6 +3,80 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R1 admin oracle complete, R5 auth core in Rust, split deployment committed
+
+### Commits since 2397abd7
+
+- `24ce4870` (`feat(deploy): run the control plane as a role of the canopy image`): the Rust `control` service in compose, Helm and Kubernetes, the TypeScript `auth` service (`CANOPY_SPLIT_AUTH_ONLY=on`), edge routes, `/internal/*` refused at the edge.
+- `66a69506` (`feat(authn): serve magic links and email codes from Rust`): adds magic link sign in, email code verification, password reset by code, all canopy_auth indexes, and replays 20 cases across 114 steps in auth_oracle.rs on MongoDB 8.0 and 9.0.
+- `c2a6695a` (`feat(control): serve the realtime inspector and doctor from Rust`): connects the admin API to the Rust engine for realtime inspection and doctor checks, matching all 433 admin oracle steps on MongoDB 8.0 and 9.0.
+- `588aec7b` (`feat(authn): serve the core of built in auth from Rust`): implements the core /auth/v1 router in canopy-authn for email and password authentication, verification, password reset, session lifecycle, token minting, and the adaptive response floor, matching 13 cases across 86 steps.
+- `3054cb67` (`fix(testing): raise the open file limit of the mongod that mongod.ts starts`): raises the open file limit (64000, falling back to 24576 and then 10240) through a shell wrapper on macOS and Linux before launching mongod, preventing test crashes during heavy index creation.
+- `0cb165fa` (`feat(control): manage auth signing keys from Rust`): adds the signing keys delegate in canopy-control with transaction-backed creation, rotation and revocation under lease, matching 397 of 433 admin oracle steps.
+- `876d1e2e` (`fix(ci): gate the last auth interop test and report auth oracle drift`): gates the stored signing key cross-verification test behind CANOPY_TEST_TYPESCRIPT and makes the auth oracle recorder report the first differing line on mismatch.
+- `d0f18cfe` (`feat(control): serve the admin data routes from Rust`): adds the data delegate in canopy-control for collections, schema, statistics, OpenAPI, GraphQL explorer, and audited document reads and writes with view as support, matching 391 of 433 admin oracle steps.
+- `dcc8af65` (`fix(ci): run the auth interop tests where TypeScript is installed`): gates canopy-authn interop tests requiring TypeScript behind CANOPY_TEST_TYPESCRIPT, running them in the Rust engine CI job.
+
+### R1 admin API completion and realtime inspection
+
+- The Rust admin oracle ([`crates/canopy-control/tests/admin_oracle.rs`](../../../crates/canopy-control/tests/admin_oracle.rs)) now matches all 433 recorded steps on MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090) with zero pending steps across all four roles (owner 106, admin 110, developer 110, viewer 107).
+- Commit `c2a6695a` added the realtime inspector and doctor delegates.
+- In the `all` role of `canopyd` ([`crates/canopyd/src/main.rs`](../../../crates/canopyd/src/main.rs)), the process runs meta database migrations via `canopy_migrations::migrate` and mounts `/admin/v1` on the shared listener (or on `CANOPY_ADMIN_LISTEN` when configured). Inspection queries pass through the local engine command queue. Inspection capture starts on the first request and stops five minutes after the last request when no tail remains attached. The data event path adds no allocation or locking while capture is inactive. The trace buffer holds 256 traces and the events route returns the latest 100 summaries.
+- In split stack deployments, the control process sets `CANOPY_REALTIME_INTERNAL_URL` to point to the private data process URL. The data process exposes [`/internal/realtime`](../../../crates/canopyd/src/realtime_inspection.rs) for GET queries, authenticated with a bearer token derived from `CANOPY_MASTER_KEY` (`proof = hex(hmac_sha256(master, "canopy realtime inspection v1"))`). The server verifies the candidate bearer credential in constant time. Without `CANOPY_REALTIME_INTERNAL_URL`, control returns the realtime off response. The data process serves inspection independently and continues serving when control stops.
+
+### R5.1 and R5.2 built in auth in Rust
+
+- The `/auth/v1` router in [`crates/canopy-authn/src/server/`](../../../crates/canopy-authn/src/server/) (see guide in [09-auth-router.md](09-auth-router.md)):
+  - [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): manages router options, request dispatch, CORS origin validation, body parsing, IP and identifier rate limiting (`address_hit`, `identifier_hit`), `/token` (access token minting), `/settings`, JWKS endpoints (`/auth/v1/jwks`, `/.well-known/jwks.json`), and index initialization.
+  - [`documents.rs`](../../../crates/canopy-authn/src/server/documents.rs): defines `User`, `Session`, `Account`, `Verification`, `AddressLimit`, and `IdentifierLimit` with `#[serde(flatten)] pub extra: Document`, ensuring unmapped fields written by TypeScript are retained on update.
+  - [`floor.rs`](../../../crates/canopy-authn/src/server/floor.rs): `ResponseFloor` adaptive response floor prevents account enumeration by holding responses to the longer of the configured floor (default 80 ms) or the third slowest response among the last 64 requests on that route, capped at 1 second. `FLOOR_ROUTES` covers nine routes: `/sign-in/email`, `/sign-up/email`, `/request-password-reset`, `/sign-in/magic-link`, `/email-otp/send-verification-otp`, `/email-otp/request-password-reset`, `/forget-password/email-otp`, `/send-verification-email`, and `/upgrade`.
+  - [`password.rs`](../../../crates/canopy-authn/src/server/password.rs): handles email and password sign up, sign in, email verification, password reset requests and callbacks, and password changes.
+  - [`session.rs`](../../../crates/canopy-authn/src/server/session.rs): handles session lookup, session listing, session revocation (single, others, all), user profile updates, and email changes.
+  - [`magic_link.rs`](../../../crates/canopy-authn/src/server/magic_link.rs): handles sending magic links (`/sign-in/magic-link`) and verifying callback tokens (`/magic-link/verify`) with single use enforcement.
+  - [`otp.rs`](../../../crates/canopy-authn/src/server/otp.rs): handles email OTP verification, password reset, and sign in with constant time checks, three attempt limit, and single use redemption.
+  - [`email.rs`](../../../crates/canopy-authn/src/server/email.rs): generates verification and password reset tokens, builds callback URLs, and hands emails to the mailer.
+- Index set: `open()` creates every index in `canopy_auth` with matching names and options:
+  - `users`: `{email: 1}` (unique, name `email`)
+  - `sessions`: `{token: 1}` (unique, name `token`), `{userId: 1}` (name `user`), `{expiresAt: 1}` (TTL 0s, name `ttl_expires`)
+  - `accounts`: `{providerId: 1, accountId: 1}` (unique, name `provider_account`), `{userId: 1}` (name `user`)
+  - `verifications`: `{identifier: 1}` (name `identifier`), `{expiresAt: 1}` (TTL 3600s, name `ttl_expires`)
+  - `rate_limits`: `{key: 1}` (unique, name `key`)
+  - `signing_keys`: `{createdAt: -1}` (name `created`)
+  - `identifier_limits`: `{expiresAt: 1}` (TTL 0s, name `ttl_expires`)
+- Replay: [`crates/canopy-authn/tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs) matches all 20 cases across 114 steps in the seven recorded groups on both MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090): `email-password`, `email-verification`, `password-reset`, `sessions`, `tokens`, `magic-link`, and `email-otp`.
+- Known gap: users with `twoFactorEnabled: true` receive HTTP 403 (`FORBIDDEN: Password sign in is unavailable for this user`) on password sign in until stage R5.4 wires two factor authentication.
+- Mounting status: the Rust auth router is not yet mounted in `canopyd`. TypeScript still serves `/auth/v1` in all stacks.
+
+### Deployment split (`24ce4870`, waiting for the first CI image build and split smoke)
+
+- The split deployment changes in the working tree separate the services cleanly:
+  - `control`: runs the `canopy` image with `CANOPY_ROLE=control`, serving `/admin/v1` (except app user administration), running meta database migrations, webhooks, and startup policy publication.
+  - `auth`: runs the TypeScript `canopy-control` image with `CANOPY_SPLIT_AUTH_ONLY=on`, serving `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users`.
+  - `edge`: Caddy routes `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users` to the auth service; routes remaining `/admin/v1` requests to control; routes REST, GraphQL, and realtime to data; routes `/studio` to Studio; blocks `/internal` and `/internal/*` with HTTP 404.
+  - Configured and tested across Docker Compose (`deploy/compose/split.yaml`, `split-auth.yaml`), Helm (`deploy/helm/canopy/`), Kubernetes (`deploy/kubernetes/split.yaml`), and smoke tests (`deploy/compose/split-smoke.ts`). Docker was not available locally, so the images and the live split smoke are first exercised by CI.
+
+### CI and testing fixes
+
+- macOS mongod open file limit: [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts) starts mongod through a shell wrapper on macOS and Linux that raises `ulimit -n` to 64000 (falling back to 24576, then 10240), fixing "Too many open files" errors during index creation in macOS Node 24 CI jobs.
+- Oracle drift reporting: [`packages/server/test/conformance/admin/record.ts`](../../../packages/server/test/conformance/admin/record.ts) and [`packages/auth-builtin/test/conformance/record.ts`](../../../packages/auth-builtin/test/conformance/record.ts) now report the exact first differing line number and contents when `--check` encounters drift, allowing fast diagnosis directly from CI logs.
+- Interop test gating: cross verification tests requiring TypeScript are gated behind `CANOPY_TEST_TYPESCRIPT` and run in the Rust engine CI job where workspace packages are installed.
+
+### Remaining work
+
+Ordered list matching plan 005:
+
+1. **R5.3 Social and OIDC:** Google, GitHub, Apple (ES256 signed client secret), Microsoft (tenant support), Discord, generic OIDC through discovery, PKCE, state and nonce in `verifications`, account linking, redirect allowlist.
+2. **R5.4 Two factor:** TOTP per RFC 6238 (the primitive now in [`crates/canopy-control/src/totp.rs`](../../../crates/canopy-control/src/totp.rs) will move to `canopy-authn`), backup codes, `aal2` sessions, ceremony cookie and bearer bridge, 15 minute fresh session rule.
+3. **R5.5 Passkeys wiring:** wire [`crates/canopy-webauthn`](../../../crates/canopy-webauthn) per spike [S16](../../spikes/S16-webauthn.md) into `/auth/v1`, registration and authentication endpoints, clone detection counter checks, `aal2` sessions.
+4. **R5.6 The rest:** anonymous sign in and upgrade, bearer authentication, app user administration behind `/admin/v1/users`, rate limits, `canopy auth import` verifiers (bcrypt, PBKDF2, Firebase scrypt, Argon2id, Better Auth scrypt), rehash on sign in.
+5. **Mounting and switching:** mount the Rust auth router in `canopyd` and switch the deployment stacks from TypeScript auth to Rust auth.
+6. **Fuzzing and security review:** run 24 CPU hours of nightly fuzzing per auth target, followed by external security review with no open P0 or P1 findings.
+7. **R1 leftovers:** generate the providers document from config in `canopyd`, server error logging.
+8. **R2 Canopy.js Wasm adoption:** adopt generated Wasm and JavaScript modules in Canopy.js, measuring against size, startup, browser, and Hermes matrix requirements.
+9. **R3 Builders, emitter, and publishing:** canonical document JSON Schemas, bundle emitter in `canopy.js/emit`, publishing from canonical bundles.
+10. **R4 Rust CLI:** `canopy-cli` binary shipping in the eight platform packages.
+11. **R7 Removal and cleanup:** remove TypeScript server packages, update design docs and references.
+
 ## Checkpoint (2026-11-25): spike S16 WebAuthn relying party and CI repair
 
 - Spike S16 is done (commit `06c9ff26`, "feat(auth): verify passkeys with an own WebAuthn relying party",
@@ -362,18 +436,21 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
 **Waiting on the maintainer before R0 closes:** the thresholds of plan 005 §7 (Wasm size and startup), and
 open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name).
 
-## Next tasks (R0)
+## Next tasks
 
-| # | Task | Size | Agent |
-|---|---|---|---|
-| 1 | Canonical document JSON Schemas for the policy set, the unresolved config and the collection schema, generated from or checked against the Rust types; `conformance/authoring/` with DSL inputs, canonical outputs and invalid inputs | Big | `claudeAgent` |
-| 2 | `/auth/v1` oracle recorder on the TypeScript server: fake clock, seeded randomness, memory mail transport, mock OIDC provider, software authenticator; groups per plan 005 §6.1 | Big | `claudeAgent` |
-| 3 | `canopy_auth` fixture database written by the TypeScript server, dumped as canonical EJSON; confirm the `symmetricEncrypt` format and the session cookie signature format from it | Medium | Codex |
-| 4 | `/admin/v1` oracle for every route and admin role | Medium | Codex |
-| 5 | Webhooks and migrations oracles | Medium | Codex |
-| 6 | CLI golden outputs, type generation and `canopy pull` vectors, Studio header oracle | Medium | Codex |
-| 7 | Canopy.js bundle size and startup baselines on the profiles of plan 005 §7 | Small | `antigravity_sudhan_s_antigravity` |
-| 8 | Spike S16 (WebAuthn relying party: CBOR and COSE choice, W3C Level 3 vectors, fuzz harness) | Big | `claudeAgent` |
+| # | Task | Stage | Size | Agent |
+|---|---|---|---|---|
+| 1 | R5.3: Social and OIDC authentication (Google, GitHub, Apple, Microsoft, Discord, generic OIDC discovery, PKCE, state and nonce) | R5 | Big | `claudeAgent` |
+| 2 | R5.4: Two factor authentication (move TOTP primitive from `canopy-control` to `canopy-authn`, backup codes, `aal2` sessions, ceremony cookies) | R5 | Medium | Codex |
+| 3 | R5.5: Passkeys wiring into `/auth/v1` using `canopy-webauthn` | R5 | Medium | Codex |
+| 4 | R5.6: Anonymous authentication, bearer tokens, app user administration behind `/admin/v1/users`, rate limits, legacy hash importers | R5 | Big | `claudeAgent` |
+| 5 | Mount Rust auth router in `canopyd` and switch deployment stacks | R5 | Medium | Codex |
+| 6 | 24 CPU hours of nightly fuzzing per auth target and external security review | R5 | Big | `claudeAgent` |
+| 7 | R1 leftovers: providers document from config in `canopyd`, server error logging | R1 | Small | Codex |
+| 8 | R2: Canopy.js adoption of split Wasm and JavaScript modules, verify size and startup gates | R2 | Big | `claudeAgent` |
+| 9 | R3: Canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 10 | R4: Rust CLI (`canopy-cli`) implementation across all platform targets | R4 | Big | `claudeAgent` |
+| 11 | R7: Removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
 
 ## Done
 
