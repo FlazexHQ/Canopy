@@ -9,7 +9,10 @@ const masterKey = process.env["CANOPY_MASTER_KEY"] ?? crypto.randomUUID().replac
 const key = secretKeys.split(",")[0]?.trim() ?? ""
 const publishable = publishableKeys.split(",")[0]?.trim() ?? ""
 const builtin = !process.argv.includes("--without-builtin-auth")
-const composeFiles = builtin ? ["split.yaml", "split-auth.yaml"] : ["split.yaml"]
+const typescriptAuth = builtin && process.argv.includes("--typescript-auth")
+const composeFiles = builtin
+  ? ["split.yaml", "split-auth.yaml", ...(typescriptAuth ? ["split-auth-typescript.yaml"] : [])]
+  : ["split.yaml"]
 const compose = [
   "docker",
   "compose",
@@ -167,6 +170,8 @@ try {
   if (user) {
     await request("/.well-known/jwks.json", 200)
     await writeAndRead(user.sub, user.headers)
+    const next = await signIn()
+    await writeAndRead(next.sub, next.headers)
   }
   const ws = new URL("/realtime/v1", base)
   ws.protocol = base.protocol === "https:" ? "wss:" : "ws:"

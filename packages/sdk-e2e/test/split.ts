@@ -7,6 +7,11 @@ export const splitUrl = process.env["CANOPY_SPLIT_E2E_URL"]
 export const splitClaimsUrl = process.env["CANOPY_SPLIT_E2E_CLAIMS_URL"]
 /** The Standard Webhooks secret that stack signs claims hook calls with. */
 export const splitClaimsKey = process.env["CANOPY_SPLIT_E2E_CLAIMS_KEY"]
+/**
+ * The address the suite's claims hook listens on, when the stack reaches it elsewhere than the host of
+ * {@link splitClaimsUrl} (a container relays to the host's bridge address). Defaults to that host.
+ */
+export const splitClaimsListen = process.env["CANOPY_SPLIT_E2E_CLAIMS_LISTEN"]
 export const splitDatabase = process.env["CANOPY_DB"] ?? "app"
 const splitMetaDatabase = process.env["CANOPY_META_DB"] ?? "canopy"
 

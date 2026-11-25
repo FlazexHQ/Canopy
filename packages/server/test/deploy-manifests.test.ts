@@ -292,7 +292,7 @@ describe("edge routes", () => {
 })
 
 describe("split deployment", () => {
-  it("runs Rust control and TypeScript auth independently of data in Compose", () => {
+  it("runs Rust control and Rust auth independently of data in Compose", () => {
     const { services } = compose("deploy/compose/split.yaml")
     const data = services["data"] ?? {}
     const control = services["control"] ?? {}
@@ -303,11 +303,96 @@ describe("split deployment", () => {
     expect(environmentOf(control)["CANOPY_MASTER_KEY"]).toBe(
       environmentOf(data)["CANOPY_MASTER_KEY"],
     )
-    expect(auth["image"]).toContain("canopy-control")
-    expect(environmentOf(auth)["CANOPY_SPLIT_AUTH_ONLY"]).toBe("on")
+    expect(auth["image"]).toBe(data["image"])
+    expect(environmentOf(auth)["CANOPY_ROLE"]).toBe("control")
+    expect(environmentOf(auth)["CANOPY_AUTH_ENGINE"]).toBe("rust")
+    expect(environmentOf(auth)["CANOPY_SPLIT_AUTH_ONLY"]).toBeUndefined()
+    expect(environmentOf(auth)["CANOPY_POLICY_BUNDLE"]).toBeUndefined()
+    expect(environmentOf(auth)["CANOPY_MASTER_KEY"]).toBe(environmentOf(data)["CANOPY_MASTER_KEY"])
+    expect(auth["command"]).toEqual(["--config", "/app/auth.json"])
+    expect(auth["volumes"]).toEqual([
+      expect.stringMatching(
+        /^\$\{CANOPY_AUTH_CONFIG:-\.\/split-gateway\.json\}:\/app\/auth\.json:ro$/,
+      ),
+    ])
     for (const service of [data, control, auth])
       expect(Object.keys((service["depends_on"] ?? {}) as Node)).toEqual(["database"])
     expect(services["edge"]?.["depends_on"]).toBeUndefined()
+  })
+
+  it("gives the auth service a built in auth config in the auth overlay", () => {
+    const { services } = compose("deploy/compose/split-auth.yaml")
+    expect(services["auth"]?.["volumes"]).toEqual([
+      expect.stringMatching(
+        /^\$\{CANOPY_AUTH_CONFIG:-\.\/split-auth\.json\}:\/app\/auth\.json:ro$/,
+      ),
+    ])
+    const config = JSON.parse(read("deploy/compose/split-auth.json")) as Node
+    expect(at(config, "auth", "kind")).toBe("builtin")
+    expect(at(config, "auth", "claims")).toBeUndefined()
+  })
+
+  it("relays the SDK auth claims hook on the auth service's own loopback address", () => {
+    const { services } = compose("deploy/compose/split-e2e.yaml")
+    const relay = services["claims-relay"] ?? {}
+    expect(relay["network_mode"]).toBe("service:auth")
+    const config = JSON.parse(read("deploy/compose/split-e2e-auth.json")) as Node
+    const hook = new URL(String(at(config, "auth", "claims", "url")))
+    expect(hook.protocol).toBe("http:")
+    expect(hook.hostname).toBe("127.0.0.1")
+    const command = relay["command"] as string[]
+    expect(command[command.indexOf("--from") + 1]).toBe(`:${hook.port}`)
+    expect(command[command.indexOf("--to") + 1]).toBe(`host.docker.internal:${hook.port}`)
+    const secret = at(config, "auth", "claims", "secret", "$env", "name")
+    expect(environmentOf(services["auth"] ?? {})).toHaveProperty(String(secret))
+  })
+
+  it("keeps the TypeScript auth service as an opt in overlay", () => {
+    const { services } = compose("deploy/compose/split-auth-typescript.yaml")
+    const auth = services["auth"] ?? {}
+    expect(auth["image"]).toContain("canopy-control")
+    expect(environmentOf(auth)["CANOPY_SPLIT_AUTH_ONLY"]).toBe("on")
+    expect(auth["command"]).toEqual(["--config", "/app/canopy.config.ts"])
+  })
+
+  it("runs Rust auth on the canopy image in the Kubernetes manifest and the Helm chart", () => {
+    const documents = parseAllDocuments(read("deploy/kubernetes/split.yaml")).map(
+      (document) => document.toJS() as Node,
+    )
+    const deployment = (name: string) =>
+      documents.find(
+        (document) =>
+          document["kind"] === "Deployment" && at(document, "metadata", "name") === name,
+      )
+    const container = (name: string) =>
+      at(deployment(name), "spec", "template", "spec", "containers", 0) as Node
+    const auth = container("canopy-auth")
+    expect(auth["image"]).toBe(container("canopy-control")["image"])
+    const env = Object.fromEntries(
+      (auth["env"] as { name: string; value?: string }[]).map((entry) => [entry.name, entry.value]),
+    )
+    expect(env["CANOPY_ROLE"]).toBe("control")
+    expect(env["CANOPY_AUTH_ENGINE"]).toBe("rust")
+    expect(auth["args"]).toEqual(["--config", "/app/auth.json"])
+    expect(auth["volumeMounts"]).toContainEqual({
+      name: "settings",
+      mountPath: "/app/auth.json",
+      subPath: "auth.json",
+      readOnly: true,
+    })
+    const settings = documents.find(
+      (document) =>
+        document["kind"] === "ConfigMap" && at(document, "metadata", "name") === "canopy-split",
+    )
+    expect(JSON.parse(String(at(settings, "data", "auth.json")))).toBeTypeOf("object")
+    expect(read("deploy/kubernetes/split.yaml")).not.toContain(`image: "canopy-control`)
+    const helm = read("deploy/helm/canopy/templates/split.yaml")
+    expect(helm).not.toContain("CANOPY_SPLIT_AUTH_ONLY")
+    expect(helm).toMatch(/name: CANOPY_AUTH_ENGINE\n\s+value: rust/)
+    expect(helm).not.toContain("canopy.config.ts")
+    const values = parse(read("deploy/helm/canopy/values.yaml")) as Node
+    expect(at(values, "split", "auth", "image")).toBeUndefined()
+    expect(at(values, "split", "auth", "settings")).toEqual({})
   })
 
   it("handles auth and private paths before forwarding requests to control or data", () => {

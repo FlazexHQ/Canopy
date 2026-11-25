@@ -531,7 +531,7 @@ jobs:
       - uses: ./.github/actions/canopy-js
       - name: Build the Rust canopy image
         run: docker build -f deploy/docker/canopyd.Dockerfile --build-context canopyjs=../Canopy.js -t canopy:ci .
-      - name: Build the TypeScript auth image
+      - name: Build the TypeScript auth image of the fallback overlay
         run: docker build -f deploy/docker/canopy-control.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-control:ci .
       - name: Build the canopy-realtime sidecar image
         run: docker build -f deploy/docker/canopy-realtime.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-realtime:ci .
@@ -553,7 +553,7 @@ jobs:
           docker compose -f deploy/compose/canopy.yaml logs realtime | grep '"realtimeServer":"gateway"'
           deploy/compose/canopy-smoke.sh
           bun deploy/binary/ws-smoke.ts ws://127.0.0.1:8080/realtime/v1 sk_dev_change_me
-      - name: Smoke test the split stack with the control plane stopped
+      - name: Smoke test the split stack with Rust auth and the control plane stopped
         env: &split-env
           CANOPY_CONTROL_IMAGE: canopy-control:ci
           CANOPY_GATEWAY_IMAGE: canopy:ci
@@ -569,6 +569,9 @@ jobs:
           CANOPY_MASTER_KEY: split-stack-ci-master-key-0123456789abcdef
           COMPOSE_FILE: ${{ github.workspace }}/deploy/compose/split.yaml:${{ github.workspace }}/deploy/compose/split-auth.yaml:${{ github.workspace }}/deploy/compose/split-e2e.yaml
         run: bun deploy/compose/split-smoke.ts --no-build
+      - name: Smoke test the split stack with the TypeScript auth fallback
+        env: *split-env
+        run: bun deploy/compose/split-smoke.ts --no-build --typescript-auth
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "24"
@@ -586,11 +589,15 @@ jobs:
           test -n "$token"
           cd apps/studio
           STUDIO_E2E_SETUP_TOKEN="$token" node node_modules/@playwright/test/cli.js test
-      - name: Run SDK auth through the split edge
+      - name: Run SDK auth against Rust auth through the split edge
         env: *split-env
         run: |
-          export CANOPY_AUTH_CONFIG=./split-e2e-control.ts
-          docker compose up -d --no-build --wait --wait-timeout 120 auth
+          export CANOPY_AUTH_CONFIG=./split-e2e-auth.json
+          export CANOPY_SPLIT_E2E_CLAIMS_URL=http://127.0.0.1:28181/claims
+          export CANOPY_SPLIT_E2E_CLAIMS_LISTEN=0.0.0.0
+          CANOPY_SPLIT_E2E_CLAIMS_KEY="whsec_$(openssl rand -base64 32)"
+          export CANOPY_SPLIT_E2E_CLAIMS_KEY
+          docker compose up -d --no-build --wait --wait-timeout 120 --force-recreate auth claims-relay
           bun run test:all --project sdk-e2e test/auth.e2e.test.ts
       - name: Run SDK data and realtime through the split edge
         env: *split-env

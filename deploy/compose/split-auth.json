@@ -1,0 +1,6 @@
+{
+  "auth": {
+    "kind": "builtin",
+    "emailPassword": { "requireEmailVerification": false }
+  }
+}

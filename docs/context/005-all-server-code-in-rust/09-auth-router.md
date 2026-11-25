@@ -124,4 +124,13 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
   id. `POST /auth/v1/get-access-token` refreshes when the stored access token has less than five seconds left
   and the account has a refresh token. Both require a live session for the account owner. A successful
   refresh preserves existing scopes and retains credentials the provider does not replace.
-- **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. With that setting `canopyd` now serves app user administration (`/admin/v1/users`) natively under the `control` and `all` roles. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1` and `/.well-known/jwks.json` until the stacks and `sdk-e2e` switch to Rust auth.
+- **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust` on the `all` and `control`
+  roles, and then also serves app user administration (`/admin/v1/users`) natively. The split stacks run it
+  by default: the `auth` service of `deploy/compose/split.yaml`, Helm (`split.enabled`) and
+  `deploy/kubernetes/split.yaml` is the `canopy` image with `CANOPY_ROLE=control` and
+  `CANOPY_AUTH_ENGINE=rust`, configured by `auth.json` (`split-auth.json` in Compose, `split.auth.settings` or
+  `split.auth.configSecret` in Helm), and the edge sends it `/auth/v1`, `/.well-known/jwks.json` and
+  `/admin/v1/users`. CI runs `sdk-e2e`'s auth suite against it, with the claims hook reached through a relay in
+  the auth container's network namespace (`split-e2e.yaml`). The TypeScript auth service remains only as the
+  opt in overlay `split-auth-typescript.yaml` until the external review; the legacy single API stack
+  (`deploy/compose/canopy.yaml`) enables no built in auth.

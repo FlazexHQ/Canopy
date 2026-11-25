@@ -1,18 +1,21 @@
-# Canopy with separate Rust data and control services, with TypeScript auth.
+# Canopy with separate Rust data, control and auth services.
 #   docker compose -f deploy/compose/split.yaml up -d --build --wait
 #
 # Services, each with its own restart policy and health check:
 #   database  MongoDB replica set for application data and shared metadata
 #   data      Rust REST, GraphQL, realtime and the MongoDB wire endpoint; storage with a gateway config
 #   control   Admin API, policy publishing and webhooks
-#   auth      Built in auth when enabled, JWKS and app user administration
+#   auth      Rust built in auth when enabled (/auth/v1), the key set and app user administration; it runs
+#             the control role of the same image with CANOPY_AUTH_ENGINE=rust, so it keeps serving when
+#             control stops
 #   studio    Static admin dashboard
 #   edge      Public HTTP entry on port 8080; routes independently and returns 503 for an unavailable service
 #
 # Set CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS and CANOPY_MASTER_KEY in the environment or .env.
-# Add split-auth.yaml to enable built in auth. Use CANOPY_AUTH_CONFIG for custom TypeScript auth settings
-# and CANOPY_GATEWAY_CONFIG for Rust settings. With a custom gateway config, configure built in JWT
-# verification as shown in split-auth.yaml. All three services use the shared CANOPY_META_DB.
+# Add split-auth.yaml to enable built in auth. Use CANOPY_AUTH_CONFIG for custom auth settings (a canopyd
+# JSON config with an auth section of kind builtin) and CANOPY_GATEWAY_CONFIG for the data and control
+# settings. With a custom gateway config, configure built in JWT verification as shown in split-auth.yaml.
+# All three services use the shared CANOPY_META_DB.
 # Set CANOPY_POLICY_BUNDLE_FILE to replace the example JSON bundle published at startup.
 # For local file storage, set storage.backend.root to /app/storage in the gateway config.
 # MongoDB and the wire endpoint are published on loopback (ports 27017 and 27018 by default).
@@ -101,39 +104,23 @@ services:
     healthcheck: *gateway-health
 
   auth:
-    image: ${CANOPY_CONTROL_IMAGE:-canopy-control:dev}
-    build:
-      context: ../..
-      dockerfile: deploy/docker/canopy-control.Dockerfile
-      additional_contexts:
-        canopyjs: ../../../Canopy.js
+    <<: *gateway-image
     restart: unless-stopped
     depends_on:
       database:
         condition: service_healthy
-    stop_grace_period: 20s
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "bun",
-          "-e",
-          "const r = await fetch('http://127.0.0.1:8080/readyz'); process.exit(r.ok ? 0 : 1)",
-        ]
-      interval: 5s
-      timeout: 5s
-      retries: 24
-    command: ["--config", "/app/canopy.config.ts"]
+    command: ["--config", "/app/auth.json"]
     environment:
       <<: *common
+      CANOPY_ROLE: control
+      CANOPY_AUTH_ENGINE: rust
       CANOPY_NODE_ID: auth-1
-      CANOPY_SPLIT_AUTH_ONLY: "on"
       CANOPY_PUBLIC_URL: ${CANOPY_PUBLIC_URL:-http://localhost:${CANOPY_PORT:-8080}}
       CANOPY_MASTER_KEY_PREVIOUS: ${CANOPY_MASTER_KEY_PREVIOUS:-}
-    ports:
-      - "127.0.0.1:${CANOPY_CONTROL_METRICS_PORT:-9465}:9464"
     volumes:
-      - ${CANOPY_AUTH_CONFIG:-${CANOPY_CONTROL_CONFIG:-./split-control.ts}}:/app/canopy.config.ts:ro
+      - ${CANOPY_AUTH_CONFIG:-./split-gateway.json}:/app/auth.json:ro
+    stop_grace_period: 20s
+    healthcheck: *gateway-health
 
   studio:
     extends:

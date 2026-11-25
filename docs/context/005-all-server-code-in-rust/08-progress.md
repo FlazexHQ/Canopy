@@ -3,6 +3,92 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R5 split stacks and the CI split job on Rust auth (not committed)
+
+The default split stacks no longer need the TypeScript `canopy-control` image: `/auth/v1`, `/auth/v1/jwks`,
+`/.well-known/jwks.json` and `/admin/v1/users` are served by `canopyd`.
+
+### What changed
+
+- **Shape.** The `auth` service keeps its own process (so stopping `control` leaves sign in working, and
+  stopping `auth` leaves `/admin/v1` working), but it is now the `canopy` image with `CANOPY_ROLE=control` and
+  `CANOPY_AUTH_ENGINE=rust`, reading `--config /app/auth.json`. No Rust change was needed: two control role
+  processes are safe (the migration lease, a setup token per node, the signing key lease; the auth service
+  gets no policy bundle and no webhooks). The edge routing (`Caddyfile.split`) is unchanged. The auth
+  service has no Prometheus metrics any more (canopyd's control role serves none), so its metrics port is gone.
+- [`deploy/compose/split.yaml`](../../../deploy/compose/split.yaml): `auth` on the gateway image, mounting
+  `${CANOPY_AUTH_CONFIG:-./split-gateway.json}` (no built in auth without the overlay).
+  [`split-auth.yaml`](../../../deploy/compose/split-auth.yaml) mounts
+  [`split-auth.json`](../../../deploy/compose/split-auth.json) (`auth.kind` builtin, no email verification,
+  mail logged: development only, since Rust auth refuses the log transport in production).
+- [`split-e2e.yaml`](../../../deploy/compose/split-e2e.yaml) and
+  [`split-e2e-auth.json`](../../../deploy/compose/split-e2e-auth.json): the SDK auth settings (anonymous,
+  email verification, log mail, `claims` at `http://127.0.0.1:28181/claims` with the secret from
+  `$env` `CANOPY_SPLIT_E2E_CLAIMS_KEY`). A `claims-relay` service (the pinned Caddy image,
+  `caddy reverse-proxy --from :28181 --to host.docker.internal:28181`) shares the auth container's network
+  namespace (`network_mode: service:auth`), so the hook URL stays loopback and `claims_url_allowed` is
+  untouched. `auth` gets `extra_hosts: host.docker.internal:host-gateway` (the relay shares its hosts file).
+  The suite gained `CANOPY_SPLIT_E2E_CLAIMS_LISTEN` (`packages/sdk-e2e/test/split.ts`): in CI it listens on
+  `0.0.0.0`, because the relay reaches the runner's bridge address, not its loopback.
+- [`.github/workflows/ci.yml`](../../../.github/workflows/ci.yml) (images job): the split smoke now runs
+  on Rust auth, then once more with `--typescript-auth`; the SDK auth step sets `CANOPY_AUTH_CONFIG`
+  `./split-e2e-auth.json`, the claims URL, listen address and a fresh `whsec_` key, and recreates
+  `auth claims-relay` with `--force-recreate`. The stack is fresh per job, so `seedSplitPolicy` runs once on
+  its databases.
+- [`split-smoke.ts`](../../../deploy/compose/split-smoke.ts): `--typescript-auth`, and a new sign in with
+  its writes after `control` stops (proves auth does not depend on control).
+- **TypeScript fallback kept**, opt in: [`split-auth-typescript.yaml`](../../../deploy/compose/split-auth-typescript.yaml)
+  (after `split-auth.yaml`) runs the `canopy-control` image with `CANOPY_SPLIT_AUTH_ONLY=on` and a TypeScript
+  config (default `split-control.ts`). Why: Rust auth has not passed the R5 external security review or the
+  24 CPU hour fuzz gate, and TypeScript configs may use what Rust auth refuses (a claims hook written as a
+  function, `emailPassword: false`) or need the auth service's metrics. CI builds `canopy-control:ci` only
+  for this smoke. `split-e2e-control.ts` and the suite's `sdk_e2e_hooks` branch are kept for running the SDK
+  suite against the fallback by hand.
+- Helm ([`templates/split.yaml`](../../../deploy/helm/canopy/templates/split.yaml),
+  [`values.yaml`](../../../deploy/helm/canopy/values.yaml)): the auth component runs `split.data.image` with
+  `CANOPY_ROLE=control`, `CANOPY_AUTH_ENGINE=rust` and `--config /app/auth.json` (a new `auth.json` key of the
+  split ConfigMap: the gateway config with `auth` = `{kind: builtin}` merged with `split.auth.settings` when
+  `publicUrl` is set), or the Secret `split.auth.configSecret`. In production the chart fails without a mail
+  transport in either. `split.auth.image` and `split.auth.configMap` are removed; no auth metrics Service.
+  [`deploy/kubernetes/split.yaml`](../../../deploy/kubernetes/split.yaml) edited to match by hand
+  (`canopy:latest`, `auth.json` key, no `canopy-auth-metrics`); its checksum annotations were not
+  regenerated. [`deploy/README.md`](../../../deploy/README.md) updated.
+- [`packages/server/test/deploy-manifests.test.ts`](../../../packages/server/test/deploy-manifests.test.ts):
+  the split tests now check Rust auth in Compose, the auth overlay's config, the relay (network namespace and
+  its port equal to the claims URL's, the secret variable passed to `auth`), the TypeScript overlay, and the
+  Kubernetes and Helm auth component.
+- Not changed: `deploy/compose/canopy.yaml` and `edge/Caddyfile` (the legacy single API stack enables no built
+  in auth; its `api` is the TypeScript server and moves with the data plane).
+
+### Evidence
+
+- No Docker daemon on this machine, so the stack ran natively: four processes of the debug `canopyd`
+  (data `CANOPY_ROLE=api` with the `split-auth.yaml` gateway JSON, control, auth with the committed
+  `split-e2e-auth.json`) behind a Node 26 stand in for the edge that routes as `Caddyfile.split` and
+  `split-e2e.caddy` do (including WebSocket upgrades), with fresh app and meta databases and `canopy_auth`
+  dropped after each run.
+- `packages/sdk-e2e/test/auth.e2e.test.ts` through that edge: 5 of 5 on Bun and 5 of 5 on Node 26.13.1, on
+  MongoDB 8.0.34 and on 9.0.8 (four runs). A first run whose key file was missing failed all 5 with
+  `the hook answered 401` (fails closed).
+- The `split-smoke.ts` checks with the committed `split-auth.json` and the example policy bundle (8.0.34):
+  setup, `/admin/v1/users` 401, `/internal` 404, service and user writes, JWKS; with control stopped
+  `/admin/v1/setup` 503, `/admin/v1/users` 401, JWKS and a new sign in with its writes; with auth stopped
+  `/admin/v1/users` and `/auth/v1/settings` 503 while existing tokens and service writes keep working.
+- `deploy-manifests.test.ts` 32 of 32; changing the relay port alone fails it. Biome, `tsc` of the
+  `sdk-e2e` and `server` test projects and `tools/repo-check workspace dashes` pass.
+
+### Only CI can prove
+
+The images, the relay (`network_mode: service:auth` sharing the hosts file, host gateway reachability, Caddy's
+`reverse-proxy` command), the `--force-recreate` step, the TypeScript fallback smoke, the Studio Playwright
+suite against the Rust auth service's `/admin/v1/users`, and `helm template` or `helm lint` (no Helm here).
+
+### Notes
+
+- The data role reads built in signing keys only from `canopy_auth` (`crates/canopyd/src/main.rs`), ignoring
+  `CANOPY_AUTH_DB` and `mongodb.authDatabase`; a split stack whose auth service uses another auth database
+  would mint tokens data cannot verify. Not fixed here.
+
 ## Checkpoint (2026-11-25): R5 HTTPS claims hook in Rust (commit 9af1d9c1)
 
 The last R5 gap the SDK auth suite exposed (decision O3). The contract is documented in
@@ -961,7 +1047,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5 remaining: switching the stacks and the CI split job to Rust auth (in progress, `claudeAgent`), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review | R5 | Big | `claudeAgent` |
+| 1 | R5 remaining: confirm the switched split stack in CI (images job: Rust auth smoke, TypeScript fallback smoke, SDK auth through the claims relay), fuzz campaign reaching 24 CPU hours per auth target (the workflow only runs once on master), external review; then drop `split-auth-typescript.yaml` and the `canopy-control` image build | R5 | Medium | `claudeAgent` |
 | 2 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |
 | 3 | R3 (next after R2 gate decision): canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |

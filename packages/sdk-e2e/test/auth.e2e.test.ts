@@ -15,6 +15,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   seedSplitPolicy,
   splitClaimsKey,
+  splitClaimsListen,
   splitClaimsUrl,
   splitDatabase,
   splitUrl,
@@ -145,7 +146,11 @@ suite("@canopy/client/auth against built in auth", () => {
           })
         })
         await new Promise<void>((resolve) =>
-          hookServer?.listen(Number(hook.port), hook.hostname.replace(/^\[|\]$/g, ""), resolve),
+          hookServer?.listen(
+            Number(hook.port),
+            splitClaimsListen ?? hook.hostname.replace(/^\[|\]$/g, ""),
+            resolve,
+          ),
         )
       }
       await seedSplitPolicy(mongo, notes, { apikey: process.env["CANOPY_SECRET_KEYS"] ?? "" })

@@ -1,0 +1,12 @@
+{
+  "auth": {
+    "kind": "builtin",
+    "anonymous": true,
+    "emailPassword": { "requireEmailVerification": true },
+    "email": { "from": "Canopy <auth@example.com>", "transport": { "kind": "log" } },
+    "claims": {
+      "url": "http://127.0.0.1:28181/claims",
+      "secret": { "$env": { "name": "CANOPY_SPLIT_E2E_CLAIMS_KEY" } }
+    }
+  }
+}

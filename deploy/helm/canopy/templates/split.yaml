@@ -10,8 +10,13 @@
 {{- else }}
 {{- $_ := set $gateway "wire" false }}
 {{- end }}
+{{- $authConfig := deepCopy $gateway }}
 {{- if $split.publicUrl }}
 {{- $_ := set $gateway "auth" (dict "issuer" (printf "%s/auth/v1" $split.publicUrl) "audience" $split.publicUrl "builtinJwks" true "algorithms" (list "EdDSA") "rolesClaim" "roles" "checkRevocations" true) }}
+{{- $_ := set $authConfig "auth" (merge (dict "kind" "builtin") (deepCopy $split.auth.settings)) }}
+{{- if and (eq .Values.environment "production") (not $split.auth.configSecret) (not (dig "email" "transport" "" $split.auth.settings)) }}
+{{- fail "Built in auth in production needs a mail transport: set split.auth.settings.email.transport, or split.auth.configSecret for a config with credentials" }}
+{{- end }}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap
@@ -22,13 +27,8 @@ data:
     {{- .Files.Get "files/Caddyfile.split" | nindent 4 }}
   gateway.json: |
     {{- mustToPrettyJson $gateway | nindent 4 }}
-  {{- if $split.publicUrl }}
-  canopy.config.ts: |
-    export default {
-      auth: { kind: "builtin" },
-      policies: { source: "database" },
-    }
-  {{- end }}
+  auth.json: |
+    {{- mustToPrettyJson $authConfig | nindent 4 }}
 {{- $policiesName := default (printf "%s-split-policies" ($name | trunc 48 | trimSuffix "-")) $split.control.policyBundleConfigMap }}
 {{- if and $split.control.policyBundle (not $split.control.policyBundleConfigMap) }}
 ---
@@ -65,6 +65,9 @@ spec:
         {{- $labels | nindent 8 }}
       annotations:
         checksum/canopy-split: {{ list ($root.Files.Get "files/Caddyfile.split") $gateway $split.publicUrl | toJson | sha256sum }}
+        {{- if eq $component "auth" }}
+        checksum/canopy-auth: {{ $authConfig | toJson | sha256sum }}
+        {{- end }}
         {{- if and (eq $component "control") $split.control.policyBundle (not $split.control.policyBundleConfigMap) }}
         checksum/canopy-policies: {{ $split.control.policyBundle | toJson | sha256sum }}
         {{- end }}
@@ -80,12 +83,12 @@ spec:
           type: RuntimeDefault
       containers:
         - name: {{ $component }}
-          image: {{ if eq $component "auth" }}{{ printf "%s:%s" $image.image.repository $image.image.tag | quote }}{{ else if or (eq $component "studio") (eq $component "control") }}{{ $split.data.image | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
-          imagePullPolicy: {{ if eq $component "auth" }}{{ $image.image.pullPolicy }}{{ else }}{{ $root.Values.image.pullPolicy }}{{ end }}
+          image: {{ if or (eq $component "studio") (eq $component "control") (eq $component "auth") }}{{ $split.data.image | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
+          imagePullPolicy: {{ $root.Values.image.pullPolicy }}
           ports:
             - name: http
               containerPort: 8080
-            {{- if or (eq $component "data") (eq $component "auth") }}
+            {{- if eq $component "data" }}
             - name: metrics
               containerPort: 9464
             {{- end }}
@@ -131,10 +134,10 @@ spec:
               value: "on"
               {{- end }}
             {{- else }}
-            - name: CANOPY_SPLIT_AUTH_ONLY
-              value: "on"
-            - name: CANOPY_DRAIN_WINDOW
-              value: "{{ $root.Values.drainWindowSeconds }}s"
+            - name: CANOPY_ROLE
+              value: control
+            - name: CANOPY_AUTH_ENGINE
+              value: rust
             {{- end }}
             {{- if and (ne $component "data") $split.publicUrl }}
             - name: CANOPY_PUBLIC_URL
@@ -155,8 +158,8 @@ spec:
             - name: CANOPY_STUDIO_UPSTREAM
               value: {{ $prefix }}-studio:8080
           {{- end }}
-          {{- if and (eq $component "auth") (or $split.publicUrl $split.auth.configMap) }}
-          args: ["--config", "/app/split/canopy.config.ts"]
+          {{- if eq $component "auth" }}
+          args: ["--config", "/app/auth.json"]
           {{- end }}
           resources:
             {{- toYaml $root.Values.resources | nindent 12 }}
@@ -204,9 +207,10 @@ spec:
               mountPath: /app/policies
               readOnly: true
             {{- end }}
-            {{- if and (eq $component "auth") (or $split.publicUrl $split.auth.configMap) }}
+            {{- if eq $component "auth" }}
             - name: settings
-              mountPath: /app/split
+              mountPath: /app/auth.json
+              subPath: auth.json
               readOnly: true
             {{- end }}
       volumes:
@@ -223,14 +227,17 @@ spec:
           configMap:
             name: {{ $policiesName }}
         {{- end }}
-        {{- if or (eq $component "data") (eq $component "control") (eq $component "edge") (and (eq $component "auth") (or $split.publicUrl $split.auth.configMap)) }}
+        {{- if or (eq $component "data") (eq $component "control") (eq $component "edge") (eq $component "auth") }}
         - name: settings
           {{- if and (or (eq $component "data") (eq $component "control")) $split.gatewayConfigSecret }}
           secret:
             secretName: {{ $split.gatewayConfigSecret }}
+          {{- else if and (eq $component "auth") $split.auth.configSecret }}
+          secret:
+            secretName: {{ $split.auth.configSecret }}
           {{- else }}
           configMap:
-            name: {{ if and (eq $component "auth") $split.auth.configMap }}{{ $split.auth.configMap }}{{ else }}{{ $prefix }}-split{{ end }}
+            name: {{ $prefix }}-split
           {{- end }}
         {{- end }}
       {{- with $root.Values.nodeSelector }}
@@ -267,7 +274,7 @@ spec:
       port: {{ $split.wirePort }}
       targetPort: wire
     {{- end }}
-{{- if and $root.Values.metrics.enabled (or (eq $component "data") (eq $component "auth")) }}
+{{- if and $root.Values.metrics.enabled (eq $component "data") }}
 ---
 apiVersion: v1
 kind: Service

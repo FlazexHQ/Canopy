@@ -3,7 +3,9 @@
 # Control publishes them to the shared meta database at startup. Restart control after changing them.
 # Point ingress at Service canopy. The direct MongoDB wire listener is on Service canopy-data port 27018.
 # Configure gateway.json for storage. Mount settings containing credentials from a Secret.
-# For built in auth, give canopy-auth a config with auth.kind=builtin and set an HTTPS CANOPY_PUBLIC_URL in the shared Secret.
+# canopy-auth runs canopyd's control role with CANOPY_AUTH_ENGINE=rust and serves built in auth from auth.json.
+# For built in auth, add an auth section with kind builtin and a mail transport to auth.json (mount it from a
+# Secret when it holds credentials) and set an HTTPS CANOPY_PUBLIC_URL in the shared Secret.
 # In gateway.json configure auth.issuer as that URL plus /auth/v1, auth.audience as the URL,
 # auth.builtinJwks as true, auth.algorithms as ["EdDSA"],
 # auth.rolesClaim as roles and auth.checkRevocations as true. Use the same CANOPY_META_DB on data, control and auth.
@@ -71,6 +73,15 @@ data:
     }
 
   gateway.json: |
+    {
+      "server": {
+        "metricsHost": "0.0.0.0"
+      },
+      "wire": {
+        "port": 27018
+      }
+    }
+  auth.json: |
     {
       "server": {
         "metricsHost": "0.0.0.0"
@@ -151,21 +162,6 @@ spec:
     - name: http
       port: 8080
       targetPort: http
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: canopy-auth-metrics
-spec:
-  clusterIP: None
-  selector:
-    app.kubernetes.io/name: canopy
-    app.kubernetes.io/instance: canopy
-    app.kubernetes.io/component: auth
-  ports:
-    - name: metrics
-      port: 9464
-      targetPort: metrics
 ---
 apiVersion: v1
 kind: Service
@@ -532,13 +528,11 @@ spec:
           type: RuntimeDefault
       containers:
         - name: auth
-          image: "canopy-control:latest"
+          image: "canopy:latest"
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
               containerPort: 8080
-            - name: metrics
-              containerPort: 9464
           envFrom:
             - secretRef:
                 name: canopy
@@ -551,10 +545,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: CANOPY_SPLIT_AUTH_ONLY
-              value: "on"
-            - name: CANOPY_DRAIN_WINDOW
-              value: "30s"
+            - name: CANOPY_ROLE
+              value: control
+            - name: CANOPY_AUTH_ENGINE
+              value: rust
+          args: ["--config", "/app/auth.json"]
           resources:
             limits:
               memory: 1Gi
@@ -585,9 +580,16 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: settings
+              mountPath: /app/auth.json
+              subPath: auth.json
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: settings
+          configMap:
+            name: canopy-split
 ---
 apiVersion: apps/v1
 kind: Deployment
