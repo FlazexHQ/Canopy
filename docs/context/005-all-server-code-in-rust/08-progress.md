@@ -3,6 +3,254 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R3b Rust bundle consumer, `canopy build`, publishing and policy commands (not committed)
+
+The Rust half of R3, built against the R3a contract below. `canopy.js/emit` does not exist yet, so every
+replay loads the project through a stand in emitter (a small ES module given by `CANOPY_EMITTER`, run by the
+detected runtime) or through `--bundle` files built from the R0 authoring vectors.
+
+### What was built
+
+- **Config resolution in Rust**: [`crates/canopy-config/src/authoring/`](../../../crates/canopy-config/src/authoring/mod.rs)
+  ports the TypeScript resolver (`packages/config`: spec, resolver, normalize, built in auth, the cron check,
+  env file parsing, `config print` formatting with masked secrets and `--sources`). `resolve_config(document,
+  options)` takes the canonical unresolved config document; `$ejson` payloads (JWKS, webhook filters and
+  bodies) become plain values with `$literal` escapes removed and dates as ISO strings. One decided
+  difference: `auth.claims` takes the HTTPS hook `{url, secret}` (O3) instead of the TypeScript function, so
+  the `https-claims` vector (`futureClaims`) is replayed with its claims problem replaced by the hook's
+  checks (https or loopback http outside production, no credentials, required secret reference).
+- **Project loading** ([`crates/canopy-cli/src/project.rs`](../../../crates/canopy-cli/src/project.rs)):
+  `--config`, else `canopy.config.{ts,mts,js,mjs}` or `canopy/canopy.config.*` walking up from the working
+  directory as the TypeScript loader does (passed to the emitter as `--config` with `--root`); runtime
+  detection Bun, Node 24 or later (`node --version` checked), Deno (`run --allow-read --allow-env`),
+  `CANOPY_RUNTIME` picks one; programs are found through `PATH` and `PATHEXT`, so `.cmd` shims resolve and are
+  spawned with argument arrays; the emitter is `CANOPY_EMITTER` or `exports["./emit/cli"]` of the nearest
+  `node_modules/canopy.js`. The last stdout line is the bundle; on failure the last stderr line's
+  `{"error": ...}` is mapped (policy and test parts print `error  <message>` as the TypeScript loader did).
+  Without a config file, `--dir` or `--bundle` nothing is spawned (zero config). When the policy folder the
+  resolved config names (`--dir`, `policies.dir` including `CANOPY_POLICIES`, else `canopy/policies`) differs
+  from the bundle's `files.policies`, the emitter runs again with `--policies`.
+  [`bundle.rs`](../../../crates/canopy-cli/src/bundle.rs) validates with `canopy_authoring::validate_bundle_json`
+  and reads the test cases. A missing `--config` file prints `Cannot find module '<path>' imported from <canopy
+  binary>` with the debug hint, as the recorded step does.
+- **Config from the project for the existing commands**: `migrate`, `keys`, `admin` and `realtime
+  enable-images`/`disable-images` resolve the config like the TypeScript CLI (`gen`, or `policies` when
+  `--mongodb-uri` or `--env` is given) and read `mongodb.uri`, `metaDatabase` (`CANOPY_META_DB` first) and
+  `database` from it ([`meta.rs`](../../../crates/canopy-cli/src/meta.rs): `meta_target`, `app_target`,
+  `with_client`, `require_migrated`). This is stricter than the earlier Rust build, as TypeScript is: a
+  `MONGODB_URI` without a database and no `CANOPY_DB` is a config problem even for `migrate`.
+- **Publishing** ([`policies.rs`](../../../crates/canopy-cli/src/policies.rs),
+  [`targets.rs`](../../../crates/canopy-cli/src/targets.rs)): `policies diff` (`--fail-on-drift`), `push`
+  (`--expect-version` bare or `collection=version` pairs with `_context`, `--comment`, `--dry-run`), `pull`
+  (DSL modules through [`dsl.rs`](../../../crates/canopy-cli/src/dsl.rs), then the folder is emitted again and
+  every pulled collection must hash to its published version), `history` (`--limit`), `rollback`
+  (`--expect-version`, `--yes`), against the meta database through `canopy_mongo::publish::PolicyPublisher`
+  (already public in `canopy-mongo`, a dependency of the CLI; nothing in `canopy-control` was needed) or
+  against the admin API with `--env`. Every command accepts `--bundle <file>` instead of emitting.
+- **`canopy build`** ([`project_commands.rs`](../../../crates/canopy-cli/src/project_commands.rs)): emits with
+  `--command start` and writes the bundle as emitted (config unresolved) to `--out`, default
+  `<root>/canopy.bundle.json`. `canopyd` `CANOPY_POLICY_BUNDLE` now accepts that file as well as a bare policy
+  set (`policy_part` in [`publish.rs`](../../../crates/canopy-mongo/src/publish.rs)); a bundle without a
+  policies part is refused.
+- **Policy commands**: `policies lint`, `policies test` ([`policy_tests.rs`](../../../crates/canopy-cli/src/policy_tests.rs):
+  memory backend through `evaluate_in_memory`, MongoDB backend in a throwaway database as the TypeScript
+  runner does, coverage), `policies explain` ([`explain.rs`](../../../crates/canopy-cli/src/explain.rs), with
+  `--mongodb-uri` context lookups resolved through `context_query`/`lookup_values` and matching documents
+  counted), `config print` (`--sources`). Filter cases follow the 2026-11-26 decision: without MongoDB they
+  print `skip ... a filter case runs only against MongoDB` and count as not run; with MongoDB they read the
+  matching app documents (`--database`, `CANOPY_DB` or the URI path; at most 1000) and pass only when every
+  one gives the expected outcome on both backends; no match fails with "the filter matched no documents", a
+  mixed match names the disagreeing `_id`s.
+
+### Evidence
+
+- `cargo test -j 2 -p canopy-config --test authoring`: all 49 config vectors with a document (config,
+  sources, secrets and the exact `config print --sources` text, or the problems with pointers) replay; a
+  mutation of one default (`server.nodeId`) fails it. Plus claims hook, malformed documents and env file tests.
+- [`tests/policy_vectors.rs`](../../../crates/canopy-cli/tests/policy_vectors.rs) replays 20 golden steps of
+  `conformance/cli/vectors.json` (`missing-config`, `config-print`, `lint`, `invalid-policy`, `policy-test`,
+  `policy-explain`, `push-unmigrated`, the three migrate steps, `policy-drift` through `policy-pull`) with
+  stdout, stderr, exit code, file changes (the pulled module byte for byte) and meta documents, through the
+  real spawn path (Bun on this machine), and checks the emitter arguments (`--config`, `--mode`, `--command`
+  `print`/`policies`/`gen`, `--policies` for the pull check). `tests/meta_vectors.rs` still replays its 13
+  steps in zero config mode.
+- [`tests/bundle_publishing.rs`](../../../crates/canopy-cli/tests/bundle_publishing.rs): for all 15 authoring
+  sets, `canopy policies push --bundle` stores documents equal to `conformance/authoring/policy/publishing.json`
+  (the TypeScript publisher's) apart from version and attribution, and the bundle hash equals; a second push
+  publishes nothing and `diff --fail-on-drift` passes. (A first version of the test reordered filter keys
+  through `serde_json` and the hashes differed, so the comparison does fail on a real difference.) `canopy
+  build` writes the emitted bundle with a secret canary absent; `push --bundle` runs no emitter. Filter cases:
+  offline skip, online pass, mixed and empty failures.
+- `canopyd` `publishing_startup_bundle_is_enforced_by_canopyd` extended: a full bundle publishes only when its
+  policies part changed; unit test of `policy_part`.
+- All of the above on MongoDB 8.0.34 (37017) and 9.0.8 (37090), isolated databases dropped.
+  `cargo clippy -j 2 --no-deps -p canopy-config -p canopy-cli -p canopy-mongo -p canopyd --all-targets -- -D
+  warnings` clean; rustfmt applied to the touched files; `tools/repo-check dashes` passes. (Without
+  `--no-deps`, clippy stops on `crates/canopy-authoring/src/json_schema.rs` `map_entry`, R3a's crate.)
+
+### Deltas and open points
+
+- The Rust publisher's guard document `policy_publication/publisher` (R1) is not in the TypeScript vectors;
+  the replay excludes that collection and asserts its single guard document.
+- `build` and `--bundle` are not in `usage.txt` yet, so the frozen help, no command and unknown command
+  steps still replay; adding them changes those three recorded outputs and needs the reviewed re-record of
+  plan 005 §8.
+- What remains for the emitter integration: run the same replay with the real `canopy.js/emit/cli` once it is
+  built (the fixture imports `@canopy/policy`, `@canopy/policy/testing` and `@canopy/schema/define`, so the
+  temp project needs `canopy.js` installed and the fixture's imports moved to `canopy.js/*`), check its error
+  messages for `invalid-policy` (`notes.json must export collection(...) policies`) and a missing module, and
+  the actor labels of `as.user(...)` (the stand in uses the `sub`).
+- Not done: `policies push`/`pull` remote paths (`--env`) are implemented but not replayed; `canopy dev`,
+  `doctor`, `init`, `schema`, `pull`, `indexes` and type generation stay R4.
+
+## Checkpoint (2026-11-26): R3a bundle format and emit protocol (in progress, not committed)
+
+Written early by the R3a task (Canopy.js builders and `canopy.js/emit`) so R3b can build against it. This
+section is the contract; anything not written here is not promised.
+
+### The bundle (version 1)
+
+`canopy.js/emit` prints one JSON object, the canonical bundle. Each part is exactly the canonical document of
+[`conformance/authoring`](../../../conformance/authoring/README.md), unchanged, so a part can be handed to the
+existing Rust parsers as is (`policies` is what `CANOPY_POLICY_BUNDLE` and `canopy_policy::parse_policy_set`
+read).
+
+```json
+{
+  "version": 1,
+  "context": { "mode": "development", "command": "start" },
+  "files": {
+    "config": "canopy.config.ts",
+    "policies": "policies",
+    "tests": ["policies/notes.test.ts"],
+    "schema": "canopy.schema.ts"
+  },
+  "config": { "version": 1, "config": { } },
+  "policies": { "version": 1, "collections": [], "contexts": {} },
+  "tests": [{ "version": 1, "suite": "notes", "collection": "notes", "actor": {}, "action": "read", "expected": true, "doc": {} }],
+  "schema": { "version": 1, "collections": [] }
+}
+```
+
+- `context`: the mode (`development` or `production`) and command the config function was called with.
+- `files`: paths relative to the project root with forward slashes, `null` when absent; for the watcher of
+  `canopy dev` and for error messages. `tests` lists every test file that was loaded.
+- `config`: [config.schema.json](../../../conformance/authoring/config.schema.json), or `null` without a
+  config file (zero config mode). `env()` values stay `{"$env": ...}` references; the emitter never resolves
+  them, so no resolved secret can appear in a bundle.
+- `policies`: [policy-set.schema.json](../../../conformance/authoring/policy-set.schema.json), or `null` when
+  the project has no policy folder (policies from the database). Collections appear in policy folder order
+  (files sorted by name, each file's collections in export order).
+- `tests`: [policy-test.schema.json](../../../conformance/authoring/policy-test.schema.json) documents, in
+  test file order, then suite and case declaration order; `[]` when there are none.
+- `schema`: [collection-schema.schema.json](../../../conformance/authoring/collection-schema.schema.json),
+  or `null` without a schema file.
+
+Project discovery (all relative to `--root`, default the working directory):
+
+- Config: `--config <file>`, else the first of `canopy.config.{ts,mts,js,mjs}` in the root, then in
+  `canopy/` (the TypeScript loader's names; no walking up). A default export that is a function is called
+  once with `{ mode, command }`.
+- Policy folder: `--policies <dir>`, else the config's `policies.dir` relative to the config file's
+  folder. When `policies.dir` is a non secret `env()` reference the emitter reads that variable (or its
+  default) only to find the folder; the value is not put in the bundle. Folder rules are the TypeScript
+  loader's: `*.ts`, `*.mts`, `*.js`, `*.mjs` default exports (a `collection(...)` or an array of them),
+  stored form `*.json`, `_context.*` for lookups; `*.test.*` and `*.spec.*` are test files.
+- Tests: every `*.test.*` file of the policy folder (and `--tests <dir>` if given). A test file declares
+  suites with `describePolicies`, and may default export a suite, a test case or an array of them.
+- Schema: `--schema <file>`, else `canopy.schema.ts`, then `canopy.schema.js` in the root; its `schema`
+  export (a `defineSchema(...)` result).
+
+### The emit protocol
+
+- Run: `<runtime> <path of canopy.js/emit/cli> [options]`, the CLI resolving the file through the project's
+  `node_modules/canopy.js/package.json` `exports["./emit/cli"]` (`dist/emit/cli.js`), spawned with an argument
+  array; runtimes in the order Bun, Node 24+ (type stripping runs the project's `.ts` files), Deno
+  (`deno run --allow-read --allow-env`). The library form is `import { emitProject } from "canopy.js/emit"`.
+- Options: `--root <dir>`, `--config <file>`, `--policies <dir>`, `--tests <dir>`, `--schema <file>`,
+  `--mode development|production` (default from `CANOPY_ENV`, else `development`), `--command <name>`
+  (`start`, `dev`, `realtime`, `gen`, `policies`, `doctor`, `print`; default `start`).
+- Success: exit code 0; stdout's last line is the bundle as compact JSON followed by `\n`. Project code's
+  `console` output is redirected to stderr while the project is loaded, so stdout normally holds only the
+  bundle; take the last non empty line.
+- Failure: stdout has no bundle; the last line of stderr is one JSON object
+  `{"error":{"code","message","part","path","file"}}`. `part` is `config`, `policies`, `tests` or
+  `schema`; `path` is an RFC 6901 pointer into that part's document (as recorded in the authoring vectors,
+  for example `/collections/0/policies/0/roles/0`, `/config/auth/claims`, `/assert` for a test case); `file`
+  is the project file the failing value came from when known, else `null`. Exit codes: `1` the project is
+  invalid (codes `CANOPY_INVALID_QUERY` for policies and tests, `CANOPY_CONFIG_INVALID` for config,
+  `CANOPY_SCHEMA_INVALID` for the schema; a project module that throws while loading is reported the same
+  way with an empty path); `2` usage error (unknown option or value, code `CANOPY_INTERNAL`); `3` the emitter
+  itself failed (for example the authoring module did not load, code `CANOPY_INTERNAL`).
+- Validation: before printing, every part passes the Rust authoring module (Wasm) of `packages/wasm`
+  (JSON Schema and the Rust semantic checks), so R3b may treat an emitted bundle as already validated but
+  must still validate it (a bundle can be written by hand).
+
+### Rust validation shared with R3b
+
+A new crate `crates/canopy-authoring` holds the validators: a JSON Schema (draft 2020-12 subset) checker over
+the four schemas embedded from `conformance/authoring`, Ajv's first error order (so paths equal the vectors),
+then the semantic checks (`canopy_policy::parse_policy_set`, Extended JSON decoding, collection schema
+rules). API: `validate_policy_set`, `validate_policy_test`, `validate_config`, `validate_collection_schema`
+and `validate_bundle`, each returning `AuthoringError { code, path, message }`. The Wasm authoring module
+exports them; R3b can call the same functions natively.
+
+### Status of R3a (done, not committed)
+
+- **Canopy**: new crate [`crates/canopy-authoring`](../../../crates/canopy-authoring) (above; `regex` without
+  its Unicode tables: `\w` and `\d` are ASCII and `\s` is JavaScript's set, as Ajv reads the patterns with the
+  `u` flag; a leading negative lookahead becomes a second expression that must not match). Policy compiler
+  refusals are narrowed to the context, collection, policy or clause that causes them by compiling each part
+  on its own. The collection schema rules of declared shapes (field names, required `_id`, string literals)
+  apply only to collections with source `config`, and keep the TypeScript builder messages.
+  [`packages/wasm/src/authoring.rs`](../../../packages/wasm/src/authoring.rs) exports
+  `validatePolicySetDocument` (returns the bundle hash), `validatePolicyTestDocument`,
+  `validateConfigDocument`, `validateCollectionSchemaDocument` and `validateBundle`, throwing an
+  `AuthoringError` with `code` and `path`. The R0 recorders
+  [`packages/schema/test/authoring-record.ts`](../../../packages/schema/test/authoring-record.ts) (invalid
+  schema inputs now come from `canopy.js/emit`, same vector bytes) and
+  [`packages/policy/test/conformance/authoring/record.ts`](../../../packages/policy/test/conformance/authoring/record.ts)
+  (type narrowing for the new filter case union) follow the Canopy.js change.
+- **Canopy.js** (`refactor/rust-core`): `canopy.js/emit` and `canopy.js/emit/cli` (`src/emit`); the schema
+  DSL is now owned by Canopy.js in `src/schema` (no longer vendored by `sync-core.ts`) and its builders no
+  longer throw: names, field builders, generators, a required `_id`, string literals and duplicates are
+  refused at emit time with the recorded code, path and message; `canopy.js/policy/testing` is a Canopy.js
+  module (`src/policy/testing.ts`) wrapping the vendored helpers, with `where(filter)` for filter cases (a
+  filter case is reported `notRun` by the in memory runner, never passed); `sync-wasm.ts` vendors the
+  authoring module (Wasm only, no wasm2js); `sync-core.ts` vendors the authoring JSON Schemas and vectors into
+  `test/vectors/authoring`; a client boundary test also forbids `emit`, `schema`, `policy` and
+  `wasm/authoring` imports from the client and bindings; changeset `authoring-emit.md`.
+- **Evidence**: `cargo test -j 2 -p canopy-authoring` 12 of 12 (every R0 policy set, its publishing hash, 16
+  test cases, 49 config documents, 5 collection schemas; the Rust side invalid vectors with their codes and
+  paths; mutation checks fail them). Clippy clean for the crate (all targets) and for `canopy-wasm` on
+  `wasm32-unknown-unknown` with `authoring`. Canopy.js: 356 tests (248 before plus 108 in `test/emit`) pass on
+  Bun, on Node 26.13.1 and on Bun with `CANOPY_TEST_CORE=js`; lint, format, `tsc -b`, `tsc -p scripts`,
+  `check:core` and `check:wasm --manifest-only` pass. `test/emit` replays every policy, suite, filter,
+  config (51, two emission refusals) and schema vector through the builders and `canopy.js/emit` (deep and
+  byte equal, publishing hashes equal), every invalid vector with its code and path (schema also message),
+  a fixture project (sorted policy folder, stored JSON, `_context`, tests with `where`, schema, config
+  function), the output protocol and exit codes, refusals naming the file, the Canopy.js template, Canopy's
+  `deploy/dev` (equal to its vectors), and a secret canary (an `env.secret` value set in the environment
+  never appears on stdout). The built CLI on Canopy's `deploy/dev` prints bundles equal to the vectors under
+  Bun, Node 26 and Deno. In Canopy after `bun install`: `tsc -b`, `vectors:authoring-policy --check`,
+  `vectors:authoring-config --check` and the schema, config and policy authoring replays pass; `bun.lock`
+  unchanged.
+- **Not covered**: `examples/express-dropin/canopy/policies/tickets.test.ts` imports `@canopy/policy/testing`
+  (the TypeScript server package that `canopy policies test` uses) and has no default export, so the
+  emitter sees its policies (equal to the vector) but none of its cases; its vector replays the canonical
+  source. Moving examples to `canopy.js/policy/testing` belongs with the Rust `policies test` (R3b) or R7.
+  The vendored TypeScript policy engine, config resolver, query and matcher files under `src/core` remain
+  (removing them is the R2 item "deleting sync-core.ts").
+- **Client size gate, upstream regression**: the authoring change leaves the client and transforms modules
+  byte identical, but commit `4293707b` (`perf(matcher)`) grows the client module from 81,646 to 82,630
+  Brotli bytes (quality 11), over the 81,920 byte gate. Canopy.js keeps the committed client and transforms
+  artifacts (only the authoring entries were added to its manifest), so `check:wasm` against a fresh Canopy
+  build reports those four files until that is resolved. The authoring module is 1,356,553 bytes (376 KB
+  Brotli), mostly from `regex` with Unicode tables pulled by `canopy-schema` and `url`/ICU pulled by
+  `canopy-config`, both from other work.
+- Binaryen 133 for the split build is at `target/binaryen/binaryen-version_133/bin` (official release,
+  SHA-256 checked against the release digest); set `CANOPY_WASM_OPT` and `CANOPY_WASM2JS` to it.
+
 ## Checkpoint (2026-11-26): maintainer decisions, CLI commands, Studio image
 
 - Decisions of 2026-11-26: (1) the R2 optimistic update gate is accepted at the measured ratio, at most 3x for this stage (written in docs/plans/005-all-server-code-in-rust.md §7); (2) a policy test case in filter form runs only against MongoDB and passes when every matching document gives the expected outcome; an empty or mixed match fails; without MongoDB it is not run (written in conformance/authoring/README.md); (3) the Security finding on PR #6 is handled by excluding crates/canopy-authn/src/server/claims.rs in .github/trufflehog-exclude.txt.

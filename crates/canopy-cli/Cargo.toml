@@ -12,10 +12,15 @@ name = "canopy"
 path = "src/main.rs"
 
 [dependencies]
+canopy-authoring = { path = "../canopy-authoring" }
+canopy-config = { path = "../canopy-config" }
 canopy-control = { path = "../canopy-control" }
+canopy-matcher = { path = "../canopy-matcher" }
 canopy-migrations = { path = "../canopy-migrations" }
 canopy-mongo = { path = "../canopy-mongo" }
+canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
+canopy-query = { path = "../canopy-query" }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 indexmap = { version = "2", features = ["serde"] }

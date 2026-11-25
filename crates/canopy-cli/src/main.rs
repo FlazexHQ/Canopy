@@ -2,12 +2,20 @@
 
 mod admin;
 mod auth_import;
+mod bundle;
 mod credentials;
+mod dsl;
+mod explain;
 mod invocation;
 mod login;
 mod meta;
+mod policies;
+mod policy_tests;
+mod project;
+mod project_commands;
 mod realtime;
 mod remote;
+mod targets;
 mod tokens;
 
 use std::fmt;
@@ -62,6 +70,13 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
             _,
         ) => meta::run(name, args, &call),
         ("auth import", [file]) => auth_import::run(file, &call),
+        ("config print", _) => project_commands::config_print(&call),
+        ("build", _) => project_commands::build(&call),
+        (
+            "policies lint" | "policies test" | "policies explain" | "policies diff" | "policies push"
+            | "policies pull" | "policies history" | "policies rollback",
+            _,
+        ) => policies::run(name, args, &call),
         ("dev", _) => {
             let errors = ["port", "mongo-port"]
                 .into_iter()
@@ -79,6 +94,10 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
 
 fn output(line: fmt::Arguments<'_>) -> Result<(), String> {
     writeln!(io::stdout().lock(), "{line}").map_err(|error| error.to_string())
+}
+
+fn error_line(line: fmt::Arguments<'_>) -> Result<(), String> {
+    writeln!(io::stderr().lock(), "{line}").map_err(|error| error.to_string())
 }
 
 fn prompt(text: &str) -> Result<(), String> {

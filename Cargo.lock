@@ -472,12 +472,17 @@ dependencies = [
  "base64 0.22.1",
  "bson",
  "canopy-authn",
+ "canopy-authoring",
+ "canopy-config",
  "canopy-control",
  "canopy-http",
  "canopy-mail",
+ "canopy-matcher",
  "canopy-migrations",
  "canopy-mongo",
+ "canopy-policy",
  "canopy-protocol",
+ "canopy-query",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -504,6 +509,7 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
+ "url",
 ]
 
 [[package]]

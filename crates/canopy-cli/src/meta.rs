@@ -11,55 +11,120 @@ use canopy_mongo::mongodb::{
 use canopy_protocol::CanopyError;
 use time::OffsetDateTime;
 
+use canopy_config::authoring::Command;
+
 use crate::invocation::Invocation;
+use crate::project::Project;
 use crate::{confirmed, output};
 use canopy_control::{ApiKeyStore, KeyKind};
 
 pub(crate) fn run(name: &str, args: &[String], call: &Invocation) -> Result<ExitCode, String> {
-    let uri = call
-        .text("mongodb-uri")
-        .map(str::to_owned)
-        .or_else(|| std::env::var("MONGODB_URI").ok().filter(|uri| !uri.is_empty()))
-        .ok_or_else(|| {
-            format!("{name} needs --mongodb-uri or MONGODB_URI. This build cannot load canopy.config.ts.")
-        })?;
-    let database = std::env::var("CANOPY_META_DB").unwrap_or_else(|_| "canopy".into());
+    let debug = call.has_flag("debug");
+    let project = crate::project::configure(call, Command::Gen, false).map_err(|error| error.text(debug))?;
+    if name.starts_with("realtime ") {
+        let (uri, database) = app_target(call, &project, name)?;
+        return with_client(&uri, |client| async move {
+            crate::realtime::run(
+                &client.database(&database),
+                args,
+                name == "realtime enable-images",
+                call.has_flag("yes"),
+            )
+            .await
+        });
+    }
+    let (uri, database) = meta_target(call, &project, name)?;
+    with_client(&uri, |client| async move { execute(name, args, call, client.database(&database)).await })
+}
+
+/// The connection string and meta database of a command: `--mongodb-uri`, else the config.
+pub(crate) fn meta_target(
+    call: &Invocation,
+    project: &Project,
+    name: &str,
+) -> Result<(String, String), String> {
+    let uri = configured_uri(call, project).ok_or_else(|| {
+        format!("{name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file")
+    })?;
+    let meta = std::env::var("CANOPY_META_DB")
+        .ok()
+        .or_else(|| project.resolution.text("mongodb.metaDatabase").map(str::to_owned))
+        .unwrap_or_else(|| "canopy".to_owned());
+    Ok((uri, meta))
+}
+
+/// The connection string and app database of a command: the flags, the variables and the config.
+pub(crate) fn app_target(
+    call: &Invocation,
+    project: &Project,
+    name: &str,
+) -> Result<(String, String), String> {
+    let uri = configured_uri(call, project).ok_or_else(|| {
+        format!("{name} needs --mongodb-uri, MONGODB_URI or mongodb.uri in the config file")
+    })?;
+    let database = match (call.text("database"), call.text("mongodb-uri")) {
+        (Some(database), _) => database.to_owned(),
+        (None, None) => project.resolution.text("mongodb.database").unwrap_or_default().to_owned(),
+        (None, Some(_)) => std::env::var("CANOPY_DB")
+            .ok()
+            .or_else(|| canopy_config::authoring::database_from_uri(&uri))
+            .unwrap_or_default(),
+    };
+    if database.is_empty() {
+        return Err(format!("{name} needs --database, CANOPY_DB or a database in the URI path"));
+    }
+    Ok((uri, database))
+}
+
+fn configured_uri(call: &Invocation, project: &Project) -> Option<String> {
+    call.text("mongodb-uri").map(str::to_owned).or_else(|| project.text("mongodb.uri").map(str::to_owned))
+}
+
+/// Connects to MongoDB on a single threaded runtime, runs `body` and closes the client.
+pub(crate) fn with_client<F, T>(uri: &str, body: impl FnOnce(Client) -> F) -> Result<T, String>
+where
+    F: std::future::Future<Output = Result<T, String>>,
+{
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| error.to_string())?;
     runtime.block_on(async {
         let mut options = ClientOptions::parse(uri).await.map_err(mongo_error)?;
-        options.server_selection_timeout = Some(Duration::from_secs(10));
-        let app = if name.starts_with("realtime ") {
-            Some(
-                call.text("database")
-                    .map(str::to_owned)
-                    .or_else(|| std::env::var("CANOPY_DB").ok().filter(|name| !name.is_empty()))
-                    .or_else(|| options.default_database.clone())
-                    .filter(|name| !name.is_empty())
-                    .ok_or_else(|| {
-                        format!("{name} needs --database, CANOPY_DB or a database in the URI path")
-                    })?,
-            )
-        } else {
-            None
-        };
+        if !uri.to_ascii_lowercase().contains("serverselectiontimeoutms=") {
+            options.server_selection_timeout = Some(Duration::from_secs(10));
+        }
         let client = Client::with_options(options).map_err(mongo_error)?;
-        let result = if let Some(app) = app {
-            crate::realtime::run(
-                &client.database(&app),
-                args,
-                name == "realtime enable-images",
-                call.has_flag("yes"),
-            )
-            .await
-        } else {
-            execute(name, args, call, client.database(&database)).await
-        };
+        let result = body(client.clone()).await;
         client.shutdown().await;
         result
     })
+}
+
+/// The migrations the meta database has not run yet.
+pub(crate) async fn pending_migrations(meta: &Database) -> Result<Vec<&'static str>, String> {
+    let migrations = meta.collection::<Document>("migrations");
+    let mut pending = Vec::new();
+    for (version, migration) in (1..=LATEST_VERSION).zip(MIGRATION_NAMES) {
+        let applied = migrations.find_one(doc! { "_id": version }).await.map_err(mongo_error)?;
+        if applied.as_ref().and_then(|document| document.get_datetime("appliedAt").ok()).is_none() {
+            pending.push(migration);
+        }
+    }
+    Ok(pending)
+}
+
+/// Refuses a meta database whose migrations have not run.
+pub(crate) async fn require_migrated(meta: &Database) -> Result<(), String> {
+    let pending = pending_migrations(meta).await?;
+    if pending.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "The meta database {} is not migrated ({}). Run canopy migrate first.",
+        meta.name(),
+        pending.join(", ")
+    ))
 }
 
 async fn execute(name: &str, args: &[String], call: &Invocation, meta: Database) -> Result<ExitCode, String> {
@@ -76,31 +141,19 @@ async fn execute(name: &str, args: &[String], call: &Invocation, meta: Database)
         return Ok(ExitCode::SUCCESS);
     }
 
-    let migrations = meta.collection::<Document>("migrations");
-    let mut pending = Vec::new();
-    for (version, migration) in (1..=LATEST_VERSION).zip(MIGRATION_NAMES) {
-        let applied = migrations.find_one(doc! { "_id": version }).await.map_err(mongo_error)?;
-        let at = applied.as_ref().and_then(|document| document.get_datetime("appliedAt").ok());
-        if name == "migrate" {
-            let state = match at {
+    if name == "migrate" {
+        let migrations = meta.collection::<Document>("migrations");
+        for (version, migration) in (1..=LATEST_VERSION).zip(MIGRATION_NAMES) {
+            let applied = migrations.find_one(doc! { "_id": version }).await.map_err(mongo_error)?;
+            let state = match applied.as_ref().and_then(|document| document.get_datetime("appliedAt").ok()) {
                 Some(at) => format!("applied {}", date(at)?),
                 None => "pending".into(),
             };
             output(format_args!("{version:>4}  {migration}  {state}"))?;
-        } else if at.is_none() {
-            pending.push(migration);
         }
-    }
-    if name == "migrate" {
         return Ok(ExitCode::SUCCESS);
     }
-    if !pending.is_empty() {
-        return Err(format!(
-            "The meta database {} is not migrated ({}). Run canopy migrate first.",
-            meta.name(),
-            pending.join(", ")
-        ));
-    }
+    require_migrated(&meta).await?;
     if name.starts_with("admin ") {
         return crate::admin::run(name, args, call, &meta).await;
     }
@@ -224,7 +277,7 @@ pub(crate) fn date(value: &DateTime) -> Result<String, String> {
     Ok(crate::tokens::timestamp(at))
 }
 
-fn mongo_error(error: canopy_mongo::mongodb::error::Error) -> String {
+pub(crate) fn mongo_error(error: canopy_mongo::mongodb::error::Error) -> String {
     format!("error  {error}")
 }
 

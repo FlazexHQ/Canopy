@@ -2316,6 +2316,30 @@ async fn publishing_startup_bundle_is_enforced_by_canopyd() {
     }
     assert_eq!(meta.collection::<Document>("policy_history").count_documents(doc! {}).await.unwrap(), 1);
     assert_eq!(meta.collection::<Document>("audit_log").count_documents(doc! {}).await.unwrap(), 1);
+    let bundle = |policy: &str| {
+        format!(
+            r#"{{"version":1,"context":{{"mode":"production","command":"start"}},"files":{{"config":"canopy.config.ts","policies":"policies","tests":[],"schema":null}},"config":{{"version":1,"config":{{"masterKey":{{"$env":{{"name":"CANOPY_MASTER_KEY","type":"string","secret":true,"optional":false}}}}}}}},"policies":{{"version":1,"collections":[{{"collection":"notes","exposed":true,"realtime":false,"policies":[{{"name":"{policy}","kind":"permissive","ops":["read"],"roles":["anon"],"using":{{"public":true}}}}],"fields":{{"read":{{"default":{{"omit":["secret"]}}}}}}}}],"contexts":{{}}}},"tests":[],"schema":null}}"#
+        )
+    };
+    for (policy, histories) in [("public notes", 1), ("public notes only", 2)] {
+        std::fs::write(&path, bundle(policy)).unwrap();
+        let gateway = Gateway::start_with(config.clone(), Some("find"), &env).await;
+        let response = gateway.send(&canopy_http::Request::new("GET", "/rest/v1/notes")).await;
+        let body = std::str::from_utf8(&response.body).unwrap();
+        assert_eq!(response.status, 200, "{body}");
+        assert_eq!(list(&canopy_protocol::json::parse_json(body).unwrap(), "data").len(), 1, "{body}");
+        assert_eq!(
+            meta.collection::<Document>("policy_history").count_documents(doc! {}).await.unwrap(),
+            histories,
+            "a bundle from canopy build publishes only its changed policies part"
+        );
+    }
+    let stored =
+        meta.collection::<Document>("policies").find_one(doc! { "_id": "notes" }).await.unwrap().unwrap();
+    assert_eq!(
+        stored.get_array("policies").unwrap()[0].as_document().unwrap().get_str("name").unwrap(),
+        "public notes only"
+    );
     std::fs::remove_file(path).unwrap();
     meta.drop().await.unwrap();
     app.drop().await.unwrap();

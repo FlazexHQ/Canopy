@@ -79,15 +79,39 @@ struct Bindings {
 }
 
 #[test]
-fn explains_config_loading_limit_when_mongodb_uri_is_missing() -> TestResult<()> {
+fn refuses_a_config_file_that_does_not_exist() -> TestResult<()> {
+    let project = tempfile::tempdir()?;
     let mut command = Command::new(env!("CARGO_BIN_EXE_canopy"));
-    command.env_remove("MONGODB_URI");
+    command.current_dir(project.path()).env_remove("MONGODB_URI");
     let output = run(command, ["migrate", "--status", "--config", "canopy.config.ts"], "")?;
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr)?;
+    let missing = project.path().join("canopy.config.ts");
     assert_eq!(
-        String::from_utf8(output.stderr)?.trim_end(),
-        "migrate needs --mongodb-uri or MONGODB_URI. This build cannot load canopy.config.ts."
+        stderr.replace("\r\n", "\n"),
+        format!(
+            "Cannot find module '{}' imported from {}\nRun again with --debug for the stack trace.\n",
+            missing.display(),
+            env!("CARGO_BIN_EXE_canopy")
+        )
+    );
+    Ok(())
+}
+
+#[test]
+fn reports_the_missing_connection_string_in_zero_config_mode() -> TestResult<()> {
+    let project = tempfile::tempdir()?;
+    let mut command = Command::new(env!("CARGO_BIN_EXE_canopy"));
+    command.current_dir(project.path()).env_remove("MONGODB_URI").env_remove("CANOPY_DB");
+    let output = run(command, ["migrate", "--status"], "")?;
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8(output.stderr)?.replace("\r\n", "\n");
+    assert!(
+        stderr.starts_with(
+            "canopy: the environment has 1 problem\n\n  mongodb.uri\n    No MongoDB connection string."
+        ),
+        "{stderr}"
     );
     Ok(())
 }
@@ -260,7 +284,11 @@ async fn replay_steps(uri: &str, app: &Database, meta: &Database, auth: &Databas
     sessions.insert_one(doc! { "_id": "reset_fixture", "userId": &key.admin_id }).await?;
     let reset = |yes| {
         let mut command = Command::new(env!("CARGO_BIN_EXE_canopy"));
-        command.current_dir(project.path()).env("MONGODB_URI", uri).env("CANOPY_META_DB", meta.name());
+        command
+            .current_dir(project.path())
+            .env("MONGODB_URI", uri)
+            .env("CANOPY_DB", app.name())
+            .env("CANOPY_META_DB", meta.name());
         let mut args = vec!["admin", "reset-totp", &key.admin_id];
         if yes {
             args.push("--yes");
@@ -301,7 +329,10 @@ async fn replay_steps(uri: &str, app: &Database, meta: &Database, auth: &Databas
 
     let command = || {
         let mut command = Command::new(env!("CARGO_BIN_EXE_canopy"));
-        command.current_dir(project.path()).env("MONGODB_URI", "invalid").env("CANOPY_META_DB", meta.name());
+        command
+            .current_dir(project.path())
+            .env("MONGODB_URI", "mongodb://unused.invalid:1/unused?serverSelectionTimeoutMS=1")
+            .env("CANOPY_META_DB", meta.name());
         command
     };
     let before = snapshot(meta).await?;

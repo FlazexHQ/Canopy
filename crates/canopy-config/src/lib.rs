@@ -1,5 +1,6 @@
 //! Resolved data plane configuration from the launcher JSON document.
 
+pub mod authoring;
 mod graphql;
 mod storage;
 mod wire;

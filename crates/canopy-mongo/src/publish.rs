@@ -347,11 +347,12 @@ impl PolicyPublisher {
             .map_err(|_| validation("The policy history has no stored document"))
     }
 
-    /// Publishes the changed definitions from the canonical bundle before starting the server.
+    /// Publishes the changed definitions from the canonical bundle before starting the server. The file is a
+    /// policy set, or a version 1 bundle written by `canopy build`, whose `policies` part is published.
     pub async fn publish_startup_file(&self, path: &Path) -> Result<(), CanopyError> {
         let text = std::fs::read_to_string(path)
             .map_err(|error| validation(format!("Could not read policy bundle: {error}")))?;
-        let bundle = parse_policy_set(&text)?;
+        let bundle = parse_policy_set(&policy_part(&text)?)?;
         let changes = std::iter::once(Change::Contexts(bundle.contexts().clone()))
             .chain(bundle.collections().iter().cloned().map(Change::Policy))
             .collect::<Vec<_>>();
@@ -546,6 +547,24 @@ impl PolicyPublisher {
     }
 }
 
+/// The policy set of a startup file: the file itself, or the `policies` part of a bundle.
+fn policy_part(text: &str) -> Result<String, CanopyError> {
+    let json = canopy_protocol::json::parse_json(text.trim_start_matches('\u{feff}'))?;
+    if json.get("context").is_none() || json.get("collections").is_some() {
+        return Ok(text.to_owned());
+    }
+    match json.get("policies") {
+        Some(set @ canopy_protocol::json::Json::Object(_)) => {
+            let mut out = String::new();
+            canopy_protocol::json::write_json(&mut out, set);
+            Ok(out)
+        }
+        _ => Err(validation(
+            "The policy bundle has no policies part: build it from a project with a policy folder",
+        )),
+    }
+}
+
 fn actor_name(actor: &Document) -> Result<String, CanopyError> {
     let id = actor.get_str("id").map_err(|_| validation("The publisher needs an actor id"))?;
     let name = match actor.get_str("type") {
@@ -579,5 +598,22 @@ fn with_details(error: CanopyError, details: &Document) -> CanopyError {
     match details {
         Ok(details) => error.with_details(details),
         Err(_) => error,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::policy_part;
+
+    #[test]
+    fn reads_the_policies_part_of_a_bundle_and_passes_a_policy_set_through() {
+        let set = r#"{"version":1,"collections":[],"contexts":{}}"#;
+        assert_eq!(policy_part(set).ok().as_deref(), Some(set));
+        let bundle = format!(
+            r#"{{"version":1,"context":{{"mode":"development","command":"start"}},"files":{{}},"config":null,"policies":{set},"tests":[],"schema":null}}"#
+        );
+        assert_eq!(policy_part(&bundle).ok().as_deref(), Some(set));
+        let empty = r#"{"version":1,"context":{"mode":"development","command":"start"},"config":null,"policies":null}"#;
+        assert!(policy_part(empty).is_err_and(|error| error.message().contains("no policies part")));
     }
 }

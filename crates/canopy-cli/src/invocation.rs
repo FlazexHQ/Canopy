@@ -1,7 +1,8 @@
 use crate::USAGE;
 use canopy_control::KeyKind;
 
-const GLOBAL_FLAGS: &[&str] = &["help", "version", "debug", "config", "dir", "mongodb-uri", "database"];
+const GLOBAL_FLAGS: &[&str] =
+    &["help", "version", "debug", "config", "dir", "mongodb-uri", "database", "bundle"];
 const BOOLEAN_FLAGS: &[&str] = &[
     "help",
     "version",
@@ -55,6 +56,7 @@ const COMMANDS: &[Spec] = &[
     Spec::new("schema push", &["file", "yes"]),
     Spec::new("config print", &["sources"]),
     Spec::new("init", &[]),
+    Spec::new("build", &["out"]),
     Spec::new("dev", &["with-mongo", "mongo-binary", "mongo-version", "port", "mongo-port", "mongo-image"]),
     Spec::new("realtime enable-images", &["yes"]).variadic(),
     Spec::new("realtime disable-images", &["yes"]).variadic(),
