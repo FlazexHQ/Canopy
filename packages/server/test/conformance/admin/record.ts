@@ -9,8 +9,12 @@ import { ADMIN_ROLES, type AdminRole } from "../../../src/admin/rbac.ts"
 import { base32Decode, totp } from "../../../src/admin/totp.ts"
 import { builtin, type Canopy, createCanopy, defineConfig } from "../../../src/index.ts"
 import { cases, nextPassword, origin, password, type Step } from "./cases.ts"
+import { fixtureUser, userCases } from "./users.ts"
 
-const collections = [
+/** What one capture records: every admin route but app users, or the app user routes. */
+type Capture = "admin" | "users"
+
+const adminCollections = [
   "admin_sessions",
   "admin_tokens",
   "admin_users",
@@ -23,6 +27,11 @@ const collections = [
   "webhook_deliveries",
   "webhook_schedules",
 ]
+
+/** The users capture also follows `revocations`, which bans and ended sessions write. */
+const userCollections = [...adminCollections, "revocations"].sort()
+
+const isUserRoute = (route: string): boolean => /^\S+ users(?:\/|$)/.test(route)
 
 const ownerEmail = "owner@example.test"
 const defaultPeer = "127.0.0.1"
@@ -107,6 +116,7 @@ function substitutions(epoch: number, database: string, meta: string) {
 
 async function stateOf(
   db: Db,
+  collections: readonly string[],
   normalize: (value: string) => string,
 ): Promise<Record<string, string[]>> {
   const state: Record<string, string[]> = {}
@@ -167,12 +177,22 @@ class Scenario {
   private readonly meta: Db
   private readonly epoch: number
   private readonly advance: (milliseconds: number) => void
+  private readonly capturing: Capture
+  private readonly collections: readonly string[]
 
-  constructor(canopy: Canopy, meta: Db, epoch: number, advance: (milliseconds: number) => void) {
+  constructor(
+    canopy: Canopy,
+    meta: Db,
+    epoch: number,
+    advance: (milliseconds: number) => void,
+    capturing: Capture,
+  ) {
     this.canopy = canopy
     this.meta = meta
     this.epoch = epoch
     this.advance = advance
+    this.capturing = capturing
+    this.collections = capturing === "admin" ? adminCollections : userCollections
     this.replace = substitutions(epoch, canopy.config.mongodb.database, meta.databaseName)
   }
 
@@ -220,6 +240,7 @@ class Scenario {
         if (step.route.startsWith("admins/")) return this.params.get("adminId") ?? "missing"
         if (step.route.startsWith("tokens/")) return this.params.get("tokenId") ?? "missing"
         if (step.route.startsWith("api-keys/")) return this.params.get("keyId") ?? "missing"
+        if (step.route.startsWith("users/")) return this.params.get("userId") ?? "missing"
         if (step.route.startsWith("collections/")) return step.id === "document" ? "seed" : "write"
       }
       return this.params.get(name) ?? "missing"
@@ -264,6 +285,7 @@ class Scenario {
         this.credentials.set("token", field(body, "token"))
       }
       if (step.id === "auth-keys") this.params.set("kid", field(body, "data.0.kid"))
+      if (step.id === "user-fixture") this.params.set("userId", field(body, "id"))
     }
     const { normalize } = this.replace
     const responseHeaders = Object.fromEntries(
@@ -271,7 +293,7 @@ class Scenario {
         .filter(([key]) => key !== "set-cookie")
         .map(([key, value]) => [key, normalize(value)]),
     )
-    const state = await stateOf(this.meta, normalize)
+    const state = await stateOf(this.meta, this.collections, normalize)
     this.steps.push({
       id: step.id,
       request: {
@@ -467,6 +489,7 @@ class Scenario {
         204,
       )
     }
+    if (this.capturing === "users") return this.runUsers(role)
     for (const step of cases) {
       if (role === "owner" && step.id === "revoke-all") continue
       const result = await this.send(step, step.id === "revoke-all" ? 403 : undefined)
@@ -491,23 +514,80 @@ class Scenario {
       )
     }
     const absent = this.canopy.admin.api?.routes.filter(
-      (route) => !/^\S+ users(?:\/|$)/.test(route) && !this.covered.has(route),
+      (route) => !isUserRoute(route) && !this.covered.has(route),
     )
     if (absent === undefined || absent.length > 0)
       throw new Error(`Missing admin cases: ${absent?.join(", ")}`)
     return { role, origin, ip: defaultPeer, steps: this.steps }
   }
+
+  /** Signs the fixture user in through `/auth/v1`, which the capture does not record. */
+  private async signIn(): Promise<void> {
+    this.advance(100)
+    const response = await this.canopy.fetch(
+      new Request(`${origin}/auth/v1/sign-in/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin },
+        body: JSON.stringify({ email: fixtureUser.email, password: fixtureUser.password }),
+      }),
+      undefined,
+      { ip: defaultPeer },
+    )
+    if (response.status !== 200)
+      throw new Error(
+        `The fixture user could not sign in: ${response.status} ${await response.text()}`,
+      )
+  }
+
+  private async runUsers(role: AdminRole): Promise<unknown> {
+    const users = this.canopy.auth?.users
+    if (users === undefined) throw new Error("Built in auth is required for the users capture")
+    await this.send(
+      {
+        id: "user-fixture",
+        method: "POST",
+        route: "users",
+        body: fixtureUser,
+        credential: "owner",
+      },
+      201,
+    )
+    await this.signIn()
+    await this.signIn()
+    const sessions = await users.listSessions(this.params.get("userId") ?? "")
+    const [first] = [...sessions].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+    if (sessions.length !== 2 || first === undefined)
+      throw new Error(`The fixture user has ${sessions.length} sessions, expected 2`)
+    this.params.set("sid", first.id)
+    this.previous = await stateOf(this.meta, this.collections, this.replace.normalize)
+    for (const step of userCases) {
+      const until = new Date(Date.now() + 30 * 86_400_000).toISOString()
+      await this.send(step.id === "user-ban" ? { ...step, body: { reason: "abuse", until } } : step)
+    }
+    const absent = this.canopy.admin.api?.routes.filter(
+      (route) => isUserRoute(route) && !this.covered.has(route),
+    )
+    if (absent === undefined || absent.length > 0)
+      throw new Error(`Missing user cases: ${absent?.join(", ")}`)
+    return { role, origin, ip: defaultPeer, steps: this.steps }
+  }
 }
 
-/** Records the embedded TypeScript admin surface in an isolated pair of databases per role. */
+/**
+ * Records the embedded TypeScript admin surface in isolated databases per role: every admin route but app
+ * users into `<role>.json`, and the app user routes of every role into `users.json`.
+ */
 export async function recordAdmin(uri: string, dir: string, check: boolean): Promise<string[]> {
   const mongo = new MongoClient(uri, { serverSelectionTimeoutMS: 10_000 })
   await using client = mongo
   await client.connect()
   const outputs = new Map<string, string>()
   const originalDate = Date
+  const users: unknown[] = []
   try {
-    for (const role of ADMIN_ROLES) {
+    for (const [capturing, role] of (["admin", "users"] as const).flatMap((kind) =>
+      ADMIN_ROLES.map((role) => [kind, role] as const),
+    )) {
       const database = `canopy_admin_oracle_${randomUUID().slice(0, 8)}`
       const meta = `${database}_meta`
       const authDatabase = `${database}_auth`
@@ -583,10 +663,18 @@ export async function recordAdmin(uri: string, dir: string, check: boolean): Pro
           )
         canopy.admin.lag?.stop()
         canopy.admin.lag?.sample()
-        const scenario = new Scenario(canopy, client.db(meta), epoch, (ms) => {
-          now += ms
-        })
-        outputs.set(`${role}.json`, `${JSON.stringify(await scenario.run(role, setup), null, 2)}\n`)
+        const scenario = new Scenario(
+          canopy,
+          client.db(meta),
+          epoch,
+          (ms) => {
+            now += ms
+          },
+          capturing,
+        )
+        const captured = await scenario.run(role, setup)
+        if (capturing === "users") users.push(captured)
+        else outputs.set(`${role}.json`, `${JSON.stringify(captured, null, 2)}\n`)
       } finally {
         try {
           await canopy?.close()
@@ -601,6 +689,7 @@ export async function recordAdmin(uri: string, dir: string, check: boolean): Pro
   } finally {
     globalThis.Date = originalDate
   }
+  outputs.set("users.json", `${JSON.stringify({ captures: users }, null, 2)}\n`)
   const differing: string[] = []
   if (!check) await mkdir(dir, { recursive: true })
   for (const [name, content] of outputs) {
