@@ -56,7 +56,7 @@ Linux job builds the modules and runs Deno and all three Playwright browsers.
 | Chromium 156.0.8078.4 | Pass with `wasm-unsafe-eval` | Pass with strict CSP | Refused as expected  |
 | Firefox 157.0         | Pass with `wasm-unsafe-eval` | Pass with strict CSP | Refused as expected  |
 | WebKit 27.2           | Pass with `wasm-unsafe-eval` | Pass with strict CSP | Refused as expected  |
-| Hermes                | N/A                          | CLI failures below   | N/A                  |
+| Hermes                | N/A                          | Pass (desktop CLI)   | N/A                  |
 
 The strict policy is `script-src 'self'`. The JavaScript runner selects the fallback explicitly
 and hides the WebAssembly global so the current lazy loader takes its JavaScript branch.
@@ -74,24 +74,80 @@ policy set versions and compiled
 decisions, 15 canonical policy bundle hashes, and the 35 inference, 27 validator and six
 restriction cases.
 
-The standalone Hermes CLI needs the following test host dependencies outside the workspace.
-The runner bundles the JavaScript bindings and fixture data and lowers newer syntax for the CLI.
-It lazily imports the JavaScript transforms entry directly in the bundle.
+## Hermes desktop CLI
+
+Build the split modules first. The runner uses the workspace install for esbuild, TypeScript and
+the BSON fixture helper. It bundles the fixtures and the wasm2js entries with UTF8 and base64 host
+shims. The transforms initialize on first use. With `--legacy`, TypeScript lowers the BSON helper's
+classes to ES5 and the runner enables Hermes's class flag for the remaining native classes.
+
+- **Hermes 0.12.0.** Extract the CLI archive for your platform from the
+  [official v0.13.0 release](https://github.com/meta/hermes/releases/tag/v0.13.0).
+  The Windows archive reports Hermes 0.12.0 and bytecode version 96. Its measured archive SHA-256
+  is `485907ae87f267f7901f45c12979fea9703967ee2fa930bab887d022de9d6478`.
+  Use the archive's `hermes` and `hermesc` together.
+- **Hermes 1.0.0.** Fetch `hermes-compiler@250829098.0.19` with
+  `npm pack hermes-compiler@250829098.0.19 --pack-destination target`.
+  Check the [npm tarball](https://registry.npmjs.org/hermes-compiler/-/hermes-compiler-250829098.0.19.tgz)
+  SHA-256 `839af099f0926b5ebbd738ba54764a3f40e35dfc3aac91babf56f8eb7c69280e` before extracting it.
+  Its `hermesc` directory has platform binaries for Linux, macOS and Windows. The package ships
+  the compiler. Build the matching `hermes` CLI from the
+  [package source revision](https://github.com/meta/hermes/tree/40b4c8d4e22ed2b9af46aba81aec3ca8aa5e169c)
+  using the [Hermes build instructions](https://github.com/meta/hermes/blob/40b4c8d4e22ed2b9af46aba81aec3ca8aa5e169c/doc/BuildingAndRunning.md).
+  For example, after checking out that source under `target/hermes-source`, run
+  `cmake -S target/hermes-source -B target/hermes-source/out -G Ninja -DCMAKE_BUILD_TYPE=Release`
+  followed by `cmake --build target/hermes-source/out --target hermes`. Both executables used here
+  report bytecode version 98.
 
 ```sh
-npm install --prefix <scratch> fast-text-encoding@1.0.6 base64-js@1.5.1 esbuild@0.28.1
-bun bench/baselines/r2/hermes.mjs <Hermes executable> <scratch> -Xes6-class -O0
+bun bench/baselines/r2/hermes.mjs --legacy --hermes target/hermes/hermes.exe --hermesc target/hermes/hermesc.exe --bench
+bun bench/baselines/r2/hermes.mjs --hermes target/hermes-source/out/bin/hermes.exe --hermesc target/hermes-modern/package/hermesc/win64-bin/hermesc.exe --bench
 ```
 
-The `hermes-engine-cli@0.12.0` Windows binary reports `error: invalid statement encountered.`
-at the first class and does not recognize `-Xes6-class`. The Windows binary from the official
-`v0.13.0` release accepts the flag and exits with status 5. The trace starts at
-`hermes::vm::JSOutOfMemoryError::operator=(class hermes::vm::JSOutOfMemoryError const &)`.
-The Linux binary from the same release, run under WSL, reports no engine message and the
-runner reports `Hermes replay failed with exit status 11`, including with a 64 MiB stack.
-Real Hermes conformance remains open. CI needs a runtime paired with a supported React Native
-version, the fixture bundle and host encoding globals. The Node 26 fallback run covers the
-case where WebAssembly is absent.
+Substitute executable paths for your platform as needed. `CANOPY_HERMES` and `CANOPY_HERMESC` also
+accept paths. Omit `--bench` to run conformance alone. The replay
+prints each fixture's result and exits nonzero on compilation, runtime or assertion failure.
+A replay assertion failure identifies the active fixture and any fixtures still pending.
+
+Both Windows 11 x64 CLI runs passed all 11 sets exercised by the shared R2 replay.
+
+| Vector set                                     | Hermes 0.12.0 | Hermes 1.0.0 |
+| ---------------------------------------------- | ------------: | -----------: |
+| `matcher/filters`                              |         2,000 |        2,000 |
+| `matcher/sorts`                                |           200 |          200 |
+| `matcher/projections`                          |           200 |          200 |
+| `matcher/updates`                              |         1,995 |        1,995 |
+| `policy/policy` (set cases)                    |           761 |          761 |
+| `policy/pipeline`                              |         2,242 |        2,242 |
+| `query/query` (query cases)                    |         2,972 |        2,972 |
+| `schema/schema`                                |            68 |           68 |
+| `authoring/policy/vectors`                     |            15 |           15 |
+| `authoring/policy/publishing`                  |            15 |           15 |
+| `protocol/07-typed-values` (document payloads) |             3 |            3 |
+
+Filter passes include nine expected refusals. Updates also verified the five expected
+unsupported Decimal128 arithmetic cases. Pipeline passes include 431 accepts and 1,811
+expected refusals. The authoring and publishing fixtures share the same 15 policy bundles.
+
+### Desktop CLI timings
+
+Windows 11 x64 on an AMD Ryzen 5 5600H. Each entry is the median of five samples, alternating
+the two implementations. The ratio is wasm2js time divided by TypeScript time. Both implementations
+run in the same Hermes CLI. Matcher times are in microseconds per scan of 1,000 documents with
+50 scans per sample. Filter compilation and BSON page construction happen before timing. The
+shared dotted path scenario is omitted because it includes a regex outside this benchmark's
+supported filter subset. Codec times are in microseconds per frame over 1,000 passes of the five
+server frames in the typed protocol fixture, with 100 warmup passes. They include the host encoding
+shims. React Native device performance is unmeasured.
+
+| Workload                   | 0.12.0 TypeScript / wasm2js / ratio | 1.0.0 TypeScript / wasm2js / ratio |
+| -------------------------- | ----------------------------------: | ---------------------------------: |
+| equality (DLS owner)       |                 1320 / 3460 / 2.62× |                1160 / 3200 / 2.76× |
+| `range and $in`            |               14420 / 34020 / 2.36× |               8360 / 21420 / 2.56× |
+| `$or of 3 branches`        |                9280 / 26940 / 2.90× |               4840 / 16140 / 3.33× |
+| `$elemMatch`               |                5460 / 18340 / 3.36× |               5080 / 19560 / 3.85× |
+| DLS and user filter        |                 1840 / 5660 / 3.08× |                1060 / 3640 / 3.43× |
+| canonical EJSON (5 frames) |               46.6 / 868.2 / 18.63× |              38.8 / 946.4 / 24.39× |
 
 The original baseline also verified the extracted schema crate and the native schema vectors.
 Its license check passed with the existing `jsonpath-rust` manifest warning.
@@ -103,8 +159,7 @@ The build and benchmark scripts passed `bunx biome check`, and
 
 Generated frame types, policy lint diagnostics, canonical unresolved config resolution,
 collection schema bundle validation and the remaining query and policy authoring vectors are
-still open. The split bindings lack the secured pipeline export needed to run
-`conformance/policy/pipeline.json`. The protocol replay exercises the typed EJSON payloads.
+still open. The protocol replay exercises the typed EJSON payloads.
 The launcher config export validates the existing Rust launcher
 format. The Canopy.js integration, root bundle growth, first live query and optimistic update latency
 measurements are pending.

@@ -47,7 +47,16 @@ function schemaBson(value, { Binary, EJSON, serialize }) {
   return bytes([size, ...fields, Uint8Array.of(0)])
 }
 
-export async function replay({ client, loadDocuments, authoring, vectors, assert, bsonCodec }) {
+export async function replay({
+  client,
+  loadDocuments,
+  authoring,
+  vectors,
+  assert,
+  bsonCodec,
+  start,
+  pass,
+}) {
   const { Binary, deserialize, EJSON, serialize } = bsonCodec
   const bson = (text) => Uint8Array.from(Binary.createFromBase64(text).value())
   assert.equal(client.PolicyEngine, undefined)
@@ -58,6 +67,7 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
   assert.equal(client.DocumentPage.prototype.applyBsonUpdate, undefined)
   assert.equal(authoring.Filter, undefined)
   const counts = { filters: 0, unsupportedFilters: 0, updates: 0, unsupportedUpdates: 0 }
+  start?.("matcher/filters")
   const match = await vectors("matcher/filters")
   const matchPage = client.DocumentPage.fromBson(bytes(match.documents.map(bson)))
   try {
@@ -96,6 +106,9 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
   assert.equal(counts.filters, 1991)
   assert.equal(counts.unsupportedFilters, 0)
 
+  pass?.("matcher/filters", match.cases.length)
+
+  start?.("matcher/sorts")
   const transforms = await loadDocuments()
   assert.equal(transforms.DocumentPage.prototype.matchFilter, undefined)
   assert.equal(transforms.PolicyEngine, undefined)
@@ -103,6 +116,7 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     ["sorts", "sort", "order"],
     ["projections", "projection", "documents"],
   ]) {
+    start?.(`matcher/${kind}`)
     const fixture = await vectors(`matcher/${kind}`)
     const pageBytes = bytes(fixture.documents.map(bson))
     for (const [index, item] of fixture.cases.entries()) {
@@ -124,8 +138,10 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
         page.free()
       }
     }
+    pass?.(`matcher/${kind}`, fixture.cases.length)
   }
 
+  start?.("matcher/updates")
   const updates = await vectors("matcher/updates")
   const unsupportedUpdates = []
   for (const [index, item] of updates.cases.entries()) {
@@ -180,8 +196,12 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     atomic.free()
   }
 
+  pass?.("matcher/updates", counts.updates)
+
+  start?.("policy/policy")
   const policy = await vectors("policy/policy")
-  for (const item of policy.cases.filter((item) => item.kind === "set")) {
+  const policySets = policy.cases.filter((item) => item.kind === "set")
+  for (const item of policySets) {
     const create = () => new authoring.PolicyEngine(item.collections, item.contexts)
     if (item.error !== undefined) {
       assert.throws(create, { code: item.code, message: `${item.name}: ${item.error}` })
@@ -209,6 +229,9 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     }
   }
 
+  pass?.("policy/policy", policySets.length)
+
+  start?.("policy/pipeline")
   const pipeline = await vectors("policy/pipeline")
   const pipelineEngine = new authoring.PolicyEngine(pipeline.collections, "null")
   counts.pipelinesAccepted = 0
@@ -243,10 +266,12 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
   assert.equal(counts.pipelinesAccepted, 431)
   assert.equal(counts.pipelinesRefused, 1811)
 
+  pass?.("policy/pipeline", pipeline.cases.length)
+
+  start?.("query/query")
   const query = await vectors("query/query")
-  for (const { input, result, error, code } of query.cases.filter(
-    (item) => item.kind === "query",
-  )) {
+  const queries = query.cases.filter((item) => item.kind === "query")
+  for (const { input, result, error, code } of queries) {
     const canonicalize = () => authoring.canonicalizeQuery("notes", input)
     if (error !== undefined) {
       assert.throws(canonicalize, { code })
@@ -265,6 +290,9 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     assert.equal(authoring.queryHash(key), result.hash)
   }
 
+  pass?.("query/query", queries.length)
+
+  start?.("schema/schema")
   const schema = await vectors("schema/schema")
   for (const { name, docs, options, expected } of schema.inference) {
     const documents = bytes(docs.map((doc) => schemaBson(doc, bsonCodec)))
@@ -294,6 +322,12 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     )
   }
 
+  pass?.(
+    "schema/schema",
+    schema.inference.length + schema.validators.length + schema.restrictions.length,
+  )
+
+  start?.("authoring/policy/vectors", "authoring/policy/publishing")
   const { sets } = await vectors("authoring/policy/vectors")
   const published = await vectors("authoring/policy/publishing")
   for (const { name, document } of sets) {
@@ -309,6 +343,10 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     }
   }
 
+  pass?.("authoring/policy/vectors", sets.length)
+  pass?.("authoring/policy/publishing", sets.length)
+
+  start?.("protocol/07-typed-values")
   const protocol = await vectors("protocol/07-typed-values")
   const documents = protocol.steps
     .flatMap((step) => step.server ?? [])
@@ -322,5 +360,6 @@ export async function replay({ client, loadDocuments, authoring, vectors, assert
     assert.deepEqual(JSON.parse(client.bsonToEjson(client.ejsonToBson(text), true)), canonical)
     assert.deepEqual(JSON.parse(client.canonicalEjson(text)), canonical)
   }
+  pass?.("protocol/07-typed-values", documents.length)
   return counts
 }
