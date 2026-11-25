@@ -394,8 +394,9 @@ uses the frozen full matcher because the lite matcher refuses its regex. The oth
 contents for every scan, prepared before timing. Warm scans reuse the same document objects,
 allowing the engine to reuse retained BSON and decoded documents. The 1.2x matching gate uses
 the warm number, because the client keeps the documents of a live query retained in the core and
-matches them there; the cold number is the cost of a document's first contact with the core (encoding
-it and decoding it once), reported beside the gate and not gated, as in the earlier R2 measurements.
+matches them there. The cold number measures first contact, when the engine encodes the document and
+matches it directly as BSON. The second encounter decodes it into an owned slot. First contact is
+reported beside the gate and is outside its threshold.
 Both timings include the engine call and reading the decisions, and exclude
 filter compilation and engine startup.
 
@@ -404,6 +405,69 @@ applications. `single` reuses the same input document and update, `chained` feed
 the next update within its batch, and `fresh` uses new documents and update specs prepared before the
 clock starts. JSON output includes each round and the minimum and maximum across rounds for both
 implementations and their paired Wasm to TypeScript ratios. Use a quiet machine for gate measurements.
+
+#### First contact and retention stages
+
+Run the same benchmark with `--match-stages --rounds 5 --canopy-js <baseline>` against a build
+of Canopy.js `d4dcb90`. The stage probe uses all eight fields of `benchDocument`, including its
+arrays and subdocuments, and the owner equality filter. It times ten batches of 1,000 documents
+per pass, takes the fastest of 15 passes after three warmups, and reverses stage order every other
+round. Figures are minimum to maximum across five rounds, in nanoseconds per document.
+
+| Isolated stage                                                 |      Bun 1.4.5 |   Node 26.13.1 | Chromium 156 at 4x |
+| -------------------------------------------------------------- | -------------: | -------------: | -----------------: |
+| JavaScript BSON encoding and slab write                        |   978 to 1,172 | 1,303 to 1,337 |     5,230 to 6,000 |
+| Assemble the joined buffer from encoded BSON                   |       25 to 30 |       18 to 19 |           20 to 70 |
+| Allocate and copy into Wasm memory                             |         5 to 7 |         5 to 8 |           10 to 20 |
+| Remember first encounter with WeakSet                          |       22 to 24 |       46 to 48 |          70 to 210 |
+| First match on raw BSON, net of copy                           |     336 to 365 |     351 to 364 |       670 to 1,650 |
+| Decode into owned Rust documents and retain slots, net of copy | 2,741 to 2,883 | 2,547 to 2,670 |    6,750 to 12,290 |
+| Associate retained slots in WeakMap and register finalizers    |       45 to 58 |       59 to 62 |         110 to 270 |
+| Match the retained documents directly through the slot binding |       22 to 23 |       24 to 26 |          50 to 140 |
+
+The two net timings subtract the independently measured input allocation and copy from each
+round. They include binding return work. Retention also includes Rust slot insertion and
+returning the slot numbers. The stages exclude end to end lookup, merge and decision conversion,
+so their spreads cannot be added to reproduce the end to end figures.
+
+The revised engine writes consecutive BSON into a reusable JavaScript buffer and returns the
+core's raw decisions immediately when the whole batch is new. The retained path uses the
+protocol's batch decoder, which avoids allocating an intermediate vector of BSON slices.
+Finalizer registration stays per object so each slot can be reclaimed when its document dies.
+The input copy remains in the binding and accounts for at most 20 ns per document in this probe.
+
+#### Matching before and after batch encoding
+
+Each entry is the five round spread in Wasm nanoseconds per document, followed by the spread of
+the paired Wasm to TypeScript ratios. The arrow separates Canopy `9e397129` and Canopy.js
+`d4dcb90` from the revised build. Each round alternates TypeScript and Wasm. The warm gate
+remains 1.2x. Median warm owner equality is 0.71x on Bun, 0.78x on Node and 1.45x on
+Chromium. The other five Chromium scenarios stay within the gate across all five rounds.
+Median cold owner equality fell 12% on Bun, 36% on Node and 28% on Chromium.
+The client module is 81,328 Brotli bytes at quality 11, with 592 bytes of headroom. A second split
+build reproduced all 25 generated assets byte for byte.
+
+**Cold matching**
+
+| Scenario             |                                                           Bun 1.4.5 |                                                        Node 26.13.1 |                                                    Chromium 156 at 4x |
+| -------------------- | ------------------------------------------------------------------: | ------------------------------------------------------------------: | --------------------------------------------------------------------: |
+| equality (DLS owner) | 1,881 to 2,090 (48.27 to 60.11x) → 1,690 to 1,909 (41.97 to 68.43x) | 2,630 to 2,790 (48.47 to 89.75x) → 1,706 to 1,928 (29.00 to 57.50x) |  8,050 to 10,050 (67.08 to 98.00x) → 6,910 to 7,630 (60.92 to 69.80x) |
+| range and `$in`      |   2,214 to 2,412 (9.83 to 10.55x) → 2,013 to 2,199 (9.16 to 11.17x) |   2,960 to 3,160 (11.60 to 13.76x) → 2,023 to 2,131 (8.19 to 8.85x) |  9,710 to 11,020 (11.99 to 13.60x) → 8,530 to 9,190 (10.63 to 10.94x) |
+| `$or` of 3 branches  |   2,251 to 2,440 (10.04 to 10.29x) → 2,055 to 2,218 (9.15 to 9.41x) |   3,036 to 3,215 (14.27 to 14.75x) → 2,081 to 2,163 (9.44 to 9.80x) | 10,210 to 11,420 (13.61 to 15.28x) → 8,800 to 9,670 (11.58 to 13.07x) |
+| dotted path          | 2,209 to 2,378 (23.46 to 25.16x) → 1,951 to 2,120 (20.04 to 22.54x) | 2,946 to 3,023 (25.44 to 26.55x) → 1,997 to 2,070 (16.57 to 17.75x) | 10,930 to 13,210 (26.81 to 28.11x) → 8,570 to 9,510 (20.90 to 23.24x) |
+| `$elemMatch`         | 2,266 to 2,433 (14.07 to 14.70x) → 2,024 to 2,175 (12.70 to 13.73x) | 2,959 to 3,108 (17.79 to 18.83x) → 2,009 to 2,180 (11.69 to 12.59x) | 11,150 to 11,660 (18.31 to 20.03x) → 8,570 to 9,450 (14.05 to 15.32x) |
+| DLS and user filter  | 1,968 to 2,139 (36.93 to 44.56x) → 1,735 to 1,923 (33.21 to 39.49x) | 2,687 to 2,858 (43.34 to 45.46x) → 1,723 to 1,820 (25.38 to 29.38x) |  9,810 to 10,230 (40.24 to 44.73x) → 7,250 to 8,060 (30.58 to 34.30x) |
+
+**Warm matching**
+
+| Scenario             |                                               Bun 1.4.5 |                                            Node 26.13.1 |                                      Chromium 156 at 4x |
+| -------------------- | ------------------------------------------------------: | ------------------------------------------------------: | ------------------------------------------------------: |
+| equality (DLS owner) |     28 to 36 (0.65 to 1.48x) → 28 to 34 (0.64 to 1.62x) |     39 to 41 (0.78 to 1.46x) → 41 to 43 (0.77 to 1.51x) | 150 to 180 (1.50 to 1.80x) → 150 to 180 (1.25 to 1.60x) |
+| range and `$in`      | 123 to 128 (0.50 to 0.62x) → 119 to 123 (0.52 to 0.71x) | 133 to 138 (0.53 to 0.57x) → 128 to 130 (0.51 to 0.55x) | 540 to 570 (0.68 to 0.75x) → 230 to 600 (0.59 to 0.75x) |
+| `$or` of 3 branches  | 131 to 135 (0.57 to 0.60x) → 130 to 133 (0.57 to 0.68x) | 145 to 147 (0.66 to 0.71x) → 149 to 150 (0.68 to 0.70x) | 630 to 660 (0.78 to 0.86x) → 620 to 740 (0.80 to 0.88x) |
+| dotted path          |     73 to 77 (0.77 to 0.90x) → 75 to 77 (0.71 to 0.92x) |     84 to 87 (0.75 to 0.79x) → 86 to 87 (0.74 to 0.79x) | 360 to 390 (0.86 to 0.91x) → 360 to 370 (0.86 to 0.90x) |
+| `$elemMatch`         | 138 to 140 (0.86 to 0.97x) → 141 to 146 (0.84 to 1.05x) | 149 to 152 (0.89 to 0.93x) → 149 to 154 (0.86 to 0.90x) | 620 to 680 (1.00 to 1.07x) → 640 to 670 (1.05 to 1.10x) |
+| DLS and user filter  |     43 to 44 (0.86 to 0.99x) → 42 to 45 (0.80 to 1.00x) |     53 to 55 (0.90 to 0.92x) → 52 to 57 (0.83 to 0.93x) | 220 to 230 (0.92 to 1.00x) → 220 to 220 (0.96 to 1.00x) |
 
 ## Measurements (2026-11-26)
 

@@ -133,9 +133,7 @@ impl DocumentCache {
     /// Decodes BSON documents laid end to end and retains each one. Returns their slots, in order. Throws, and
     /// retains nothing, when the BSON is malformed.
     pub fn retain(&mut self, documents: &[u8]) -> Result<Vec<u32>, JsValue> {
-        let decoded = split_documents(documents)
-            .and_then(|items| items.into_iter().map(decode_document).collect::<Result<Vec<_>, _>>())
-            .map_err(|error| thrown(&error))?;
+        let decoded = canopy_protocol::bson::decode_documents(documents).map_err(|error| thrown(&error))?;
         let mut slots = Vec::with_capacity(decoded.len());
         for document in decoded {
             let slot = match self.vacant.pop() {
@@ -144,8 +142,9 @@ impl DocumentCache {
                     let slot = u32::try_from(self.slots.len()).map_err(|_| {
                         thrown(&canopy_protocol::CanopyError::invalid_query("Too many retained documents"))
                     })?;
-                    self.slots.push(None);
-                    slot
+                    self.slots.push(Some(document));
+                    slots.push(slot);
+                    continue;
                 }
             };
             if let Some(entry) = usize::try_from(slot).ok().and_then(|index| self.slots.get_mut(index)) {

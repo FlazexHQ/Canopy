@@ -4,6 +4,7 @@ import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 import { runWorkload } from "./engine-workload.mjs"
+import { matchStages } from "./match-stages.mjs"
 
 const root = new URL("../../../", import.meta.url)
 const { values } = parseArgs({
@@ -11,6 +12,7 @@ const { values } = parseArgs({
     "canopy-js": { type: "string" },
     chromium: { type: "boolean" },
     rounds: { type: "string", default: "3" },
+    "match-stages": { type: "boolean" },
   },
 })
 const rounds = Number(values.rounds)
@@ -22,6 +24,9 @@ const checkout =
     : resolve(values["canopy-js"])
 const dist = join(checkout, "dist")
 const enginePath = join(dist, "client", "engine.js")
+const bsonPath = join(dist, "client", "bson.js")
+const bindingPath = join(dist, "core", "wasm", "client", "canopy_client.js")
+const clientAsset = "/core/wasm/client/canopy_client_bg.wasm"
 
 async function measureChromium() {
   const require = createRequire(new URL("apps/studio/package.json", root))
@@ -35,7 +40,14 @@ async function measureChromium() {
       contents: `
         import { loadEngine } from ${JSON.stringify(enginePath.replaceAll("\\", "/"))}
         import { runWorkload } from "./engine-workload.mjs"
+        import { matchStages } from "./match-stages.mjs"
+        import * as binding from ${JSON.stringify(bindingPath.replaceAll("\\", "/"))}
+        import { encodeDocument } from ${JSON.stringify(bsonPath.replaceAll("\\", "/"))}
         export async function run(reverse) {
+          if (${Boolean(values["match-stages"])}) {
+            const wasm = await binding.default({ module_or_path: ${JSON.stringify(clientAsset)} })
+            return matchStages(binding, wasm, encodeDocument, reverse)
+          }
           return runWorkload(await loadEngine(), reverse)
         }
       `,
@@ -94,13 +106,24 @@ async function measureChromium() {
 }
 
 async function measureHost() {
+  const runtime = globalThis.Bun ? "Bun " + Bun.version : "Node " + process.versions.node
+  if (values["match-stages"]) {
+    const binding = await import(pathToFileURL(bindingPath).href)
+    const { encodeDocument } = await import(pathToFileURL(bsonPath).href)
+    const wasm = binding.initSync({ module: await readFile(join(dist, clientAsset)) })
+    return {
+      runtime,
+      samples: Array.from({ length: rounds }, (_, round) =>
+        matchStages(binding, wasm, encodeDocument, round % 2 === 1),
+      ),
+    }
+  }
   const { loadEngine } = await import(pathToFileURL(enginePath).href)
   const engine = await loadEngine()
   const samples = []
   for (let round = 0; round < rounds; round += 1) {
     samples.push(runWorkload(engine, round % 2 === 1))
   }
-  const runtime = globalThis.Bun ? `Bun ${Bun.version}` : `Node ${process.versions.node}`
   return { runtime, samples }
 }
 
@@ -129,9 +152,20 @@ const { runtime, samples } = await (values.chromium ? measureChromium() : measur
 const report = {
   checkout,
   runtime,
-  matchColdNsPerDocument: summarize(samples, "matchCold"),
-  matchWarmNsPerDocument: summarize(samples, "matchWarm"),
-  updateUsPerOperation: summarize(samples, "update"),
+  ...(values["match-stages"]
+    ? {
+        matchStagesNsPerDocument: Object.fromEntries(
+          Object.keys(samples[0]).map((name) => [
+            name,
+            spread(samples.map((sample) => sample[name])),
+          ]),
+        ),
+      }
+    : {
+        matchColdNsPerDocument: summarize(samples, "matchCold"),
+        matchWarmNsPerDocument: summarize(samples, "matchWarm"),
+        updateUsPerOperation: summarize(samples, "update"),
+      }),
   rounds: samples,
 }
 process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
