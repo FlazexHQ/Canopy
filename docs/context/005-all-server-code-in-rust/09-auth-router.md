@@ -80,7 +80,7 @@ The conformance replay in [`crates/canopy-authn/tests/auth_oracle.rs`](../../../
 4. **Unification:** Unifies the recorder's numbered placeholders (`<user-id-1>`, `<session-token-1>`, `<mail-jwt-signature-1>` and the like) through `Bindings`, ensuring dynamic values match consistently across requests, headers, cookies, and database state without relying on hardcoded secrets.
 5. **Validation:** Checks HTTP status, application headers, `Set-Cookie` attributes, response bodies, outgoing email content, audit log documents in `canopy.audit_log`, and user or session documents in `canopy_auth`.
 
-Currently, 7 groups are replayed across 20 cases and 114 steps: `email-password`, `email-verification`, `password-reset`, `sessions`, `tokens`, `magic-link`, and `email-otp`.
+Currently, 15 groups are replayed across 41 cases and 310 steps (`email-password`, `email-verification`, `password-reset`, `magic-link`, `email-otp`, `two-factor`, `passkeys`, `sessions`, `tokens`, `anonymous`, `bearer`, `rate-limits`, `errors`, `social`, and `oidc`).
 
 ## Running the replay tests
 
@@ -102,5 +102,6 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
 
 ## Known gap and mounting status
 
-- **Two factor sign in gap:** Users with `twoFactorEnabled: true` currently receive HTTP 403 (`FORBIDDEN: Password sign in is unavailable for this user`) on password sign in. This will be wired to the ceremony flow in stage R5.4.
-- **Mount status:** The Rust auth router is not yet mounted in `canopyd`. In all current deployment configurations, the TypeScript `auth` service handles `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users`.
+- **HTTPS claims hook gap:** The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not yet built.
+- **R5.3 leftovers:** Not built: `/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh.
+- **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users` until the stacks and `sdk-e2e` switch to Rust auth.

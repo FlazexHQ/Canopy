@@ -3,6 +3,233 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): SDK auth end to end check against Rust auth, CLI progress and in progress tasks
+
+### Commits since f5f060e6
+
+- `d6258983` (`feat(cli): start the canopy binary in Rust`): [`crates/canopy-cli`](../../../crates/canopy-cli): invocation parsing, help, version, login verification, vector replay of 11 of 57 CLI vectors. Also allowed `ar_archive_writer` in the dependency review of `.github/workflows/security.yml` (fuzz lockfile reaches it through the `psm` build script, as `deny.toml` already allowed).
+- `12336c2e` (`fix(ci): keep the test mongod within its open file limit`): the macOS test mongod died with "24: Too many open files" during the migrations oracle (two runs). Fix: the CI raises `kern.maxfiles` and `kern.maxfilesperproc` on macOS, and [`packages/testing/scripts/mongod.ts`](../../../packages/testing/scripts/mongod.ts) starts mongod with `wiredTigerFileHandleCloseIdleTime=30` and `wiredTigerFileHandleCloseMinimum=250` (defaults are 600 and 2000; both parameters exist on 8.0 and 9.0).
+- `34e64c65` (`feat(auth): sign in with social and OpenID Connect providers in Rust`): stage R5.3 social and OIDC sign in in Rust (see the R5.3 checkpoint below).
+- `e5b1cba4` (`feat(cli): store admin tokens and manage them from the Rust CLI`): credentials (keychain, DPAPI protected file, 0600 file), login storing, logout, `--env` environments, admin tokens create, list and revoke; 14 of 57 CLI vectors replay (see the R4 checkpoint below).
+
+### SDK auth end to end against Rust auth (R5 exit check)
+
+Run by hand against `canopyd` with `CANOPY_AUTH_ENGINE=rust` on MongoDB 8.0: all 5 tests of [`packages/sdk-e2e/test/auth.e2e.test.ts`](../../../packages/sdk-e2e/test/auth.e2e.test.ts) failed. Causes:
+1. The `canopy-mail` log transport emits through tracing, which `canopyd` never prints, so the verification mail line `{to, subject, body}` the suite reads from the log never appears. Fixed in `9be856e2`: `Mailer::with_log` hands each mail of the log transport to canopyd's JSON log.
+2. `canopyd` refused `auth.anonymous` although the router implements it. Fixed in `9be856e2`: the setting turns the router's anonymous sign in on (off by default).
+3. The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not built.
+
+With a pre verified user, password sign in, `/token`, the 80 % access token reuse, sign out and session revocation with realtime all behaved as TypeScript.
+
+### In progress (uncommitted)
+
+- R2 BSON crossing and deferred sort re-measure (paused on a usage limit).
+- R5.6b `/admin/v1/users` (paused on a usage limit).
+
+### What remains of plan 005
+
+- R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), the HTTPS claims hook, `/admin/v1/users`, switching the stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review.
+- R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher.
+
+## Checkpoint (2026-11-25): R5.3 social and OIDC sign in in Rust (commit 34e64c65)
+  
+### What was built
+
+- [`crates/canopy-authn/src/server/oauth/`](../../../crates/canopy-authn/src/server/oauth/) (public as
+  `canopy_authn::server::oauth`):
+  - `mod.rs`: the provider settings (`SocialProvider` with `SocialProviderKind` Google, GitHub, Apple,
+    Microsoft and Discord, `ClientSecret::Static` or `ClientSecret::AppleKey` for Apple's ES256 client secret
+    minted per token exchange from team id, key id and the PKCS#8 `.p8` key; `OidcProvider`), the injectable
+    transport `ProviderHttp` (`ProviderRequest`, `ProviderResponse`) and its production
+    `ReqwestProviderHttp` (rustls, no redirects followed, 5 s connect and 10 s total timeouts, answers capped
+    at 1 MiB), and the registry: discovery of every OIDC provider at `AuthRouter::open` (a failed discovery is
+    retried when the provider is next asked for, as the TypeScript engine does), and key sets cached 10
+    minutes with one refetch for an unknown key id after a 30 s cooldown.
+  - `jwt.rs`: ID token decoding with a 16 KiB bound, signature checks with the key set (RS256/384/512,
+    PS256/384/512, ES256, ES384, EdDSA; `none` and every HS algorithm refused whatever the discovery document
+    lists; key id and key `alg` must match), and the claims (issuer, non empty subject, audience as string or
+    list, `exp`, `iat` and `nbf` with 30 s of skew, maximum age, nonce).
+  - `providers.rs`: authorization URLs with the parameters in the TypeScript order, the code exchange
+    (`client_secret_post`, PKCE except Discord), and the identity of each provider: GitHub (`/user` and
+    `/user/emails`), Google (ID token claims), Apple and Microsoft (ID token verified with their key sets;
+    Microsoft binds `iss` to `tid` and the tenant, `organizations` and `consumers`), Discord (`/users/@me`
+    and its avatar URL), generic OIDC (verified ID token, then `userinfo` only when the token has no email,
+    with the subject matched).
+  - `flow.rs`: `POST /sign-in/social` (state, PKCE verifier and nonce in `verifications` as
+    `auth-state:<state>` with the TypeScript JSON value, the signed `canopy.state` cookie for 5 minutes,
+    `disableRedirect`, `scopes`, `loginHint`, `errorCallbackURL`, `newUserCallbackURL`, `requestSignUp`),
+    `GET /callback/{id}` (state lookup, state cookie of the same browser, expiry, provider errors, `iss`,
+    nonce binding, exchange, identity, then the error page codes of the recording), `POST /callback/{id}`
+    (Apple's form post sent on to the GET callback; no origin check, it reads and writes nothing), the linking
+    rules (an account already linked signs in and gets fresh tokens; an existing address is linked only when
+    the provider and the user both verified it, else `account_not_linked`; a new address creates the user and
+    account in one transaction with `auth.sign_up`), banned users (`BANNED_USER` on the error page), and
+    `GET /list-accounts`.
+- [`mod.rs`](../../../crates/canopy-authn/src/server/mod.rs): `AuthOptions` gained `social_providers`,
+  `oidc_providers` and `provider_http`; provider ids are added to `/settings` `external`; the dispatcher
+  routes the three new paths and validates `errorCallbackURL` and `newUserCallbackURL` of `/sign-in/social`
+  (`INVALID_ERROR_CALLBACK_URL`, `INVALID_NEW_USER_CALLBACK_URL`).
+- [`crates/canopyd/src/builtin_auth.rs`](../../../crates/canopyd/src/builtin_auth.rs): `auth.providers`
+  (with `tenantId` for Microsoft and `teamId`, `keyId`, `privateKey` as an alternative to `clientSecret` for
+  Apple) and `auth.oidc` (https discovery URLs in production) are mapped to the router;
+  `CANOPY_AUTH_ENGINE=rust` no longer refuses them.
+
+### Evidence
+
+- [`tests/auth_oracle.rs`](../../../crates/canopy-authn/tests/auth_oracle.rs) replays 15 groups, 41 cases
+  and 310 steps (adds `social` and `oidc`) on MongoDB 8.0.34 (port 37017) and 9.0.8 (port 37090). The mock
+  providers ([`tests/support/idp.rs`](../../../crates/canopy-authn/tests/support/idp.rs)) answer through
+  the transport and enforce PKCE, client secret and redirect URI; every step compares the calls made to the
+  providers (method, URL, headers, form body) with the recording, `provider` steps replay the browser at the
+  authorization endpoint, and the startup must make exactly one discovery request.
+- [`tests/oauth_flows.rs`](../../../crates/canopy-authn/tests/oauth_flows.rs) (both replica sets): ID tokens
+  refused for another issuer, an expired token, `alg: none`, HS256 signed with the client secret when the
+  provider publishes RS256, a key id missing from the key set, another nonce and another audience, each
+  ending on `unable_to_get_user_info` with no user or session; the key set refetch cooldown; the linking
+  rules; a state of another browser and an expired state; Apple's form post. A mutation that disables the
+  issuer check fails the suite. Nine unit tests in `jwt.rs` cover the verifier without MongoDB.
+- `cargo test -j 2 -p canopy-authn` passes on both replica sets;
+  `cargo test -j 2 -p canopyd --test builtin_auth` passes on both (new: refusal of incomplete provider
+  settings, and a started process answering `/sign-in/social` for GitHub and a Microsoft tenant, a 404 for
+  an OIDC provider whose discovery is unreachable, and `state_mismatch` for a foreign callback);
+  `cargo clippy -j 2 -p canopy-authn --all-targets -- -D warnings` is clean. The same clippy run with
+  `-p canopyd` stops only on `control.rs` (`build` takes 8 arguments), part of the concurrent
+  `/admin/v1/users` work, not of this stage.
+
+### Behavior kept from the recording, worth a decision
+
+- **Google's ID token signature is not checked.** The TypeScript engine decodes it (it arrives from the
+  token endpoint over TLS, which OIDC Core 3.1.3.7 allows) and the recording has no call to Google's key set,
+  so the replay forbids one. Rust checks its issuer, audience, expiry and age. Google sign in sends no nonce.
+- **Social sign in skips the second factor**, as Better Auth does: a user with `twoFactorEnabled` gets an
+  `aal1` session through any provider.
+
+### What remains
+
+- Not built: `/link-social`, `/unlink-account`, ID token sign in (`idToken` in the body answers 404
+  `ID_TOKEN_NOT_SUPPORTED`), refresh of provider access tokens, the `/auth/v1/error` page (the browser lands
+  on a 404 there), Microsoft's profile photo, encrypted provider tokens. A flow started by TypeScript for
+  linking (`link` in its state) is refused with `unable_to_link_account`.
+- Apple, Microsoft and Discord have no recorded oracle; they follow Better Auth 1.7.18's provider code.
+
+## Checkpoint (2026-11-25): R4 Rust CLI groundwork (commits d6258983 and e5b1cba4)
+
+- The [Rust CLI](../../../crates/canopy-cli) was started in commit `d6258983` with invocation parsing,
+  help, version, login verification, and vector replay of 11 of 57 CLI vectors. That commit also allowed
+  `ar_archive_writer` in the dependency review of `.github/workflows/security.yml` (the fuzz lockfile reaches
+  it through the `psm` build script, as `deny.toml` already allowed).
+- Commit `e5b1cba4` added credentials (keychain, DPAPI protected file, 0600 file), login storing, logout,
+  `--env` environments, and admin tokens create, list and revoke, bringing vector replay to 14 of the 57
+  TypeScript invocations. Coverage includes help, version, no command, unknown command and option suggestions,
+  an invalid dev port, login help and both refusals, logout help and its missing URL, and admin token create,
+  list and revoke. The loopback HTTP fixture checks the methods, paths, bearer header and request bodies.
+  No MongoDB is needed.
+- Login verifies the token before saving it to the OS keychain or the TypeScript compatible
+  credentials file. Default Windows files use DPAPI when available. Login can register an
+  environment, and the remote token commands resolve it through the environment file or the
+  explicit admin URL and token. Logout removes the credential for that project.
+- On Windows, `cargo clippy -j 2 -p canopy-cli --all-targets -- -D warnings` and
+  `cargo test -j 2 -p canopy-cli` passed. Tests cover credential file compatibility, the Windows
+  DPAPI round trip, login and logout with a saved environment, and refusal of nonlocal HTTP.
+  The CLI reuses reqwest and rustls for HTTPS and uses rpassword for the hidden terminal prompt.
+- The replay compares stdout, stderr, exit status and changes to files in a temporary project.
+  Run `cargo test -j 2 -p canopy-cli --test vectors -- --nocapture` to see the 43 pending invocations.
+- What remains for R4: every command that needs the project config (blocked on R3's emitter), auth import,
+  dev, init, doctor, type generation, platform packages and launcher.
+  Pending project and server work includes `config` (2, config resolution and loader errors),
+  `dev` (2, config loading and startup), `init` (2, scaffolding and discovery), and `doctor` (2,
+  MongoDB diagnostics).
+  Pending database and authoring work includes `policies` (15, DSL and publishing workflows),
+  `schema` (3) and `pull` (2, schema loading, inference and validators), `migrate` (3, meta migrations),
+  `realtime` (2, collection options), `indexes` (2, advice and DDL), and `keys` (3, configured
+  meta database operations and auditing).
+  Pending administrative work includes `auth` (2, import preview and remote import) and `admin` (3,
+  local admin management). The separate type generation fixture remains open.
+
+## Checkpoint (2026-11-25): R2 Canopy.js runs its client paths on the Rust core; gates missed
+
+### What changed (not committed)
+
+- **Canopy** ([`packages/wasm`](../../../packages/wasm)): the client module gained `Filter.matchEjsonArray`
+  (one call decides an EJSON array of documents). The Node-API parity exports (`matchMany`, `matches`,
+  `matchesEjson`, `matchConcatenated`, `handle`, `FilterHandle`, `matchBson`) moved behind a new `binding`
+  feature, on by default, so the combined build keeps them and the split client drops them. The transforms
+  module gained `sortOrder` (positions in sorted order, so the caller keeps its objects), `projectDocuments`
+  and `updateDocuments` (atomic, canonical EJSON arrays). Clippy is clean for every feature set on the Wasm
+  target; `bunx vitest run --project wasm` passes 4 with 1 skipped; the R2 replay
+  (`bench/baselines/r2/conformance.mjs`) still passes on Bun and Node 26 in both formats. Two runners were
+  added: [`root-entry.ts`](../../../bench/baselines/r2/root-entry.ts) (sizes) and
+  [`startup.mjs`](../../../bench/baselines/r2/startup.mjs) (first live query, optional strict CSP).
+- **Canopy.js**: `scripts/sync-wasm.ts` copies the client and transforms artifacts (Wasm, web glue,
+  wasm2js entry and translation, declarations; 12 files) into `src/core/wasm` with a SHA-256
+  `manifest.json`; `--check` fails when a file differs from the manifest or from Canopy's build
+  (`--manifest-only` for checkouts without a Rust build), `--dist` copies them next to `dist/core` (run by
+  `bun run build`). New scripts `sync:wasm` and `check:wasm` (part of `check`). `src/client/engine.ts` loads
+  both modules once, in parallel, at client creation: the Wasm build where `WebAssembly` exists and
+  compiles, the wasm2js build otherwise (no `WebAssembly`, or a CSP refusal); on `file:` URLs it reads the
+  bytes through `process.getBuiltinModule("node:fs")`, so Node needs no `fetch` of `file:`. The store
+  compiles filters lazily, predicts membership for all touched documents in one `matchEjsonArray` call,
+  projects only changed members in one call and sorts with `sortOrder`; queries keep their previous state
+  until the core arrives, then render. `updateEngine` now settles when the core has loaded. `QuerySpec`
+  gained an optional `fields`; nothing else in the public API changed. Devtools ask the core whether a
+  filter runs in process. `sync-core.ts` no longer vendors `@canopy/matcher`, `/lite` and `/update` (the
+  matcher files that `policy` and `query` reach stay vendored for the authoring task) and leaves
+  `src/core/wasm` alone; `src/core/matcher/lite.ts` and `update-lite.ts` are deleted, and no file under
+  `src/client`, the bindings or devtools imports `core/matcher`, `query`, `policy`, `schema` or `config`
+  (checked by a test). The sync also brought in pending upstream core changes (config `realtime.server`
+  `auto`, an errors.ts lint comment, the Caddyfile).
+
+### Evidence
+
+- Canopy.js suites: 229 of 230 pass on Bun (`bun --bun vitest run`) and on Node 26
+  (`fnm exec --using=26 -- node node_modules/vitest/vitest.mjs run`), each with the Wasm core and with
+  `CANOPY_TEST_CORE=js` (the whole suite on the wasm2js core). The one failure, `test/cli/compose.test.ts`,
+  is pre-existing and unrelated: it also fails on the untouched tree, because Canopy's
+  `deploy/compose/canopy.yaml` gained a policies volume and a health check the template here lacks. Lint,
+  format, `check:core`, `check:wasm` and `tsc -b && tsc -p scripts` pass.
+- Conformance through the client engine (`test/client/conformance.test.ts`, both formats, Bun and Node 26):
+  the matcher vectors are replayed through `engine.ts` on the client's own values; a recorded input is
+  used when it encodes back to the same BSON bytes (an integral double reads as a JavaScript number, so it
+  cannot reach the client). Filters: 1,946 decided over 286 documents, 9 refused as recorded, 45 skipped.
+  Sorts: 121 in MongoDB's order, 79 refused. Projections: 122 cases over 286 documents (34,892 comparisons),
+  78 refused. Updates: 812 applied, 903 refused as recorded, 4 Decimal128 refusals, 281 skipped (195 with
+  array filters, which the optimistic layer never passes). The protocol vectors pass through the client
+  and every binding in both formats. The query vectors are canonicalization and hashing, which only the
+  authoring module exports; the client never canonicalizes queries, so they belong to the next task.
+- After `bun run build` in Canopy.js and `bun install` here: `bun run typecheck` passes; the `sdk-e2e`
+  project passes 81 with 4 skipped (the sharded cluster) on MongoDB 8.0.34 (port 37017); Studio typecheck
+  and `vite build` pass, and Vite emits both `.wasm` files as assets.
+
+### Gates of plan 005 §7 (Windows 11, Ryzen 5 5600H)
+
+| Measure | Result | Gate |
+|---|---|---|
+| Client module | 79,938 Brotli bytes (transforms 102,347) | Met (at most 81,920) |
+| Root entry, R0 app, `bun build --minify --splitting` | Eager JavaScript 23,785 before, 17,723 after, plus 4,682 of glue at client creation; the first live query also downloads both Wasm modules, 182,285 bytes | Met for JavaScript (1,380 smaller); missed by about 121 KB counting the Wasm (+180,905) |
+| First live query, Chromium 4x, canopyd dev on MongoDB 8.0.34, 2 × 50 runs | Median 255.4 and 289.2 ms before, 334.6 and 348.8 ms after (+20 to +31 %); 359.8 ms under strict CSP | Missed (at most +5 %) |
+| Matching, 1,000 documents, six scenarios, through the client engine | 6.5 to 7.7 µs per document on Bun and Node 26, against 48 to 395 ns for the TypeScript matcher | Missed (at most 1.2×) |
+| Optimistic update, one document | Chromium 4x: 128 µs against 13 µs. Bun 12.3 against 2.8 µs, Node 26 14.9 against 2.5 µs, Bun wasm2js 57.9 µs | Missed (at most 2× and under 50 µs) |
+| Sorting 1,000 members | 8.9 ms (Bun) and 8.5 ms (Node 26) against 1.1 and 1.6 ms; projecting 1,000 takes 10.9 ms | Not gated; a render cost of large queries |
+
+Why: the boundary is EJSON text. Each crossing pays `canonicalString` in JavaScript and an EJSON parse in
+Rust, about 7 µs for a 220 byte document, which dwarfs the matcher itself (the bench's retained BSON pages
+match in 57 to 234 ns). For startup, every live query sorts (the `_id` tie breaker), so the transforms
+module is needed for the first render as well as the client module; in every run after the change, the
+`ready` frame is handled 1 to 3 ms after the core resolves, while `welcome` arrives about 50 ms earlier.
+Under strict CSP both Wasm files are still fetched before the compile is refused. Per §7 the stage stops for
+the maintainer's choice; options seen here: a BSON boundary (a JavaScript BSON encoder with a per document
+cache, feeding `matchConcatenated` or retained pages), documents kept on the Rust side with handles in the
+store, sort in the client module (over its budget) or a first render in snapshot order so transforms load
+lazily, and `'wasm-unsafe-eval'` in the Studio CSP (Studio now falls back to wasm2js under its current CSP).
+
+### Remaining for R2
+
+The gate decision above; the authoring module in Canopy.js (policy, schema and config DSLs) and deleting
+`sync-core.ts`; generated frame types; the EJSON codec of the protocol stays TypeScript for now (it is the
+synchronous public `canopy.js/protocol` value model, and the bench measured the Rust codec slower per frame);
+Deno, Firefox, WebKit, Node 24 and Hermes runs of the Canopy.js client; Canopy.js CI building or fetching the
+Wasm artifacts; the compose template drift.
+
 ## Checkpoint (2026-11-25): R1 admin oracle complete, R5 auth core in Rust, split deployment committed
 
 ### Commits since 2397abd7
@@ -440,17 +667,12 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
-| 1 | R5.3: Social and OIDC authentication (Google, GitHub, Apple, Microsoft, Discord, generic OIDC discovery, PKCE, state and nonce) | R5 | Big | `claudeAgent` |
-| 2 | R5.4: Two factor authentication (move TOTP primitive from `canopy-control` to `canopy-authn`, backup codes, `aal2` sessions, ceremony cookies) | R5 | Medium | Codex |
-| 3 | R5.5: Passkeys wiring into `/auth/v1` using `canopy-webauthn` | R5 | Medium | Codex |
-| 4 | R5.6: Anonymous authentication, bearer tokens, app user administration behind `/admin/v1/users`, rate limits, legacy hash importers | R5 | Big | `claudeAgent` |
-| 5 | Mount Rust auth router in `canopyd` and switch deployment stacks | R5 | Medium | Codex |
-| 6 | 24 CPU hours of nightly fuzzing per auth target and external security review | R5 | Big | `claudeAgent` |
-| 7 | R1 leftovers: providers document from config in `canopyd`, server error logging | R1 | Small | Codex |
-| 8 | R2: Canopy.js adoption of split Wasm and JavaScript modules, verify size and startup gates | R2 | Big | `claudeAgent` |
-| 9 | R3: Canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 10 | R4: Rust CLI (`canopy-cli`) implementation across all platform targets | R4 | Big | `claudeAgent` |
-| 11 | R7: Removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
+| 1 | R5 remaining: R5.3 leftovers (`/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh), HTTPS claims hook, `/admin/v1/users`, switching stacks and `sdk-e2e` to Rust auth, 24 CPU hours per fuzz target in nightly, external review | R5 | Big | `claudeAgent` |
+| 2 | R4 remaining: every command that needs the project config (blocked on R3's emitter), auth import, dev, init, doctor, type generation, platform packages and launcher | R4 | Big | `claudeAgent` |
+| 3 | R1 leftovers: providers document from config in `canopyd`, server error logging | R1 | Small | Codex |
+| 4 | R2: Canopy.js adoption of split Wasm and JavaScript modules, gate decisions (BSON boundary, deferred sort, CSP) | R2 | Big | `claudeAgent` |
+| 5 | R3: Canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
+| 6 | R7: Removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
 
 ## Done
 
