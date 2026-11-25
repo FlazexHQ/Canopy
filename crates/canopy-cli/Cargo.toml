@@ -12,15 +12,19 @@ name = "canopy"
 path = "src/main.rs"
 
 [dependencies]
+canopy-protocol = { path = "../canopy-protocol" }
+indexmap = { version = "2", features = ["serde"] }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "rustls-no-provider"] }
+rpassword = "=7.4.0"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde_json = "1"
 strsim = "0.11"
+tempfile = "3"
+time = { version = "0.3", features = ["formatting", "parsing"] }
 url = "2"
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
-tempfile = "3"
 
 [lints]
 workspace = true
