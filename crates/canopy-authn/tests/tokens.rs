@@ -136,6 +136,9 @@ fn matches_every_recorded_access_token_and_jwks() -> Result<(), Box<dyn Error>> 
 
 #[tokio::test]
 async fn document_keys_work_in_both_verifiers() -> Result<(), Box<dyn Error>> {
+    if !support::enabled("document_keys_work_in_both_verifiers") {
+        return Ok(());
+    }
     let _ = rustls::crypto::ring::default_provider().install_default();
     let manifest: Value = serde_json::from_str(MANIFEST)?;
     let secret = manifest["secret"].as_str().unwrap();

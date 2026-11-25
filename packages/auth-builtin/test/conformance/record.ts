@@ -127,7 +127,17 @@ export async function recordAuth(options: {
         if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined
         throw error
       })
-      if (current?.replaceAll("\r\n", "\n") !== content) differing.push(name)
+      const saved = current?.replaceAll("\r\n", "\n")
+      if (saved !== content) {
+        const want = (saved ?? "").split("\n")
+        const got = content.split("\n")
+        const line = got.findIndex((text, at) => text !== want[at])
+        differing.push(
+          line < 0
+            ? name
+            : `${name}:${line + 1}: ${want[line]?.trim()} became ${got[line]?.trim()}`,
+        )
+      }
     } else {
       await mkdir(dirname(path), { recursive: true })
       await writeFile(path, content)
