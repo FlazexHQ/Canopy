@@ -1,0 +1,22 @@
+[package]
+name = "canopy-migrations"
+description = "Canopy's versioned MongoDB meta database migrations."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-mongo = { path = "../canopy-mongo" }
+canopy-protocol = { path = "../canopy-protocol" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+tokio = { version = "1", features = ["macros", "time"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[lints]
+workspace = true
