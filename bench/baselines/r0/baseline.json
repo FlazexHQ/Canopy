@@ -1,0 +1,156 @@
+{
+  "machine": {
+    "os": "Windows 11 (10.0.26300)",
+    "cpu": "AMD Ryzen 5 5600H with Radeon Graphics",
+    "cores": 6,
+    "threads": 12
+  },
+  "runtimes": {
+    "bun": "1.4.5",
+    "node": "v26.12.1",
+    "playwright": "1.64.1",
+    "chromium": "156.0.8078.4"
+  },
+  "root_entry_size": {
+    "description": "Production build of minimal app importing canopy.js and running one live query against notes collection",
+    "entry_path": "bench/baselines/r0/app/main.ts",
+    "target": "browser",
+    "bundler": "bun build --minify --target=browser",
+    "raw_bytes": 92194,
+    "gzip_bytes": 29483,
+    "brotli_bytes": 26357,
+    "uninstrumented_raw_bytes": 91890,
+    "uninstrumented_gzip_bytes": 29413,
+    "uninstrumented_brotli_bytes": 26299
+  },
+  "core_sizes": {
+    "policy": {
+      "entry": "canopy.js/policy",
+      "raw_bytes": 102512,
+      "gzip_bytes": 32935,
+      "brotli_bytes": 29081
+    },
+    "schema": {
+      "entry": "canopy.js/schema",
+      "raw_bytes": 17640,
+      "gzip_bytes": 6415,
+      "brotli_bytes": 5665
+    },
+    "config": {
+      "entry": "canopy.js/config",
+      "raw_bytes": 46805,
+      "gzip_bytes": 16118,
+      "brotli_bytes": 14331
+    },
+    "matcher_full": {
+      "entry": "canopy.js/dist/core/matcher/index.js",
+      "raw_bytes": 55890,
+      "gzip_bytes": 18507,
+      "brotli_bytes": 16536
+    },
+    "matcher_lite": {
+      "entry": "canopy.js/dist/core/matcher/lite.js",
+      "raw_bytes": 28323,
+      "gzip_bytes": 9670,
+      "brotli_bytes": 8658
+    },
+    "query": {
+      "entry": "canopy.js/dist/core/query/index.js",
+      "raw_bytes": 52552,
+      "gzip_bytes": 17441,
+      "brotli_bytes": 15461
+    },
+    "ejson": {
+      "entry": "canopy.js/dist/core/protocol/ejson.js",
+      "raw_bytes": 14764,
+      "gzip_bytes": 5309,
+      "brotli_bytes": 4692
+    },
+    "protocol": {
+      "entry": "canopy.js/protocol",
+      "raw_bytes": 35701,
+      "gzip_bytes": 12810,
+      "brotli_bytes": 11314
+    }
+  },
+  "startup": {
+    "profile": "Mid range Android profile (headless Chromium, 4x CPU slowdown via CDP)",
+    "runs": 20,
+    "module_evaluated_ms": {
+      "median": 12.9,
+      "p95": 75.2,
+      "min": 8.3,
+      "max": 75.2
+    },
+    "first_live_query_result_ms": {
+      "median": 172.8,
+      "p95": 341.4,
+      "min": 155.7,
+      "max": 341.4
+    },
+    "runs_data": [
+      { "run": 1, "eval_ms": 55.0, "first_result_ms": 341.4 },
+      { "run": 2, "eval_ms": 15.8, "first_result_ms": 287.6 },
+      { "run": 3, "eval_ms": 13.1, "first_result_ms": 199.3 },
+      { "run": 4, "eval_ms": 66.9, "first_result_ms": 169.5 },
+      { "run": 5, "eval_ms": 10.8, "first_result_ms": 173.1 },
+      { "run": 6, "eval_ms": 8.3, "first_result_ms": 175.2 },
+      { "run": 7, "eval_ms": 12.7, "first_result_ms": 161.3 },
+      { "run": 8, "eval_ms": 57.3, "first_result_ms": 155.7 },
+      { "run": 9, "eval_ms": 11.9, "first_result_ms": 171.9 },
+      { "run": 10, "eval_ms": 9.4, "first_result_ms": 168.0 },
+      { "run": 11, "eval_ms": 10.5, "first_result_ms": 175.5 },
+      { "run": 12, "eval_ms": 56.6, "first_result_ms": 158.9 },
+      { "run": 13, "eval_ms": 12.6, "first_result_ms": 182.5 },
+      { "run": 14, "eval_ms": 9.8, "first_result_ms": 165.0 },
+      { "run": 15, "eval_ms": 9.6, "first_result_ms": 172.5 },
+      { "run": 16, "eval_ms": 60.1, "first_result_ms": 159.5 },
+      { "run": 17, "eval_ms": 60.5, "first_result_ms": 159.9 },
+      { "run": 18, "eval_ms": 11.1, "first_result_ms": 180.1 },
+      { "run": 19, "eval_ms": 64.2, "first_result_ms": 193.3 },
+      { "run": 20, "eval_ms": 75.2, "first_result_ms": 208.0 }
+    ]
+  },
+  "matcher_throughput": {
+    "conformance_filters": {
+      "source": "conformance/matcher/filters.json",
+      "documents": 300,
+      "total_filters": 2000,
+      "valid_filters_full": 1991,
+      "valid_filters_lite": 1173,
+      "evaluations_per_pass_full": 597300,
+      "evaluations_per_pass_lite": 351900,
+      "node26": {
+        "full_matcher_docs_per_sec": 7860845,
+        "full_matcher_ns_per_doc": 127.21,
+        "lite_matcher_docs_per_sec": 9430347,
+        "lite_matcher_ns_per_doc": 106.04
+      },
+      "bun": {
+        "full_matcher_docs_per_sec": 5777484,
+        "full_matcher_ns_per_doc": 173.09,
+        "lite_matcher_docs_per_sec": 7898476,
+        "lite_matcher_ns_per_doc": 126.61
+      }
+    },
+    "benchmark_scenarios_1k": {
+      "documents": 1000,
+      "node26": {
+        "equality_dls_owner": { "docs_per_sec": 13440860, "ns_per_doc": 74.4 },
+        "range_and_in": { "docs_per_sec": 2154244, "ns_per_doc": 464.2 },
+        "or_3_branches": { "docs_per_sec": 2269632, "ns_per_doc": 440.6 },
+        "dotted_path": { "docs_per_sec": 5780347, "ns_per_doc": 173.0 },
+        "elem_match": { "docs_per_sec": 3837299, "ns_per_doc": 260.6 },
+        "dls_and_user_filter": { "docs_per_sec": 14164306, "ns_per_doc": 70.6 }
+      },
+      "bun": {
+        "equality_dls_owner": { "docs_per_sec": 10638298, "ns_per_doc": 94.0 },
+        "range_and_in": { "docs_per_sec": 1127269, "ns_per_doc": 887.1 },
+        "or_3_branches": { "docs_per_sec": 2377556, "ns_per_doc": 420.6 },
+        "dotted_path": { "docs_per_sec": 3448276, "ns_per_doc": 290.0 },
+        "elem_match": { "docs_per_sec": 2838490, "ns_per_doc": 352.3 },
+        "dls_and_user_filter": { "docs_per_sec": 11454754, "ns_per_doc": 87.3 }
+      }
+    }
+  }
+}
