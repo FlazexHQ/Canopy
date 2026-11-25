@@ -123,20 +123,6 @@ const rename: Patch<"todos"> = { title: "Ship it", tags: null } // a merge patch
 Code that cannot rely on the registered schema, such as a library or an app with two Canopy backends, passes
 the schema as a second argument: `Doc<"todos", typeof schema>`.
 
-## Validate with Standard Schema
-
-Each collection definition implements [Standard Schema](https://standardschema.dev), so a library that
-accepts one can validate a decoded document with it:
-
-<!-- snippet: declare const value: unknown -->
-
-```ts
-import { todos } from "./canopy.schema.ts"
-
-const result = await todos["~standard"].validate(value)
-if (result.issues !== undefined) console.error(result.issues)
-```
-
 ## JavaScript
 
 Since the schema is a runtime value, checked JavaScript gets the same types from the factory argument, with
