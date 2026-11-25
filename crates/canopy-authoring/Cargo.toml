@@ -1,0 +1,16 @@
+[package]
+name = "canopy-authoring"
+description = "Validation of Canopy's canonical authoring documents (policy sets, policy test cases, unresolved config, collection schemas and the emitted bundle) against their JSON Schemas and the Rust semantics, with RFC 6901 paths."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[dependencies]
+canopy-policy = { path = "../canopy-policy" }
+canopy-protocol = { path = "../canopy-protocol" }
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
+
+[lints]
+workspace = true

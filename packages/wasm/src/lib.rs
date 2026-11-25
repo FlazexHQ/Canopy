@@ -8,6 +8,8 @@
 //! This target aborts on a panic: the call traps with a `RuntimeError`, which the wrapper turns into a denial,
 //! and the instance must then be discarded, since its memory may be left mid operation.
 
+#[cfg(feature = "authoring")]
+mod authoring;
 #[cfg(any(feature = "client", feature = "transforms"))]
 mod documents;
 mod errors;

@@ -457,6 +457,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-authoring"
+version = "0.0.0"
+dependencies = [
+ "canopy-policy",
+ "canopy-protocol",
+ "regex",
+]
+
+[[package]]
 name = "canopy-cli"
 version = "0.0.0"
 dependencies = [
@@ -758,6 +767,7 @@ dependencies = [
 name = "canopy-wasm"
 version = "0.0.0"
 dependencies = [
+ "canopy-authoring",
  "canopy-config",
  "canopy-matcher",
  "canopy-policy",

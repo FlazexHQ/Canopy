@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { Ajv2020 } from "ajv/dist/2020.js"
+import { AuthoringError, collectionSchemaDocument } from "canopy.js/emit"
 import { collection, defineSchema, t, toCollectionSchemas } from "canopy.js/schema"
 import { emitSchemaFile } from "../src/emit.ts"
 import { inferSchema } from "../src/infer.ts"
@@ -81,12 +82,12 @@ const invalid = [
 
 function invalidVector(fixture: (typeof invalid)[number]) {
   try {
-    evaluate(fixture.source)
+    collectionSchemaDocument(evaluate(fixture.source))
   } catch (error: unknown) {
-    if (!(error instanceof TypeError)) throw error
-    return { ...fixture, error: { code: "CANOPY_SCHEMA_INVALID", message: error.message } }
+    if (!(error instanceof AuthoringError) || error.path !== fixture.path) throw error
+    return { ...fixture, error: { code: error.code, message: error.reason } }
   }
-  throw new Error(`Expected schema builder to reject ${fixture.name}`)
+  throw new Error(`Expected canopy.js/emit to reject ${fixture.name}`)
 }
 
 /** Records collection shapes from the schema builders and the pull fixture. */

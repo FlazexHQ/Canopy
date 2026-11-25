@@ -317,10 +317,13 @@ export function recordAuthoringDiagnostics(): string {
     return {
       name,
       policy: setName,
-      cases: suite.cases.map((testCase) => ({
-        input: encodeTest(testCase),
-        outcome: ejson(evaluateInMemory(engine, testCase, now)),
-      })),
+      cases: suite.cases.map((testCase) => {
+        if (testCase.doc === undefined) throw new Error(`${name}: filter cases need MongoDB`)
+        return {
+          input: encodeTest(testCase),
+          outcome: ejson(evaluateInMemory(engine, { ...testCase, doc: testCase.doc }, now)),
+        }
+      }),
     }
   })
   return `${JSON.stringify({ sets, lint, simulations }, null, 2)}\n`

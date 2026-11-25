@@ -16,9 +16,10 @@ default = ["client", "transforms", "authoring", "binding"]
 client = []
 binding = ["client"]
 transforms = []
-authoring = ["dep:canopy-config", "dep:canopy-policy", "dep:canopy-query", "dep:canopy-schema"]
+authoring = ["dep:canopy-authoring", "dep:canopy-config", "dep:canopy-policy", "dep:canopy-query", "dep:canopy-schema"]
 
 [dependencies]
+canopy-authoring = { path = "../../crates/canopy-authoring", optional = true }
 canopy-config = { path = "../../crates/canopy-config", optional = true }
 canopy-matcher = { path = "../../crates/canopy-matcher" }
 canopy-policy = { path = "../../crates/canopy-policy", optional = true }
