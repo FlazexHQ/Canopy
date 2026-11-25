@@ -1,10 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { Authenticator } from "@canopy/auth"
 import { allow, auth, collection, createPolicySet } from "@canopy/policy"
 import { describeWithMongo, MONGODB_URI, testPolicyEngine } from "@canopy/testing"
 import fc from "fast-check"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
-import { BSON, type Collection, type Db, type Document, MongoClient, type Sort } from "mongodb"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { BSON, Collection, type Db, type Document, MongoClient, type Sort } from "mongodb"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { EXACT_BSON, toDriver } from "../src/driver.ts"
 import {
   createRestHandler,
@@ -369,37 +370,53 @@ suite("keyset pages through the REST read path", () => {
       if (last === undefined) throw new Error("The owner has fewer documents")
       const cursor = encodeCursor({ values: positionOf(last, keys) }, hash)
       const profile = db.collection("system.profile")
-      const latest = async (since: Date): Promise<Document | undefined> =>
-        (
-          await profile
-            .find({ ns: `${dbName}.orders`, op: "query", ts: { $gt: since } })
-            .sort({ ts: -1 })
-            .limit(1)
-            .toArray()
-        )[0]
-      const since = ((await latest(new Date(0)))?.["ts"] as Date | undefined) ?? new Date(0)
-      const response = await rest.fetch(
-        new Request(`${BASE}/orders?sort=-createdAt&limit=${LIMIT}&after=${cursor}`, {
-          headers: { apikey: PUBLISHABLE, authorization: `Bearer ${tokens.get(owner)}` },
-        }),
-      )
+      const comment = randomUUID()
+      const find = Collection.prototype.find
+      const tagged = vi.spyOn(Collection.prototype, "find").mockImplementation(function (
+        this: Collection,
+        filter,
+        options,
+      ) {
+        return find.call(
+          this,
+          filter,
+          this.dbName === dbName && this.collectionName === "orders"
+            ? { ...options, comment }
+            : options,
+        )
+      })
+      let response: Response
+      try {
+        response = await rest.fetch(
+          new Request(`${BASE}/orders?sort=-createdAt&limit=${LIMIT}&after=${cursor}`, {
+            headers: { apikey: PUBLISHABLE, authorization: `Bearer ${tokens.get(owner)}` },
+          }),
+        )
+      } finally {
+        tagged.mockRestore()
+      }
       expect(response.status).toBe(200)
       const body = (await response.json()) as { data: { _id: number }[] }
       expect(body.data.map((doc) => doc._id)).toEqual(
         docs.slice(depth * LIMIT, (depth + 1) * LIMIT).map((doc) => Number(doc["_id"])),
       )
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const entry = await latest(since)
-        if (entry !== undefined)
+      const deadline = performance.now() + 30_000
+      do {
+        const entry = await profile.findOne({
+          ns: `${dbName}.orders`,
+          op: "query",
+          "command.comment": comment,
+        })
+        if (entry !== null)
           return {
             keys: Number(entry["keysExamined"]),
             docs: Number(entry["docsExamined"]),
             returned: Number(entry["nreturned"]),
             plan: String(entry["planSummary"]),
           }
-        await new Promise((resolve) => setTimeout(resolve, 20))
-      }
-      throw new Error("The profiler recorded nothing")
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      } while (performance.now() < deadline)
+      throw new Error(`The profiler recorded no query for ${owner} at depth ${depth} (${comment})`)
     }
 
     beforeAll(async () => {

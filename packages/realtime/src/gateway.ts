@@ -371,6 +371,8 @@ export async function runGateway(
     process.env["CANOPY_DATA_PLANE_ROUTES"] === undefined ? { dataPlaneRoutes: [] } : {},
   )
   onStop(() => gateway.stop())
+  const port = await gateway.listening
+  if (port !== undefined) logger.info({ port }, "canopy-realtime listening")
   return gateway.exited
 }
 
