@@ -124,7 +124,7 @@ async function stateOf(
     const documents = await db
       .collection(name)
       .find({}, { promoteValues: false })
-      .sort({ _id: 1 })
+      .sort(name === "audit_log" ? { at: 1, action: 1, _id: 1 } : { _id: 1 })
       .toArray()
     state[name] = documents
       .map((doc) => normalize(BSON.EJSON.stringify(doc, { relaxed: false })))
@@ -496,6 +496,7 @@ class Scenario {
       if (step.id === "document-insert" && result.status === 201) {
         await this.traceInsert()
       }
+      if (step.id === "policy-publish" && result.status === 200) await this.policyActive("notes")
     }
     if (role === "owner") {
       await this.send(
@@ -519,6 +520,19 @@ class Scenario {
     if (absent === undefined || absent.length > 0)
       throw new Error(`Missing admin cases: ${absent?.join(", ")}`)
     return { role, origin, ip: defaultPeer, steps: this.steps }
+  }
+
+  /**
+   * Waits until this node's policy engine serves a published collection. Publishing answers once the policy
+   * is stored, and the engine reloads from the change stream, so the next request could otherwise see the
+   * collection before its publication.
+   */
+  private async policyActive(collection: string): Promise<void> {
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      if (this.canopy.policies.isExposed(collection)) return
+      await delay(10)
+    }
+    throw new Error(`The published policy of ${collection} never became active`)
   }
 
   /** Signs the fixture user in through `/auth/v1`, which the capture does not record. */
