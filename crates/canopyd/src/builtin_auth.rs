@@ -114,6 +114,7 @@ pub(crate) fn resolve(
     }
     options.social_providers = social_providers(auth)?;
     options.oidc_providers = oidc_providers(auth, production)?;
+    options.production = production;
     options.access_token_ttl_seconds =
         seconds(auth, "accessTokenTtl", "accessTokenTtlSeconds", 600, 300, 3600)?;
     if let Some(rotation) = auth.get("keyRotation") {

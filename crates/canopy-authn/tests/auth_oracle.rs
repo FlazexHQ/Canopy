@@ -458,6 +458,8 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
     }
     let providers = Arc::new(idp::MockIdp::default());
     match case["id"].as_str() {
+        Some("generic-oidc-link") => providers.set_user("oidc-link", "oidc-link@example.com", "OIDC Link"),
+        Some("social-link-and-unlink") => providers.set_user("4242", "link@example.com", "Octo Cat"),
         Some("github") => providers.set_user("4242", "gh@example.com", "Octo Cat"),
         Some("google") => providers.set_user("1093", "goo@example.com", "Goo Gle"),
         _ => {}
@@ -524,6 +526,9 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
             bindings.bind("<tampered-signature-1>", &format!("{replacement}{tail}"))?;
         }
         let path = bindings.resolve(&original)?;
+        if case["id"] == "social-link-and-unlink" && original.contains("code=<code-4>") {
+            providers.set_user("4242", "other@example.com", "Octo Cat");
+        }
         let check = async {
             let mut http = Request::new(str_at(request, "method")?, path.clone());
             http.client_address = Some(str_at(request, "ip")?);
@@ -580,7 +585,24 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 );
                 bindings.bind("<user-id-2>", &handle)?;
             }
-            bindings.compare(&step["response"], &response, "response")?;
+            let mut expected = step["response"].clone();
+            if path.starts_with("/auth/v1/error?") {
+                let mut headers: BTreeMap<_, _> = expected["headers"]
+                    .as_object()
+                    .ok_or("Error page headers")?
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.clone()))
+                    .collect();
+                headers.extend([
+                    ("cache-control", json!("no-store")),
+                    ("x-content-type-options", json!("nosniff")),
+                    ("content-security-policy", json!(
+                        "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+                    )),
+                ]);
+                expected["headers"] = serde_json_bytes::to_value(headers)?;
+            }
+            bindings.compare(&expected, &response, "response")?;
             for cookie in response["cookies"]
                 .as_array()
                 .ok_or("Response cookies")?
@@ -705,8 +727,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 41);
-    assert_eq!(steps, 310);
+    assert_eq!(cases, 44);
+    assert_eq!(steps, 342);
     Ok(())
 }
 

@@ -3,12 +3,15 @@ use std::collections::BTreeMap;
 use bson::{Bson, Document, doc};
 use canopy_http::{Body, Response};
 use futures_util::TryStreamExt as _;
+use ring::hmac;
 use serde::{Deserialize, Serialize};
 use serde_json_bytes::Value;
+use zeroize::Zeroizing;
 
 use super::providers::{Identity, Provider, Tokens};
 use crate::{
     cookies::{AuthCookie, Expiration, sign_value, verify_session},
+    secrets,
     server::{
         Call, Result,
         documents::{Account, User, id_text},
@@ -33,8 +36,8 @@ struct FlowState {
     error_url: Option<String>,
     #[serde(rename = "newUserURL", default, skip_serializing_if = "Option::is_none")]
     new_user_url: Option<String>,
-    #[serde(default, skip_serializing)]
-    link: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    link: Option<LinkState>,
     #[serde(rename = "expiresAt")]
     expires_at: serde_json::Number,
     #[serde(rename = "requestSignUp", default, skip_serializing_if = "Option::is_none")]
@@ -43,6 +46,32 @@ struct FlowState {
     id_token_nonce: Option<String>,
     #[serde(rename = "oauthState", default, skip_serializing_if = "Option::is_none")]
     oauth_state: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LinkState {
+    user_id: String,
+    email: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    encrypted_session_token: Option<String>,
+}
+
+fn link_session_key(secret: &str) -> Zeroizing<String> {
+    let salt = hmac::Key::new(hmac::HMAC_SHA256, b"better-auth:oauth-encryption:v1");
+    let extracted = hmac::sign(&salt, secret.as_bytes());
+    let key = hmac::Key::new(hmac::HMAC_SHA256, extracted.as_ref());
+    Zeroizing::new(hex::encode(hmac::sign(&key, b"better-auth:oauth-link-session-token:v1\x01")))
+}
+
+fn matching_ids(id: &str) -> Vec<Bson> {
+    let mut ids = vec![Bson::String(id.to_owned())];
+    if let Ok(object_id) = bson::oid::ObjectId::parse_str(id)
+        && object_id.to_hex() == id
+    {
+        ids.push(Bson::ObjectId(object_id));
+    }
+    ids
 }
 
 fn optional_text<'a>(body: &'a Value, field: &str) -> std::result::Result<Option<&'a str>, Response> {
@@ -75,6 +104,7 @@ enum Outcome {
 
 impl Call<'_> {
     pub(in crate::server) async fn sign_in_social(&self, body: &Value) -> Result<Response> {
+        let linking = self.route == "/link-social";
         let Some(provider_id) = body.get("provider").and_then(Value::as_str) else {
             return Ok(validation(body, "provider"));
         };
@@ -96,6 +126,20 @@ impl Call<'_> {
                 return Ok(error(400, "VALIDATION_ERROR", "[body.scopes] Invalid input: expected array"));
             }
         };
+        let link = if linking {
+            let Some((session, user)) = self.authenticated().await? else {
+                return Ok(error(401, "UNAUTHORIZED", "Unauthorized"));
+            };
+            let encrypted = secrets::encrypt(&link_session_key(&self.router.options.secret), &session.token)
+                .ok_or_else(|| internal("Could not encrypt the account link session"))?;
+            Some(LinkState {
+                user_id: id_text(&user.id),
+                email: user.email,
+                encrypted_session_token: Some(encrypted),
+            })
+        } else {
+            None
+        };
         let Some(provider) = self.router.oauth.provider(provider_id).await else {
             return Ok(error(404, "PROVIDER_NOT_FOUND", "Provider not found"));
         };
@@ -112,8 +156,8 @@ impl Call<'_> {
             callback_url: field("callbackURL").unwrap_or_else(|| self.router.public_url().to_owned()),
             code_verifier: verifier.clone(),
             error_url: field("errorCallbackURL"),
-            new_user_url: field("newUserCallbackURL"),
-            link: None,
+            new_user_url: if linking { None } else { field("newUserCallbackURL") },
+            link,
             expires_at: expires.timestamp_millis().into(),
             request_sign_up: body.get("requestSignUp").and_then(Value::as_bool),
             id_token_nonce: nonce.clone(),
@@ -288,9 +332,6 @@ impl Call<'_> {
         if provider.requires_nonce() && flow.id_token_nonce.is_none() {
             return Ok(fail(reply, &error_url, "nonce_binding_missing", None));
         }
-        if flow.link.is_some() {
-            return Ok(fail(reply, &error_url, "unable_to_link_account", None));
-        }
         let now = self.now.timestamp_millis();
         let redirect_uri = format!("{}/auth/v1/callback/{}", self.router.public_url(), provider.id());
         let Some(tokens) =
@@ -310,6 +351,12 @@ impl Call<'_> {
         else {
             return Ok(fail(reply, &error_url, "unable_to_get_user_info", None));
         };
+        if let Some(link) = &flow.link {
+            return Ok(match self.link_oauth_account(link, &provider, &identity, &tokens).await? {
+                Some(code) => fail(reply, &error_url, code, None),
+                None => redirect(reply, &flow.callback_url),
+            });
+        }
         let Some(email) = identity.email.as_deref().map(str::to_lowercase) else {
             return Ok(fail(reply, &error_url, "email_not_found", None));
         };
@@ -324,6 +371,143 @@ impl Call<'_> {
         self.set_session(&mut reply, &session.token, true);
         let target = if registered { flow.new_user_url.as_ref() } else { None }.unwrap_or(&flow.callback_url);
         Ok(redirect(reply, target))
+    }
+
+    async fn link_oauth_account(
+        &self,
+        link: &LinkState,
+        provider: &Provider<'_>,
+        identity: &Identity,
+        tokens: &Tokens,
+    ) -> Result<Option<&'static str>> {
+        const UNABLE: &str = "unable_to_link_account";
+        let user_id = if let Some(encrypted) = &link.encrypted_session_token {
+            let Some(token) = secrets::decrypt(&link_session_key(&self.router.options.secret), encrypted)
+                .map(Zeroizing::new)
+            else {
+                return Ok(Some(UNABLE));
+            };
+            let session = self
+                .router
+                .collection("sessions")
+                .find_one(doc! {"token": token.as_str(), "expiresAt": {"$gt": self.now}})
+                .await
+                .map_err(internal)?;
+            session
+                .and_then(|session| session.get("userId").filter(|id| id_text(id) == link.user_id).cloned())
+        } else {
+            self.user(doc! {"_id": {"$in": matching_ids(&link.user_id)}}).await?.map(|user| user.id)
+        };
+        let Some(user_id) = user_id else {
+            return Ok(Some(UNABLE));
+        };
+        if !identity.email_verified {
+            return Ok(Some(UNABLE));
+        }
+        if identity.email.as_deref().map(str::to_lowercase) != Some(link.email.to_lowercase()) {
+            return Ok(Some("email_does_not_match"));
+        }
+        let accounts = self.router.collection("accounts");
+        let key = doc! {"providerId": provider.id(), "accountId": &identity.account_id};
+        let owned = doc! {"providerId": provider.id(), "accountId": &identity.account_id, "userId": &user_id};
+        for attempt in 0..2 {
+            if let Some(account) = accounts.find_one(key.clone()).await.map_err(internal)? {
+                if account.get("userId") != Some(&user_id) {
+                    return Ok(Some("account_already_linked_to_different_user"));
+                }
+                let mut scope = Vec::new();
+                for value in account
+                    .get_str("scope")
+                    .unwrap_or_default()
+                    .split(',')
+                    .chain(tokens.scopes.iter().map(String::as_str))
+                {
+                    let value = value.trim();
+                    if !value.is_empty() && !scope.contains(&value) {
+                        scope.push(value);
+                    }
+                }
+                let mut fields = self.token_fields(tokens);
+                fields.extend(doc! {"accessToken": &tokens.access_token, "updatedAt": self.now});
+                if !scope.is_empty() {
+                    fields.insert("scope", scope.join(","));
+                }
+                let result =
+                    accounts.update_one(owned.clone(), doc! {"$set": fields}).await.map_err(internal)?;
+                if result.matched_count != 0 {
+                    return Ok(None);
+                }
+            } else {
+                let document = self.account_document(provider.id(), identity, tokens, &user_id);
+                match accounts.insert_one(document).await {
+                    Ok(_) => return Ok(None),
+                    Err(cause) if duplicate_key(&cause) && attempt == 0 => {}
+                    Err(cause) if duplicate_key(&cause) => return Ok(Some(UNABLE)),
+                    Err(cause) => return Err(internal(cause)),
+                }
+            }
+        }
+        Ok(Some(UNABLE))
+    }
+
+    pub(in crate::server) async fn unlink_account(&self, body: &Value) -> Result<Response> {
+        let Some(account_id) = body.get("accountId").and_then(Value::as_str) else {
+            return Ok(validation(body, "accountId"));
+        };
+        let Some((session, user)) = self.authenticated().await? else {
+            return Ok(error(401, "UNAUTHORIZED", "Unauthorized"));
+        };
+        if !self.fresh(&session) {
+            return Ok(error(403, "SESSION_NOT_FRESH", "Session is not fresh"));
+        }
+        let mut tx = self.router.auth.client().start_session().await.map_err(internal)?;
+        tx.start_transaction()
+            .and_run((self, &user.id, account_id), |tx, (call, user_id, account_id)| {
+                Box::pin(async move {
+                    let users = call.router.collection("users");
+                    let user_filter = doc! {"_id": *user_id};
+                    let Some(previous) = users
+                        .find_one_and_update(
+                            user_filter.clone(),
+                            doc! {"$set": {"unlinkAccountLock": bson::oid::ObjectId::new()}},
+                        )
+                        .projection(doc! {"unlinkAccountLock": 1})
+                        .session(&mut *tx)
+                        .await?
+                    else {
+                        return Ok(error(401, "UNAUTHORIZED", "Unauthorized"));
+                    };
+                    let accounts = call.router.collection("accounts");
+                    let count = accounts
+                        .count_documents(doc! {"userId": *user_id})
+                        .limit(2)
+                        .session(&mut *tx)
+                        .await?;
+                    let mut removed = false;
+                    if count > 1 {
+                        removed = accounts
+                            .delete_one(doc! {"_id": {"$in": matching_ids(account_id)}, "userId": *user_id})
+                            .session(&mut *tx)
+                            .await?
+                            .deleted_count
+                            == 1;
+                    }
+                    let unlock = match previous.get("unlinkAccountLock") {
+                        Some(value) => doc! {"$set": {"unlinkAccountLock": value}},
+                        None => doc! {"$unset": {"unlinkAccountLock": ""}},
+                    };
+                    users.update_one(user_filter, unlock).session(&mut *tx).await?;
+                    Ok(if removed {
+                        response(200, object!("status": true))
+                    } else if count == 1 {
+                        error(400, "FAILED_TO_UNLINK_LAST_ACCOUNT", "You can't unlink your last account")
+                    } else {
+                        error(400, "ACCOUNT_NOT_FOUND", "Account not found")
+                    })
+                })
+            })
+            .await
+            .map_err(internal)
     }
 
     fn account_document(
@@ -485,5 +669,18 @@ impl Call<'_> {
             .await
             .map_err(internal)?;
         Ok(response(200, accounts.iter().map(Account::public).collect::<Vec<_>>()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::link_session_key;
+
+    #[test]
+    fn link_session_key_matches_better_auth() {
+        assert_eq!(
+            link_session_key("a secret of more than thirty two bytes").as_str(),
+            "0f8ce9f1027bc6695528f8c8eeaf8dcabee4cc236c8caca77242eb29a253a742"
+        );
     }
 }

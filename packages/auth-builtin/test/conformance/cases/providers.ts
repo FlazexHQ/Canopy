@@ -1,4 +1,4 @@
-import { expectStatus } from "../flows.ts"
+import { expectStatus, signUpVerified } from "../flows.ts"
 import type { CaseContext, CaseSpec, Client } from "../harness.ts"
 
 const HOME = "https://app.canopy.test/home"
@@ -72,6 +72,91 @@ export const social: CaseSpec[] = [
     },
   },
   {
+    id: "social-link-and-unlink",
+    description:
+      "Links GitHub to a password user, refreshes the linked account, and requires a fresh session and a remaining account to unlink",
+    async run(context) {
+      const email = "link@example.com"
+      const web = context.client("web")
+      const stranger = context.client("stranger")
+      const body = { provider: "github", callbackURL: HOME, disableRedirect: true }
+      const start = "/auth/v1/link-social"
+      const unlink = "/auth/v1/unlink-account"
+      expectStatus(await context.send(stranger, "POST", start, body), 401, "link without session")
+      expectStatus(
+        await context.send(stranger, "POST", unlink, { accountId: "unknown" }),
+        401,
+        "unlink without session",
+      )
+      await signUpVerified(context, web, email, "correct horse battery 1")
+      expectStatus(
+        await context.send(web, "POST", unlink, { accountId: "unknown" }),
+        400,
+        "last account",
+      )
+      context.providers.user = { sub: "4242", email, name: "Octo Cat" }
+      for (const scopes of [["read:org"], ["repo"]]) {
+        const { callback } = await viaProvider(context, web, start, { ...body, scopes })
+        if (callback === undefined) throw new Error("no link callback from GitHub")
+        if (scopes.includes("read:org"))
+          expectStatus(await context.visit(stranger, callback), 302, "foreign state cookie")
+        const linked = await context.visit(web, callback)
+        if (linked.location !== HOME) throw new Error(`link failed: ${linked.location}`)
+      }
+      const listed = await context.send(web, "GET", "/auth/v1/list-accounts")
+      const accounts = JSON.parse(listed.text) as { id: string; providerId: string }[]
+      const github = accounts.find((account) => account.providerId === "github")
+      const credential = accounts.find((account) => account.providerId === "credential")
+      if (github === undefined || credential === undefined)
+        throw new Error("the password and linked GitHub accounts must both be listed")
+      expectStatus(
+        await context.send(web, "POST", unlink, { accountId: "unknown" }),
+        400,
+        "account not found",
+      )
+      const other = context.client("other")
+      await signUpVerified(context, other, "other@example.com", "correct horse battery 1")
+      const mismatch = await viaProvider(context, other, start, body)
+      if (mismatch.callback === undefined) throw new Error("no mismatch callback from GitHub")
+      const mismatchReply = await context.visit(other, mismatch.callback)
+      if (!mismatchReply.location?.endsWith("?error=email_does_not_match"))
+        throw new Error(`email mismatch was accepted: ${mismatchReply.location}`)
+      context.providers.user = { sub: "4242", email: "other@example.com", name: "Octo Cat" }
+      const owned = await viaProvider(context, other, start, body)
+      if (owned.callback === undefined) throw new Error("no account ownership callback from GitHub")
+      const ownedReply = await context.visit(other, owned.callback)
+      if (!ownedReply.location?.endsWith("?error=account_already_linked_to_different_user"))
+        throw new Error(`foreign account was accepted: ${ownedReply.location}`)
+      expectStatus(
+        await context.send(web, "POST", unlink, { accountId: credential.id }),
+        200,
+        "unlink",
+      )
+      await context.send(web, "GET", "/auth/v1/list-accounts")
+      context.clock.advance(900_000)
+      expectStatus(
+        await context.send(web, "POST", unlink, { accountId: github.id }),
+        403,
+        "stale session",
+      )
+    },
+  },
+  {
+    id: "oauth-error-page",
+    description: "Renders the OAuth error code and escapes the provider description as HTML",
+    async run(context) {
+      const query = new URLSearchParams({
+        error: "access_denied",
+        error_description: '<script>alert(1)</script> & "denied"',
+      })
+      expectStatus(
+        await context.send(context.client("web"), "GET", `/auth/v1/error?${query}`),
+        200,
+        "error page",
+      )
+    },
+  },
+  {
     id: "social-refusals",
     description:
       "A foreign callback is refused before leaving; a callback with a state of another browser, an unknown provider, and a code the provider refuses end on the error page",
@@ -105,6 +190,24 @@ export const social: CaseSpec[] = [
 
 /** A generic OpenID Connect provider configured through discovery. */
 export const oidc: CaseSpec[] = [
+  {
+    id: "generic-oidc-link",
+    description: "Links a discovery configured provider to the signed in user",
+    async run(context) {
+      const web = context.client("web")
+      const email = "oidc-link@example.com"
+      await signUpVerified(context, web, email, "correct horse battery 1")
+      context.providers.user = { sub: "oidc-link", email, name: "OIDC Link" }
+      const { callback } = await viaProvider(context, web, "/auth/v1/link-social", {
+        provider: "acme",
+        callbackURL: HOME,
+      })
+      if (callback === undefined) throw new Error("no link callback from the provider")
+      const linked = await context.visit(web, callback)
+      if (linked.location !== HOME) throw new Error(`link failed: ${linked.location}`)
+      await context.send(web, "GET", "/auth/v1/list-accounts")
+    },
+  },
   {
     id: "generic-oidc",
     description:

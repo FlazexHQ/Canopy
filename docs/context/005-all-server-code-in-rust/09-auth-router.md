@@ -80,7 +80,7 @@ The conformance replay in [`crates/canopy-authn/tests/auth_oracle.rs`](../../../
 4. **Unification:** Unifies the recorder's numbered placeholders (`<user-id-1>`, `<session-token-1>`, `<mail-jwt-signature-1>` and the like) through `Bindings`, ensuring dynamic values match consistently across requests, headers, cookies, and database state without relying on hardcoded secrets.
 5. **Validation:** Checks HTTP status, application headers, `Set-Cookie` attributes, response bodies, outgoing email content, audit log documents in `canopy.audit_log`, and user or session documents in `canopy_auth`.
 
-Currently, 15 groups are replayed across 41 cases and 310 steps (`email-password`, `email-verification`, `password-reset`, `magic-link`, `email-otp`, `two-factor`, `passkeys`, `sessions`, `tokens`, `anonymous`, `bearer`, `rate-limits`, `errors`, `social`, and `oidc`).
+Currently, 15 groups are replayed across 44 cases (`email-password`, `email-verification`, `password-reset`, `magic-link`, `email-otp`, `two-factor`, `passkeys`, `sessions`, `tokens`, `anonymous`, `bearer`, `rate-limits`, `errors`, `social`, and `oidc`).
 
 ## Running the replay tests
 
@@ -103,5 +103,13 @@ Note: Cargo builds on this machine use `-j 2` to keep memory within paging limit
 ## Known gap and mounting status
 
 - **HTTPS claims hook gap:** The HTTPS claims hook (decided O3: signed like webhooks, 200 ms, 4 KiB, fails closed with `CANOPY_AUTH_HOOK_FAILED`) is not yet built.
-- **R5.3 leftovers:** Not built: `/link-social`, `/unlink-account`, ID token sign in, the `/auth/v1/error` page, provider token refresh.
+- **Account linking:** `POST /auth/v1/link-social` starts a social or generic OIDC provider redirect for a signed in user.
+  The callback requires the initiating session to remain live, a verified email from the provider and a
+  matching local email. Linking an account again refreshes its tokens and merges its scopes. Linking does
+  not create a session or write an audit event.
+- **Account unlinking:** `POST /auth/v1/unlink-account` takes the account document id and requires a session
+  younger than 15 minutes. It refuses to remove the last account.
+- **OAuth errors:** `GET /auth/v1/error` serves Better Auth's HTML with escaped descriptions and security
+  headers. With `NODE_ENV=production`, it redirects to the home path with the error query.
+- **R5.3 leftovers:** Direct ID token sign in and provider token refresh remain outstanding.
 - **Mount status:** `canopyd` mounts the router when `CANOPY_AUTH_ENGINE=rust`. In default deployment configurations, the TypeScript `auth` service handles `/auth/v1`, `/.well-known/jwks.json`, and `/admin/v1/users` until the stacks and `sdk-e2e` switch to Rust auth.

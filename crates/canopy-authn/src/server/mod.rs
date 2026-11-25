@@ -31,6 +31,7 @@ macro_rules! object {
 mod anonymous;
 mod documents;
 mod email;
+mod error_page;
 mod floor;
 mod magic_link;
 pub mod oauth;
@@ -116,6 +117,9 @@ pub struct AuthOptions {
     pub oidc_providers: Vec<oauth::OidcProvider>,
     /// The transport of calls to identity providers; reqwest over rustls when unset.
     pub provider_http: Option<Arc<dyn oauth::ProviderHttp>>,
+    /// Whether the server runs in production: a failed sign in then redirects to the home page with the
+    /// error in the query instead of showing the error page.
+    pub production: bool,
 }
 
 impl AuthOptions {
@@ -138,6 +142,7 @@ impl AuthOptions {
             social_providers: Vec::new(),
             oidc_providers: Vec::new(),
             provider_http: None,
+            production: false,
         }
     }
 }
@@ -440,7 +445,7 @@ impl Call<'_> {
         }
         let reset_link = get && self.route.starts_with("/reset-password/");
         let allowed = match self.route {
-            "/verify-email" | "/get-session" | "/list-sessions" | "/list-accounts" => get,
+            "/verify-email" | "/get-session" | "/list-sessions" | "/list-accounts" | "/error" => get,
             route if route.starts_with("/callback/") => get || post,
             "/magic-link/verify" => get && self.feature("magic_link"),
             "/sign-in/magic-link" => self.request.method == "POST" && self.feature("magic_link"),
@@ -465,7 +470,9 @@ impl Call<'_> {
             | "/revoke-session"
             | "/revoke-other-sessions"
             | "/revoke-sessions"
-            | "/sign-in/social" => self.request.method == "POST",
+            | "/sign-in/social"
+            | "/link-social"
+            | "/unlink-account" => self.request.method == "POST",
             _ => reset_link,
         };
         if let Some(retry) = self.address_retry().await? {
@@ -485,6 +492,9 @@ impl Call<'_> {
         }
         if let Some(provider) = self.route.strip_prefix("/callback/") {
             return self.oauth_callback(provider, query).await;
+        }
+        if self.route == "/error" {
+            return Ok(error_page::render(query, self.router.options.production));
         }
         if !get {
             match self.request.header("origin") {
@@ -514,7 +524,7 @@ impl Call<'_> {
                 return Ok(error(403, code, message));
             }
         }
-        if self.route == "/sign-in/social" {
+        if matches!(self.route, "/sign-in/social" | "/link-social") {
             for (field, code) in [
                 ("errorCallbackURL", "INVALID_ERROR_CALLBACK_URL"),
                 ("newUserCallbackURL", "INVALID_NEW_USER_CALLBACK_URL"),
@@ -544,7 +554,8 @@ impl Call<'_> {
             "/sign-up/email" => self.sign_up(&body).await,
             "/sign-in/email" => self.sign_in(&body).await,
             "/sign-in/anonymous" => self.sign_in_anonymous().await,
-            "/sign-in/social" => self.sign_in_social(&body).await,
+            "/sign-in/social" | "/link-social" => self.sign_in_social(&body).await,
+            "/unlink-account" => self.unlink_account(&body).await,
             "/list-accounts" => self.list_accounts().await,
             "/delete-anonymous-user" => self.delete_anonymous_user().await,
             "/sign-in/magic-link" => self.send_magic_link(&body).await,

@@ -345,3 +345,46 @@ async fn sends_a_form_post_callback_to_the_get_callback() -> Result<()> {
     cleanup(auth, meta).await?;
     result
 }
+
+#[tokio::test]
+async fn revoked_session_cannot_finish_linking_an_account() -> Result<()> {
+    let Some((auth, meta)) = databases().await else {
+        eprintln!("Skipping OAuth flows because CANOPY_TEST_MONGODB_URI is unset");
+        return Ok(());
+    };
+    let result = async {
+        let harness = Harness::open(auth.clone(), meta.clone(), false).await?;
+        let mut browser = Browser { cookies: Vec::new() };
+        harness.idp.set_user("4242", "link@example.com", "Octo Cat");
+        let sign_in = harness.start(&mut browser, "github").await?;
+        assert_eq!(harness.callback(&mut browser, &sign_in).await?, HOME);
+
+        harness.idp.set_user("4243", "link@example.com", "Octo Cat");
+        let start = Request::new("POST", "/auth/v1/link-social")
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(json!({"provider": "github", "callbackURL": HOME}).to_string().into_bytes());
+        let started = harness.send(&mut browser, start).await;
+        assert_eq!(started.status, 200, "{}", String::from_utf8_lossy(&started.body));
+        let body: Value = serde_json::from_slice(&started.body)?;
+        let (status, location) = harness.idp.authorize(body["url"].as_str().ok_or("authorization URL")?);
+        assert_eq!(status, 302);
+        let callback = Url::parse(&location)?;
+        let sign_out = Request::new("POST", "/auth/v1/sign-out")
+            .with_header("origin", APP)
+            .with_header("content-type", "application/json")
+            .with_body(b"{}".to_vec());
+        assert_eq!(harness.send(&mut browser, sign_out).await.status, 200);
+        let path = format!("{}?{}", callback.path(), callback.query().ok_or("callback query")?);
+        assert_eq!(
+            harness.callback(&mut browser, &path).await?,
+            format!("{PUBLIC}/auth/v1/error?error=unable_to_link_account")
+        );
+        assert_eq!(harness.count("accounts").await?, 1);
+        assert_eq!(harness.count("sessions").await?, 0);
+        Ok(())
+    }
+    .await;
+    cleanup(auth, meta).await?;
+    result
+}
