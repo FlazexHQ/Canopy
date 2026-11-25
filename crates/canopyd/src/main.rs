@@ -5,6 +5,7 @@
 
 mod client_address;
 mod config;
+mod control;
 mod data_plane;
 mod forward;
 mod graphql_ws;
@@ -52,6 +53,11 @@ JSON (the canopy launcher writes it), the bound port is reported on standard out
 and stops the server. Without --config, the variables of canopy-realtime apply: MONGODB_URI, CANOPY_DB,
 CANOPY_META_DB, CANOPY_PUBLISHABLE_KEYS, CANOPY_SECRET_KEYS, CANOPY_JWT_*, PORT, METRICS_PORT and the others,
 with policies read from the meta database.
+
+CANOPY_ROLE=control runs the control plane instead: it migrates the meta database, publishes
+CANOPY_POLICY_BUNDLE, runs the webhooks of the config's webhooks section (or of CANOPY_WEBHOOKS) and serves
+/admin/v1, reading CANOPY_ENV, CANOPY_PUBLIC_URL, CANOPY_ADMIN_ORIGINS, CANOPY_MASTER_KEY,
+CANOPY_MASTER_KEY_PREVIOUS and CANOPY_WEBHOOK_SECRET. CANOPY_ROLE=studio serves Studio alone.
 
 --probe asks the gateway listening on PORT (8080 by default) on this host for /readyz and exits 0 when it
 answers 200, so a container without a shell can check its own readiness.
@@ -155,6 +161,15 @@ fn main() -> ExitCode {
                 return ExitCode::from(1);
             }
         };
+    if role == "control" {
+        return match runtime.block_on(control::start(config, text, log)) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                log.error("canopy control failed", &[("err", &message)]);
+                ExitCode::from(1)
+            }
+        };
+    }
     let studio = studio::Studio::from_env();
     let studio = (role == "all" && config.proxy_url.is_none() && studio.configured()).then_some(studio);
     match runtime.block_on(start(config, log, control, studio)) {

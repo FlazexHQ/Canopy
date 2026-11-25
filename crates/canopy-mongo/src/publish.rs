@@ -205,12 +205,16 @@ fn lint(definition: &CollectionPolicies) -> Result<(), CanopyError> {
     Err(with_details(validation(message), &doc! { "findings": findings }))
 }
 
+/// The time in milliseconds since the Unix epoch.
+pub type Clock = std::sync::Arc<dyn Fn() -> i64 + Send + Sync>;
+
 /// Publishes and restores policy definitions in the Canopy meta database.
 pub struct PolicyPublisher {
     policies: Collection<Document>,
     history: Collection<Document>,
     audit: Collection<Document>,
     guard: Collection<Document>,
+    clock: Option<Clock>,
 }
 
 impl PolicyPublisher {
@@ -221,7 +225,19 @@ impl PolicyPublisher {
             history: meta.collection("policy_history"),
             audit: meta.collection("audit_log"),
             guard: meta.collection("policy_publication"),
+            clock: None,
         }
+    }
+
+    /// Stamps publications and audit entries with `clock` instead of the system time.
+    #[must_use]
+    pub fn with_clock(mut self, clock: Clock) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
+    fn now(&self) -> DateTime {
+        self.clock.as_ref().map_or_else(DateTime::now, |clock| DateTime::from_millis(clock()))
     }
 
     /// Publishes a collection definition at the next version.
@@ -459,7 +475,7 @@ impl PolicyPublisher {
                 return Err(driver_error(conflict(change.id(), existing, input.expected_version)));
             }
             let next = change
-                .build(existing + 1, DateTime::now(), &actor_name(&input.actor).map_err(driver_error)?)
+                .build(existing + 1, self.now(), &actor_name(&input.actor).map_err(driver_error)?)
                 .map_err(driver_error)?;
             let action = match (change, rollback_of) {
                 (Change::CollectionUpdate(_), _) => "collection.update",
@@ -521,7 +537,7 @@ impl PolicyPublisher {
             history.insert("rollbackOf", bson_version(version));
             audit.insert("details", doc! { "rollbackOf": bson_version(version) });
         }
-        audit.insert("at", DateTime::now());
+        audit.insert("at", self.now());
         audit.insert("outcome", "ok");
         self.history.insert_one(history).session(&mut *session).await?;
         self.policies.replace_one(doc! { "_id": id }, next).upsert(true).session(&mut *session).await?;

@@ -14,16 +14,19 @@ path = "src/main.rs"
 [dependencies]
 canopy-auth = { path = "../canopy-auth" }
 canopy-config = { path = "../canopy-config" }
+canopy-control = { path = "../canopy-control" }
 canopy-data = { path = "../canopy-data" }
 canopy-engine = { path = "../canopy-engine" }
 canopy-graphql = { path = "../canopy-graphql" }
 canopy-http = { path = "../canopy-http" }
 canopy-matcher = { path = "../canopy-matcher" }
+canopy-migrations = { path = "../canopy-migrations" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
 canopy-realtime = { path = "../canopy-realtime" }
 canopy-storage = { path = "../canopy-storage" }
+canopy-webhooks = { path = "../canopy-webhooks" }
 canopy-wire = { path = "../canopy-wire" }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 http-body-util = "0.1"

@@ -457,6 +457,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "canopy-control"
+version = "0.0.0"
+dependencies = [
+ "argon2",
+ "base64 0.22.1",
+ "canopy-config",
+ "canopy-http",
+ "canopy-migrations",
+ "canopy-mongo",
+ "canopy-policy",
+ "canopy-protocol",
+ "canopy-webhooks",
+ "futures-util",
+ "regex",
+ "ring",
+ "scrypt",
+ "tokio",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "canopy-data"
 version = "0.0.0"
 dependencies = [
@@ -747,16 +768,19 @@ dependencies = [
  "base64 0.22.1",
  "canopy-auth",
  "canopy-config",
+ "canopy-control",
  "canopy-data",
  "canopy-engine",
  "canopy-graphql",
  "canopy-http",
  "canopy-matcher",
+ "canopy-migrations",
  "canopy-mongo",
  "canopy-policy",
  "canopy-protocol",
  "canopy-realtime",
  "canopy-storage",
+ "canopy-webhooks",
  "canopy-wire",
  "futures-util",
  "http-body-util",

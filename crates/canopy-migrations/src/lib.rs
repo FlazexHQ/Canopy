@@ -88,6 +88,11 @@ async fn pending(migrations: &Collection<Document>, target: i32) -> Result<Vec<i
     Ok((1..=target).filter(|version| !done.contains(version)).collect())
 }
 
+/// How many migrations up to [`LATEST_VERSION`] the meta database has not applied yet.
+pub async fn pending_migrations(meta: &Database) -> Result<usize, CanopyError> {
+    Ok(pending(&meta.collection("migrations"), LATEST_VERSION).await?.len())
+}
+
 struct Lease<'a> {
     migrations: &'a Collection<Document>,
     owner: String,

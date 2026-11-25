@@ -28,7 +28,7 @@ print_stderr = "deny"
 lto = "thin"
 codegen-units = 1
 
-# Password hashing runs at full speed in tests too, so replays that hash many passwords stay fast.
+# Password hashing runs at full speed in tests too: the admin oracle replay hashes dozens of passwords.
 [profile.dev.package.argon2]
 opt-level = 3
 

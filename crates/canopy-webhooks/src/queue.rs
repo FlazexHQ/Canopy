@@ -122,20 +122,26 @@ impl Queue {
             .start_transaction()
             .and_run((self, id, now), |session, (queue, id, now)| {
                 async move {
-                    let Some(mut letter) =
+                    let Some(letter) =
                         queue.dead.find_one_and_delete(doc! { "_id": *id }).session(&mut *session).await?
                     else {
                         return Ok(false);
                     };
-                    for key in ["failedAt", "lastError", "lastStatus"] {
-                        letter.remove(key);
+                    let mut delivery = Document::new();
+                    for key in ["_id", "hook", "kind", "body"] {
+                        if let Some(value) = letter.get(key) {
+                            delivery.insert(key, value.clone());
+                        }
                     }
-                    letter.insert("status", "pending");
-                    letter.insert("attempts", 0);
-                    letter.insert("nextAt", *now);
+                    delivery.insert("status", "pending");
+                    delivery.insert("attempts", 0);
+                    delivery.insert("nextAt", *now);
+                    if let Some(created) = letter.get("createdAt") {
+                        delivery.insert("createdAt", created.clone());
+                    }
                     queue
                         .deliveries
-                        .replace_one(doc! { "_id": *id }, letter)
+                        .replace_one(doc! { "_id": *id }, delivery)
                         .upsert(true)
                         .session(session)
                         .await?;
