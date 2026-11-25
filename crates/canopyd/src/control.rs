@@ -8,13 +8,13 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use canopy_config::GatewayConfig;
 use canopy_control::{
-    BoxFuture, Control, ControlOptions, DataRoutes, Environment, InspectionQuery, Inspector, MetaStatus,
-    PolicyRoutes, PolicyStatus, RealtimeRoutes, RealtimeStatus, SigningAlgorithm, SigningKeyOptions,
-    SigningKeyRoutes, Status, TemplateRoutes, ViewSigner, WebhookAdmin,
+    BoxFuture, BuiltinMethods, Control, ControlOptions, DataRoutes, Environment, InspectionQuery, Inspector,
+    MetaStatus, PolicyRoutes, PolicyStatus, ProviderView, RealtimeRoutes, RealtimeStatus, SigningAlgorithm,
+    SigningKeyOptions, SigningKeyRoutes, Status, TemplateRoutes, ViewSigner, WebhookAdmin, builtin_providers,
 };
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::mongodb::{self, Client};
@@ -33,6 +33,7 @@ use crate::realtime_inspection::RemoteInspector;
 
 use crate::client_address;
 use crate::log::Log;
+use crate::request_log::{Logged, RequestLog};
 
 const MAX_BODY: usize = 1024 * 1024;
 
@@ -45,6 +46,77 @@ fn config_text<'a>(value: &'a Json, field: &str) -> Option<&'a str> {
         Some(Json::String(text)) => Some(text),
         _ => None,
     }
+}
+
+fn providers(auth: Option<&Json>, jwt: Option<&canopy_config::JwtConfig>, builtin: bool) -> Document {
+    if !builtin {
+        let mut view = doc! { "mode": "external", "providers": [] };
+        if let Some(jwt) = jwt {
+            let mut external = Document::new();
+            for (field, values) in [("issuer", &jwt.issuers), ("audience", &jwt.audiences)] {
+                external.insert(
+                    field,
+                    match values.as_slice() {
+                        [value] if !matches!(auth.and_then(|auth| auth.get(field)), Some(Json::Array(_))) => {
+                            Bson::String(value.clone())
+                        }
+                        values => Bson::from(values.to_vec()),
+                    },
+                );
+            }
+            if let Some(url) = &jwt.jwks_url {
+                external.insert("jwksUrl", url);
+            }
+            if !jwt.algorithms.is_empty()
+                || matches!(auth.and_then(|auth| auth.get("algorithms")), Some(Json::Array(_)))
+            {
+                external.insert("algorithms", jwt.algorithms.clone());
+            }
+            view.insert("external", external);
+        }
+        return view;
+    }
+
+    let method = |field, default| match auth.and_then(|auth| auth.get(field)) {
+        Some(Json::Bool(value)) => *value,
+        _ => default,
+    };
+    let mut methods = BuiltinMethods {
+        email_password: method("emailPassword", true),
+        magic_link: method("magicLink", true),
+        email_otp: method("emailOtp", true),
+        anonymous: method("anonymous", false),
+        social: Vec::new(),
+        oidc: Vec::new(),
+    };
+    if let Some(configured) = auth.and_then(|auth| auth.get("providers")) {
+        for id in ["google", "github", "apple", "microsoft", "discord"] {
+            if let Some(provider) = configured.get(id)
+                && let (Some(client_id), Some(_)) =
+                    (config_text(provider, "clientId"), config_text(provider, "clientSecret"))
+            {
+                methods.social.push(ProviderView {
+                    id: id.to_owned(),
+                    client_id: Some(client_id.to_owned()),
+                    issuer: None,
+                });
+            }
+        }
+    }
+    if let Some(Json::Array(configured)) = auth.and_then(|auth| auth.get("oidc")) {
+        methods.oidc = configured
+            .iter()
+            .filter_map(|provider| {
+                config_text(provider, "clientSecret")?;
+                Some(ProviderView {
+                    id: config_text(provider, "id")?.to_owned(),
+                    client_id: Some(config_text(provider, "clientId")?.to_owned()),
+                    issuer: Some(config_text(provider, "discoveryUrl")?.to_owned()),
+                })
+            })
+            .collect();
+    }
+    builtin_providers(&methods)
 }
 
 fn signing_key_options(auth: Option<&Json>, master_key: Option<&str>) -> Result<SigningKeyOptions, String> {
@@ -346,8 +418,13 @@ pub(crate) fn tail_body(opening: Vec<u8>, receiver: canopy_realtime::InspectionR
     StreamBody::new(frames).boxed_unsync()
 }
 
+pub(crate) struct Admin {
+    control: Control,
+    request_log: Arc<RequestLog>,
+}
+
 pub(crate) async fn handle(
-    control: &Control,
+    admin: &Admin,
     request: Request<Incoming>,
     peer: &str,
     trusted: &[canopy_config::TrustedProxy],
@@ -362,8 +439,10 @@ pub(crate) async fn handle(
         return plain(404, "Not found");
     }
     let wants_tail = path == "/admin/v1/realtime/tail" && request.method() == hyper::Method::GET;
+    let started = Instant::now();
     let (request, address) = read(request, peer, trusted).await;
-    let answer = control.fetch(&request, Some(&address)).await;
+    let answer = admin.control.fetch(&request, Some(&address)).await;
+    let request_id = answer.header("x-request-id").map(str::to_owned);
     let status =
         hyper::StatusCode::from_u16(answer.status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     let tail = if wants_tail && status == hyper::StatusCode::OK {
@@ -386,6 +465,16 @@ pub(crate) async fn handle(
         },
         _ => full(status, answer.body),
     };
+    let path = request.target.split_once('?').map_or(request.target.as_str(), |(path, _)| path);
+    admin.request_log.record(&Logged {
+        surface: "admin",
+        method: &request.method,
+        path,
+        status: response.status().as_u16(),
+        started,
+        ip: &address,
+        request_id: request_id.as_deref(),
+    });
     for (name, value) in answer.headers {
         if let (Ok(name), Ok(value)) = (
             hyper::header::HeaderName::from_bytes(name.as_bytes()),
@@ -406,7 +495,7 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
     let client = Client::with_options(options).map_err(|error| error.to_string())?;
     let remote = RemoteInspector::configured()?;
     let (control, webhooks_handle) =
-        build(&config, text.as_deref(), client, log, None, remote.clone()).await?;
+        build(&config, text.as_deref(), client, log, None, remote.clone(), None).await?;
     let control = Arc::new(control);
     let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
         .await
@@ -439,7 +528,8 @@ pub(crate) async fn build(
     log: Log,
     realtime: Option<LocalRealtime>,
     remote: Option<RemoteInspector>,
-) -> Result<(Control, Option<canopy_webhooks::Handle>), String> {
+    request_log: Option<Arc<RequestLog>>,
+) -> Result<(Admin, Option<canopy_webhooks::Handle>), String> {
     let meta = client.database(&config.meta_database);
     let migrated = canopy_migrations::migrate(&meta, canopy_migrations::MigrationOptions::default())
         .await
@@ -492,10 +582,12 @@ pub(crate) async fn build(
     control_options.webhooks = webhook_admin;
     let raw_config = text.map(parse_json).transpose().map_err(|error| message(&error))?;
     let raw_auth = raw_config.as_ref().and_then(|config| config.get("auth"));
-    if matches!(raw_auth.and_then(|auth| auth.get("kind")), Some(Json::String(kind)) if kind == "builtin")
+    let builtin = matches!(raw_auth.and_then(|auth| auth.get("kind")), Some(Json::String(kind)) if kind == "builtin")
         || config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
-        || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on")
-    {
+        || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on");
+    control_options.auth_providers = providers(raw_auth, config.auth.as_ref(), builtin);
+    control_options.error_logger = Some(Arc::new(move |path, code| log.admin_failure(path, code)));
+    if builtin {
         let app_name = raw_auth.and_then(|auth| config_text(auth, "appName")).unwrap_or("Canopy").to_owned();
         let auth_database = env("CANOPY_AUTH_DB")
             .or_else(|| {
@@ -585,12 +677,16 @@ pub(crate) async fn build(
             &[("token", &token)],
         );
     }
-    Ok((control, webhooks_handle))
+    let request_log = match request_log {
+        Some(log) => log,
+        None => RequestLog::start(meta, log).await,
+    };
+    Ok((Admin { control, request_log }, webhooks_handle))
 }
 
 pub(crate) async fn serve(
     listener: tokio::net::TcpListener,
-    control: Arc<Control>,
+    control: Arc<Admin>,
     trusted: Vec<canopy_config::TrustedProxy>,
     engine: Option<EngineSender>,
     remote: Option<RemoteInspector>,

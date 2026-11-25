@@ -364,16 +364,7 @@ async fn start(
     let request_log = if config.data_plane_routes.is_empty() {
         None
     } else {
-        let request_log = Arc::new(request_log::RequestLog::new(meta.clone(), log));
-        if let Err(error) = request_log.refresh().await {
-            log.warn(
-                "could not read the settings; the request log keeps nothing",
-                &[("err", &error.to_string())],
-            );
-        }
-        let follower = Arc::clone(&request_log);
-        tokio::spawn(async move { follower.follow().await });
-        Some(request_log)
+        Some(request_log::RequestLog::start(meta.clone(), log).await)
     };
     let reads = data_policies.map(|policies| data_plane::read_path(&config, client.clone(), policies));
     let data_plane = reads
@@ -385,7 +376,7 @@ async fn start(
                 client.clone(),
                 auth.clone(),
                 Arc::clone(reads),
-                request_log,
+                request_log.clone(),
                 telemetry.clone(),
                 Some(engine_tx.clone()),
             )
@@ -399,7 +390,8 @@ async fn start(
     let admin = if let Some(text) = local_admin {
         let local = control::LocalRealtime { engine: engine_tx.clone(), signer, following };
         let (admin, handle) =
-            control::build(&config, text.as_deref(), client.clone(), log, Some(local), None).await?;
+            control::build(&config, text.as_deref(), client.clone(), log, Some(local), None, request_log)
+                .await?;
         webhooks = handle;
         let admin = Arc::new(admin);
         if let Some(address) = control::env("CANOPY_ADMIN_LISTEN") {

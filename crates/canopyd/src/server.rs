@@ -21,7 +21,7 @@ pub(crate) struct Routes {
     pub(crate) data_plane: Option<DataPlane>,
     /// Studio assets on the shared listener.
     pub(crate) studio: Option<Studio>,
-    pub(crate) admin: Option<(Arc<canopy_control::Control>, canopy_realtime::EngineSender)>,
+    pub(crate) admin: Option<(Arc<crate::control::Admin>, canopy_realtime::EngineSender)>,
 }
 
 pub(crate) struct ShardRoutes {

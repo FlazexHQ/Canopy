@@ -93,6 +93,9 @@ pub struct Services {
     pub realtime: Option<Arc<dyn Delegate>>,
 }
 
+/// Reports a failed admin request with its static route path and error code.
+pub type ErrorLogger = Arc<dyn Fn(Option<&'static str>, canopy_protocol::ErrorCode) + Send + Sync>;
+
 /// Everything the admin API works on.
 pub struct ControlOptions {
     /// The deployment's MongoDB client.
@@ -123,6 +126,8 @@ pub struct ControlOptions {
     pub services: Services,
     /// What the doctor and the danger zone read from the rest of the server.
     pub status: Arc<dyn Status>,
+    /// Reports errors with a server status.
+    pub error_logger: Option<ErrorLogger>,
     /// The clock.
     pub now: Clock,
 }
@@ -150,6 +155,7 @@ impl ControlOptions {
             webhooks: None,
             services: Services::default(),
             status: Arc::new(NoStatus),
+            error_logger: None,
             now: system_clock(),
         }
     }
@@ -169,6 +175,7 @@ pub struct Control {
     services: Services,
     status: Arc<dyn Status>,
     now: Clock,
+    error_logger: Option<ErrorLogger>,
     audit: AuditLog,
     accounts: AdminAccounts,
     tokens: AdminTokens,
@@ -212,6 +219,7 @@ impl Control {
             services: options.services,
             status: options.status,
             now: options.now,
+            error_logger: options.error_logger,
             audit,
             accounts,
             tokens,

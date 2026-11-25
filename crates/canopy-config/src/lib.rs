@@ -631,6 +631,13 @@ pub fn resolve(json: Option<&str>, fallback: Fallbacks) -> Result<GatewayConfig,
     };
     let auth = match get(&doc, &["auth"]) {
         Some(Json::Null) => None,
+        Some(auth)
+            if text(auth, &["kind"]).as_deref() == Some("builtin")
+                && auth.get("issuer").is_none()
+                && flag(auth, &["builtinJwks"]) != Some(true) =>
+        {
+            None
+        }
         Some(auth @ Json::Object(_)) => Some(JwtConfig {
             builtin_jwks_grace_ms: flag(auth, &["builtinJwks"])
                 .unwrap_or(false)
@@ -875,6 +882,19 @@ mod tests {
         assert_eq!(config.mutations_url.as_deref(), Some("http://127.0.0.1:8080/rest/v1"));
         assert!(config.websocket && config.http_fallback);
         assert_eq!(config.cors, None);
+    }
+
+    #[test]
+    fn built_in_auth_without_token_settings_verifies_no_tokens() -> Result<(), String> {
+        let json =
+            |auth: &str| format!(r#"{{"mongodb":{{"uri":"mongodb://h","database":"app"}},"auth":{auth}}}"#);
+        let config = parse(&json(r#"{"kind":"builtin","magicLink":false}"#))?;
+        assert!(config.auth.is_none());
+        let config = parse(&json(r#"{"kind":"external","magicLink":false}"#));
+        assert_eq!(config.err().as_deref(), Some("auth.issuer is required"));
+        let config = parse(&json(r#"{"kind":"builtin","issuer":"i"}"#));
+        assert_eq!(config.err().as_deref(), Some("JWT auth needs jwksUrl or jwks"));
+        Ok(())
     }
 
     #[test]

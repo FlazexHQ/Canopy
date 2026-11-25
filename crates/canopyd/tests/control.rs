@@ -23,10 +23,18 @@ impl Drop for Control {
 }
 
 fn get(port: u16, path: &str, headers: &str) -> (u16, String, String) {
+    request(port, "GET", path, headers, "")
+}
+
+fn request(port: u16, method: &str, path: &str, headers: &str, body: &str) -> (u16, String, String) {
     let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-    write!(stream, "GET {path} HTTP/1.1\r\nhost: admin.example.test\r\n{headers}connection: close\r\n\r\n")
-        .unwrap();
+    write!(
+        stream,
+        "{method} {path} HTTP/1.1\r\nhost: admin.example.test\r\n{headers}content-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
     let mut text = String::new();
     stream.read_to_string(&mut text).unwrap();
     let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
@@ -39,7 +47,15 @@ fn listening_port(child: &mut Child) -> u16 {
     BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
     let port =
         line.split("\"port\":").nth(1).and_then(|rest| rest.trim().trim_end_matches('}').parse::<u16>().ok());
-    assert!(port.is_some(), "no listening line: {line}");
+    if port.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+        let mut stderr = String::new();
+        if let Some(mut output) = child.stderr.take() {
+            output.read_to_string(&mut stderr).unwrap();
+        }
+        assert!(port.is_some(), "no listening line: {line}\n{stderr}");
+    }
     port.unwrap()
 }
 
@@ -148,20 +164,8 @@ async fn split_realtime_inspection_requires_the_cluster_credential() {
     assert_eq!(get(gateway.1, "/healthz", "").0, 200);
     let client = mongodb::Client::with_uri_str(&uri).await.unwrap();
     let meta = client.database(&meta_name);
-    let now = DateTime::now();
     let session = "canopy_admin_realtime_fixture";
-    let digest = ring::digest::digest(&ring::digest::SHA256, session.as_bytes());
-    meta.collection::<Document>("admin_users")
-        .insert_one(doc! { "_id": "owner", "email": "owner@example.test", "role": "owner", "createdAt": now })
-        .await
-        .unwrap();
-    meta.collection::<Document>("admin_sessions")
-        .insert_one(doc! {
-            "_id": canopy_protocol::hex(digest.as_ref()), "userId": "owner", "transport": "bearer",
-            "lastSeenAt": now, "expiresAt": DateTime::from_millis(now.timestamp_millis() + 60_000)
-        })
-        .await
-        .unwrap();
+    seed_owner(&meta, session).await;
 
     let mut child = Command::new(GATEWAY)
         .env("CANOPY_ROLE", "control")
@@ -222,5 +226,163 @@ async fn split_realtime_inspection_requires_the_cluster_credential() {
 
     for name in [&database, &meta_name] {
         let _ = client.database(name).drop().await;
+    }
+}
+
+async fn seed_owner(meta: &mongodb::Database, session: &str) {
+    let now = DateTime::now();
+    let digest = ring::digest::digest(&ring::digest::SHA256, session.as_bytes());
+    meta.collection::<Document>("admin_users")
+        .insert_one(doc! { "_id": "owner", "email": "owner@example.test", "role": "owner", "createdAt": now })
+        .await
+        .unwrap();
+    meta.collection::<Document>("admin_sessions")
+        .insert_one(doc! {
+            "_id": canopy_protocol::hex(digest.as_ref()), "userId": "owner", "transport": "bearer",
+            "lastSeenAt": now, "expiresAt": DateTime::from_millis(now.timestamp_millis() + 60_000)
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn the_control_roles_report_configured_providers_and_log_internal_errors() {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        eprintln!("Skipping the control providers and logging test because CANOPY_TEST_MONGODB_URI is unset");
+        return;
+    };
+    let database = format!("canopy_control_providers_{}", &ObjectId::new().to_hex()[16..]);
+    let meta_name = format!("{database}_meta");
+    let client = mongodb::Client::with_uri_str(&uri).await.unwrap();
+    let meta = client.database(&meta_name);
+    let session = "canopy_admin_providers_fixture";
+    let config = serde_json::json!({
+        "auth": {
+            "kind": "builtin",
+            "emailPassword": false,
+            "magicLink": false,
+            "anonymous": true,
+            "providers": {
+                "github": { "clientId": "github-fixture", "clientSecret": "github-private-fixture" },
+            },
+            "oidc": [{
+                "id": "workforce",
+                "clientId": "workforce-fixture",
+                "clientSecret": "oidc-private-fixture",
+                "discoveryUrl": "https://login.example.test/.well-known/openid-configuration"
+            }],
+        }
+    });
+    let expected = serde_json::json!({
+        "mode": "builtin",
+        "providers": [
+            { "id": "email", "enabled": false, "configured": true },
+            { "id": "magic-link", "enabled": false, "configured": true },
+            { "id": "email-otp", "enabled": true, "configured": true },
+            { "id": "anonymous", "enabled": true, "configured": true },
+            { "id": "google", "enabled": false, "configured": false },
+            { "id": "github", "enabled": true, "configured": true, "clientId": "github-fixture" },
+            { "id": "apple", "enabled": false, "configured": false },
+            { "id": "microsoft", "enabled": false, "configured": false },
+            { "id": "discord", "enabled": false, "configured": false },
+            { "id": "workforce", "enabled": true, "configured": true, "clientId": "workforce-fixture",
+              "issuer": "https://login.example.test/.well-known/openid-configuration" },
+        ]
+    });
+    let auth = format!("authorization: Bearer {session}\r\n");
+
+    for role in ["all", "control"] {
+        let mut child = Command::new(GATEWAY)
+            .args(["--config", "-"])
+            .env("CANOPY_ROLE", role)
+            .env("MONGODB_URI", &uri)
+            .env("CANOPY_DB", &database)
+            .env("CANOPY_META_DB", &meta_name)
+            .env("CANOPY_AUTH_DB", format!("{database}_auth"))
+            .env("HOST", "127.0.0.1")
+            .env("PORT", "0")
+            .env("METRICS_PORT", "0")
+            .env("CANOPY_MASTER_KEY", "m".repeat(48))
+            .env("CANOPY_LOG_LEVEL", "error")
+            .env_remove("CANOPY_ADMIN_LISTEN")
+            .env_remove("CANOPY_POLICY_BUNDLE")
+            .env_remove("CANOPY_WEBHOOKS")
+            .env_remove("CANOPY_REALTIME_INTERNAL_URL")
+            .env_remove("CANOPY_GATEWAY_PROXY_URL")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        writeln!(child.stdin.as_mut().unwrap(), "{config}").unwrap();
+        let port = listening_port(&mut child);
+        let mut control = Control(child, port);
+        if role == "all" {
+            seed_owner(&meta, session).await;
+        }
+        let (status, _, body) = get(port, "/admin/v1/auth/providers", &auth);
+        assert_eq!(status, 200, "{role}: {body}");
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&body).unwrap(), expected, "{role}");
+
+        if role == "all" {
+            continue;
+        }
+        let validation_marker = "fixture-private-validator";
+        meta.run_command(doc! {
+            "collMod": "settings",
+            "validator": { "$jsonSchema": { "required": [validation_marker] } }
+        })
+        .await
+        .unwrap();
+        let query_marker = "fixture-private-query";
+        let body = r#"{"requestLogSampleRate":0.75}"#;
+        let headers = format!("{auth}content-type: application/json\r\nx-request-id: control-failure\r\n");
+        let (status, _, response) =
+            request(port, "PATCH", &format!("/admin/v1/settings?secret={query_marker}"), &headers, body);
+        assert_eq!(status, 500, "{response}");
+        let problem: serde_json::Value = serde_json::from_str(&response).unwrap();
+        assert_eq!(problem["code"], "CANOPY_INTERNAL");
+        assert_eq!(problem["requestId"], "control-failure");
+        assert_eq!(problem["detail"], "Internal error");
+        assert!(problem.get("details").is_none(), "{response}");
+
+        let log = meta.collection::<Document>("request_log");
+        let filter = doc! { "requestId": "control-failure" };
+        let entry = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(entry) = log.find_one(filter.clone()).await.unwrap() {
+                    break entry;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("The failed request is logged");
+        assert_eq!(entry.get_str("path").unwrap(), "/admin/v1/settings");
+        assert_eq!(entry.get_str("method").unwrap(), "PATCH");
+        assert_eq!(entry.get_str("surface").unwrap(), "admin");
+        assert_eq!(entry.get_i32("status").unwrap(), 500);
+
+        let mut stderr = control.0.stderr.take().unwrap();
+        drop(control);
+        let mut logged = String::new();
+        stderr.read_to_string(&mut logged).unwrap();
+        let error = logged
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .find(|line| line["msg"] == "admin request failed")
+            .expect("An admin error is logged");
+        assert_eq!(error["level"], "error");
+        assert_eq!(error["path"], "/admin/v1/settings");
+        assert_eq!(error["code"], "CANOPY_INTERNAL");
+        for private in [session, query_marker, validation_marker, body] {
+            assert!(!response.contains(private), "{response}");
+            assert!(!logged.contains(private), "{logged}");
+            assert!(!entry.to_string().contains(private), "{entry}");
+        }
+    }
+
+    for name in [&database, &meta_name, &format!("{database}_auth")] {
+        client.database(name).drop().await.unwrap();
     }
 }

@@ -476,7 +476,12 @@ impl Control {
         Ok(self.accounts.session(&token).await?.filter(|session| session.transport == Transport::Cookie))
     }
 
-    async fn serve(&self, request: &Request, origin: RequestOrigin) -> Result<Response, CanopyError> {
+    async fn serve(
+        &self,
+        request: &Request,
+        origin: RequestOrigin,
+        route_path: &mut Option<&'static str>,
+    ) -> Result<Response, CanopyError> {
         let (path, query) = request.target.split_once('?').unwrap_or((request.target.as_str(), ""));
         let rest = path.strip_prefix("/admin/v1").unwrap_or(path);
         let mut segments = Vec::new();
@@ -497,6 +502,7 @@ impl Control {
             set_header(&mut response, "allow", allowed.join(", "));
             return Ok(response);
         };
+        *route_path = Some(current.path);
         let mutating = is_mutating(&request.method);
         let mut own_origin = self.allowed_origins.clone();
         if let Some(host) = request.header("host") {
@@ -691,9 +697,17 @@ impl Control {
             request_id: Some(request_id.clone()),
         };
         let path = request.target.split_once('?').map_or(request.target.as_str(), |(path, _)| path);
-        let mut response = match self.serve(request, origin).await {
+        let mut route_path = None;
+        let mut response = match self.serve(request, origin, &mut route_path).await {
             Ok(response) => response,
-            Err(error) => problem(&error, path, &request_id),
+            Err(error) => {
+                if error.code().http_status() >= 500
+                    && let Some(log) = &self.error_logger
+                {
+                    log(route_path, error.code());
+                }
+                problem(&error, path, &request_id)
+            }
         };
         set_header(&mut response, "x-request-id", request_id);
         secure(&mut response);

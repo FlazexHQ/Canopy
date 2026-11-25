@@ -54,6 +54,11 @@ impl Log {
         self.write("warn", message, fields);
     }
 
+    pub(crate) fn admin_failure(self, path: Option<&str>, code: canopy_protocol::ErrorCode) {
+        let path = path.map_or_else(|| "/admin/v1".to_owned(), |path| format!("/admin/v1/{path}"));
+        self.error("admin request failed", &[("path", &path), ("code", code.as_str())]);
+    }
+
     pub(crate) fn error(self, message: &str, fields: &[(&str, &str)]) {
         self.write("error", message, fields);
     }

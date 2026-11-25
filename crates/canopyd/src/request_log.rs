@@ -70,6 +70,19 @@ impl RequestLog {
         }
     }
 
+    pub(crate) async fn start(meta: Database, log: Log) -> std::sync::Arc<Self> {
+        let request_log = std::sync::Arc::new(Self::new(meta, log));
+        if let Err(error) = request_log.refresh().await {
+            log.warn(
+                "could not read the settings; the request log keeps nothing",
+                &[("err", &error.to_string())],
+            );
+        }
+        let follower = std::sync::Arc::clone(&request_log);
+        tokio::spawn(async move { follower.follow().await });
+        request_log
+    }
+
     fn rate(&self) -> f64 {
         f64::from_bits(self.rate.load(Ordering::Relaxed))
     }
