@@ -35,8 +35,10 @@ claims and actor context values use canonical Extended JSON.
 
 The existing helpers produce concrete document cases. The filter form is represented in the
 schema and by a hand authored vector that uses the actor builder. The existing runner can replay
-concrete documents. The maintainer must confirm the filter case semantics for empty or mixed
-matches before R3 implements its runner.
+concrete documents. A filter case runs only against MongoDB (decided 2026-11-26): it passes when
+every document the filter matches gives the expected outcome. A filter that matches no documents
+fails with "matched no documents", and a mixed match fails and names the documents that disagree.
+Without MongoDB the case is reported as not run, never as passed.
 
 ### Functions and diagnostics
 

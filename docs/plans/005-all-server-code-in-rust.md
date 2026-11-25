@@ -212,12 +212,17 @@ R0 records the baselines; R2 must meet these thresholds (confirmed by the mainta
 | Root entry growth | `canopy.js` with one live query, production build, brotli | At most 60 KB over the R0 baseline |
 | Startup | Mid range Android profile (Chromium, 4× CPU slowdown), streaming compile | Compile and instantiate under 30 ms; time to first live query result at most 5 % over baseline |
 | Matching | 1,000 documents, the six filters of `bench/workloads/matcher/event-cost.ts` | At most 1.2× the TypeScript lite matcher's time |
-| Optimistic update | One update applied to one document | At most 2× the TypeScript time, and under 50 µs on the profile |
+| Optimistic update | One update applied to one document | At most 3× the TypeScript time (2× until 2026-11-26, see below), and under 50 µs on the profile |
 | Without WebAssembly | `wasm2js` build on Hermes and under `script-src 'self'` | Every vector passes; size and times reported, at most 3× the TypeScript times |
 
 If a threshold fails, the stage stops and the maintainer chooses among: size work (feature flags, `wasm-opt`,
 splitting the module further), a different split between client and authoring modules, or a narrower
 client module. A TypeScript copy of the semantics is not one of the options (ADR-0018).
+
+The optimistic update gate was missed at about 2.6× (the Rust cost is the allocation heavy document tree, not
+the crossing), and on 2026-11-26 the maintainer accepted the measured ratio: the gate is at most 3× for this
+stage, Rust stays the only updater, and a document representation with fewer allocations is later
+performance work, not a condition of R2.
 
 ## 8. Keeping I1 to I6 tested without the TypeScript reference
 
