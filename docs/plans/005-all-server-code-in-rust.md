@@ -224,6 +224,18 @@ the crossing), and on 2026-11-26 the maintainer accepted the measured ratio: the
 stage, Rust stays the only updater, and a document representation with fewer allocations is later
 performance work, not a condition of R2.
 
+After the quiet machine measurement of 2026-11-26 (`bench/baselines/r2/README.md`), the maintainer decided:
+
+- **Startup.** A live query shows its first snapshot at once, marked stale until the client core has loaded,
+  and reports ready once optimistic changes apply. The startup gate times the first snapshot shown (stale or
+  ready), which is what the TypeScript baseline measured; the delay until ready is reported beside it.
+- **Matching.** Bun and Node meet the gate on all six filters; Chromium at 4x misses on the two cheapest
+  (equality and the DLS and user filter), where the fixed crossing into WebAssembly dominates. R2 keeps
+  working on that crossing in browsers before it closes.
+- **Optimistic update.** The document representation with fewer allocations (inline keys in
+  `canopy-protocol`'s `Document`) is done in R2 after all, then the update gate is measured again; it stays
+  at most 3x and under 50 µs.
+
 ## 8. Keeping I1 to I6 tested without the TypeScript reference
 
 The TypeScript reference compared one implementation with another. Without it, each invariant of
