@@ -16,18 +16,31 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 RUN printf '%s\n' '{"server":{"metricsHost":"0.0.0.0"}}' > gateway.json
 RUN install -d -o 65532 -g 65532 /src/storage
 
+FROM oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d AS studio-build
+WORKDIR /src
+COPY --from=canopyjs . /Canopy.js
+COPY package.json bun.lock bunfig.toml tsconfig*.json ./
+COPY packages ./packages
+COPY apps/studio ./apps/studio
+RUN bun install --frozen-lockfile --ignore-scripts
+WORKDIR /src/apps/studio
+RUN bun --bun run build --outDir /src/studio-assets && test -f /src/studio-assets/index.html
+
 FROM scratch
 WORKDIR /app
 COPY --from=gateway-build /src/canopyd /usr/local/bin/canopyd
 COPY --from=gateway-build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=gateway-build /src/gateway.json ./gateway.json
 COPY --from=gateway-build --chown=65532:65532 /src/storage ./storage
-ENV NODE_ENV=production \
+COPY --from=studio-build /src/studio-assets /app/studio
+ENV CANOPY_STUDIO_DIR=/app/studio \
+    NODE_ENV=production \
     PORT=8080 \
     METRICS_PORT=9464 \
     METRICS_HOST=0.0.0.0 \
     CANOPY_POLICIES=database
 USER 65532:65532
 EXPOSE 8080 9464
+HEALTHCHECK --interval=10s --timeout=5s --retries=6 CMD ["/usr/local/bin/canopyd", "--probe"]
 ENTRYPOINT ["/usr/local/bin/canopyd"]
 CMD ["--config", "/app/gateway.json"]

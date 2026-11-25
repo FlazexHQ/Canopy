@@ -1,7 +1,7 @@
 # Values of the Canopy chart. MongoDB is not part of the chart: set the URI of a replica set in the secret.
 
 image:
-  repository: canopy
+  repository: canopy-legacy
   tag: latest
   pullPolicy: IfNotPresent
 
@@ -55,7 +55,7 @@ affinity: {}
 split:
   enabled: false
   data:
-    image: canopyd:latest
+    image: canopy:latest
   control:
     replicaCount: 1
     image:
@@ -68,7 +68,6 @@ split:
     # Restart the control deployment after changing files in the existing ConfigMap.
     policiesConfigMap: ""
   studio:
-    image: canopy-studio:latest
     replicaCount: 1
   edge:
     image: caddy:2.11.9@sha256:4851e54a46b206517c574821bb5cc67f170d2156041e9fbc4c9193b45e84a75b

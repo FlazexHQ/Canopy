@@ -1,7 +1,7 @@
 # The canopy server image: REST, GraphQL, auth, storage, realtime, health and metrics. CANOPY_ROLE picks
 # what one container runs: all (the default), api or realtime, so the container stack runs this image as
 # separate services. Build from the repository root, with Canopy.js checked out next to Canopy:
-#   docker build -f deploy/docker/canopy.Dockerfile --build-context canopyjs=../Canopy.js -t canopy .
+#   docker build -f deploy/docker/canopy.Dockerfile --build-context canopyjs=../Canopy.js -t canopy-legacy .
 # Mount policy files at /app/policies, and optionally a config file (--config). The isolated linker keeps
 # workspace packages out of the root node_modules, so canopy.js (and @canopy/policy and @canopy/config, for
 # older files) are linked there for policy and config files to import.

@@ -58,8 +58,14 @@ canopyd
 ```
 
 The standalone container image uses policies from the meta database. A published GitHub release builds
-`ghcr.io/flazexhq/canopyd:<tag>` for Linux x64 and arm64. To build the image locally, run
-`docker build -f deploy/docker/canopyd.Dockerfile -t canopyd .` from the repository root.
+`ghcr.io/flazexhq/canopy:<tag>` and `ghcr.io/flazexhq/canopyd:<tag>` for Linux x64 and arm64.
+To build it locally with Canopy.js checked out alongside this repository, run:
+
+```sh
+docker build -f deploy/docker/canopyd.Dockerfile --build-context canopyjs=../Canopy.js -t canopy .
+```
+
+Set `CANOPY_ROLE=studio` to serve the packaged dashboard without connecting to MongoDB.
 The image listens on port 8080 for realtime and 9464 for metrics. To change the metrics bind address in
 standalone mode, mount a JSON configuration and set `server.metricsHost`.
 

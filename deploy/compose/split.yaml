@@ -43,10 +43,12 @@ services:
       service: database
 
   data:
-    image: ${CANOPY_GATEWAY_IMAGE:-canopyd:dev}
+    image: ${CANOPY_GATEWAY_IMAGE:-canopy:dev}
     build:
       context: ../..
       dockerfile: deploy/docker/canopyd.Dockerfile
+      additional_contexts:
+        canopyjs: ../../../Canopy.js
     restart: unless-stopped
     depends_on:
       database:

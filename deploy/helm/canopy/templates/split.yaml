@@ -79,7 +79,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: {{ $component }}
-          image: {{ if eq $component "control" }}{{ printf "%s:%s" $image.image.repository $image.image.tag | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
+          image: {{ if eq $component "control" }}{{ printf "%s:%s" $image.image.repository $image.image.tag | quote }}{{ else if eq $component "studio" }}{{ $split.data.image | quote }}{{ else }}{{ $image.image | quote }}{{ end }}
           imagePullPolicy: {{ if eq $component "control" }}{{ $image.image.pullPolicy }}{{ else }}{{ $root.Values.image.pullPolicy }}{{ end }}
           ports:
             - name: http
@@ -124,6 +124,10 @@ spec:
               value: {{ $split.publicUrl | quote }}
               {{- end }}
             {{- end }}
+          {{- else if eq $component "studio" }}
+          env:
+            - name: CANOPY_ROLE
+              value: studio
           {{- else if eq $component "edge" }}
           env:
             - name: CANOPY_CONTROL_UPSTREAM

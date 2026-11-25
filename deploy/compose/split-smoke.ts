@@ -128,7 +128,10 @@ try {
     "240",
   ])
   await request("/edge/healthz", 200)
-  await request("/studio/", 200)
+  const studio = await request("/studio/", 200)
+  assert((await studio.text()).includes("<title>Canopy Studio</title>"), "Studio index is missing")
+  const icon = await request("/studio/favicon.svg", 200)
+  assert(icon.headers.get("content-type")?.startsWith("image/svg+xml"), "Studio icon is missing")
   await writeAndRead("service", { apikey: key })
   const user = builtin ? await signIn() : undefined
   if (user) {
