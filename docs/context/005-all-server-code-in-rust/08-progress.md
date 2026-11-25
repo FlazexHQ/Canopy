@@ -3,6 +3,25 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): spike S16 WebAuthn relying party and CI repair
+
+- Spike S16 is done (commit `06c9ff26`, "feat(auth): verify passkeys with an own WebAuthn relying party",
+  [S16](../../spikes/S16-webauthn.md)): [`crates/canopy-webauthn`](../../../crates/canopy-webauthn) verifies
+  registration and authentication (none and packed attestation, ES256, EdDSA, RS256, strict CBOR, constant time
+  challenge and RP ID hash, exact origin and top origin rules, counter clone detection); 39 tests including
+  the W3C Level 3 test vectors ([`conformance/webauthn/`](../../../conformance/webauthn/)), every fixture
+  passkey authenticating and every recorded passkey request; six fuzz targets in the nightly matrix that have
+  not yet run for the R5 gate's 24 CPU hours each. Remaining for R5's passkey part: wiring into `/auth/v1`, the
+  fuzzing hours, the external review. R5's entry gate item "spike S16 recorded" is now met.
+- The CI repair (commit `1d6990a8`, "fix(ci): repair the wasm build type check, fuzz lockfile and security
+  jobs"): the wasm build script's bracket access, the fuzz lockfile, the Biome ignore in
+  `packages/protocol/src/errors.ts`, the CLI recorder's actor substitution, the dependency review exemption for
+  `zlib-rs` (listed in Cargo.lock only as a weak optional dependency of flate2 that nothing enables) and the
+  secret scanning exclusion of recorded fixtures (`.github/trufflehog-exclude.txt`).
+- In progress now: `codex_prajo_s_codex` on the email template routes of `/admin/v1` (template store in
+  `canopy-mail` and its delegate); `codex_sudhan_s_codex` on policy validate, simulate and explain in
+  `canopy-policy` and their admin routes.
+
 ## Checkpoint (2026-11-25): R1 admin API in Rust
 
 - [`canopy-control`](../../../crates/canopy-control/src/lib.rs) serves `/admin/v1` on the `canopy-http`
@@ -15,21 +34,29 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   doctor, audit and request logs, settings with the allowlist lockout check, both danger zone actions, and
   the webhook queue routes over `canopy-webhooks` (hook definitions passed in by the caller).
   [`PolicyRoutes`](../../../crates/canopy-control/src/policies.rs) serves the policy and context reads,
-  publishing, rollback and history and the collection toggles over the policy publisher, which now takes an
-  injectable clock (`PolicyPublisher::with_clock`).
+  validation, simulation, explain, publishing, rollback, history and collection toggles.
+  Policy reads and validation include lint findings, with the app collection's indexes when available.
+  Simulation uses the existing read path for counts and masked samples, and the existing target compiler
+  for update and delete counts. The [authoring diagnostics](../../../conformance/authoring/policy/diagnostics.json)
+  replay the TypeScript lint rules, access reports and in process policy evaluations.
 - [TOTP](../../../crates/canopy-control/src/totp.rs) is RFC 4226 and RFC 6238 on ring, checked against both
   RFC appendices, public for the auth stage to reuse. Admin passwords are Argon2id with the TypeScript work
   factors; verification accepts Bun written hashes and the legacy scrypt form. Sealed secrets open values
   sealed by the TypeScript server (a Node vector in the tests).
-- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one: the data routes, policy
-  validation, simulation and explain (and context validation), email templates, the realtime inspector, app
-  users and signing keys.
+- [Email template routes](../../../crates/canopy-control/src/templates.rs) delegate list, history, preview,
+  save and reset to the [mail store](../../../crates/canopy-mail/src/store.rs). Current overrides and
+  their history commit in one transaction with optimistic version checks. The control role registers
+  the delegate for built in auth. The mailer can send a test preview through the configured transport.
+  Mail tests exercise concurrent edits and test delivery through a local SMTP relay on both replica sets.
+- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one. The data routes,
+  realtime inspector, app users and signing keys still need their delegates.
 - The [oracle replay](../../../crates/canopy-control/tests/admin_oracle.rs) rebuilds every recorded request
   from earlier Rust answers, applies the recorder's substitutions to the Rust output, and binds the numbered
   placeholders by unification, so a pending step cannot shift later numbering. On MongoDB 8.0.34 and 9.0.8,
-  319 of the 433 steps match byte for byte with their state diffs (owner 69, admin 73, developer 82,
-  viewer 95). The 114 pending steps are the delegated groups above, the doctor (its realtime and revocation
-  checks) and the owner's audit list (it shows the template steps). Every other step must match.
+  the email template change in isolation brings the replay to 331 of 433 steps matched byte for byte
+  with their state diffs (owner 75, admin 79, developer 82, viewer 95). This includes every template
+  step and the audit list. The 102 pending steps in that run include policy diagnostics under parallel
+  development, the other delegated groups, and the doctor (its realtime and revocation checks).
 - `CANOPY_ROLE=control` in `canopyd` ([control.rs](../../../crates/canopyd/src/control.rs)) migrates the meta
   database, publishes `CANOPY_POLICY_BUNDLE`, logs a setup token while no owner exists, runs the webhooks of
   the config's `webhooks` section (or `CANOPY_WEBHOOKS`), and serves only `/admin/v1`, `/healthz` and
@@ -38,9 +65,7 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   checks the migrations, the setup token, the schedule state and that data routes answer `404`.
 - Fixed in `canopy-webhooks`: requeueing a dead letter writes the delivery fields in the TypeScript order.
 - Remaining for R1: the data route delegate (collections, schema, stats, OpenAPI, the GraphQL explorer,
-  documents with view as, masking and writes), policy validate, simulate and explain and context validate
-  (lint findings and the explain report; `GET policies/:collection` reports no findings yet), the email
-  template store on `canopy-mail` (list, history, preview, save and reset), the realtime inspector (needs
+  documents with view as, masking and writes), the realtime inspector (needs
   engine introspection in `canopyd`), the providers document from the config in `canopyd`, app user session
   revocation in the danger zone (R5), compose, Helm and Kubernetes running `control` as a role of the
   `canopy` image, and the edge routing `/admin/v1` to it.

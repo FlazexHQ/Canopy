@@ -24,13 +24,14 @@ the repository: read the files below, then open only the source files your brief
 
 ## Agent roster
 
-One agent at a time per account.
+The maintainer asked on 2026-11-25 not to spawn claude-opus-5-5 agents until told. Available agents are
+`codex_prajo_s_codex` and `codex_sudhan_s_codex` (gpt-6.2-sol, medium effort) for code, and
+`antigravity_sudhan_s_antigravity` (gemini-3.8-flash) for tests and context. One agent at a time per account.
 
 | Agent | Model and effort | Use for |
 |---|---|---|
 | `codex_prajo_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks: one route group, one crate module, one oracle group |
 | `codex_sudhan_s_codex` | gpt-6.2-sol, medium effort | Small and medium tasks, in parallel with the other Codex account |
-| `claudeAgent` | claude-opus-5-5, high effort | Big tasks: a new crate, the WebAuthn relying party, the Wasm split, the CLI skeleton, security sensitive flows |
 | `antigravity_sudhan_s_antigravity` | gemini-3.8-flash | Updates of this context folder and test runs |
 
 ## Reading order
