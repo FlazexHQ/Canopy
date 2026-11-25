@@ -6,10 +6,11 @@
 //!
 //! `CANOPY_BENCH_DOCS` sets the number of documents (default 1000000); `CANOPY_BENCH_FILTER` runs one filter
 //! of your own (EJSON) instead of the standard set.
+//! Pass `compiled` to time only evaluation over 1,000 prebuilt documents in both representations.
 
 #![allow(clippy::print_stdout, clippy::expect_used, clippy::cast_precision_loss)]
 
-use std::time::Instant;
+use std::{hint::black_box, time::Instant};
 
 use canopy_matcher::compile_filter;
 use canopy_protocol::bson::{decode_document, encode_document};
@@ -65,9 +66,9 @@ fn generate(count: u64) -> Vec<Document> {
 }
 
 fn main() {
+    let compiled_only = std::env::args().nth(1).as_deref() == Some("compiled");
     let count: u64 =
         std::env::var("CANOPY_BENCH_DOCS").ok().and_then(|text| text.parse().ok()).unwrap_or(1_000_000);
-    let docs = generate(count);
     let filters = [
         ("equality (DLS owner)", r#"{"ownerId":"u42"}"#),
         ("range and $in", r#"{"amount":{"$gte":100,"$lt":500},"status":{"$in":["open","paid"]}}"#),
@@ -81,6 +82,25 @@ fn main() {
         Some(filter) => vec![("custom", filter.as_str())],
         None => filters.to_vec(),
     };
+    if compiled_only {
+        let docs = generate(1_000);
+        let bytes: Vec<_> = docs.iter().map(|doc| encode_document(doc).expect("encodes")).collect();
+        let raw: Vec<_> = bytes.iter().map(|doc| RawDocument::new(doc).expect("valid")).collect();
+        for (name, filter) in selected {
+            let compiled =
+                compile_filter(&parse(filter, DecodeOptions::default()).expect("filter")).expect("compiles");
+            let (owned_ns, owned_matches) =
+                time_compiled(&docs, |doc| compiled.matches(doc).expect("decides"));
+            let (raw_ns, raw_matches) =
+                time_compiled(&raw, |doc| compiled.matches_raw(*doc).expect("decides"));
+            assert_eq!(owned_matches, raw_matches);
+            println!(
+                "{name:<28} owned {owned_ns:7.2} ns/doc, raw {raw_ns:7.2} ns/doc, {owned_matches} matched"
+            );
+        }
+        return;
+    }
+    let docs = generate(count);
     for (name, filter) in selected {
         let compiled =
             compile_filter(&parse(filter, DecodeOptions::default()).expect("filter")).expect("compiles");
@@ -151,4 +171,19 @@ fn main() {
         "compile {:.2} us per filter (EJSON parse included)",
         start.elapsed().as_secs_f64() * 1e6 / f64::from(rounds)
     );
+}
+
+fn time_compiled<T>(docs: &[T], matches: impl Fn(&T) -> bool) -> (f64, usize) {
+    const ROUNDS: usize = 400;
+    let evaluate = || docs.iter().filter(|doc| matches(black_box(*doc))).count();
+    let matched = evaluate();
+    let mut best = f64::INFINITY;
+    for _ in 0..5 {
+        let start = Instant::now();
+        for _ in 0..ROUNDS {
+            black_box(evaluate());
+        }
+        best = best.min(start.elapsed().as_secs_f64());
+    }
+    (best * 1e9 / (ROUNDS * docs.len()) as f64, matched)
 }

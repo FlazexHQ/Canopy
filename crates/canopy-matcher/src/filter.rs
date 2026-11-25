@@ -9,8 +9,8 @@ use canopy_protocol::{CanopyError, DocRef, Document, RawDocument, Regex, Value, 
 use crate::compare::{Bracket, BsonType, bracket, bracket_of, bson_type, compare, compare_options};
 use crate::equality::{KeySet, equality_key};
 use crate::errors::{is_unsupported, unsupported_query};
-use crate::numeric::{Numeric, is_nan, read_numeric, to_double};
-use crate::path::{Item, Outcome, any_path_value, present, split_path};
+use crate::numeric::{Numeric, compare_numeric, is_nan, read_numeric, to_double};
+use crate::path::{Item, Outcome, Segment, present, test_path};
 use crate::regex::{LinearRegex, compile_regex};
 
 type Leaf = Arc<dyn Fn(Option<ValueRef<'_>>) -> Outcome + Send + Sync>;
@@ -190,14 +190,29 @@ fn negate_leaf(leaf: Leaf) -> Leaf {
     Arc::new(move |value| leaf(value).map(|matched| !matched))
 }
 
-fn expand(parts: &Arc<Vec<String>>, leaf: Leaf) -> DocTest {
+fn expand(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
     let parts = Arc::clone(parts);
-    Arc::new(move |item| any_path_value(item, &parts, true, &*leaf))
+    Arc::new(move |item| test_path(item, &parts, true, &*leaf))
 }
 
-fn reach(parts: &Arc<Vec<String>>, leaf: Leaf) -> DocTest {
+fn reach(parts: &Arc<Vec<Segment>>, leaf: Leaf) -> DocTest {
     let parts = Arc::clone(parts);
-    Arc::new(move |item| any_path_value(item, &parts, false, &*leaf))
+    Arc::new(move |item| test_path(item, &parts, false, &*leaf))
+}
+
+fn string_matches(expected: &str, value: Option<ValueRef<'_>>) -> Outcome {
+    Ok(matches!(value, Some(ValueRef::String(text) | ValueRef::Symbol(text)) if text == expected))
+}
+
+fn compile_equality(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
+    if let Value::String(expected) | Value::Symbol(expected) = operand {
+        let expected = expected.clone();
+        let parts = Arc::clone(parts);
+        return Arc::new(move |item| {
+            test_path(item, &parts, true, &|value| string_matches(&expected, value))
+        });
+    }
+    expand(parts, eq_leaf(operand))
 }
 
 fn compile_document(filter: &Document) -> Result<DocTest, CanopyError> {
@@ -241,8 +256,8 @@ fn compile_top_operator(key: &str, value: &Value) -> Result<DocTest, CanopyError
 }
 
 fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyError> {
-    let parts = split_path(path);
-    if parts.iter().any(String::is_empty) {
+    let parts: Vec<_> = path.split('.').map(Segment::new).collect();
+    if parts.iter().any(|part| part.name.is_empty()) {
         return Err(invalid(["Invalid field path: ", path].concat()));
     }
     let parts = Arc::new(parts);
@@ -253,10 +268,10 @@ fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyE
         let Value::Document(ops) = value else { return Err(invalid("expected operators")) };
         return compile_operators(&parts, ops);
     }
-    Ok(expand(&parts, eq_leaf(value)))
+    Ok(compile_equality(&parts, value))
 }
 
-fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest, CanopyError> {
+fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTest, CanopyError> {
     let has_regex = ops.contains_key("$regex");
     if ops.contains_key("$options") && !has_regex {
         return Err(invalid("$options needs a $regex"));
@@ -278,14 +293,14 @@ fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest
     Ok(all_of(tests))
 }
 
-fn compile_operator(parts: &Arc<Vec<String>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_operator(parts: &Arc<Vec<Segment>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
     Ok(match op {
-        "$eq" => expand(parts, eq_leaf(operand)),
+        "$eq" => compile_equality(parts, operand),
         "$ne" => {
             if regex_of(operand).is_some() {
                 return Err(invalid("Can't have regex as arg to $ne."));
             }
-            negate(expand(parts, eq_leaf(operand)))
+            negate(compile_equality(parts, operand))
         }
         "$gt" | "$gte" | "$lt" | "$lte" => expand(parts, comparison_leaf(op, operand)?),
         "$in" => expand(parts, in_leaf(operand, op)?),
@@ -332,8 +347,13 @@ fn is_nan_value(value: ValueRef<'_>) -> bool {
 }
 
 fn eq_leaf(operand: &Value) -> Leaf {
-    if matches!(operand, Value::Null) {
-        return Arc::new(|value| Ok(is_nullish(value)));
+    match operand {
+        Value::Null => return Arc::new(|value| Ok(is_nullish(value))),
+        Value::String(text) | Value::Symbol(text) => {
+            let expected = text.clone();
+            return Arc::new(move |value| string_matches(&expected, value));
+        }
+        _ => {}
     }
     if is_nan_value(operand.view()) {
         return Arc::new(|value| Ok(value.is_some_and(is_nan_value)));
@@ -351,18 +371,23 @@ fn eq_leaf(operand: &Value) -> Leaf {
 }
 
 fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
+    match op {
+        "$gt" => compile_comparison::<false>(operand, Ordering::is_gt),
+        "$gte" => compile_comparison::<true>(operand, Ordering::is_ge),
+        "$lt" => compile_comparison::<false>(operand, Ordering::is_lt),
+        _ => compile_comparison::<true>(operand, Ordering::is_le),
+    }
+}
+
+fn compile_comparison<const INCLUSIVE: bool>(
+    operand: &Value,
+    accept: impl Fn(Ordering) -> bool + Send + Sync + 'static,
+) -> Result<Leaf, CanopyError> {
     if regex_of(operand).is_some() {
         return Err(invalid("Can't have RegEx as arg to non-equality predicate"));
     }
-    let inclusive = op == "$gte" || op == "$lte";
-    let accept: fn(Ordering) -> bool = match op {
-        "$gt" => Ordering::is_gt,
-        "$gte" => Ordering::is_ge,
-        "$lt" => Ordering::is_lt,
-        _ => Ordering::is_le,
-    };
     if matches!(operand, Value::Null) {
-        return Ok(if inclusive { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
+        return Ok(if INCLUSIVE { Arc::new(|value| Ok(is_nullish(value))) } else { Arc::new(|_| Ok(false)) });
     }
     let operand = operand.clone();
     let expected = bracket_of(&operand);
@@ -371,16 +396,22 @@ fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
             Ok(accept(compare(value.unwrap_or(ValueRef::Null), operand.view())))
         }));
     }
-    let operand_nan = is_nan_value(operand.view());
-    Ok(Arc::new(move |value| {
-        let Some(value) = value.filter(|value| bracket(*value) == expected) else { return Ok(false) };
-        if expected == Bracket::Number {
-            let value_nan = is_nan_value(value);
+    if expected == Bracket::Number {
+        let operand_nan = is_nan_value(operand.view());
+        return Ok(Arc::new(move |value| {
+            let (Some(value), Some(operand)) = (value.and_then(read_numeric), read_numeric(operand.view()))
+            else {
+                return Ok(false);
+            };
+            let value_nan = is_nan(value);
             if value_nan || operand_nan {
-                return Ok(inclusive && value_nan && operand_nan);
+                return Ok(INCLUSIVE && value_nan && operand_nan);
             }
-        }
-        Ok(accept(compare(value, operand.view())))
+            Ok(accept(compare_numeric(value, operand)))
+        }));
+    }
+    Ok(Arc::new(move |value| {
+        Ok(value.is_some_and(|value| bracket(value) == expected && accept(compare(value, operand.view()))))
     }))
 }
 
@@ -559,7 +590,7 @@ fn regex_leaf(regex: &Regex) -> Result<Leaf, CanopyError> {
     }))
 }
 
-fn compile_all(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_all(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     let Value::Array(items) = operand else { return Err(invalid("$all needs an array")) };
     if items.is_empty() {
         return Ok(Arc::new(|_| Ok(false)));
@@ -596,7 +627,7 @@ fn is_value_operator(key: &str) -> bool {
     key.starts_with('$') && !is_logical(key) && key != "$expr"
 }
 
-fn compile_elem_match(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_elem_match(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     let Value::Document(operand) = operand else { return Err(invalid("$elemMatch needs an Object")) };
     let value_form = operand.first_key().is_some_and(is_value_operator);
     let element: Leaf = if value_form {
@@ -742,7 +773,7 @@ fn single_not_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
     Ok(negate_leaf(all_leaves(leaves)))
 }
 
-fn compile_not(parts: &Arc<Vec<String>>, operand: &Value) -> Result<DocTest, CanopyError> {
+fn compile_not(parts: &Arc<Vec<Segment>>, operand: &Value) -> Result<DocTest, CanopyError> {
     if let Some(regex) = regex_of(operand) {
         return Ok(negate(expand(parts, regex_leaf(regex)?)));
     }
