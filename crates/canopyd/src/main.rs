@@ -3,6 +3,7 @@
 //! with the same policies, and writes forwarded to the TypeScript write path so `check` rules, transactions and
 //! idempotency keep one implementation.
 
+mod builtin_auth;
 mod client_address;
 mod config;
 mod control;
@@ -61,6 +62,8 @@ CANOPY_POLICY_BUNDLE, runs the webhooks of the config's webhooks section (or of 
 CANOPY_MASTER_KEY_PREVIOUS and CANOPY_WEBHOOK_SECRET. Set CANOPY_REALTIME_INTERNAL_URL
 on the control role to inspect a data role with the same CANOPY_MASTER_KEY.
 CANOPY_ROLE=studio serves Studio alone.
+CANOPY_AUTH_ENGINE=rust serves /auth/v1 and /.well-known/jwks.json with built in auth on
+the all and control roles. The default engine is typescript.
 
 --probe asks the gateway listening on PORT (8080 by default) on this host for /readyz and exits 0 when it
 answers 200, so a container without a shell can check its own readiness.
@@ -147,7 +150,7 @@ fn main() -> ExitCode {
             }
         };
     }
-    let config = match config::resolve(text.as_deref()) {
+    let mut config = match config::resolve(text.as_deref()) {
         Ok(config) => config,
         Err(message) => {
             let text = format!("canopyd: {message}\n");
@@ -156,6 +159,13 @@ fn main() -> ExitCode {
         }
     };
     let log = Log::new(&config.log_level);
+    let auth = match builtin_auth::resolve(text.as_deref(), &mut config, role) {
+        Ok(auth) => auth,
+        Err(message) => {
+            log.error("Invalid Rust auth configuration", &[("err", &message)]);
+            return ExitCode::from(1);
+        }
+    };
     let _ = rustls::crypto::ring::default_provider().install_default();
     let runtime =
         match tokio::runtime::Builder::new_multi_thread().enable_all().thread_name("canopy-io").build() {
@@ -166,7 +176,7 @@ fn main() -> ExitCode {
             }
         };
     if role == "control" {
-        return match runtime.block_on(control::start(config, text, log)) {
+        return match runtime.block_on(control::start(config, text, log, auth)) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
                 log.error("canopy control failed", &[("err", &message)]);
@@ -177,7 +187,7 @@ fn main() -> ExitCode {
     let studio = studio::Studio::from_env();
     let studio = (role == "all" && config.proxy_url.is_none() && studio.configured()).then_some(studio);
     let local_admin = role == "all" && (declared_role.is_some() || (!control && config.proxy_url.is_none()));
-    match runtime.block_on(start(config, log, control, studio, local_admin.then_some(text))) {
+    match runtime.block_on(start(config, log, control, studio, local_admin.then_some(text), auth)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(message) => {
             log.error("canopyd failed", &[("err", &message)]);
@@ -220,6 +230,7 @@ async fn start(
     control: bool,
     studio: Option<studio::Studio>,
     all_config: Option<Option<String>>,
+    auth_settings: Option<builtin_auth::Settings>,
 ) -> Result<(), String> {
     let proxy = config.proxy_url.as_deref().map(proxy::Upstream::parse).transpose()?;
     let local_admin = all_config;
@@ -236,6 +247,12 @@ async fn start(
     }
     let client = mongodb::Client::with_options(options).map_err(|error| error.to_string())?;
     let meta = client.database(&config.meta_database);
+    let auth_database = auth_settings.as_ref().map_or("canopy_auth", builtin_auth::Settings::database);
+    let auth_database = client.database(auth_database);
+    let builtin_auth = match auth_settings {
+        Some(settings) => Some(Arc::new(settings.open(&meta, log).await?)),
+        None => None,
+    };
     if let Some(path) = std::env::var_os("CANOPY_POLICY_BUNDLE") {
         if !matches!(config.policies, Policies::Database { .. }) {
             return Err("CANOPY_POLICY_BUNDLE requires database policies".to_owned());
@@ -285,7 +302,7 @@ async fn start(
             config.publishable.clone(),
             config.secret.clone(),
             http.clone(),
-            &client.database("canopy_auth"),
+            &auth_database,
             grace_ms,
         )?
     } else {
@@ -423,6 +440,7 @@ async fn start(
         data_plane,
         studio,
         admin,
+        builtin_auth,
     });
     for _ in 0..config.shards {
         let routes = Arc::clone(&routes);

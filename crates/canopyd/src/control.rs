@@ -41,7 +41,7 @@ pub(crate) fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
 }
 
-fn config_text<'a>(value: &'a Json, field: &str) -> Option<&'a str> {
+pub(crate) fn config_text<'a>(value: &'a Json, field: &str) -> Option<&'a str> {
     match value.get(field) {
         Some(Json::String(text)) => Some(text),
         _ => None,
@@ -119,7 +119,10 @@ fn providers(auth: Option<&Json>, jwt: Option<&canopy_config::JwtConfig>, builti
     builtin_providers(&methods)
 }
 
-fn signing_key_options(auth: Option<&Json>, master_key: Option<&str>) -> Result<SigningKeyOptions, String> {
+pub(crate) fn signing_key_options(
+    auth: Option<&Json>,
+    master_key: Option<&str>,
+) -> Result<SigningKeyOptions, String> {
     let algorithm = match auth.and_then(|auth| config_text(auth, "algorithm")) {
         Some("ES256") => SigningAlgorithm::ES256,
         None | Some("EdDSA") => SigningAlgorithm::EdDSA,
@@ -144,7 +147,7 @@ fn signing_key_options(auth: Option<&Json>, master_key: Option<&str>) -> Result<
     Ok(SigningKeyOptions { algorithm, interval_ms, secret })
 }
 
-fn duration_ms(text: &str) -> Option<f64> {
+pub(crate) fn duration_ms(text: &str) -> Option<f64> {
     let text = text.trim();
     for (suffix, multiplier) in
         [("ms", 1.0), ("s", 1000.0), ("m", 60_000.0), ("h", 3_600_000.0), ("d", 86_400_000.0)]
@@ -165,7 +168,7 @@ fn environment() -> Result<Environment, String> {
     }
 }
 
-fn message(error: &CanopyError) -> String {
+pub(crate) fn message(error: &CanopyError) -> String {
     error.message().to_owned()
 }
 
@@ -255,7 +258,7 @@ fn webhooks_section(text: Option<&str>) -> Result<Option<Json>, String> {
         .transpose()
 }
 
-async fn read(
+pub(crate) async fn read(
     request: Request<Incoming>,
     peer: &str,
     trusted: &[canopy_config::TrustedProxy],
@@ -418,7 +421,16 @@ pub(crate) fn tail_body(opening: Vec<u8>, receiver: canopy_realtime::InspectionR
     StreamBody::new(frames).boxed_unsync()
 }
 
+pub(crate) fn auth_database(raw_config: Option<&Json>) -> String {
+    env("CANOPY_AUTH_DB")
+        .or_else(|| {
+            raw_config?.get("mongodb").and_then(|mongo| config_text(mongo, "authDatabase")).map(str::to_owned)
+        })
+        .unwrap_or_else(|| "canopy_auth".to_owned())
+}
+
 pub(crate) struct Admin {
+    builtin_auth: Option<Arc<canopy_authn::server::AuthRouter>>,
     control: Control,
     request_log: Arc<RequestLog>,
 }
@@ -434,6 +446,11 @@ pub(crate) async fn handle(
     let path = request.uri().path();
     if path == "/healthz" || path == "/readyz" {
         return plain(200, "ok");
+    }
+    if let Some(router) = &admin.builtin_auth
+        && crate::builtin_auth::matches(path)
+    {
+        return crate::builtin_auth::serve(router, request, peer, trusted).await;
     }
     if path != "/admin/v1" && !path.starts_with("/admin/v1/") {
         return plain(404, "Not found");
@@ -487,15 +504,25 @@ pub(crate) async fn handle(
 }
 
 /// Runs the control plane until a shutdown signal.
-pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log) -> Result<(), String> {
+pub(crate) async fn start(
+    config: GatewayConfig,
+    text: Option<String>,
+    log: Log,
+    auth: Option<crate::builtin_auth::Settings>,
+) -> Result<(), String> {
     let mut options = mongodb::options::ClientOptions::parse(&config.mongodb_uri)
         .await
         .map_err(|error| format!("Invalid MONGODB_URI: {error}"))?;
     options.app_name = Some("canopy-control".to_owned());
     let client = Client::with_options(options).map_err(|error| error.to_string())?;
+    let auth = match auth {
+        Some(settings) => Some(Arc::new(settings.open(&client.database(&config.meta_database), log).await?)),
+        None => None,
+    };
     let remote = RemoteInspector::configured()?;
-    let (control, webhooks_handle) =
+    let (mut control, webhooks_handle) =
         build(&config, text.as_deref(), client, log, None, remote.clone(), None).await?;
+    control.builtin_auth = auth;
     let control = Arc::new(control);
     let listener = tokio::net::TcpListener::bind((config.host.as_str(), config.port))
         .await
@@ -589,16 +616,12 @@ pub(crate) async fn build(
     control_options.error_logger = Some(Arc::new(move |path, code| log.admin_failure(path, code)));
     if builtin {
         let app_name = raw_auth.and_then(|auth| config_text(auth, "appName")).unwrap_or("Canopy").to_owned();
-        let auth_database = env("CANOPY_AUTH_DB")
-            .or_else(|| {
-                raw_config
-                    .as_ref()?
-                    .get("mongodb")
-                    .and_then(|mongo| config_text(mongo, "authDatabase"))
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| "canopy_auth".to_owned());
-        let key_options = signing_key_options(raw_auth, control_options.master_key.as_deref())?;
+        let auth_database = auth_database(raw_config.as_ref());
+        let secret = (env("CANOPY_AUTH_ENGINE").as_deref() == Some("rust"))
+            .then(|| env("CANOPY_AUTH_SECRET"))
+            .flatten();
+        let key_options =
+            signing_key_options(raw_auth, secret.as_deref().or(control_options.master_key.as_deref()))?;
         control_options.services.auth_keys = Some(Arc::new(
             SigningKeyRoutes::new(
                 client.database(&auth_database),
@@ -681,7 +704,7 @@ pub(crate) async fn build(
         Some(log) => log,
         None => RequestLog::start(meta, log).await,
     };
-    Ok((Admin { control, request_log }, webhooks_handle))
+    Ok((Admin { control, request_log, builtin_auth: None }, webhooks_handle))
 }
 
 pub(crate) async fn serve(

@@ -659,7 +659,7 @@ fn storage_response(answer: StorageAnswer) -> Response<Body> {
     }
 }
 
-fn response_of(plain: canopy_http::Response) -> Response<Body> {
+pub(crate) fn response_of(plain: canopy_http::Response) -> Response<Body> {
     let body = full(StatusCode::OK, Bytes::from(plain.body)).into_body();
     response_with_headers(plain.status, plain.headers, body)
 }

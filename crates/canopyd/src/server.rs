@@ -21,6 +21,7 @@ pub(crate) struct Routes {
     pub(crate) data_plane: Option<DataPlane>,
     /// Studio assets on the shared listener.
     pub(crate) studio: Option<Studio>,
+    pub(crate) builtin_auth: Option<Arc<canopy_authn::server::AuthRouter>>,
     pub(crate) admin: Option<(Arc<crate::control::Admin>, canopy_realtime::EngineSender)>,
 }
 
@@ -47,6 +48,11 @@ impl HttpRoutes for ShardRoutes {
                 Some(inspector) => inspector.serve(request).await,
                 None => reply(StatusCode::NOT_FOUND, "Not found"),
             };
+        }
+        if let Some(router) = &self.routes.builtin_auth
+            && crate::builtin_auth::matches(path)
+        {
+            return crate::builtin_auth::serve(router, request, peer, &self.routes.trusted_proxies).await;
         }
         if let Some((admin, engine)) = &self.routes.admin
             && (path == "/admin/v1" || path.starts_with("/admin/v1/"))
