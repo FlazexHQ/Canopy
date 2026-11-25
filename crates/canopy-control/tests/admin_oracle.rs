@@ -10,8 +10,8 @@
 //! placeholders to share a value), which is the same relation without depending on numbering order.
 //!
 //! Policy, data and email template routes are served through their delegates. Steps for realtime
-//! inspector and signing keys also match when the router answers them directly. Remaining steps in those
-//! groups and the doctor can be pending. Every other step must match.
+//! inspector also match when the router answers them directly. Remaining realtime steps and the doctor
+//! can be pending. Every other step must match.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stderr, clippy::panic)]
 
@@ -21,8 +21,9 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use canopy_control::totp::{TotpOptions, base32_decode, totp};
 use canopy_control::{
-    AdminRole, BuiltinMethods, Call, Control, ControlOptions, DataRoutes, Delegate, Environment,
-    PolicyRoutes, ROLE_NAMES, TemplateRoutes, WebhookAdmin, builtin_providers,
+    AdminRole, BuiltinMethods, Call, Control, ControlOptions, DataRoutes, Delegate, Environment, MetaStatus,
+    PolicyRoutes, ROLE_NAMES, SigningAlgorithm, SigningKeyOptions, SigningKeyRoutes, TemplateRoutes,
+    WebhookAdmin, builtin_providers,
 };
 use canopy_http::Request;
 use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, doc, oid::ObjectId};
@@ -58,7 +59,6 @@ fn delegated(path: &str) -> Option<&'static str> {
     match first {
         "realtime" => Some("realtime"),
         "users" => Some("users"),
-        "auth" if route.starts_with("auth/keys") => Some("signing keys"),
         "doctor" => Some("doctor (reports the policies and realtime)"),
         _ => None,
     }
@@ -378,6 +378,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     let database = format!("canopy_admin_replay_{}", &ObjectId::new().to_hex()[16..]);
     let meta_name = format!("{database}_meta");
     let meta = client.database(&meta_name);
+    let auth_name = format!("{database}_auth");
     let epoch = (DateTime::now().timestamp_millis() / 60_000 + 2) * 60_000;
     let now = Arc::new(AtomicI64::new(epoch));
     let clock = {
@@ -434,6 +435,20 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
             canopy_data::ReadLimits::default(),
         ));
     options.services.data = Some(data.clone());
+    options.status = Arc::new(MetaStatus::new(&meta));
+    let keys = SigningKeyRoutes::new(
+        client.database(&auth_name),
+        SigningKeyOptions {
+            algorithm: SigningAlgorithm::EdDSA,
+            interval_ms: 2_592_000_000,
+            secret: Some("fixture signing key secret".into()),
+        },
+        Arc::clone(&clock),
+    )
+    .map_err(|error| error.message().to_owned())?;
+    assert!(keys.tick("oracle", 30_000).await.map_err(|error| error.message().to_owned())?);
+    assert!(!keys.tick("other node", 30_000).await.map_err(|error| error.message().to_owned())?);
+    options.services.auth_keys = Some(Arc::new(keys));
     let control = Control::new(options);
     let setup = control
         .create_setup_token()
@@ -639,7 +654,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     {
         failures.push(error);
     }
-    for name in [&database, &meta_name] {
+    for name in [&database, &meta_name, &auth_name] {
         let _ = client.database(name).drop().await;
     }
     if failures.is_empty() { Ok(Outcome { matched, pending }) } else { Err(failures.join("\n")) }

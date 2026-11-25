@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use canopy_config::GatewayConfig;
 use canopy_control::{
-    Control, ControlOptions, DataRoutes, Environment, MetaStatus, PolicyRoutes, TemplateRoutes, WebhookAdmin,
+    Control, ControlOptions, DataRoutes, Environment, MetaStatus, PolicyRoutes, SigningAlgorithm,
+    SigningKeyOptions, SigningKeyRoutes, TemplateRoutes, WebhookAdmin,
 };
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::mongodb::{self, Client};
@@ -29,6 +30,50 @@ const MAX_BODY: usize = 1024 * 1024;
 
 fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|value| value.trim().to_owned()).filter(|value| !value.is_empty())
+}
+
+fn config_text<'a>(value: &'a Json, field: &str) -> Option<&'a str> {
+    match value.get(field) {
+        Some(Json::String(text)) => Some(text),
+        _ => None,
+    }
+}
+
+fn signing_key_options(auth: Option<&Json>, master_key: Option<&str>) -> Result<SigningKeyOptions, String> {
+    let algorithm = match auth.and_then(|auth| config_text(auth, "algorithm")) {
+        Some("ES256") => SigningAlgorithm::ES256,
+        None | Some("EdDSA") => SigningAlgorithm::EdDSA,
+        Some(_) => return Err("Unsupported signing key algorithm".into()),
+    };
+    let rotation = auth.and_then(|auth| auth.get("keyRotation"));
+    let interval_ms = match rotation.and_then(|rotation| rotation.get("interval")) {
+        Some(Json::Number(ms)) => Some(*ms),
+        Some(Json::String(duration)) => duration_ms(duration),
+        None => match rotation.and_then(|rotation| rotation.get("intervalSeconds")) {
+            Some(Json::Number(seconds)) => Some(seconds * 1_000.0),
+            None => Some(2_592_000_000.0),
+            _ => None,
+        },
+        _ => None,
+    }
+    .filter(|ms| (3_600_000.0..=9_007_199_254_740_991.0).contains(ms))
+    .ok_or("Signing keys must sign for at least an hour")?;
+    #[allow(clippy::cast_possible_truncation)]
+    let interval_ms = interval_ms.round() as i64;
+    let secret = auth.and_then(|auth| config_text(auth, "secret")).or(master_key).map(str::to_owned);
+    Ok(SigningKeyOptions { algorithm, interval_ms, secret })
+}
+
+fn duration_ms(text: &str) -> Option<f64> {
+    let text = text.trim();
+    for (suffix, multiplier) in
+        [("ms", 1.0), ("s", 1000.0), ("m", 60_000.0), ("h", 3_600_000.0), ("d", 86_400_000.0)]
+    {
+        if let Some(value) = text.strip_suffix(suffix) {
+            return value.parse::<f64>().ok().map(|value| value * multiplier);
+        }
+    }
+    text.parse::<u64>().ok().and_then(|value| value.to_string().parse().ok())
 }
 
 fn environment() -> Result<Environment, String> {
@@ -263,17 +308,30 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
     control_options.search_collections = config.search_collections.clone();
     control_options.webhooks = webhook_admin;
     let raw_config = text.as_deref().map(parse_json).transpose().map_err(|error| message(&error))?;
-    if config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
+    let raw_auth = raw_config.as_ref().and_then(|config| config.get("auth"));
+    if matches!(raw_auth.and_then(|auth| auth.get("kind")), Some(Json::String(kind)) if kind == "builtin")
+        || config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
         || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on")
     {
-        let app_name = match raw_config
-            .as_ref()
-            .and_then(|config| config.get("auth"))
-            .and_then(|auth| auth.get("appName"))
-        {
-            Some(Json::String(name)) => name.clone(),
-            _ => "Canopy".to_owned(),
-        };
+        let app_name = raw_auth.and_then(|auth| config_text(auth, "appName")).unwrap_or("Canopy").to_owned();
+        let auth_database = env("CANOPY_AUTH_DB")
+            .or_else(|| {
+                raw_config
+                    .as_ref()?
+                    .get("mongodb")
+                    .and_then(|mongo| config_text(mongo, "authDatabase"))
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| "canopy_auth".to_owned());
+        let key_options = signing_key_options(raw_auth, control_options.master_key.as_deref())?;
+        control_options.services.auth_keys = Some(Arc::new(
+            SigningKeyRoutes::new(
+                client.database(&auth_database),
+                key_options,
+                Arc::clone(&control_options.now),
+            )
+            .map_err(|error| message(&error))?,
+        ));
         control_options.services.templates =
             Some(Arc::new(TemplateRoutes::new(&meta, app_name, Arc::clone(&control_options.now))));
     }

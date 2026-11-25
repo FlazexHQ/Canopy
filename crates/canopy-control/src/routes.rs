@@ -615,6 +615,14 @@ async fn webhooks(control: &Control) -> Result<Response, CanopyError> {
     respond(doc! { "data": data }, 200)
 }
 
+async fn mongo_deployment(
+    app: &canopy_mongo::mongodb::Database,
+) -> canopy_mongo::mongodb::error::Result<(Document, Document)> {
+    let hello = app.run_command(doc! { "hello": 1 }).await?;
+    let build = app.run_command(doc! { "buildInfo": 1 }).await?;
+    Ok((hello, build))
+}
+
 async fn doctor(control: &Control) -> Result<Response, CanopyError> {
     let mut checks: Vec<Document> = Vec::new();
     let mut add = |name: &str, status: &str, message: String| {
@@ -622,8 +630,8 @@ async fn doctor(control: &Control) -> Result<Response, CanopyError> {
     };
     let production = control.production();
     let app = control.client.database(&control.database);
-    match (app.run_command(doc! { "hello": 1 }).await, app.run_command(doc! { "buildInfo": 1 }).await) {
-        (Ok(hello), Ok(build)) => {
+    match mongo_deployment(&app).await {
+        Ok((hello, build)) => {
             let version = match build.get("version") {
                 Some(Bson::String(version)) => version.clone(),
                 Some(other) => other.to_string(),
@@ -642,7 +650,7 @@ async fn doctor(control: &Control) -> Result<Response, CanopyError> {
                 );
             }
         }
-        (Err(error), _) | (_, Err(error)) => add("mongodb", "fail", error.to_string()),
+        Err(error) => add("mongodb", "fail", error.to_string()),
     }
     let pending = canopy_migrations::pending_migrations(&control.meta).await?;
     if pending == 0 {

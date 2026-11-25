@@ -13,6 +13,7 @@
 mod accounts;
 mod api;
 mod api_keys;
+mod auth_keys;
 mod core;
 mod data;
 mod http;
@@ -36,6 +37,7 @@ use canopy_mongo::mongodb::bson::{Document, doc};
 use canopy_mongo::mongodb::{Client, Database};
 use canopy_protocol::CanopyError;
 
+pub use crate::auth_keys::{Algorithm as SigningAlgorithm, SigningKeyOptions, SigningKeyRoutes};
 pub use crate::core::{Actor, Clock, RequestOrigin, system_clock};
 pub use crate::data::DataRoutes;
 pub use crate::http::{API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE};

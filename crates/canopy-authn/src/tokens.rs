@@ -25,7 +25,7 @@ pub enum Algorithm {
 }
 
 impl Algorithm {
-    fn name(self) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
             Self::EdDSA => "EdDSA",
             Self::ES256 => "ES256",

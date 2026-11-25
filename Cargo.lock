@@ -442,6 +442,7 @@ dependencies = [
  "subtle",
  "tokio",
  "unicode-normalization",
+ "uuid",
  "zeroize",
 ]
 
@@ -463,6 +464,7 @@ dependencies = [
  "argon2",
  "base64 0.22.1",
  "canopy-auth",
+ "canopy-authn",
  "canopy-config",
  "canopy-data",
  "canopy-graphql",
