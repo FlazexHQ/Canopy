@@ -3,6 +3,83 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-25): R2 re-measured after the BSON crossing and the deferred sort; gates still missed
+
+The maintainer chose "fix, then re-measure" after the first R2 measurement (the checkpoint "R2 Canopy.js runs
+its client paths on the Rust core; gates missed" below). Both fixes are built; startup now meets its gate,
+matching and the optimistic update do not. Nothing of R2 is committed in either repository.
+
+### What changed (not committed)
+
+- **Canopy** ([`packages/wasm`](../../../packages/wasm)): the client module gained `DocumentCache`, which
+  decodes BSON documents laid end to end once, retains each in a numbered slot and decides retained slots
+  with a compiled filter (`retain`, `release`, `matchFilter`). The transforms module gained `sortBson`
+  (positions in sorted order), `projectBson` and `updateBson`, all taking and returning BSON. The transforms
+  module stays at `opt-level = "z"`: an `opt-level = 3` build made its wasm2js fallback 289 KB Brotli (from
+  about 175 KB) for a 21 % faster update, which cannot close the update gap alone.
+- **Canopy.js**: `src/client/bson.ts` is a BSON codec for the client value model on Web standard APIs only,
+  with interned keys and direct ASCII paths (about 0.6 to 1.5 µs to encode and 1 to 1.8 µs to decode a six
+  field document on Bun and Node 26), tested in `test/client/bson.test.ts`. `src/client/engine.ts` encodes
+  each document once (a `WeakMap` from the document object to its bytes), sends a document as raw BSON the
+  first time it is matched and retains it in the client module from the second time on, released through a
+  `FinalizationRegistry` (raw BSON on every call where that is missing). The store renders a live query's
+  first snapshot in server order (the server's snapshot read already sorts with the `_id` tie breaker),
+  numbering members in arrival order while a snapshot starts over no members, and loads the core after first
+  paint; the first change after the core arrives sorts with `sortBson`. A resubscribe on `welcome` over
+  existing members does not number them, so a reconnect keeps the client's order. `updateEngine` is a getter
+  that starts the load.
+
+### Evidence
+
+- Canopy.js suites, all four configurations (Bun and Node 26, each with the Wasm core and with
+  `CANOPY_TEST_CORE=js`): 244 of 245 pass; the one failure is the pre-existing compose template drift
+  (`test/cli/compose.test.ts`). The suites include the conformance replay through the client in both formats
+  and tests for a change that arrives before the core loads.
+- Rust: clippy is clean for every feature set of `packages/wasm` on the Wasm target and the host, rustfmt
+  passes, the Wasm tests pass and the R2 replay (`bench/baselines/r2/conformance.mjs`) passes on Bun and
+  Node 26.
+
+### Gates of plan 005 §7 (Windows 11, Ryzen 5 5600H)
+
+Startup is two interleaved rounds of 50 runs of `bench/baselines/r2/startup.mjs` against `canopyd` from
+`bun run dev` on MongoDB 8.0.34. The microbenchmarks time the client engine against the TypeScript lite
+matcher and updater of the untouched tree on the six scenarios of `bench/workloads/matcher/scenarios.ts`
+(best of 15 passes over 1,000 documents; one update as the median of 30 batches), on Bun, on Node 26 (two
+runs) and in headless Chromium at 4x CPU slowdown (three runs; its timer resolution is 0.1 µs, so per
+document values below 1 µs are coarse).
+
+| Measure | Result | Gate |
+|---|---|---|
+| Client module | 81,646 Brotli bytes with `DocumentCache` (transforms 102,006) | Met (at most 81,920) |
+| Root entry, R0 app, `bun build --minify --splitting` | Eager JavaScript 23,787 before, 21,040 after (2,747 smaller). After first paint the client also loads glue 4,763 and both Wasm modules, 183,652 bytes | Met for JavaScript; missed by about 124 KB counting the Wasm (+185,668) |
+| First live query, Chromium 4x | Medians 194.8 and 190.2 ms before, 202.3 and 183.9 ms after (+0.3 % on the mean of the rounds); strict CSP 194.9 before, 192.9 after; no Wasm request before the first result; module evaluation 53.7 to 13.8 ms | Met (at most +5 %) |
+| Compile and instantiate | Not measured on its own: both now happen after the first result | Not measured |
+| Matching, Bun (TypeScript and Rust, ns per document) | Equality 52.7 and 106.4 (2.0x); range and `$in` 664.5 and 254.7; `$or` 503.5 and 333.3; dotted path 155.4 and 199.7 (1.29x); `$elemMatch` 437.0 and 304.0; DLS and user filter 109.8 and 156.8 (1.43x) | Missed in 3 of 6 (at most 1.2x) |
+| Matching, Node 26 | Equality 60 to 74 and 124 to 128 (1.7 to 2.1x); range 316 and 249 to 260; `$or` 247 to 268 and 259 to 285 (1.06x); dotted path 114 to 123 and 205 to 209 (1.7 to 1.8x); `$elemMatch` 216 to 220 and 275 to 357 (1.3 to 1.6x); DLS and user filter 60 to 68 and 108 to 112 (1.6 to 1.9x) | Missed in 4 of 6 |
+| Matching, Chromium 4x | Rust 300 to 400 against 0 to 100 (equality), 900 to 1,300 against 400 to 800 (range), 1,100 to 3,000 against 700 to 1,000 (`$or`), 800 to 1,200 against 300 to 500 (dotted path), 1,400 to 2,300 against 600 to 800 (`$elemMatch`), 100 to 400 against 100 to 200 (DLS and user filter) | Missed |
+| First match of fresh documents (encode and retain) | 2.7 to 9.2 µs per document on Bun, 3.7 to 7.2 on Node 26, 14 to 31 on Chromium 4x | Not gated |
+| Optimistic update, one document | Chromium 4x 60 to 76 µs against 8.5 to 15.5 µs; Bun 12.7 against 3.4 µs (3.7x); Node 26 13.2 to 13.4 against 3.0 to 3.1 µs (4.3x) | Missed (at most 2x and under 50 µs) |
+| Without WebAssembly, wasm2js on Bun | Matching 273.6 against 46.8 ns (5.8x, equality), 535.7 against 134.8 (4.0x, dotted path), 743.7 against 234.6 (3.2x, `$elemMatch`), the other three at most 2.4x; update 35.9 against 3.5 µs (10x). Hermes not run | Missed (at most 3x) |
+| Sorting and projecting 1,000 documents | Bun 1.33 and 1.70 ms (8.9 and 10.9 ms before the BSON crossing), Node 26 1.23 and 1.94 to 2.02 ms, Chromium 4x 5.4 to 5.9 and 8.3 to 8.4 ms | Not gated |
+
+Against the first measurement: matching went from 6.5 to 7.7 µs per document to 0.1 to 0.36 µs, the update
+on Chromium 4x from 128 to 60 to 76 µs, and startup from +20 to +31 % to +0.3 %. What is left is a fixed cost
+per call: crossing into the module and back costs about as much as the TypeScript matcher spends on a simple
+filter, and one update pays encoding, decoding in Rust (about 4 to 5 µs for the owned document model), the
+update itself (about 7 µs for a six field document at `opt-level = "z"`) and decoding the result in
+JavaScript.
+
+### Options for the maintainer (the stage stops here, per §7)
+
+1. Keep documents on the Rust side for updates too: apply an optimistic update to the retained slot and
+   return only the changed fields, so an update no longer encodes and decodes the whole document.
+2. Size and speed work on the transforms module (per function `opt-level`, a faster owned document model),
+   within the wasm2js budget.
+3. A narrower client module that decides in batch only where batches exist (snapshots, change events over
+   many queries), with the per document paths measured against their own gate.
+4. Change the matching and update gates (the maintainer's call; this checkpoint does not relax them). A
+   TypeScript copy of the semantics stays excluded (ADR 0018).
+
 ## Checkpoint (2026-11-25): SDK auth end to end check against Rust auth, CLI progress and in progress tasks
 
 ### Commits since f5f060e6
@@ -23,7 +100,7 @@ With a pre verified user, password sign in, `/token`, the 80 % access token reus
 
 ### In progress (uncommitted)
 
-- R2 BSON crossing and deferred sort re-measure (paused on a usage limit).
+- R2 BSON crossing and deferred sort: built and re-measured (see the checkpoint above); matching and the optimistic update still miss their gates, uncommitted pending the maintainer's choice.
 - R5.6b `/admin/v1/users` (paused on a usage limit).
 
 ### What remains of plan 005
