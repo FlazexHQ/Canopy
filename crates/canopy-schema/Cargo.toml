@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 canopy-policy = { path = "../canopy-policy" }
 canopy-protocol = { path = "../canopy-protocol" }
+regex = "1"
 
 [lints]
 workspace = true

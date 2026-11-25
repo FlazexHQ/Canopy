@@ -1,12 +1,20 @@
 //! Collection shapes and schema inference over BSON values.
 
+mod canonical;
+mod emit;
 mod infer;
 mod json_schema;
+mod pull;
 mod shape;
+mod typescript;
 
+pub use canonical::parse_collection_schemas;
+pub use emit::{EmitOptions, emit_schema_file};
 pub use infer::{EnumOptions, InferOptions, infer_schema};
 pub use json_schema::from_json_schema;
+pub use pull::{DEFAULT_SAMPLE_SIZE, PullUpdate, parse_sample_size, update_schema_file};
 pub use shape::{Field, ObjectShape, RestrictMode, ScalarType, Shape, restrict_shape, union};
+pub use typescript::{GenerateOptions, generate_types};
 
 /// Compares strings in the JavaScript order of UTF-16 code units.
 pub fn js_cmp(a: &str, b: &str) -> std::cmp::Ordering {
