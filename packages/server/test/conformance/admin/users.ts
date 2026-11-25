@@ -1,9 +1,7 @@
 import type { Step } from "./cases.ts"
 
 /** The password of the app user every role works on, created by the owner before the role's steps. */
-export const appPassword = "app user fixture password 1"
-/** The password the update case sets on that user. */
-export const nextAppPassword = "app user replacement password 2"
+const appPassword = "app user fixture password 1"
 
 /** The app user the owner creates for every role's capture, which the `users/:id` routes act on. */
 export const fixtureUser = {

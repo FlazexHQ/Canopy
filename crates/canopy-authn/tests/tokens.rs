@@ -44,6 +44,9 @@ fn kids(jwks: &Value) -> Vec<&str> {
 
 #[test]
 fn matches_every_recorded_access_token_and_jwks() -> Result<(), Box<dyn Error>> {
+    if !support::enabled("matches_every_recorded_access_token_and_jwks") {
+        return Ok(());
+    }
     let fixture: Value = serde_json::from_str(FIXTURE)?;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/http/auth/cases");
     let secret = fixture["secret"].as_str().unwrap();

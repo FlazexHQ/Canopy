@@ -5,6 +5,17 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
+/// Whether the TypeScript server is available for interoperability checks: `CANOPY_TEST_TYPESCRIPT` is set
+/// where Bun and the workspace dependencies are installed. Prints why a test is skipped otherwise.
+#[allow(clippy::print_stderr)]
+pub(super) fn enabled(test: &str) -> bool {
+    let enabled = std::env::var_os("CANOPY_TEST_TYPESCRIPT").is_some();
+    if !enabled {
+        eprintln!("skipped {test}: set CANOPY_TEST_TYPESCRIPT where Bun and the workspace are installed");
+    }
+    enabled
+}
+
 pub(super) fn typescript(mode: &str, input: &Value) -> std::io::Result<Output> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut child = Command::new("bun")

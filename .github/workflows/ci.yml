@@ -146,6 +146,10 @@ jobs:
           bun --filter @canopy/wasm build:native
       - name: Build the native gateway, which the realtime conformance suite and the DLS equivalence test run against
         run: cargo build --release --locked -p canopyd
+      - name: Rust auth against the TypeScript server it replaces (passwords, secrets, cookies, tokens)
+        env:
+          CANOPY_TEST_TYPESCRIPT: "1"
+        run: cargo test --locked -p canopy-authn
       - name: Save the Cargo registry and build output
         if: steps.cargo-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
