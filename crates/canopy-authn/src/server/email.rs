@@ -142,8 +142,14 @@ impl Call<'_> {
                     .await
                     .map_err(internal)?;
                 if result.modified_count == 1 && !user.extra.get_bool("twoFactorEnabled").unwrap_or(false) {
-                    let session = self.create_session(&user, true, "email_verification").await?;
-                    self.set_session(&mut reply, &session.token, true);
+                    if let Some((session, _)) =
+                        self.authenticated().await?.filter(|(_, current)| current.id == user.id)
+                    {
+                        self.set_session(&mut reply, &session.token, self.remember_session());
+                    } else {
+                        let session = self.create_session(&user, true, "email_verification").await?;
+                        self.set_session(&mut reply, &session.token, true);
+                    }
                 }
             }
             (None, None) => {}

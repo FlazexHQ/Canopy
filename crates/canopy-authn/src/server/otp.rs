@@ -76,15 +76,6 @@ impl Call<'_> {
         let sign_in = self.route == "/sign-in/email-otp";
         let failure_key = format!("fail|{email}");
         let limits = self.router.collection("identifier_limits");
-        if sign_in
-            && limits
-                .find_one(doc! {"_id": &failure_key, "lockedUntil": {"$gt": self.now}})
-                .await
-                .map_err(internal)?
-                .is_some()
-        {
-            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
-        }
         let Some(code) = body.get("otp").and_then(Value::as_str) else {
             let reply = validation(body, "otp");
             return if sign_in { self.sign_in_failure(&email, "email_otp", reply).await } else { Ok(reply) };

@@ -7,7 +7,10 @@ use std::{
 use bson::{Bson, DateTime, Document, doc};
 use canopy_http::{Body, Request, Response};
 use canopy_mail::{EmailKind, Mailer, Recipient};
-use canopy_mongo::mongodb::{Collection, Database, IndexModel, options::IndexOptions};
+use canopy_mongo::mongodb::{
+    Collection, Database, IndexModel,
+    options::{IndexOptions, ReturnDocument},
+};
 use canopy_protocol::{CanopyError, ErrorCode};
 use futures_util::TryStreamExt;
 use serde::Serialize;
@@ -25,6 +28,7 @@ macro_rules! object {
             .into_iter().collect())
     };
 }
+mod anonymous;
 mod documents;
 mod email;
 mod floor;
@@ -187,18 +191,26 @@ impl AuthRouter {
 
     /// Handles a request at a supplied Unix time in milliseconds.
     pub async fn handle_at(&self, request: &Request, now_ms: i64) -> Option<Response> {
-        let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
+        let path = request.target.split('?').next().unwrap_or_default();
         if path != "/.well-known/jwks.json" && !path.starts_with("/auth/v1/") {
             return None;
         }
+        Some(self.handle_endpoint_at(request, now_ms).await)
+    }
+
+    /// Handles a request sent directly to the auth endpoint at a supplied Unix time in milliseconds.
+    pub async fn handle_endpoint_at(&self, request: &Request, now_ms: i64) -> Response {
+        let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
         let route = path.strip_prefix("/auth/v1").unwrap_or(path);
         let started = Instant::now();
         let request_context = Call { router: self, request, route, now: DateTime::from_millis(now_ms) };
         let mut response = request_context
-            .dispatch(query)
+            .dispatch(path, query)
             .await
             .unwrap_or_else(|_| error(500, "CANOPY_INTERNAL", "Authentication request failed"));
         if request.method == "POST"
+            && response.status != 413
+            && response.header("retry-after").is_none()
             && let Some(route) = ResponseFloor::route(route)
         {
             let took = started.elapsed();
@@ -212,7 +224,7 @@ impl AuthRouter {
             header(&mut response, "access-control-expose-headers", "set-auth-token, set-auth-ceremony");
             header(&mut response, "vary", "origin");
         }
-        Some(response)
+        response
     }
 
     fn collection(&self, name: &str) -> Collection<Document> {
@@ -275,17 +287,21 @@ struct Call<'a> {
 }
 
 impl Call<'_> {
-    async fn dispatch(&self, query: &str) -> Result<Response> {
+    async fn dispatch(&self, path: &str, query: &str) -> Result<Response> {
         let get = self.request.method == "GET";
         if self.request.method == "OPTIONS" {
             let mut response = Response { status: 204, ..Response::default() };
-            header(&mut response, "access-control-allow-methods", "GET, HEAD, POST, OPTIONS");
-            if let Some(headers) = self.request.header("access-control-request-headers") {
-                header(&mut response, "access-control-allow-headers", headers);
+            if self.request.header("origin").is_some_and(|origin| self.router.trusts_origin(&origin)) {
+                header(&mut response, "access-control-allow-methods", "GET, POST, OPTIONS");
+                header(
+                    &mut response,
+                    "access-control-allow-headers",
+                    "authorization, content-type, apikey, x-client-info, x-canopy-ceremony",
+                );
+                header(&mut response, "access-control-max-age", "600");
             }
             return Ok(response);
         }
-        let path = self.request.target.split('?').next().unwrap_or_default();
         if matches!(path, "/auth/v1/jwks" | "/.well-known/jwks.json" | "/auth/v1/.well-known/jwks.json") {
             let method = http::Method::from_bytes(self.request.method.as_bytes()).map_err(internal)?;
             let response = self
@@ -304,6 +320,22 @@ impl Call<'_> {
                 body: response.body().as_bytes().to_vec(),
             });
         }
+        if !path.starts_with("/auth/v1/") {
+            return Ok(api_error(404, "NOT_FOUND", "Not found"));
+        }
+        let declared_large = self
+            .request
+            .header("content-length")
+            .and_then(|length| length.parse::<u64>().ok())
+            .is_some_and(|length| length > 65_536);
+        if declared_large
+            || (!get
+                && !matches!(self.request.method.as_str(), "HEAD")
+                && (matches!(&self.request.body, Body::Bytes(bytes) if bytes.len() > 65_536)
+                    || matches!(&self.request.body, Body::TooLarge)))
+        {
+            return Ok(api_error(413, "CANOPY_PAYLOAD_TOO_LARGE", "The request body is too large"));
+        }
         if self.route == "/token" || self.route == "/settings" {
             let mut response = if !get {
                 error(405, "METHOD_NOT_ALLOWED", "Use GET")
@@ -314,6 +346,66 @@ impl Call<'_> {
             };
             header(&mut response, "cache-control", "no-store");
             return Ok(response);
+        }
+        let post = self.request.method == "POST";
+        let parsed = match &self.request.body {
+            _ if get || self.request.method == "HEAD" => Some(json!({})),
+            Body::Bytes(bytes) if bytes.is_empty() && self.route != "/upgrade" => Some(json!({})),
+            Body::Bytes(bytes) => serde_json::from_slice::<Value>(bytes).ok(),
+            _ => None,
+        };
+        if post
+            && matches!(
+                self.route,
+                "/sign-up/email"
+                    | "/sign-in/email"
+                    | "/send-verification-email"
+                    | "/request-password-reset"
+                    | "/sign-in/magic-link"
+                    | "/sign-in/email-otp"
+                    | "/email-otp/send-verification-otp"
+                    | "/email-otp/request-password-reset"
+                    | "/forget-password/email-otp"
+                    | "/upgrade"
+            )
+            && let Some(email) = parsed
+                .as_ref()
+                .and_then(|body| body.get("email"))
+                .and_then(Value::as_str)
+                .filter(|email| email.encode_utf16().count() <= 320)
+            && let Some(retry) = self.identifier_retry(&email.trim().to_lowercase()).await?
+        {
+            self.audit_rate_limit().await?;
+            let mut reply = api_error(429, "CANOPY_RATE_LIMITED", "Too many attempts; try again later");
+            header(&mut reply, "retry-after", retry.to_string());
+            return Ok(reply);
+        }
+        if post && self.route == "/upgrade" {
+            return self.upgrade(parsed.as_ref()).await;
+        }
+        let disabled = matches!(
+            self.route,
+            "/admin/list-users"
+                | "/admin/get-user"
+                | "/admin/create-user"
+                | "/admin/update-user"
+                | "/admin/set-role"
+                | "/admin/ban-user"
+                | "/admin/unban-user"
+                | "/admin/impersonate-user"
+                | "/admin/stop-impersonating"
+                | "/admin/list-user-sessions"
+                | "/admin/revoke-user-session"
+                | "/admin/revoke-user-sessions"
+                | "/admin/remove-user"
+                | "/admin/set-user-password"
+                | "/admin/has-permission"
+                | "/two-factor/send-otp"
+                | "/two-factor/verify-otp"
+        ) || (matches!(self.route, "/sign-in/anonymous" | "/delete-anonymous-user")
+            && !self.feature("anonymous"));
+        if disabled {
+            return Ok(Response { status: 404, body: b"Not Found".to_vec(), ..Response::default() });
         }
         let reset_link = get && self.route.starts_with("/reset-password/");
         let allowed = match self.route {
@@ -327,7 +419,9 @@ impl Call<'_> {
                 self.request.method == "POST" && self.feature("two_factor")
             }
             route if otp::is_route(route) => self.request.method == "POST" && self.feature("email_otp"),
-            "/sign-up/email"
+            "/sign-in/anonymous"
+            | "/delete-anonymous-user"
+            | "/sign-up/email"
             | "/sign-in/email"
             | "/sign-out"
             | "/send-verification-email"
@@ -341,68 +435,47 @@ impl Call<'_> {
             | "/revoke-sessions" => self.request.method == "POST",
             _ => reset_link,
         };
+        if let Some(retry) = self.address_retry().await? {
+            if post {
+                self.audit_rate_limit().await?;
+            }
+            let mut reply = response(429, object!("message":"Too many requests. Please try again later."));
+            header(&mut reply, "x-retry-after", retry.to_string());
+            return Ok(reply);
+        }
         if !allowed {
-            return Ok(Response { status: 404, ..Response::default() });
+            return Ok(if post && self.route == "/delete-user" {
+                empty(404)
+            } else {
+                Response { status: 404, ..Response::default() }
+            });
         }
         if !get {
             match self.request.header("origin") {
                 Some(origin) if !self.router.trusts_origin(&origin) => {
                     return Ok(error(403, "INVALID_ORIGIN", "Invalid origin"));
                 }
-                None if self.ceremony_cookie(AuthCookie::TwoFactor).is_some()
+                None if self.request.header("cookie").is_some()
+                    || self.ceremony_cookie(AuthCookie::TwoFactor).is_some()
                     || (passkeys::method(self.route).is_some()
                         && self.ceremony_cookie(AuthCookie::Passkey).is_some()) =>
                 {
-                    if !self.address_hit().await? {
-                        return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
-                    }
-                    return Ok(error(403, "MISSING_OR_NULL_ORIGIN", "Missing or null Origin"));
-                }
-                None if self.request.header("cookie").is_some() => {
                     return Ok(error(403, "MISSING_OR_NULL_ORIGIN", "Missing or null Origin"));
                 }
                 _ => {}
             }
         }
-        if !self.address_hit().await? {
-            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
-        }
         let params: BTreeMap<_, _> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
-        let body = match &self.request.body {
-            Body::Bytes(bytes) if bytes.is_empty() => json!({}),
-            Body::Bytes(bytes) if bytes.len() <= 65536 => match serde_json::from_slice(bytes) {
-                Ok(Value::Object(body)) => Value::Object(body),
-                _ => return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body")),
-            },
-            Body::Unreadable => return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body")),
-            _ => return Ok(error(413, "PAYLOAD_TOO_LARGE", "Request body is too large")),
+        let Some(body) = parsed.filter(Value::is_object) else {
+            return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body"));
         };
-        if matches!(
-            self.route,
-            "/sign-up/email"
-                | "/sign-in/email"
-                | "/send-verification-email"
-                | "/request-password-reset"
-                | "/sign-in/magic-link"
-                | "/sign-in/email-otp"
-                | "/email-otp/send-verification-otp"
-                | "/email-otp/request-password-reset"
-                | "/forget-password/email-otp"
-        ) && let Some(email) = body.get("email").and_then(Value::as_str).filter(|email| email.len() <= 320)
-            && !self.identifier_hit(&email.trim().to_lowercase()).await?
-        {
-            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
-        }
-        for callback in [
-            params.get("callbackURL").map(String::as_str),
-            body.get("callbackURL").and_then(Value::as_str),
-            body.get("redirectTo").and_then(Value::as_str),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            if !self.router.trusts_callback(callback) {
-                return Ok(error(403, "INVALID_CALLBACK_URL", "Invalid callbackURL"));
+        for (callback, code, message) in [
+            (params.get("callbackURL").map(String::as_str), "INVALID_CALLBACK_URL", "Invalid callbackURL"),
+            (body.get("callbackURL").and_then(Value::as_str), "INVALID_CALLBACK_URL", "Invalid callbackURL"),
+            (body.get("redirectTo").and_then(Value::as_str), "INVALID_REDIRECT_URL", "Invalid redirectURL"),
+        ] {
+            if callback.is_some_and(|callback| !self.router.trusts_callback(callback)) {
+                return Ok(error(403, code, message));
             }
         }
         if matches!(self.route, "/sign-in/magic-link" | "/magic-link/verify") {
@@ -420,6 +493,8 @@ impl Call<'_> {
         match self.route {
             "/sign-up/email" => self.sign_up(&body).await,
             "/sign-in/email" => self.sign_in(&body).await,
+            "/sign-in/anonymous" => self.sign_in_anonymous().await,
+            "/delete-anonymous-user" => self.delete_anonymous_user().await,
             "/sign-in/magic-link" => self.send_magic_link(&body).await,
             "/magic-link/verify" => self.verify_magic_link(&params).await,
             route if two_factor::is_route(route) => self.two_factor_route(&body).await,
@@ -435,7 +510,7 @@ impl Call<'_> {
     }
 
     fn feature(&self, name: &str) -> bool {
-        self.router.options.external.get(name).and_then(Value::as_bool).unwrap_or(true)
+        self.router.options.external.get(name).and_then(Value::as_bool).unwrap_or(name != "anonymous")
     }
 
     fn settings(&self) -> Response {
@@ -530,12 +605,19 @@ impl Call<'_> {
     }
 
     fn session_token(&self) -> Option<String> {
-        let signed = self.cookie(AuthCookie::SessionToken).or_else(|| {
-            let authorization = self.request.header("authorization")?;
-            let (scheme, value) = authorization.split_once(' ')?;
-            scheme.eq_ignore_ascii_case("bearer").then(|| value.trim().to_owned())
-        })?;
-        verify_session(&self.router.options.secret, &signed)
+        if let Some(authorization) = self.request.header("authorization")
+            && let Some((scheme, value)) = authorization.split_once(' ')
+            && scheme.eq_ignore_ascii_case("bearer")
+        {
+            let value = value.trim();
+            if value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
+                return Some(value.to_owned());
+            }
+            if let Some(token) = verify_session(&self.router.options.secret, value) {
+                return Some(token);
+            }
+        }
+        verify_session(&self.router.options.secret, &self.cookie(AuthCookie::SessionToken)?)
     }
 
     fn set_cookie(&self, response: &mut Response, kind: AuthCookie, value: &str, expiration: Expiration) {
@@ -583,7 +665,7 @@ impl Call<'_> {
         Ok(())
     }
 
-    async fn address_hit(&self) -> Result<bool> {
+    async fn address_retry(&self) -> Result<Option<i64>> {
         let key = format!("{}|{}", self.ip(), self.route);
         let sensitive =
             matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email")
@@ -607,13 +689,20 @@ impl Call<'_> {
                 .await
                 .map_err(internal)?;
         }
-        Ok(!old.is_some_and(|doc| doc.count >= max && doc.last_request > now.saturating_sub(window)))
+        Ok(old
+            .filter(|doc| doc.count >= max && doc.last_request > now.saturating_sub(window))
+            .map(|doc| retry_seconds(doc.last_request.saturating_add(window), now)))
     }
 
-    async fn identifier_hit(&self, email: &str) -> Result<bool> {
+    async fn audit_rate_limit(&self) -> Result<()> {
+        self.audit("auth.rate_limited", doc! {"type":"anonymous"}, None, Some(doc! {"path":self.route}), true)
+            .await
+    }
+
+    async fn identifier_retry(&self, email: &str) -> Result<Option<i64>> {
         let key = format!("hit|{}|{email}", self.route);
         let recent = doc! {"$gt":["$windowStart", self.date_after(-60_000)]};
-        let old = self
+        let counted = self
             .router
             .auth
             .collection::<IdentifierLimit>("identifier_limits")
@@ -626,12 +715,26 @@ impl Call<'_> {
                 }}],
             )
             .upsert(true)
+            .return_document(ReturnDocument::After)
             .await
             .map_err(internal)?;
-        Ok(!old.is_some_and(|doc| {
-            doc.extra.get_i32("count").unwrap_or_default() >= 10
-                && doc.extra.get_datetime("windowStart").is_ok_and(|date| *date > self.date_after(-60_000))
-        }))
+        let now = self.now.timestamp_millis();
+        if let Some(limit) = counted.filter(|limit| limit.extra.get_i32("count").unwrap_or_default() > 10) {
+            let start = limit.extra.get_datetime("windowStart").map_or(now, |date| date.timestamp_millis());
+            return Ok(Some(retry_seconds(start.saturating_add(60_000), now)));
+        }
+        if matches!(self.route, "/sign-in/email" | "/sign-in/email-otp") {
+            let locked = self
+                .router
+                .collection("identifier_limits")
+                .find_one(doc! {"_id":format!("fail|{email}"), "lockedUntil":{"$gt":self.now}})
+                .await
+                .map_err(internal)?;
+            if let Some(until) = locked.and_then(|limit| limit.get_datetime("lockedUntil").ok().copied()) {
+                return Ok(Some(retry_seconds(until.timestamp_millis(), now)));
+            }
+        }
+        Ok(None)
     }
 }
 
@@ -735,6 +838,16 @@ fn validation(body: &Value, field: &str) -> Response {
         _ => "object",
     };
     error(400, "VALIDATION_ERROR", &format!("[body.{field}] Invalid input: expected string, received {kind}"))
+}
+
+fn api_error(status: u16, code: &str, message: &str) -> Response {
+    let mut reply = response(status, object!("code":code, "message":message));
+    header(&mut reply, "cache-control", "no-store");
+    reply
+}
+
+fn retry_seconds(until: i64, now: i64) -> i64 {
+    (until.saturating_sub(now).saturating_add(999) / 1000).max(1)
 }
 
 fn status() -> Response {

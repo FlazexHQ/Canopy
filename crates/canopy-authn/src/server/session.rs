@@ -38,6 +38,15 @@ impl Call<'_> {
 
     pub(super) async fn create_session(&self, user: &User, remember: bool, method: &str) -> Result<Session> {
         let session = self.new_session(user, remember, "aal1")?;
+        if self.feature("anonymous")
+            && let Some((_, prior)) = self.authenticated().await?
+            && super::anonymous::is_anonymous(&prior)
+            && !super::anonymous::is_anonymous(user)
+            && prior.id != user.id
+        {
+            self.insert_linked_session(&session, method, &prior).await?;
+            return Ok(session);
+        }
         self.router.auth.collection::<Session>("sessions").insert_one(&session).await.map_err(internal)?;
         self.router
             .meta
@@ -149,7 +158,7 @@ impl Call<'_> {
             .is_some_and(|signed| verify_session(&self.router.options.secret, &signed).is_some())
     }
 
-    fn clear_session(&self, response: &mut Response) {
+    pub(super) fn clear_session(&self, response: &mut Response) {
         for cookie in [AuthCookie::SessionToken, AuthCookie::SessionData, AuthCookie::DontRemember] {
             self.set_cookie(response, cookie, "", Expiration::MaxAge(0));
         }

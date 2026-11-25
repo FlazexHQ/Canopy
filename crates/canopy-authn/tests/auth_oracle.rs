@@ -33,7 +33,7 @@ mod passkey_replay;
 mod webauthn_support;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 9] = [
+const GROUPS: [&str; 13] = [
     "email-password",
     "email-verification",
     "password-reset",
@@ -43,6 +43,10 @@ const GROUPS: [&str; 9] = [
     "passkeys",
     "sessions",
     "tokens",
+    "anonymous",
+    "bearer",
+    "rate-limits",
+    "errors",
 ];
 
 macro_rules! object {
@@ -132,6 +136,7 @@ impl Bindings {
                     "challenge" | "webauthn-user-id" => "[A-Za-z0-9_-]{43}",
                     "attestation-object" => "[A-Za-z0-9_-]+",
                     "session-token" | "better-auth-passkey-cookie" => "[A-Za-z0-9]{32}",
+                    "email" => "temp-[a-z0-9]{32}",
                     "otp" => "[0-9]{6}",
                     "totp-secret" => "[A-Z2-7]{52}",
                     "backup-code" => "[A-Za-z0-9]{5}-[A-Za-z0-9]{5}",
@@ -305,8 +310,13 @@ fn response_value(response: Response, secret: &str, jwks: &Value) -> Result<Valu
             return Err("Duplicate response header".into());
         }
     }
-    let mut body: Value =
-        if response.body.is_empty() { Value::Null } else { serde_json::from_slice(&response.body)? };
+    let mut body: Value = if response.body.is_empty() {
+        Value::Null
+    } else if headers.get("content-type").is_some_and(|value| value.contains("json")) {
+        serde_json::from_slice(&response.body)?
+    } else {
+        json!(String::from_utf8(response.body)?)
+    };
     if let Some(token) = body["access_token"].as_str() {
         let verified = check_access_jwt(token, jwks)?;
         body["access_token"] = verified;
@@ -407,7 +417,15 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         ("two_factor", "twoFactor"),
         ("passkey", "passkeys"),
     ] {
-        options.external.insert(key, json!(fixture["options"][option].as_bool().ok_or("feature setting")?));
+        options.external.insert(
+            key,
+            json!(
+                selected[option]
+                    .as_bool()
+                    .or_else(|| fixture["options"][option].as_bool())
+                    .ok_or("feature setting")?
+            ),
+        );
     }
     for key in fixture["options"]["socialProviders"].as_object().ok_or("Social providers")?.keys() {
         options.external.insert(key.clone(), json!(true));
@@ -441,6 +459,11 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
         .then(passkey_replay::ReplayPasskeys::load)
         .transpose()?;
     for (index, step) in steps.iter().enumerate() {
+        if step["request"]["headers"]["authorization"] == "Bearer <forged-bearer-1>" {
+            let token = bindings.resolve("<session-token-2>")?;
+            let prefix = token.get(..10).ok_or("Session token prefix")?;
+            bindings.bind("<forged-bearer-1>", &format!("{prefix}AAAAAAAAAAAAAAAAAAAAAA"))?;
+        }
         let request = &step["request"];
         let original = str_at(request, "path")?;
         if original.contains("<tampered-signature-1>") {
@@ -491,7 +514,7 @@ async fn replay(case: &Value, fixture: &Value, auth: Database, meta: Database) -
                 http = http.with_body(bindings.resolve(&text)?.into_bytes());
             }
             let started = Instant::now();
-            let response = router.handle_at(&http, now).await.ok_or("Unserved auth route")?;
+            let response = router.handle_endpoint_at(&http, now).await;
             if let Some(held) = step["heldForTheFloor"].as_bool() {
                 assert_eq!(started.elapsed() >= Duration::from_millis(75), held, "{path} floor");
             }
@@ -631,8 +654,8 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 26);
-    assert_eq!(steps, 191);
+    assert_eq!(cases, 36);
+    assert_eq!(steps, 276);
     Ok(())
 }
 

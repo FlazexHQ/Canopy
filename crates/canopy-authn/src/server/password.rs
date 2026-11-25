@@ -163,14 +163,6 @@ impl Call<'_> {
         };
         let fail_key = format!("fail|{email}");
         let limits = self.router.collection("identifier_limits");
-        if limits
-            .find_one(doc! {"_id": &fail_key, "lockedUntil": {"$gt": self.now}})
-            .await
-            .map_err(internal)?
-            .is_some()
-        {
-            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
-        }
         if body.get("password").and_then(Value::as_str).is_none() {
             return self.sign_in_failure(&email, "password", validation(body, "password")).await;
         }
@@ -249,7 +241,7 @@ impl Call<'_> {
         let key = format!("fail|{email}");
         self.router.collection("identifier_limits").update_one(doc! {"_id": key}, vec![
             doc! {"$set": {
-                "failures": {"$cond": [{"$gt": ["$expiresAt", self.now]}, {"$min": [{"$add":["$failures", 1]}, 20]}, 1]},
+                "failures": {"$add": [{"$ifNull":["$failures", 0]}, 1]},
             }},
             doc! {"$set": {
                 "lockedUntil": {"$cond": [{"$gte": ["$failures", 5]},
