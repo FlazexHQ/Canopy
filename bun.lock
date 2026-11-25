@@ -322,6 +322,17 @@
         "vitest": "catalog:",
       },
     },
+    "packages/deploy-tests": {
+      "name": "@canopy/deploy-tests",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@canopy/config": "workspace:*",
+        "@types/node": "catalog:",
+        "typescript": "catalog:",
+        "vitest": "catalog:",
+        "yaml": "catalog:",
+      },
+    },
     "packages/embedded": {
       "name": "@canopy/embedded",
       "version": "0.0.0",
@@ -930,6 +941,8 @@
     "@canopy/config": ["@canopy/config@workspace:packages/config"],
 
     "@canopy/control": ["@canopy/control@workspace:packages/control"],
+
+    "@canopy/deploy-tests": ["@canopy/deploy-tests@workspace:packages/deploy-tests"],
 
     "@canopy/docs": ["@canopy/docs@workspace:apps/docs"],
 

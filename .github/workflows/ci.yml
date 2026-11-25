@@ -144,7 +144,7 @@ jobs:
     env:
       CANOPY_TEST_MONGODB_URI: mongodb://localhost:27017/?replicaSet=rs0
       CANOPY_REQUIRE_MONGODB: "1"
-      SUITES: --project native --project matcher --project policy --project realtime --project rest --project graphql --project storage --project client --project server
+      SUITES: --project native --project matcher --project policy --project realtime --project rest --project graphql --project storage --project client --project server --project deploy-tests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install the toolchain pinned in rust-toolchain.toml, with the WebAssembly target

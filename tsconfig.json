@@ -51,6 +51,7 @@
     { "path": "bench" },
     { "path": "packages/server" },
     { "path": "packages/server/test" },
+    { "path": "packages/deploy-tests" },
     { "path": "packages/control" },
     { "path": "packages/control/test" },
     { "path": "packages/embedded" },
