@@ -17,7 +17,15 @@ import {
 } from "../scripts/canopyd-packages.ts"
 import { gatewayExecutable, gatewayPackage } from "../src/gateway-package.ts"
 
-const RELEASE: Release = { version: "1.2.3", license: "UNLICENSED" }
+const RELEASE: Release = {
+  version: "1.2.3",
+  license: "UNLICENSED",
+  repository: {
+    type: "git",
+    url: "git+https://github.com/FlazexHQ/Canopy.git",
+    directory: "packages/realtime",
+  },
+}
 
 function target(os: string, cpu: string, libc?: "glibc" | "musl"): NativeTarget {
   const found = targetFor(os, cpu, libc)

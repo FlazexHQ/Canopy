@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "description": "The Canopy core in Rust for Bun, Node and Deno: the policy engine, the event matcher, query canonicalization and the EJSON codec, as a prebuilt Node-API addon with a WebAssembly fallback.",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FlazexHQ/Canopy.git",
+    "directory": "packages/native"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {

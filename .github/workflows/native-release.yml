@@ -2,8 +2,8 @@ name: Native release builds
 
 # Builds every platform package of @canopy/native on its own runner, assembles the release (the nine platform
 # packages and the root package naming them all), checks it, installs it with every package manager and loads
-# each addon where the hardware exists. It ends with the checked tarballs as the native-release artifact;
-# nothing is published. The gateway archives are separate artifacts named by Rust target, and the gateway is
+# each addon where the hardware exists. It assembles the checked tarballs as the native-release artifact.
+# The gateway archives are separate artifacts named by Rust target, and the gateway is
 # also packed as one npm package per platform (@canopy/canopyd-<suffix>) plus the @canopy/realtime tarball
 # whose optionalDependencies name them all, as the canopyd-npm-release artifact.
 on:
@@ -13,6 +13,7 @@ on:
       - "conformance/**"
       - "packages/native/**"
       - "packages/wasm/**"
+      - "packages/realtime/package.json"
       - "packages/realtime/scripts/**"
       - "packages/realtime/src/gateway-package.ts"
       - "packages/realtime/src/gateway.ts"
@@ -21,6 +22,8 @@ on:
       - "rust-toolchain.toml"
       - "deploy/binary/**"
       - "packages/testing/scripts/install-test.ts"
+      - "packages/testing/scripts/publish-tarballs.ts"
+      - "packages/testing/test/publish-tarballs.test.ts"
       - "packages/testing/scripts/licenses.ts"
       - ".github/workflows/native-release.yml"
   schedule:
@@ -28,6 +31,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the assembled tarballs to npm
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -345,3 +353,59 @@ jobs:
           (cd gateway-musl-pack && sha256sum -c "$ARCHIVE.sha256" && tar -xzf "$ARCHIVE")
           docker run --rm -v "$PWD:/repo:ro" -w /repo node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5 \
             sh -ec 'node packages/native/scripts/smoke.ts packages/native/packs && ./gateway-musl-pack/canopyd --help && node packages/realtime/scripts/smoke-canopyd.ts packages/realtime/packs'
+
+  publish-dry-run:
+    name: Dry run the npm release
+    if: github.event_name != 'release' && (github.event_name != 'workflow_dispatch' || !inputs.publish)
+    needs: [assemble, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - &release-checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - &release-bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - &release-node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - &release-native-tarballs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: native-release
+          path: ${{ runner.temp }}/native-release
+      - &release-canopyd-tarballs
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: canopyd-npm-release
+          path: ${{ runner.temp }}/canopyd-npm-release
+      - name: Check licenses and dry run every tarball
+        run: bun packages/testing/scripts/publish-tarballs.ts "$RUNNER_TEMP/native-release" "$RUNNER_TEMP/canopyd-npm-release"
+
+  publish:
+    name: Publish the assembled npm release
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish)
+    needs: [assemble, smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: npm
+    concurrency: npm-native-release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - *release-checkout
+      - *release-bun
+      - *release-node
+      - *release-native-tarballs
+      - *release-canopyd-tarballs
+      - name: Require licenses and publish every unpublished tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: bun packages/testing/scripts/publish-tarballs.ts --publish "$RUNNER_TEMP/native-release" "$RUNNER_TEMP/canopyd-npm-release"

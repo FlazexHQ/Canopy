@@ -3,6 +3,11 @@
   "version": "0.0.0",
   "description": "Canopy Realtime: one change stream, DLS enforced on every event, live queries over WebSockets for Bun and Node. Ships canopy.js policy and config imports for mounted files.",
   "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FlazexHQ/Canopy.git",
+    "directory": "packages/realtime"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {

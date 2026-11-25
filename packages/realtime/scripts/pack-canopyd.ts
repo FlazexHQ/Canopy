@@ -43,8 +43,12 @@ const packs = join(root, "packs")
 const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
   string,
   unknown
-> & { name: string; version: string; license: string }
-const release: Release = { version: source.version, license: source.license }
+> & { name: string; version: string; license: string; repository: Release["repository"] }
+const release: Release = {
+  version: source.version,
+  license: source.license,
+  repository: source.repository,
+}
 
 /** A tarball in `packs/`, as `packs/packs.json` lists it. */
 interface Packed {

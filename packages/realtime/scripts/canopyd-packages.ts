@@ -9,6 +9,7 @@ import { gatewayExecutable, gatewayPackage } from "../src/gateway-package.ts"
 export interface Release {
   readonly version: string
   readonly license: string
+  readonly repository: { type: string; url: string; directory: string }
 }
 
 /** The `package.json` of the platform package for `target`. */
@@ -17,6 +18,7 @@ export function platformManifest(target: NativeTarget, release: Release): Record
     name: gatewayPackage(target),
     version: release.version,
     license: release.license,
+    repository: release.repository,
     description: `canopyd, the Canopy data plane, prebuilt for ${target.triple}`,
     os: [target.os],
     cpu: [target.cpu],

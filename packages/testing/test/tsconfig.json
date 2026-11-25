@@ -10,6 +10,11 @@
     "outDir": "../node_modules/.cache/test-types",
     "tsBuildInfoFile": "../node_modules/.cache/test-types/.tsbuildinfo"
   },
-  "include": [".", "../scripts/gate.ts", "../scripts/bench-gate.ts"],
-  "references": [{ "path": ".." }]
+  "include": [
+    ".",
+    "../scripts/gate.ts",
+    "../scripts/bench-gate.ts",
+    "../scripts/publish-tarballs.ts"
+  ],
+  "references": [{ "path": ".." }, { "path": "../../native/test" }]
 }
