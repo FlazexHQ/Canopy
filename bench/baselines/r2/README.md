@@ -386,3 +386,76 @@ applications. `single` reuses the same input document and update, `chained` feed
 the next update within its batch, and `fresh` uses new documents and update specs prepared before the
 clock starts. JSON output includes each round and the minimum and maximum across rounds for both
 implementations and their paired Wasm to TypeScript ratios. Use a quiet machine for gate measurements.
+
+## Measurements (2026-11-26)
+
+Measurements on Windows 11 with an AMD processor under an idle machine state (reported processor load was 5% to 10%). Canopy.js was built from commit `0307378` on `refactor/rust-core`, where a live query reports ready status only after optimistic changes apply and the Rust core finishes initialization.
+
+### Commands
+
+```sh
+# Canopy.js build
+cd D:\Coding\Canopy.js
+bun run build
+
+# Engine microbenchmarks (5 rounds per host)
+bun bench/baselines/r2/engine-bench.mjs --rounds 5
+fnm exec --using=26 -- node bench/baselines/r2/engine-bench.mjs --rounds 5
+fnm exec --using=26 -- node bench/baselines/r2/engine-bench.mjs --chromium --rounds 5
+
+# Root entry builds and startup measurements (2 interleaved rounds of 50 runs, strict CSP too)
+# With Canopy server running on port 3000 against MONGODB_URI=mongodb://localhost:37017/?replicaSet=rs0
+bun bench/baselines/r2/root-entry.ts --src <baseline>/src --out target/app-ts
+bun bench/baselines/r2/root-entry.ts --src ../Canopy.js/src --out target/app-rust
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-ts --runs 50
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-rust --runs 50
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-ts --runs 50 --csp strict
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-rust --runs 50 --csp strict
+```
+
+### Root entry and bundle size
+
+| Build of the R0 app | Eager JavaScript (Brotli) | Lazy assets and Wasm modules                            | Total Brotli |
+| ------------------- | ------------------------: | ------------------------------------------------------- | -----------: |
+| TypeScript baseline |                    23,582 | update engine chunk 4,430                               |       28,012 |
+| Rust core build     |                    21,408 | client Wasm 81,126, transforms Wasm 134,634, glue 4,910 |      545,119 |
+
+The standalone client Wasm module is 81,126 Brotli bytes, meeting the 81,920 byte gate (80 KB). Eager JavaScript is 21,408 Brotli bytes, which is 2,174 bytes smaller than the TypeScript baseline entry.
+
+### Startup first live query
+
+`startup.mjs` measures `window.__firstResultDuration` when `state.status === "ready"`. After Canopy.js commit 0307378, the query reports ready only once the core has loaded. Module evaluation and first live query results over 50 runs per sample:
+
+| Build and configuration | Evaluation median / p95 (ms) | First live query median / p95 (ms) | Wasm requests per run |
+| ----------------------- | ---------------------------: | ---------------------------------: | --------------------: |
+| TypeScript round 1      |                28.80 / 31.60 |                     97.30 / 118.40 |                     0 |
+| Rust core round 1       |                 6.50 / 27.50 |                    144.45 / 158.60 |                     2 |
+| TypeScript round 2      |                28.25 / 30.50 |                      94.80 / 99.00 |                     0 |
+| Rust core round 2       |                 6.45 / 26.90 |                    148.40 / 164.00 |                     2 |
+| TypeScript strict CSP   |                28.00 / 30.60 |                     94.15 / 106.30 |                     0 |
+| Rust core strict CSP    |                 6.30 / 27.00 |                    195.95 / 207.10 |                     2 |
+
+Module compilation and instantiation is 6.45 ms to 6.50 ms median, passing the 30 ms threshold. Because ready status now waits for the client core and transforms modules to finish loading and initialize, the first live query median is 144.45 ms and 148.40 ms (compared with 97.30 ms and 94.80 ms on the TypeScript baseline).
+
+### Engine matching throughput (nanoseconds per document)
+
+Values are median [spread min .. max] across 5 interleaved rounds.
+
+| Scenario                |            Bun TypeScript |                  Bun Wasm (ratio) |        Node 26 TypeScript |              Node 26 Wasm (ratio) |    Chromium 4x TypeScript |          Chromium 4x Wasm (ratio) |
+| ----------------------- | ------------------------: | --------------------------------: | ------------------------: | --------------------------------: | ------------------------: | --------------------------------: |
+| equality (DLS owner)    |    41.45 [30.08 .. 45.03] |    28.61 [28.08 .. 37.26] (0.69x) |    49.42 [27.04 .. 49.62] |    47.51 [45.94 .. 51.09] (1.00x) |  100.00 [90.00 .. 120.00] | 200.00 [190.00 .. 200.00] (1.90x) |
+| range and `$in`         | 240.62 [204.98 .. 263.44] | 122.60 [121.11 .. 124.77] (0.51x) | 248.17 [238.14 .. 252.59] | 138.39 [135.82 .. 140.01] (0.56x) | 800.00 [750.00 .. 840.00] | 590.00 [570.00 .. 630.00] (0.74x) |
+| `$or` of three branches | 227.73 [217.36 .. 245.24] | 134.17 [132.80 .. 134.71] (0.59x) | 201.84 [200.73 .. 204.38] | 151.64 [150.48 .. 155.55] (0.75x) | 770.00 [710.00 .. 820.00] | 680.00 [650.00 .. 690.00] (0.88x) |
+| dotted path             |   94.97 [84.36 .. 118.59] |    77.04 [76.17 .. 77.81] (0.82x) | 111.00 [107.44 .. 112.75] |    96.02 [94.76 .. 99.75] (0.88x) | 400.00 [400.00 .. 410.00] | 400.00 [400.00 .. 420.00] (1.00x) |
+| `$elemMatch`            | 148.91 [142.01 .. 178.35] | 136.68 [134.91 .. 137.62] (0.92x) | 169.17 [164.90 .. 171.85] | 156.39 [155.88 .. 160.93] (0.94x) | 590.00 [580.00 .. 610.00] | 660.00 [650.00 .. 670.00] (1.12x) |
+| DLS and user filter     |    44.46 [38.20 .. 54.78] |    47.61 [46.11 .. 48.97] (1.05x) |    57.18 [55.05 .. 59.02] |    63.77 [63.48 .. 67.85] (1.14x) | 210.00 [200.00 .. 220.00] | 270.00 [260.00 .. 280.00] (1.30x) |
+
+### Optimistic update latency (microseconds per operation)
+
+Values are median [spread min .. max] across 5 interleaved rounds.
+
+| Mode    |      Bun TypeScript |                Bun Wasm (ratio) |  Node 26 TypeScript |        Node 26 Wasm (ratio) | Chromium 4x TypeScript |       Chromium 4x Wasm (ratio) |
+| ------- | ------------------: | ------------------------------: | ------------------: | --------------------------: | ---------------------: | -----------------------------: |
+| single  | 1.06 [1.05 .. 1.83] |     4.62 [3.53 .. 7.31] (3.99x) | 1.34 [1.33 .. 2.59] | 4.33 [4.30 .. 4.92] (3.20x) |    7.75 [7.00 .. 8.00] | 22.75 [21.25 .. 23.50] (3.03x) |
+| chained | 1.07 [1.05 .. 1.36] |     5.39 [3.74 .. 7.13] (4.99x) | 1.41 [1.33 .. 2.00] | 4.36 [4.13 .. 4.57] (2.93x) |    5.50 [5.00 .. 6.00] | 19.75 [19.00 .. 20.75] (3.59x) |
+| fresh   | 1.08 [1.06 .. 1.15] | 16.13 [14.81 .. 16.71] (14.56x) | 1.36 [1.34 .. 1.76] | 8.56 [8.42 .. 9.42] (6.30x) |    5.75 [5.25 .. 6.00] | 41.50 [39.50 .. 42.50] (7.09x) |
