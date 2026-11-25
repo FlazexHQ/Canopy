@@ -20,6 +20,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use canopy_control::{ApiKeyStore, KeyKind};
 use canopy_mongo::mongodb::Client;
 use canopy_protocol::json::{Json, write_json};
 use common::{
@@ -75,23 +76,12 @@ async fn wire_driver_authenticates_with_a_control_plane_key() {
     let Some(uri) = mongodb_uri() else { return };
     let database = format!("gateway_wire_stored_{}", std::process::id());
     let meta = format!("{database}_meta");
-    let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../packages/server/test/fixtures/issue-wire-key.ts");
-    let output = Command::new("bun")
-        .args(["--conditions=@canopy/source"])
-        .arg(script)
-        .arg(&meta)
-        .env("CANOPY_TEST_MONGODB_URI", &uri)
-        .output()
-        .expect("run the server key store fixture");
-    assert!(output.status.success(), "key issuance failed: {}", String::from_utf8_lossy(&output.stderr));
-    let issued = canopy_protocol::json::parse_json(std::str::from_utf8(&output.stdout).expect("UTF-8"))
-        .expect("key store response");
-    let id = text(&issued, "id");
-    let key = text(&issued, "key");
-
     let backing = Client::with_uri_str(&uri).await.expect("backing client");
     let stored = backing.database(&meta).collection::<Document>("api_keys");
+    let keys = ApiKeyStore::new(stored.clone(), Arc::new(|| DateTime::now().timestamp_millis()));
+    let issued = keys.create(KeyKind::Secret, "wire test", "test").await.expect("issue the wire key");
+    let id = issued.get_document("info").expect("key info").get_str("id").expect("key id");
+    let key = issued.get_str("key").expect("secret key");
     backing
         .database(&database)
         .collection("notes")
