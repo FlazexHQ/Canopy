@@ -1,8 +1,10 @@
 //! Auth email rendering and delivery.
 
+mod store;
 mod templates;
 mod transport;
 
+pub use store::{TemplateEdit, TemplateStore, template_document};
 pub use templates::{EmailKind, Template, TemplateData, render_default, render_stored};
 pub use transport::{SmtpSettings, TransportSettings};
 
@@ -38,6 +40,7 @@ impl Default for MailSettings {
 #[derive(Default, Deserialize)]
 pub struct TemplateSettings {
     /// The current version, zero before the first edit.
+    #[serde(deserialize_with = "store::deserialize_version")]
     pub version: u64,
     /// Overrides keyed by email kind.
     pub templates: HashMap<EmailKind, Template>,
@@ -158,6 +161,17 @@ impl Mailer {
             .as_ref()
             .ok_or_else(|| CanopyError::new(ErrorCode::Unavailable, "No email transport is configured"))?;
         transport.send(from, to, rendered, OffsetDateTime::now_utc()).await
+    }
+
+    /// Sends a preview using the current override or a validated draft and the configured transport.
+    pub async fn send_test(
+        &self,
+        kind: EmailKind,
+        to: &str,
+        draft: Option<&Template>,
+    ) -> Result<(), CanopyError> {
+        let preview = TemplateStore::new(&self.meta).preview(kind, &self.app_name, draft).await?;
+        self.deliver(to, preview).await
     }
 
     /// Sends an auth email, logging delivery failures and rate limited drops for uniform auth responses.

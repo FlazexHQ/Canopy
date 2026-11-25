@@ -7,7 +7,9 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use canopy_config::GatewayConfig;
-use canopy_control::{Control, ControlOptions, Environment, MetaStatus, PolicyRoutes, WebhookAdmin};
+use canopy_control::{
+    Control, ControlOptions, Environment, MetaStatus, PolicyRoutes, TemplateRoutes, WebhookAdmin,
+};
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::mongodb::{self, Client};
 use canopy_protocol::CanopyError;
@@ -260,8 +262,26 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
     control_options.admin_listen = env("CANOPY_ADMIN_LISTEN");
     control_options.search_collections = config.search_collections.clone();
     control_options.webhooks = webhook_admin;
-    control_options.services.policies =
-        Some(Arc::new(PolicyRoutes::new(&meta, canopy_control::system_clock())));
+    if config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
+        || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on")
+    {
+        let raw_config = text.as_deref().map(parse_json).transpose().map_err(|error| message(&error))?;
+        let app_name = match raw_config
+            .as_ref()
+            .and_then(|config| config.get("auth"))
+            .and_then(|auth| auth.get("appName"))
+        {
+            Some(Json::String(name)) => name.clone(),
+            _ => "Canopy".to_owned(),
+        };
+        control_options.services.templates =
+            Some(Arc::new(TemplateRoutes::new(&meta, app_name, Arc::clone(&control_options.now))));
+    }
+    control_options.services.policies = Some(Arc::new(PolicyRoutes::new(
+        &meta,
+        &client.database(&config.database),
+        canopy_control::system_clock(),
+    )));
     control_options.status = Arc::new(MetaStatus::new(&meta));
     if control_options.environment == Environment::Production && control_options.master_key.is_none() {
         return Err("CANOPY_MASTER_KEY is required in production".to_owned());

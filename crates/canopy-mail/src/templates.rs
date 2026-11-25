@@ -48,9 +48,9 @@ pub struct Template {
 }
 
 const IGNORE: &str = "If you did not ask for this, you can ignore this email.";
-const SPACE: &str =
+pub(crate) const SPACE: &str =
     r"[\x09-\x0d\x20\u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]";
-static MARKER: LazyLock<Result<Regex, regex::Error>> =
+pub(crate) static MARKER: LazyLock<Result<Regex, regex::Error>> =
     LazyLock::new(|| Regex::new(&format!(r"\{{\{{{SPACE}*([A-Za-z]+){SPACE}*\}}\}}")));
 
 fn escape_html(value: &str) -> String {

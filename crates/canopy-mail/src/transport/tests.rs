@@ -204,6 +204,49 @@ fn smtp_rejects_header_injection() {
     assert_eq!(mime(FROM, TO, message).err().map(|error| error.code()), Some(ErrorCode::ValidationFailed));
 }
 
+#[tokio::test]
+async fn test_send_renders_draft_and_delivers_via_smtp() -> Result<(), Box<dyn std::error::Error>> {
+    use canopy_mongo::mongodb::{Client, bson::oid::ObjectId};
+
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let client = Client::with_uri_str(uri).await?;
+    let meta = client.database(&format!("canopy_test_send_{}", ObjectId::new().to_hex()));
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    let mailer = crate::Mailer::open(
+        meta,
+        "Example".into(),
+        Some(crate::MailSettings {
+            from: FROM.into(),
+            transport: TransportSettings::Smtp(SmtpSettings {
+                host: "127.0.0.1".into(),
+                port: Some(port),
+                secure: false,
+                require_tls: false,
+                user: None,
+                pass: None,
+            }),
+        }),
+    )
+    .await?;
+    let mut draft = Template { subject: "{{appName}} preview".into(), text: "No code".into(), html: None };
+    let error = mailer
+        .send_test(crate::EmailKind::Otp, TO, Some(&draft))
+        .await
+        .err()
+        .ok_or("Expected the draft without an OTP marker to fail")?;
+    assert_eq!(error.code(), ErrorCode::ValidationFailed);
+    draft.text = "Code: {{otp}}".into();
+    let server = tokio::spawn(receive_smtp(listener));
+    mailer.send_test(crate::EmailKind::Otp, TO, Some(&draft)).await?;
+    let message = tokio::time::timeout(TIMEOUT, server).await???;
+    assert!(message.contains("Subject: Example preview"));
+    assert!(message.contains("Q29kZTogNDgyOTEz"));
+    Ok(())
+}
+
 #[test]
 fn resolved_smtp_config_defaults_to_tls() -> Result<(), Box<dyn std::error::Error>> {
     let settings: crate::MailSettings = serde_json::from_str(

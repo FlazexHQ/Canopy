@@ -11,7 +11,9 @@ repository.workspace = true
 argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
 base64 = "0.22"
 canopy-config = { path = "../canopy-config" }
+canopy-data = { path = "../canopy-data" }
 canopy-http = { path = "../canopy-http" }
+canopy-mail = { path = "../canopy-mail" }
 canopy-migrations = { path = "../canopy-migrations" }
 canopy-mongo = { path = "../canopy-mongo" }
 canopy-policy = { path = "../canopy-policy" }

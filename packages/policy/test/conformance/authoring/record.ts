@@ -7,6 +7,7 @@ import * as policy from "canopy.js/policy"
 import * as testing from "canopy.js/policy/testing"
 import * as protocol from "canopy.js/protocol"
 import ts from "typescript"
+import { evaluateInMemory } from "../../../src/testing.ts"
 import { sources } from "./sources.ts"
 
 const authoring = new URL("../../../../../conformance/authoring/", import.meta.url)
@@ -248,4 +249,79 @@ export function recordAuthoringPublishing(): string {
     return { name, bundleHash: set.version, stored }
   })
   return `${JSON.stringify(publishing, null, 2)}\n`
+}
+
+/** Captures authoring diagnostics, access reports and in process decisions from TypeScript. */
+export function recordAuthoringDiagnostics(): string {
+  const fixtures = sources()
+  const now = new Date("2026-01-01T00:00:00Z")
+  const engines = new Map<string, serverPolicy.PolicyEngine>()
+  const sets = fixtures.sets.map(({ name, source }) => {
+    const input = evaluate<PolicyInput>(source, serverPolicy)
+    const engine = new serverPolicy.PolicyEngine(
+      serverPolicy.createPolicySet(input.collections, input.contexts),
+    )
+    engines.set(name, engine)
+    const reports = input.collections.flatMap(({ collection }) =>
+      serverPolicy.OPERATIONS.map((op) => {
+        const context = serverPolicy.explainContext({ claims: { sub: "alice" }, now })
+        const report = serverPolicy.explainAccess(engine, { collection, op, context })
+        return ejson({
+          ...report,
+          effectiveFilter: serverPolicy.toFilter(report.effective),
+          text: serverPolicy.formatAccessReport(report),
+        })
+      }),
+    )
+    return { name, findings: serverPolicy.lintPolicies(input.collections, input.contexts), reports }
+  })
+  const definitions: serverPolicy.CollectionPolicies[] = [
+    {
+      collection: "notes",
+      exposed: true,
+      realtime: false,
+      policies: [
+        { name: "open", kind: "permissive", ops: ["insert", "delete"], roles: ["public"] },
+        {
+          name: "edit",
+          kind: "permissive",
+          ops: ["update"],
+          roles: ["editor"],
+          using: {
+            owner: { $auth: "user_metadata.owner" },
+            title: { $regex: "(a)\\1" },
+            $and: [{ wrong: 1 }, { wrong: 2 }],
+          },
+        },
+      ],
+      fields: { read: { editor: { omit: ["typo"] } } },
+      immutable: ["locked"],
+    },
+  ]
+  const contexts = { groups: { from: "groups", where: {}, select: "_id", max: 0, ttl: "30s" } }
+  const env = {
+    knownRoles: [],
+    indexes: { notes: [["_id"]] },
+    fields: { notes: ["owner", "title"] },
+  }
+  const lint = {
+    definitions,
+    contexts,
+    env,
+    findings: serverPolicy.lintPolicies(definitions, contexts, env),
+  }
+  const simulations = fixtures.suites.map(({ name, source, policy: setName }) => {
+    const engine = engines.get(setName)
+    if (engine === undefined) throw new Error(`Missing policy set ${setName}`)
+    const suite = evaluate<testing.PolicySuite>(source)
+    return {
+      name,
+      policy: setName,
+      cases: suite.cases.map((testCase) => ({
+        input: encodeTest(testCase),
+        outcome: ejson(evaluateInMemory(engine, testCase, now)),
+      })),
+    }
+  })
+  return `${JSON.stringify({ sets, lint, simulations }, null, 2)}\n`
 }

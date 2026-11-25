@@ -2,10 +2,18 @@
 //! in force, publishing and rolling back collection policies and context lookups with optimistic versions,
 //! the expose and realtime toggles of a collection, and the version history.
 
+use std::time::Duration;
+
+use canopy_data::{Caller, ContextResolver, CountMode, FindRequest, Policies, ReadPath};
 use canopy_mongo::mongodb::Database;
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::publish::{PolicyPublisher, Publication};
-use canopy_policy::{CONTEXT_DOCUMENT_ID, CollectionPolicies, contexts_from_stored, from_stored};
+use canopy_policy::{
+    CONTEXT_DOCUMENT_ID, Clause, CollectionPolicies, ExplainRequest, LintEnvironment, LintFinding, Operation,
+    PolicyEngine, PolicySet, RequestContext, Role, Roles, access_report_document, contexts_from_stored,
+    create_policy_set, explain_access, explanation_document, field_access_document, from_stored,
+    hash_collection, lint_policies,
+};
 use canopy_protocol::ejson::js_string_to_number;
 use canopy_protocol::{CanopyError, ErrorCode, Value};
 use futures_util::TryStreamExt as _;
@@ -14,7 +22,7 @@ use crate::core::{err, mongo, text, to_value};
 use crate::schema::{Schema, optional, string};
 use crate::services::{BoxFuture, Call, Delegate, Reply};
 
-const OPERATIONS: [&str; 5] = ["read", "insert", "update", "replace", "delete"];
+const OPERATIONS: [&str; 4] = ["read", "insert", "update", "delete"];
 
 /// Checks a collection name from a path. Names starting with `system.` are reserved.
 pub(crate) fn collection_name(value: &str) -> Result<&str, CanopyError> {
@@ -135,6 +143,42 @@ fn published(stored: Document) -> Result<Reply, CanopyError> {
     json(doc! { "stored": stored, "findings": [] })
 }
 
+fn operation(call: &Call) -> Operation {
+    body_field(call, "op").and_then(Value::as_str).and_then(Operation::parse).unwrap_or(Operation::Read)
+}
+
+fn check_error(collection: &str, error: &CanopyError) -> CanopyError {
+    err(ErrorCode::ValidationFailed, error.message())
+        .with_details(crate::core::details(&doc! { "collection": collection }))
+}
+
+fn findings_value(findings: &[LintFinding]) -> Value {
+    Value::Array(findings.iter().map(LintFinding::to_value).collect())
+}
+
+fn validation_reply(hash: String, findings: Vec<LintFinding>) -> Reply {
+    let mut out = canopy_protocol::Document::new();
+    out.insert("valid", Value::Bool(findings.iter().all(|finding| finding.severity != "error")));
+    out.insert("hash", Value::String(hash));
+    out.insert("findings", findings_value(&findings));
+    Reply::json(200, Value::Document(out))
+}
+
+fn and_filter(
+    filter: canopy_protocol::Document,
+    target: canopy_protocol::Document,
+) -> canopy_protocol::Document {
+    let mut out = canopy_protocol::Document::new();
+    out.insert("$and", Value::Array(vec![Value::Document(filter), Value::Document(target)]));
+    out
+}
+
+fn count_value(count: u64) -> Value {
+    #[allow(clippy::cast_precision_loss)]
+    let number = count as f64;
+    Value::Double(number)
+}
+
 fn js_limit(text: Option<&str>, fallback: f64) -> i64 {
     let number = text
         .map_or(Some(fallback), js_string_to_number)
@@ -149,18 +193,205 @@ fn js_limit(text: Option<&str>, fallback: f64) -> i64 {
 pub struct PolicyRoutes {
     meta: Database,
     publisher: PolicyPublisher,
+    app: Database,
+    contexts: ContextResolver,
+    now: crate::Clock,
 }
 
 impl PolicyRoutes {
-    /// The policy routes of a meta database, stamping publications with `now`.
-    pub fn new(meta: &Database, now: crate::Clock) -> PolicyRoutes {
-        PolicyRoutes { meta: meta.clone(), publisher: PolicyPublisher::new(meta).with_clock(now) }
+    /// Serves policy administration over the meta and app databases, stamping publications with `now`.
+    pub fn new(meta: &Database, app: &Database, now: crate::Clock) -> PolicyRoutes {
+        PolicyRoutes {
+            meta: meta.clone(),
+            publisher: PolicyPublisher::new(meta).with_clock(now.clone()),
+            app: app.clone(),
+            contexts: ContextResolver::new(app.clone()),
+            now,
+        }
     }
 
     async fn stored(&self) -> Result<Vec<Document>, CanopyError> {
         let cursor =
             self.meta.collection::<Document>("policies").find(Document::new()).await.map_err(mongo)?;
         cursor.try_collect().await.map_err(mongo)
+    }
+
+    async fn candidate(&self, definition: &CollectionPolicies) -> Result<PolicySet, CanopyError> {
+        let set = canopy_mongo::load_policies(&self.meta).await?;
+        let mut definitions = set.collections().to_vec();
+        if let Some(active) = definitions.iter_mut().find(|active| active.collection == definition.collection)
+        {
+            *active = definition.clone();
+        } else {
+            definitions.push(definition.clone());
+        }
+        create_policy_set(definitions, set.contexts().clone())
+            .map_err(|error| check_error(&definition.collection, &error))
+    }
+
+    async fn findings(&self, definition: &CollectionPolicies, set: &PolicySet) -> Vec<LintFinding> {
+        let indexes = async {
+            let cursor = self.app.collection::<Document>(&definition.collection).list_indexes().await?;
+            cursor.try_collect::<Vec<_>>().await
+        }
+        .await;
+        let indexes = indexes
+            .map(|indexes| {
+                vec![(
+                    definition.collection.clone(),
+                    indexes.into_iter().map(|index| index.keys.keys().cloned().collect()).collect(),
+                )]
+            })
+            .unwrap_or_default();
+        lint_policies(
+            std::slice::from_ref(definition),
+            set.contexts(),
+            &LintEnvironment { indexes: &indexes, ..LintEnvironment::default() },
+        )
+    }
+
+    async fn impersonate(
+        &self,
+        call: &Call,
+        collection: &str,
+        engine: &PolicyEngine,
+    ) -> Result<RequestContext, CanopyError> {
+        let input = body_field(call, "as");
+        Schema::Object(vec![
+            ("role", optional(string(1, 200))),
+            ("roles", optional(Schema::Array(Box::new(string(1, 200)), 32))),
+            ("user", optional(string(1, 500))),
+            ("claims", optional(Schema::Document)),
+        ])
+        .check(input, "as")?;
+        let Some(input) = input.and_then(Value::as_document) else {
+            return Err(err(ErrorCode::ValidationFailed, "as must be an object"));
+        };
+        let mut roles: Roles = input
+            .get("role")
+            .and_then(Value::as_str)
+            .into_iter()
+            .chain(
+                input
+                    .get("roles")
+                    .and_then(Value::as_array)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(Value::as_str),
+            )
+            .collect();
+        let mut claims = input.get("claims").and_then(Value::as_document).cloned();
+        if let Some(user) = input.get("user") {
+            claims.get_or_insert_with(canopy_protocol::Document::new).insert("sub", user.clone());
+        }
+        if claims.is_some() {
+            roles.insert(Role::AUTHENTICATED);
+        }
+        let invalid = |message| err(ErrorCode::ValidationFailed, message);
+        if roles.is_empty() {
+            return Err(invalid("as needs a role, a user or claims"));
+        }
+        if roles.contains(Role::SERVICE) {
+            return Err(invalid("Impersonating service is not allowed; act as service directly"));
+        }
+        if roles.contains(Role::ANON) && roles.len() > 1 {
+            return Err(invalid("anon cannot be combined with other roles"));
+        }
+        let mut context = RequestContext { roles, claims, ctx: None, now: (self.now)() };
+        let names = engine.context_names(Some(&[collection]), &context.roles);
+        if !names.is_empty() {
+            context.ctx = Some(self.contexts.resolve(engine.set().contexts(), &names, &context).await);
+        }
+        Ok(context)
+    }
+
+    async fn simulate(&self, call: &Call) -> Result<Reply, CanopyError> {
+        let collection = collection_name(call.param("collection"))?;
+        Schema::Object(vec![
+            ("definition", optional(Schema::Unknown)),
+            ("as", Schema::Unknown),
+            ("op", Schema::OneOf(&OPERATIONS)),
+            ("filter", optional(Schema::Unknown)),
+            ("limit", optional(crate::schema::integer(1, 100))),
+        ])
+        .check(call.body.as_ref(), "")?;
+        let set = match body_field(call, "definition") {
+            Some(input) => self.candidate(&definition_from_input(collection, Some(input))?).await?,
+            None => canopy_mongo::load_policies(&self.meta).await?,
+        };
+        let engine = PolicyEngine::new(set);
+        let context = self.impersonate(call, collection, &engine).await?;
+        let filter = match body_field(call, "filter") {
+            None => canopy_protocol::Document::new(),
+            Some(Value::Document(filter)) => filter.clone(),
+            _ => return Err(err(ErrorCode::ValidationFailed, "filter must be a document")),
+        };
+        let op = operation(call);
+        let explanation = engine.explain(collection, op, &context, Clause::Using)?;
+        let granted = engine.has_grant(collection, op, &context);
+        let mut out = canopy_protocol::Document::new();
+        out.insert("allowed", Value::Bool(granted));
+        out.insert("op", Value::String(op.as_str().to_owned()));
+        out.insert("roles", Value::Array(explanation.roles.iter().cloned().map(Value::String).collect()));
+        out.insert(
+            "effectiveFilter",
+            Value::Document(and_filter(filter.clone(), explanation.result.to_filter())),
+        );
+        out.insert("explain", explanation_document(&explanation));
+        let writes = matches!(op, Operation::Insert | Operation::Update);
+        if writes {
+            out.insert(
+                "check",
+                explanation_document(&engine.explain(collection, op, &context, Clause::Check)?),
+            );
+        }
+        let mut fields = canopy_protocol::Document::new();
+        fields.insert("read", field_access_document(&engine.readable(collection, &context)));
+        if writes {
+            fields.insert("write", field_access_document(&engine.writable(collection, op, &context)));
+        }
+        out.insert("fields", Value::Document(fields));
+        if granted && op == Operation::Read {
+            let subject = context
+                .claims
+                .as_ref()
+                .and_then(|claims| claims.get("sub"))
+                .and_then(Value::as_str)
+                .map_or_else(|| context.roles.iter().collect::<Vec<_>>().join(","), str::to_owned);
+            let limit =
+                u32::try_from(body_integer(call, "limit")).ok().filter(|limit| *limit > 0).unwrap_or(20);
+            let reads = ReadPath::new(
+                self.app.client().clone(),
+                self.app.name(),
+                Policies::new(engine),
+                Default::default(),
+            );
+            let page = reads
+                .find(
+                    &Caller { context, subject },
+                    FindRequest {
+                        collection: collection.to_owned(),
+                        filter,
+                        limit: Some(limit),
+                        count: Some(CountMode::Exact),
+                        ..FindRequest::default()
+                    },
+                )
+                .await?;
+            out.insert("count", count_value(page.total.unwrap_or_default()));
+            out.insert("sample", Value::Array(page.documents()?.into_iter().map(Value::Document).collect()));
+        } else if granted && matches!(op, Operation::Update | Operation::Delete) {
+            let target = engine.target(collection, op, &context)?.to_filter();
+            let count = self
+                .app
+                .collection::<Document>(collection)
+                .count_documents(canopy_mongo::to_bson(&and_filter(filter, target))?)
+                .max_time(Duration::from_secs(5))
+                .await
+                .map_err(mongo)?;
+            out.insert("count", count_value(count));
+        }
+        Ok(Reply::json(200, Value::Document(out)))
     }
 
     fn publication(call: &Call) -> Result<Publication, CanopyError> {
@@ -230,10 +461,47 @@ impl PolicyRoutes {
                     .iter()
                     .find(|(name, _)| name == collection)
                     .map_or(Bson::Null, |(_, hash)| Bson::String(hash.clone()));
-                json(doc! {
+                let findings = match set.collection(collection) {
+                    Some(definition) => self.findings(definition, &set).await,
+                    None => Vec::new(),
+                };
+                let Value::Document(mut result) = to_value(&doc! {
                     "collection": collection, "stored": stored.map_or(Bson::Null, Bson::Document), "version": version,
-                    "active": active, "findings": [], "writable": true,
-                })
+                    "active": active,
+                })?
+                else {
+                    return Err(err(ErrorCode::Internal, "Expected a policy response document"));
+                };
+                result.insert("findings", findings_value(&findings));
+                result.insert("writable", Value::Bool(true));
+                Ok(Reply::json(200, Value::Document(result)))
+            }
+            "POST policies/:collection/validate" => {
+                let collection = collection_name(call.param("collection"))?;
+                validate(vec![("definition", Schema::Unknown)])?;
+                let definition = definition_from_input(collection, body_field(call, "definition"))?;
+                let set = self.candidate(&definition).await?;
+                let findings = self.findings(&definition, &set).await;
+                Ok(validation_reply(hash_collection(&definition)?, findings))
+            }
+            "POST policies/:collection/simulate" => self.simulate(call).await,
+            "POST policies/:collection/explain" => {
+                let collection = collection_name(call.param("collection"))?;
+                validate(vec![
+                    ("as", Schema::Unknown),
+                    ("op", optional(Schema::OneOf(&OPERATIONS))),
+                    ("filter", optional(Schema::Document)),
+                ])?;
+                let engine = PolicyEngine::new(canopy_mongo::load_policies(&self.meta).await?);
+                let context = self.impersonate(call, collection, &engine).await?;
+                let request = ExplainRequest {
+                    collection: collection.to_owned(),
+                    op: operation(call),
+                    context,
+                    filter: body_field(call, "filter").and_then(Value::as_document).cloned(),
+                };
+                let report = explain_access(&engine, &request)?;
+                Ok(Reply::json(200, Value::Document(access_report_document(&report)?)))
             }
             "POST policies/:collection/publish" => {
                 let collection = collection_name(call.param("collection"))?;
@@ -308,6 +576,19 @@ impl PolicyRoutes {
                     doc! { "stored": stored.map_or(Bson::Null, Bson::Document), "version": version, "writable": true },
                 )
             }
+            "POST contexts/validate" => {
+                validate(vec![("lookups", Schema::Document)])?;
+                let input = body_field(call, "lookups")
+                    .ok_or_else(|| crate::schema::failure("lookups", "is required"))?;
+                let lookups = contexts_from_stored(Some(input))
+                    .map_err(|error| check_error(CONTEXT_DOCUMENT_ID, &error))?;
+                let set = canopy_mongo::load_policies(&self.meta).await?;
+                create_policy_set(set.collections().to_vec(), lookups.clone())
+                    .map_err(|error| check_error(CONTEXT_DOCUMENT_ID, &error))?;
+                let findings = lint_policies(&[], &lookups, &LintEnvironment::default());
+                let raw_hash = crate::http::sha256_hex(&canopy_protocol::ejson::canonical_string(input)?);
+                Ok(validation_reply(format!("sha256:{raw_hash}"), findings))
+            }
             "POST contexts/publish" => {
                 validate(vec![
                     ("lookups", Schema::Document),
@@ -337,7 +618,7 @@ impl PolicyRoutes {
                     self.publisher.rollback_contexts(body_integer(call, "version"), &publication).await?,
                 )
             }
-            _ => Err(err(ErrorCode::NotFound, "Validation, simulation and explain are not served here yet")),
+            _ => Err(err(ErrorCode::NotFound, "Unknown policy route")),
         }
     }
 }

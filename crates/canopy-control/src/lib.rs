@@ -24,6 +24,7 @@ mod schema;
 mod secrets;
 mod services;
 mod settings;
+mod templates;
 mod tokens;
 pub mod totp;
 
@@ -40,6 +41,7 @@ pub use crate::rbac::{ADMIN_ROLES, AdminRole, Permission, ROLE_NAMES, can};
 pub use crate::services::{
     BoxFuture, Call, Delegate, MetaStatus, NoStatus, PolicyStatus, RealtimeStatus, Reply, Status,
 };
+pub use crate::templates::TemplateRoutes;
 
 use crate::accounts::AdminAccounts;
 use crate::api_keys::ApiKeyStore;

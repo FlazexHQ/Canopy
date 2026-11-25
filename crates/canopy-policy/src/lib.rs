@@ -13,8 +13,10 @@ mod engine;
 mod explain;
 mod fields;
 mod implication;
+mod lint;
 mod model;
 mod search;
+mod simulation;
 mod stored;
 mod validate;
 mod values;
@@ -29,19 +31,21 @@ pub use engine::{
 };
 pub use explain::{
     AccessReport, ExplainRequest, OnceVariableIssue, access_report_document, describe_issue, explain_access,
-    explain_context, format_access_report,
+    explain_context, explanation_document, field_access_document, format_access_report,
 };
 pub use fields::{
     FieldAccess, TEXT_SEARCH_DENIED, can_access, denied_paths, denies_text_search, document_paths,
     field_access, immutable_violations, intersect_projection, project_readable, to_projection,
 };
 pub use implication::{check_implied, equality_fields};
+pub use lint::{LintEnvironment, LintFinding, lint_policies};
 pub use model::{
     CollectionFields, CollectionPolicies, ContextDefinitions, ContextLookup, FieldKind, FieldRule,
     FieldRules, Operation, PolicyDefinition, PolicyKind, RequestContext, Role, Roles, STORAGE_COLLECTION,
     context_lookup,
 };
 pub use search::{SEARCH_STAGES, SearchScope, secure_search_stage};
+pub use simulation::{SimulationCase, SimulationOutcome, evaluate_in_memory};
 pub use stored::{
     CONTEXT_DOCUMENT_ID, StoredCollectionPolicies, StoredMeta, StoredPolicy, contexts_from_stored,
     contexts_value, from_stored, hash_collection, hash_contexts, hash_policy_set, read_stored, to_stored,

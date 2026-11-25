@@ -9,11 +9,9 @@
 //! placeholder to the first value found at its place and requires every later use to repeat it (and no two
 //! placeholders to share a value), which is the same relation without depending on numbering order.
 //!
-//! The policy routes are served by [`PolicyRoutes`]. Steps of route groups this crate serves through delegates
-//! that the test does not provide (data, policy validation, simulation and explain, templates, the realtime
-//! inspector, signing keys) are compared too. They match when the router
-//! answers them (RBAC refusals, the token rules), and otherwise are reported as pending, as are the doctor
-//! and the audit list whose content depends on them. Every other step must match.
+//! Policy and email template routes are served through their delegates. Steps for the data routes, realtime
+//! inspector and signing keys also match when the router answers them directly. Remaining steps in those
+//! groups and the doctor can be pending. Every other step must match.
 
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::print_stderr, clippy::panic)]
 
@@ -23,8 +21,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use canopy_control::totp::{TotpOptions, base32_decode, totp};
 use canopy_control::{
-    BuiltinMethods, Control, ControlOptions, Environment, PolicyRoutes, ROLE_NAMES, WebhookAdmin,
-    builtin_providers,
+    BuiltinMethods, Control, ControlOptions, Environment, PolicyRoutes, ROLE_NAMES, TemplateRoutes,
+    WebhookAdmin, builtin_providers,
 };
 use canopy_http::Request;
 use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, doc, oid::ObjectId};
@@ -56,21 +54,13 @@ fn delegated(method: &str, path: &str) -> Option<&'static str> {
     let route = path.trim_start_matches("/admin/v1/");
     let route = route.split('?').next().unwrap_or_default();
     let first = route.split('/').next().unwrap_or_default();
-    let last = route.rsplit('/').next().unwrap_or_default();
     match first {
         "collections" if method == "PATCH" && route.matches('/').count() == 1 => None,
         "collections" | "openapi" | "graphql" => Some("data"),
-        "policies" | "contexts"
-            if method == "POST" && matches!(last, "validate" | "simulate" | "explain") =>
-        {
-            Some("policy validation, simulation and explain")
-        }
         "realtime" => Some("realtime"),
         "users" => Some("users"),
         "auth" if route.starts_with("auth/keys") => Some("signing keys"),
-        "auth" if route.starts_with("auth/templates") => Some("templates"),
         "doctor" => Some("doctor (reports the policies and realtime)"),
-        "audit" => Some("audit list (shows the template steps)"),
         _ => None,
     }
 }
@@ -432,7 +422,10 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
         oidc: Vec::new(),
     });
     options.webhooks = Some(WebhookAdmin { webhooks: Arc::clone(&webhooks), definitions });
-    options.services.policies = Some(Arc::new(PolicyRoutes::new(&meta, Arc::clone(&clock))));
+    options.services.templates =
+        Some(Arc::new(TemplateRoutes::new(&meta, "Fixture app".into(), Arc::clone(&clock))));
+    options.services.policies =
+        Some(Arc::new(PolicyRoutes::new(&meta, &client.database(&database), Arc::clone(&clock))));
     let control = Control::new(options);
     let setup = control
         .create_setup_token()
