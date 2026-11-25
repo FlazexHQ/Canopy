@@ -20,7 +20,7 @@ export interface ConfigContext {
 export type FullDocumentMode = "auto" | "updateLookup" | "images"
 
 /** Which server answers realtime: the TypeScript engine or the native gateway. */
-export type RealtimeServer = "ts" | "gateway"
+export type RealtimeServer = "ts" | "gateway" | "auto"
 
 /** The realtime transports a server offers. */
 export type Transport = "websocket" | "sse" | "long-poll"
@@ -342,8 +342,10 @@ export interface RealtimeInput {
   /**
    * Which server answers realtime: `ts`, the engine inside the TypeScript process, or `gateway`, the native
    * `canopyd` executable. With `gateway`, `canopy-server` runs the gateway on the public port, where it
-   * serves realtime and passes every other request to the TypeScript server on loopback.
-   * @default "ts"
+   * serves realtime and passes every other request to the TypeScript server on loopback. With `auto`,
+   * `canopy dev` uses canopyd when available and falls back to TypeScript otherwise; other commands treat
+   * `auto` as `ts`.
+   * @default "auto" for `canopy dev`, "ts" elsewhere
    */
   readonly server?: Value<RealtimeServer>
 }

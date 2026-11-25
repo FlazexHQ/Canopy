@@ -7,6 +7,7 @@ export {
   type GatewayAuth,
   type GatewayOverrides,
   gatewayConfig,
+  gatewayFallbackMessage,
   type RunningGateway,
   readPersistedGraphqlOperations,
   runGateway,

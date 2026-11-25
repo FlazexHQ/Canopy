@@ -64,6 +64,16 @@ export function missingGatewayMessage(target: NativeTarget | undefined): string 
   return `No canopyd executable found. Install ${gatewayPackage(target)}, the prebuilt canopyd for ${platform} that @canopy/realtime lists as an optional dependency (reinstall without skipping optional dependencies), or ${build}`
 }
 
+/** The informational notice when development falls back to the TypeScript server. */
+export function gatewayFallbackMessage(): string {
+  const target = hostTarget()
+  const install =
+    target === undefined
+      ? "Set CANOPYD_BIN to a canopyd executable"
+      : `Install ${gatewayPackage(target)} to use canopyd`
+  return `No canopyd executable found. Using the TypeScript server. ${install}.`
+}
+
 /** The policies in the stored form the gateway reads: one document per collection plus the context lookups. */
 export function storedPolicies(set: PolicySet): { stored: unknown[]; contexts: unknown } {
   return {

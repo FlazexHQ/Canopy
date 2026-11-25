@@ -626,6 +626,8 @@ function findGatewayBinary(env?: NodeJS.ProcessEnv, execPath?: string, from?: st
 
 function gatewayConfig(config: ResolvedConfig, policies: { stored: unknown[]; contexts: unknown; } | undefined, env?: NodeJS.ProcessEnv, overrides?: GatewayOverrides): Record<string, unknown>
 
+function gatewayFallbackMessage(): string
+
 function indexableConjunct(filter: Record<string, unknown>): IndexedConjunct | undefined
 
 function isBulk(op: MutMessage["op"]): boolean

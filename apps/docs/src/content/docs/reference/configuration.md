@@ -88,7 +88,12 @@ your identity provider (`CANOPY_JWT_JWKS_URL`, `CANOPY_JWT_ISSUER`, `CANOPY_JWT_
 | `checkpoints`  | `CANOPY_CHECKPOINTS`            | `meta`                              |
 | `drainWindow`  | `CANOPY_DRAIN_WINDOW`           | `30s`                               |
 | `echoTimeout`  | `CANOPY_ECHO_TIMEOUT`           | `2s`                                |
-| `server`       | `CANOPY_REALTIME_SERVER`        | `ts`                                |
+| `server`       | `CANOPY_REALTIME_SERVER`        | `auto` in dev, `ts` elsewhere       |
+
+`canopy dev` defaults to `server: "auto"`. It starts canopyd when an executable is available.
+Otherwise it starts the TypeScript server and prints one line with installation guidance.
+Set `server: "ts"` to always use the TypeScript engine. Outside `canopy dev`, `auto` has the same
+effect as `ts`.
 
 `server: "gateway"` serves realtime from the native `canopyd` executable instead of the engine inside the
 TypeScript process. `canopy-realtime` then runs the gateway with the same configuration. `canopy-server` and
@@ -103,8 +108,9 @@ the gateway's metrics, scraped every second. The launcher checks `CANOPYD_BIN`, 
 running executable, and `PATH`. The platform packages are `@canopy/canopyd-<platform>` (for example
 `@canopy/canopyd-linux-x64-gnu`, `@canopy/canopyd-linux-x64-musl`, `@canopy/canopyd-darwin-arm64` or
 `@canopy/canopyd-win32-x64-msvc`): optional dependencies of `@canopy/realtime`, so installing the CLI or the
-server with Bun, pnpm, Yarn or npm installs the one for your machine, with no Rust toolchain. When none is
-found, the error names the package for your platform; reinstall without skipping optional dependencies, or set
+server with Bun, pnpm, Yarn or npm installs the one for your machine, with no Rust toolchain. With explicit
+`gateway`, startup fails if no binary is found. The error names the package for your platform. Reinstall
+without skipping optional dependencies, or set
 `CANOPYD_BIN`.
 
 `CANOPY_DATA_PLANE_ROUTES` (experimental, off by default) lists the Data API routes the gateway answers itself, in

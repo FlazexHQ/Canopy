@@ -210,11 +210,26 @@ describe("resolveConfig", () => {
     expect(amended.mongodb).toBe(config.mongodb)
   })
 
-  it("reads the realtime server from the file or CANOPY_REALTIME_SERVER, and refuses an unknown one", () => {
-    const fromFile = resolve({ mongodb: { uri: URI }, realtime: { server: "gateway" } }).config
-    expect(fromFile.realtime !== false && fromFile.realtime.server).toBe("gateway")
-    const fromEnv = resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "gateway" }).config
-    expect(fromEnv.realtime !== false && fromEnv.realtime.server).toBe("gateway")
+  it.each(["ts", "gateway", "auto"] as const)(
+    "resolves realtime server %s in dev from the file or environment",
+    (server) => {
+      const fromFile = resolve({ mongodb: { uri: URI }, realtime: { server } }, {}, "dev").config
+      expect(fromFile.realtime !== false && fromFile.realtime.server).toBe(server)
+      const fromEnv = resolve(
+        { mongodb: { uri: URI } },
+        { CANOPY_REALTIME_SERVER: server },
+        "dev",
+      ).config
+      expect(fromEnv.realtime !== false && fromEnv.realtime.server).toBe(server)
+    },
+  )
+
+  it("defaults realtime server to auto only in dev, and refuses an unknown value", () => {
+    const input = { mongodb: { uri: URI } }
+    const dev = resolve(input, {}, "dev").config
+    const start = resolve(input).config
+    expect(dev.realtime !== false && dev.realtime.server).toBe("auto")
+    expect(start.realtime !== false && start.realtime.server).toBe("ts")
     expect(() => resolve({ mongodb: { uri: URI } }, { CANOPY_REALTIME_SERVER: "rust" })).toThrow(
       ConfigError,
     )
