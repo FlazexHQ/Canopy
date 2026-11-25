@@ -15,7 +15,7 @@ use serde_json::json;
 const TOKEN_ID: &str = "fixture-token-id";
 const TOKEN_PREFIX: &str = "canopy_pat_abcdef";
 const ADMIN_TOKEN: &str = "canopy_pat_abcdef0123456789012345678901234567890123456";
-const COVERED: [&str; 14] = [
+const COVERED: [&str; 15] = [
     "help",
     "version",
     "no-command",
@@ -27,6 +27,7 @@ const COVERED: [&str; 14] = [
     "logout-refused",
     "dev-bad-port",
     "login-token-refused",
+    "auth-import",
     "admin-token-create",
     "admin-token-list",
     "admin-token-revoke",
@@ -283,6 +284,12 @@ fn exchanges(id: &str) -> Vec<Exchange> {
                 reply: json!({"code":"CANOPY_UNAUTHORIZED","detail":"Log in to use the admin API"}),
             }];
         }
+        "auth-import" => Exchange {
+            request: "POST /admin/v1/users/import HTTP/1.1",
+            body: r#"{"users":[{"email":"user@example.test","name":"Fixture User","appMetadata":{"importedFrom":{"system":"csv","id":"fixture"}}}]}"#,
+            status: "200 OK",
+            reply: json!({"created":1,"skipped":0,"failed":[]}),
+        },
         "admin-token-create" => {
             entry["token"] = json!(ADMIN_TOKEN);
             Exchange {

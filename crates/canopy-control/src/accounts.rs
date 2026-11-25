@@ -28,16 +28,22 @@ const INVALID_LOGIN: &str = "Invalid email or password";
 
 /// An admin account as the admin API shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AdminUser {
-    pub(crate) id: String,
-    pub(crate) email: String,
+pub struct AdminUser {
+    /// The admin id.
+    pub id: String,
+    /// The normalized email address.
+    pub email: String,
     pub(crate) name: Option<String>,
-    pub(crate) role: AdminRole,
+    /// The assigned admin role.
+    pub role: AdminRole,
     pub(crate) must_change_password: bool,
-    pub(crate) totp_enabled: bool,
-    pub(crate) disabled: bool,
+    /// Whether the admin has confirmed their authenticator.
+    pub totp_enabled: bool,
+    /// Whether sign in is disabled.
+    pub disabled: bool,
     pub(crate) created_at: i64,
-    pub(crate) last_login_at: Option<i64>,
+    /// The last login, in Unix milliseconds.
+    pub last_login_at: Option<i64>,
 }
 
 impl AdminUser {
@@ -168,7 +174,7 @@ pub(crate) struct AdminChanges {
 }
 
 /// Admin accounts and sessions.
-pub(crate) struct AdminAccounts {
+pub struct AdminAccounts {
     pub(crate) users: Collection<Document>,
     pub(crate) sessions: Collection<Document>,
     settings: Collection<Document>,
@@ -185,6 +191,17 @@ pub(crate) struct AdminAccounts {
 }
 
 impl AdminAccounts {
+    /// Opens the admin store for local bootstrap and recovery tools.
+    pub fn for_cli(meta: &Database) -> Self {
+        let now = crate::system_clock();
+        Self::new(meta.client(), meta, AuditLog::new(meta, now.clone()), SecretBox::new(None, &[]), now)
+    }
+
+    /// Clears an admin's TOTP secret and sessions for a local recovery tool.
+    pub async fn reset_totp_for_cli(&self, id: &str, actor: &Actor) -> Result<AdminUser, CanopyError> {
+        self.reset_totp(id, actor, None, &RequestOrigin::default()).await
+    }
+
     pub(crate) fn new(
         client: &Client,
         meta: &Database,
@@ -744,7 +761,8 @@ impl AdminAccounts {
             .await
     }
 
-    pub(crate) async fn list(&self) -> Result<Vec<AdminUser>, CanopyError> {
+    /// Lists admin accounts in creation order.
+    pub async fn list(&self) -> Result<Vec<AdminUser>, CanopyError> {
         let found =
             collect(self.users.find(Document::new()).sort(doc! { "createdAt": 1 }).await.map_err(mongo)?)
                 .await?;
@@ -778,7 +796,7 @@ impl AdminAccounts {
 
     /// Creates an admin without a session, for bootstrap tools that reach the meta database directly. Creating
     /// an owner also claims the server, so setup tokens stop working.
-    pub(crate) async fn create_bootstrap(
+    pub async fn create_bootstrap(
         &self,
         email: &str,
         role: AdminRole,
@@ -851,7 +869,7 @@ impl AdminAccounts {
     }
 
     /// Finds an admin by id or email.
-    pub(crate) async fn find(&self, id_or_email: &str) -> Result<Option<AdminUser>, CanopyError> {
+    pub async fn find(&self, id_or_email: &str) -> Result<Option<AdminUser>, CanopyError> {
         let filter = if id_or_email.contains('@') {
             doc! { "email": id_or_email.trim().to_lowercase() }
         } else {

@@ -1,9 +1,12 @@
 //! Command line entry point for Canopy.
 
+mod admin;
+mod auth_import;
 mod credentials;
 mod invocation;
 mod login;
 mod meta;
+mod realtime;
 mod remote;
 mod tokens;
 
@@ -46,7 +49,19 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
         ("admin tokens create" | "admin tokens list" | "admin tokens revoke", _) => {
             tokens::run(name, args, &call)
         }
-        ("migrate" | "keys list" | "keys create" | "keys revoke", _) => meta::run(name, args, &call),
+        (
+            "migrate"
+            | "keys list"
+            | "keys create"
+            | "keys revoke"
+            | "admin list"
+            | "admin create"
+            | "admin reset-totp"
+            | "realtime enable-images"
+            | "realtime disable-images",
+            _,
+        ) => meta::run(name, args, &call),
+        ("auth import", [file]) => auth_import::run(file, &call),
         ("dev", _) => {
             let errors = ["port", "mongo-port"]
                 .into_iter()

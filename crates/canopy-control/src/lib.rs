@@ -53,7 +53,7 @@ pub use crate::services::{
 pub use crate::templates::TemplateRoutes;
 pub use crate::users::{UserOptions, UserRoutes};
 
-use crate::accounts::AdminAccounts;
+pub use crate::accounts::{AdminAccounts, AdminUser};
 use crate::core::AuditLog;
 use crate::secrets::SecretBox;
 use crate::settings::SettingsStore;

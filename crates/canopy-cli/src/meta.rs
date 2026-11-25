@@ -31,8 +31,32 @@ pub(crate) fn run(name: &str, args: &[String], call: &Invocation) -> Result<Exit
     runtime.block_on(async {
         let mut options = ClientOptions::parse(uri).await.map_err(mongo_error)?;
         options.server_selection_timeout = Some(Duration::from_secs(10));
+        let app = if name.starts_with("realtime ") {
+            Some(
+                call.text("database")
+                    .map(str::to_owned)
+                    .or_else(|| std::env::var("CANOPY_DB").ok().filter(|name| !name.is_empty()))
+                    .or_else(|| options.default_database.clone())
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        format!("{name} needs --database, CANOPY_DB or a database in the URI path")
+                    })?,
+            )
+        } else {
+            None
+        };
         let client = Client::with_options(options).map_err(mongo_error)?;
-        let result = execute(name, args, call, client.database(&database)).await;
+        let result = if let Some(app) = app {
+            crate::realtime::run(
+                &client.database(&app),
+                args,
+                name == "realtime enable-images",
+                call.has_flag("yes"),
+            )
+            .await
+        } else {
+            execute(name, args, call, client.database(&database)).await
+        };
         client.shutdown().await;
         result
     })
@@ -76,6 +100,9 @@ async fn execute(name: &str, args: &[String], call: &Invocation, meta: Database)
             meta.name(),
             pending.join(", ")
         ));
+    }
+    if name.starts_with("admin ") {
+        return crate::admin::run(name, args, call, &meta).await;
     }
     let store =
         ApiKeyStore::new(meta.collection("api_keys"), Arc::new(|| DateTime::now().timestamp_millis()));
@@ -171,7 +198,7 @@ async fn audit(meta: &Database, action: &str, actor: &str, info: &Document) -> R
     Ok(())
 }
 
-fn actor() -> String {
+pub(crate) fn actor() -> String {
     let user = std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" })
         .ok()
         .filter(|user| !user.is_empty())
@@ -179,7 +206,7 @@ fn actor() -> String {
     format!("cli:{user}")
 }
 
-fn field<'a>(document: &'a Document, name: &str) -> Result<&'a str, String> {
+pub(crate) fn field<'a>(document: &'a Document, name: &str) -> Result<&'a str, String> {
     document.get_str(name).map_err(|error| error.to_string())
 }
 
@@ -191,7 +218,7 @@ fn document_date(document: &Document, field: &str) -> Result<String, String> {
     document.get_datetime(field).map_or_else(|_| Ok("never".into()), date)
 }
 
-fn date(value: &DateTime) -> Result<String, String> {
+pub(crate) fn date(value: &DateTime) -> Result<String, String> {
     let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(value.timestamp_millis()) * 1_000_000)
         .map_err(|error| error.to_string())?;
     Ok(crate::tokens::timestamp(at))
@@ -201,6 +228,6 @@ fn mongo_error(error: canopy_mongo::mongodb::error::Error) -> String {
     format!("error  {error}")
 }
 
-fn message(error: CanopyError) -> String {
+pub(crate) fn message(error: CanopyError) -> String {
     error.message().to_owned()
 }

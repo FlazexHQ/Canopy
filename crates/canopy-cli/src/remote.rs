@@ -49,6 +49,7 @@ impl AdminClient {
         };
         let response = Client::builder()
             .timeout(Duration::from_secs(30))
+            .user_agent(concat!("canopy-cli/", env!("CARGO_PKG_VERSION")))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .and_then(|client| {
