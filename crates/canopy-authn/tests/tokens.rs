@@ -305,3 +305,53 @@ fn publication_keeps_standby_and_retired_keys_until_grace_expires() -> Result<()
     assert!(ring.jwks_response(&Method::GET, "/auth/v1/token", expiry).is_none());
     Ok(())
 }
+
+#[tokio::test]
+async fn generated_signing_keys_work_with_typescript_jwks_verification() -> Result<(), Box<dyn Error>> {
+    let url = "https://canopy.example";
+    let secret = "test signing key encryption secret";
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let now = DateTime::now().timestamp_millis();
+    let mut verification = Vec::new();
+    for algorithm in [Algorithm::EdDSA, Algorithm::ES256] {
+        let key = canopy_authn::key_material::generate(algorithm, secret, now, now + 3_600_000)?;
+        let public: Value = serde_json::from_str(key.get_str("publicKey")?)?;
+        assert!(public.get("d").is_none());
+        let empty = Map::new();
+        let ring = KeyRing::load([key], url, algorithm, 600, DEFAULT_GRACE, 4096)?;
+        let session = AccessSession {
+            subject: "user",
+            session_id: "session",
+            roles: &[],
+            claim_roles: &[],
+            identity: None,
+            is_anonymous: false,
+            aal: "aal1",
+            app_metadata: &empty,
+            claim_app_metadata: &empty,
+            user_metadata: &empty,
+        };
+        let token = ring.mint(secret, session, now)?.access_token;
+        let jwks = ring.jwks(now);
+        let config = JwtConfig {
+            issuers: vec![format!("{url}/auth/v1")],
+            audiences: vec![url.into()],
+            jwks: Some(canopy_protocol::json::parse_json(&jwks.to_string())?),
+            jwks_url: None,
+            algorithms: vec![match algorithm {
+                Algorithm::EdDSA => "EdDSA".into(),
+                Algorithm::ES256 => "ES256".into(),
+            }],
+            roles_claim: None,
+            allow_service_role: false,
+            clock_tolerance_s: 60,
+        };
+        let verifier = Authenticator::new(Some(config), None, vec![], reqwest::Client::new())?;
+        assert_eq!(verifier.authenticate_access_token(&token).await?.subject, "user");
+        verification.push(json!({"token": token, "jwks": jwks, "publicUrl": url, "now": now, "valid": true}));
+    }
+    if support::enabled("generated_signing_keys_work_with_typescript_jwks_verification") {
+        typescript("tokens", &serde_json::to_value(verification)?)?;
+    }
+    Ok(())
+}

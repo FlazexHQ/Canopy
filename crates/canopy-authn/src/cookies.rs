@@ -53,7 +53,7 @@ pub enum Expiration {
     Expires(SystemTime),
 }
 
-fn encode(value: &str) -> String {
+pub(crate) fn encode(value: &str) -> String {
     use std::fmt::Write as _;
 
     let mut encoded = String::new();

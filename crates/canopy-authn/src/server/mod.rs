@@ -1,0 +1,640 @@
+use std::{
+    collections::BTreeMap,
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
+
+use bson::{Bson, DateTime, Document, doc};
+use canopy_http::{Body, Request, Response};
+use canopy_mail::{EmailKind, Mailer, Recipient};
+use canopy_mongo::mongodb::{Collection, Database, IndexModel, options::IndexOptions};
+use canopy_protocol::{CanopyError, ErrorCode};
+use futures_util::TryStreamExt;
+use serde::Serialize;
+use serde_json_bytes::{Value, json};
+use url::Url;
+
+use crate::{
+    cookies::{AuthCookie, Expiration, render_set_cookie, sign_value, verify_session},
+    tokens::{AccessSession, Algorithm, KeyRing},
+};
+
+macro_rules! object {
+    ($($key:literal : $value:expr),* $(,)?) => {
+        Value::Object([$(($key.into(), serde_json_bytes::to_value(&$value).unwrap_or(Value::Null))),*]
+            .into_iter().collect())
+    };
+}
+mod documents;
+mod email;
+mod floor;
+mod password;
+mod session;
+
+use documents::{AddressLimit, IdentifierLimit, User, id_text};
+use floor::ResponseFloor;
+
+type Result<T> = std::result::Result<T, CanopyError>;
+
+/// Delivery of an authentication email.
+pub trait AuthMail: Send + Sync {
+    /// Hands a message off for delivery using the recipient variables.
+    fn send<'a>(
+        self: Arc<Self>,
+        kind: EmailKind,
+        recipient: Recipient<'a>,
+    ) -> futures_util::future::BoxFuture<'a, ()>;
+}
+
+impl AuthMail for Mailer {
+    fn send<'a>(
+        self: Arc<Self>,
+        kind: EmailKind,
+        recipient: Recipient<'a>,
+    ) -> futures_util::future::BoxFuture<'a, ()> {
+        let email = recipient.email.to_owned();
+        let url = recipient.url.map(str::to_owned);
+        let otp = recipient.otp.map(str::to_owned);
+        let new_email = recipient.new_email.map(str::to_owned);
+        tokio::spawn(async move {
+            Mailer::send(
+                &self,
+                kind,
+                &Recipient {
+                    email: &email,
+                    url: url.as_deref(),
+                    otp: otp.as_deref(),
+                    new_email: new_email.as_deref(),
+                },
+            )
+            .await;
+        });
+        Box::pin(std::future::ready(()))
+    }
+}
+
+/// Settings for the built in auth router.
+pub struct AuthOptions {
+    /// The resolved public URL of the service.
+    pub public_url: Url,
+    /// The secret shared with existing cookies and encrypted signing keys.
+    pub secret: String,
+    /// Trusted browser origins and redirect origins.
+    pub trusted_origins: Vec<String>,
+    /// Require a verified address before issuing a password session.
+    pub require_email_verification: bool,
+    /// Minimum password length in UTF-16 units.
+    pub min_password_length: usize,
+    /// Enabled methods to advertise in settings, alongside password auth.
+    pub external: serde_json_bytes::Map<serde_json_bytes::ByteString, Value>,
+    /// Lifetime of remembered sessions, in seconds.
+    pub session_ttl_seconds: u32,
+    /// When to extend a remembered session, in seconds since the last extension.
+    pub session_update_age_seconds: u32,
+    /// Access token lifetime, in seconds.
+    pub access_token_ttl_seconds: i64,
+    /// Signing algorithm preferred for access tokens.
+    pub algorithm: Algorithm,
+    /// Grace period for retired keys, in milliseconds.
+    pub key_grace_ms: i64,
+    /// The shortest time an answer that could reveal whether an address has an account takes.
+    pub response_floor: Duration,
+}
+
+impl AuthOptions {
+    /// Creates options with the standard password and session settings.
+    pub fn new(public_url: Url, secret: String) -> Self {
+        Self {
+            public_url,
+            secret,
+            trusted_origins: Vec::new(),
+            require_email_verification: true,
+            min_password_length: 10,
+            external: serde_json_bytes::Map::new(),
+            session_ttl_seconds: 604_800,
+            session_update_age_seconds: 86_400,
+            access_token_ttl_seconds: 600,
+            algorithm: Algorithm::EdDSA,
+            key_grace_ms: 2_592_000_000,
+            response_floor: Duration::from_millis(80),
+        }
+    }
+}
+
+/// Router for password, verification, session and access token endpoints.
+pub struct AuthRouter {
+    auth: Database,
+    meta: Database,
+    options: AuthOptions,
+    mail: Arc<dyn AuthMail>,
+    password_slots: Arc<tokio::sync::Semaphore>,
+    floor: ResponseFloor,
+}
+
+impl AuthRouter {
+    /// Opens the router and ensures uniqueness for credentials and sessions.
+    pub async fn open(
+        auth: Database,
+        meta: Database,
+        options: AuthOptions,
+        mail: Arc<dyn AuthMail>,
+    ) -> Result<Self> {
+        if !matches!(options.public_url.scheme(), "http" | "https")
+            || options.public_url.host().is_none()
+            || options.secret.len() < 32
+            || !(1..=128).contains(&options.min_password_length)
+            || options.session_ttl_seconds == 0
+            || !(300..=3600).contains(&options.access_token_ttl_seconds)
+            || options.key_grace_ms < options.access_token_ttl_seconds * 1000
+        {
+            return Err(CanopyError::new(ErrorCode::Internal, "Invalid built in auth settings"));
+        }
+        let floor = ResponseFloor::new(options.response_floor);
+        let router = Self {
+            auth,
+            meta,
+            options,
+            mail,
+            password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            floor,
+        };
+        for (collection, key) in [("users", "email"), ("sessions", "token"), ("rate_limits", "key")] {
+            router
+                .collection(collection)
+                .create_index(
+                    IndexModel::builder()
+                        .keys(doc! { key: 1 })
+                        .options(IndexOptions::builder().name(key.to_owned()).unique(true).build())
+                        .build(),
+                )
+                .await
+                .map_err(internal)?;
+        }
+        Ok(router)
+    }
+
+    /// Handles a request on the built in auth paths.
+    pub async fn handle(&self, request: &Request) -> Option<Response> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .and_then(|time| i64::try_from(time.as_millis()).ok())
+            .unwrap_or_default();
+        self.handle_at(request, now).await
+    }
+
+    /// Handles a request at a supplied Unix time in milliseconds.
+    pub async fn handle_at(&self, request: &Request, now_ms: i64) -> Option<Response> {
+        let (path, query) = request.target.split_once('?').unwrap_or((&request.target, ""));
+        if path != "/.well-known/jwks.json" && !path.starts_with("/auth/v1/") {
+            return None;
+        }
+        let route = path.strip_prefix("/auth/v1").unwrap_or(path);
+        let started = Instant::now();
+        let request_context = Call { router: self, request, route, now: DateTime::from_millis(now_ms) };
+        let mut response = request_context
+            .dispatch(query)
+            .await
+            .unwrap_or_else(|_| error(500, "CANOPY_INTERNAL", "Authentication request failed"));
+        if request.method == "POST"
+            && let Some(route) = ResponseFloor::route(route)
+        {
+            let took = started.elapsed();
+            let target = self.floor.target(route);
+            self.floor.record(route, took);
+            tokio::time::sleep(target.saturating_sub(took)).await;
+        }
+        if let Some(origin) = request.header("origin").filter(|origin| self.trusts_origin(origin)) {
+            header(&mut response, "access-control-allow-origin", origin);
+            header(&mut response, "access-control-allow-credentials", "true");
+            header(&mut response, "access-control-expose-headers", "set-auth-token, set-auth-ceremony");
+            header(&mut response, "vary", "origin");
+        }
+        Some(response)
+    }
+
+    fn collection(&self, name: &str) -> Collection<Document> {
+        self.auth.collection(name)
+    }
+
+    fn secure(&self) -> bool {
+        self.options.public_url.scheme() == "https"
+    }
+
+    fn public_url(&self) -> &str {
+        self.options.public_url.as_str().trim_end_matches('/')
+    }
+
+    fn trusts_origin(&self, origin: &str) -> bool {
+        origin == self.options.public_url.origin().ascii_serialization()
+            || self.options.trusted_origins.iter().any(|trusted| trusted == origin)
+    }
+
+    fn trusts_callback(&self, callback: &str) -> bool {
+        if callback.contains('\\') || callback.chars().any(char::is_control) {
+            return false;
+        }
+        if callback.starts_with('/') && !callback.starts_with("//") {
+            return true;
+        }
+        Url::parse(callback).is_ok_and(|url| {
+            matches!(url.scheme(), "http" | "https")
+                && self.trusts_origin(&url.origin().ascii_serialization())
+        })
+    }
+
+    async fn keys(&self) -> Result<KeyRing> {
+        let documents: Vec<_> = self
+            .collection("signing_keys")
+            .find(doc! {})
+            .sort(doc! {"createdAt": -1, "_id": 1})
+            .await
+            .map_err(internal)?
+            .try_collect()
+            .await
+            .map_err(internal)?;
+        KeyRing::load(
+            documents,
+            self.public_url(),
+            self.options.algorithm,
+            self.options.access_token_ttl_seconds,
+            self.options.key_grace_ms,
+            4096,
+        )
+        .map_err(internal)
+    }
+}
+
+struct Call<'a> {
+    router: &'a AuthRouter,
+    request: &'a Request,
+    route: &'a str,
+    now: DateTime,
+}
+
+impl Call<'_> {
+    async fn dispatch(&self, query: &str) -> Result<Response> {
+        let get = self.request.method == "GET";
+        if self.request.method == "OPTIONS" {
+            let mut response = Response { status: 204, ..Response::default() };
+            header(&mut response, "access-control-allow-methods", "GET, HEAD, POST, OPTIONS");
+            if let Some(headers) = self.request.header("access-control-request-headers") {
+                header(&mut response, "access-control-allow-headers", headers);
+            }
+            return Ok(response);
+        }
+        let path = self.request.target.split('?').next().unwrap_or_default();
+        if matches!(path, "/auth/v1/jwks" | "/.well-known/jwks.json" | "/auth/v1/.well-known/jwks.json") {
+            let method = http::Method::from_bytes(self.request.method.as_bytes()).map_err(internal)?;
+            let response = self
+                .router
+                .keys()
+                .await?
+                .jwks_response(&method, path, self.now.timestamp_millis())
+                .ok_or_else(|| internal("Invalid JWKS path"))?;
+            return Ok(Response {
+                status: response.status().as_u16(),
+                headers: response
+                    .headers()
+                    .iter()
+                    .filter_map(|(name, value)| Some((name.as_str().into(), value.to_str().ok()?.into())))
+                    .collect(),
+                body: response.body().as_bytes().to_vec(),
+            });
+        }
+        if self.route == "/token" || self.route == "/settings" {
+            let mut response = if !get {
+                error(405, "METHOD_NOT_ALLOWED", "Use GET")
+            } else if self.route == "/token" {
+                self.access_token().await?
+            } else {
+                self.settings()
+            };
+            header(&mut response, "cache-control", "no-store");
+            return Ok(response);
+        }
+        let reset_link = get && self.route.starts_with("/reset-password/");
+        let allowed = match self.route {
+            "/verify-email" | "/get-session" | "/list-sessions" => get,
+            "/sign-up/email"
+            | "/sign-in/email"
+            | "/sign-out"
+            | "/send-verification-email"
+            | "/request-password-reset"
+            | "/reset-password"
+            | "/change-password"
+            | "/update-user"
+            | "/change-email"
+            | "/revoke-session"
+            | "/revoke-other-sessions"
+            | "/revoke-sessions" => self.request.method == "POST",
+            _ => reset_link,
+        };
+        if !allowed {
+            return Ok(Response { status: 404, ..Response::default() });
+        }
+        if !get {
+            match self.request.header("origin") {
+                Some(origin) if !self.router.trusts_origin(&origin) => {
+                    return Ok(error(403, "INVALID_ORIGIN", "Invalid origin"));
+                }
+                None if self.request.header("cookie").is_some() => {
+                    return Ok(error(403, "MISSING_OR_NULL_ORIGIN", "Missing or null Origin"));
+                }
+                _ => {}
+            }
+        }
+        if !self.address_hit().await? {
+            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
+        }
+        let params: BTreeMap<_, _> = url::form_urlencoded::parse(query.as_bytes()).into_owned().collect();
+        let body = match &self.request.body {
+            Body::Bytes(bytes) if bytes.is_empty() => json!({}),
+            Body::Bytes(bytes) if bytes.len() <= 65536 => match serde_json::from_slice(bytes) {
+                Ok(Value::Object(body)) => Value::Object(body),
+                _ => return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body")),
+            },
+            Body::Unreadable => return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body")),
+            _ => return Ok(error(413, "PAYLOAD_TOO_LARGE", "Request body is too large")),
+        };
+        for callback in [
+            params.get("callbackURL").map(String::as_str),
+            body.get("callbackURL").and_then(Value::as_str),
+            body.get("redirectTo").and_then(Value::as_str),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if !self.router.trusts_callback(callback) {
+                return Ok(error(403, "INVALID_CALLBACK_URL", "Invalid callbackURL"));
+            }
+        }
+        if matches!(
+            self.route,
+            "/sign-up/email" | "/sign-in/email" | "/send-verification-email" | "/request-password-reset"
+        ) && let Some(email) = body.get("email").and_then(Value::as_str).filter(|email| email.len() <= 320)
+            && !self.identifier_hit(&email.trim().to_lowercase()).await?
+        {
+            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
+        }
+        if reset_link {
+            return self.reset_link(&params).await;
+        }
+        match self.route {
+            "/sign-up/email" => self.sign_up(&body).await,
+            "/sign-in/email" => self.sign_in(&body).await,
+            "/verify-email" => self.verify_email(&params).await,
+            "/send-verification-email" => self.resend(&body).await,
+            "/request-password-reset" => self.request_reset(&body).await,
+            "/reset-password" => self.reset_password(&body).await,
+            "/change-password" => self.change_password(&body).await,
+            _ => self.session_route(&body).await,
+        }
+    }
+
+    fn settings(&self) -> Response {
+        let issuer = format!("{}/auth/v1", self.router.public_url());
+        let mut external = object!("email": true);
+        if let Some(fields) = external.as_object_mut() {
+            fields.extend(
+                self.router.options.external.iter().map(|(name, value)| (name.clone(), value.clone())),
+            );
+        }
+        response(
+            200,
+            object!(
+                "external": external,
+                "password": object!("min_length": self.router.options.min_password_length,
+                    "requires_email_verification": self.router.options.require_email_verification),
+                "access_token_ttl": self.router.options.access_token_ttl_seconds,
+                "issuer": issuer, "jwks_uri": format!("{issuer}/.well-known/jwks.json")
+            ),
+        )
+    }
+
+    async fn access_token(&self) -> Result<Response> {
+        let Some((mut session, user)) = self.authenticated().await? else {
+            return Ok(response(401, object!("code":"CANOPY_UNAUTHORIZED","message":"No valid session")));
+        };
+        let roles: Vec<String> = user
+            .extra
+            .get_array("roles")
+            .into_iter()
+            .flatten()
+            .filter_map(Bson::as_str)
+            .map(str::to_owned)
+            .collect();
+        let subject = id_text(&user.id);
+        let session_id = id_text(&session.id);
+        let token = self
+            .router
+            .keys()
+            .await?
+            .mint(
+                &self.router.options.secret,
+                AccessSession {
+                    subject: &subject,
+                    session_id: &session_id,
+                    roles: &roles,
+                    claim_roles: &[],
+                    identity: Some((&user.email, user.email_verified)),
+                    is_anonymous: user.extra.get_bool("isAnonymous").unwrap_or(false),
+                    aal: session.extra.get_str("aal").unwrap_or("aal1"),
+                    app_metadata: &user.metadata("appMetadata"),
+                    claim_app_metadata: &Default::default(),
+                    user_metadata: &user.metadata("userMetadata"),
+                },
+                self.now.timestamp_millis(),
+            )
+            .map_err(internal)?;
+        let mut reply = response(200, token);
+        if self.refresh_session(&mut session).await? {
+            self.set_session(&mut reply, &session.token, true);
+        }
+        Ok(reply)
+    }
+
+    fn ip(&self) -> &str {
+        self.request.client_address.as_deref().unwrap_or("")
+    }
+
+    fn date_after(&self, milliseconds: i64) -> DateTime {
+        DateTime::from_millis(self.now.timestamp_millis().saturating_add(milliseconds))
+    }
+
+    fn cookie(&self, kind: AuthCookie) -> Option<String> {
+        let name = kind.name(self.router.secure());
+        self.request.header("cookie")?.split(';').find_map(|part| {
+            let (key, value) = part.trim().split_once('=')?;
+            (key == name).then(|| value.to_owned())
+        })
+    }
+
+    fn session_token(&self) -> Option<String> {
+        verify_session(&self.router.options.secret, &self.cookie(AuthCookie::SessionToken)?)
+    }
+
+    fn set_cookie(&self, response: &mut Response, kind: AuthCookie, value: &str, expiration: Expiration) {
+        if let Some(cookie) = render_set_cookie(kind, value, self.router.secure(), expiration) {
+            response.headers.push(("set-cookie".into(), cookie));
+        }
+    }
+
+    fn set_session(&self, response: &mut Response, token: &str, remember: bool) {
+        let signed = sign_value(&self.router.options.secret, token);
+        let expiration = if remember {
+            Expiration::MaxAge(u64::from(self.router.options.session_ttl_seconds))
+        } else {
+            Expiration::Session
+        };
+        self.set_cookie(response, AuthCookie::SessionToken, &signed, expiration);
+        header(response, "set-auth-token", signed);
+        header(response, "access-control-expose-headers", "set-auth-token");
+    }
+
+    async fn user(&self, filter: Document) -> Result<Option<User>> {
+        self.router.auth.collection::<User>("users").find_one(filter).await.map_err(internal)
+    }
+
+    async fn audit(
+        &self,
+        action: &str,
+        actor: Document,
+        target: Option<Document>,
+        details: Option<Document>,
+        ip: bool,
+    ) -> Result<()> {
+        let mut document = doc! { "_id": object_id(self.now), "action": action, "actor": actor };
+        if let Some(target) = target {
+            document.insert("target", target);
+        }
+        if ip {
+            document.insert("ip", self.ip());
+        }
+        if let Some(details) = details {
+            document.insert("details", details);
+        }
+        document.insert("at", self.now);
+        self.router.meta.collection::<Document>("audit_log").insert_one(document).await.map_err(internal)?;
+        Ok(())
+    }
+
+    async fn address_hit(&self) -> Result<bool> {
+        let key = format!("{}|{}", self.ip(), self.route);
+        let sensitive =
+            matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email");
+        let window = if sensitive { 10_000 } else { 60_000 };
+        let max = if sensitive { 3 } else { 100 };
+        let now = self.now.timestamp_millis();
+        let recent = doc! {"$gt": ["$lastRequest", now.saturating_sub(window)]};
+        let limits = self.router.auth.collection::<AddressLimit>("rate_limits");
+        let old = limits.find_one_and_update(doc! {"key": &key}, vec![doc! {"$set": {
+            "count": {"$cond": [&recent, {"$min": [{"$add": ["$count", 1]}, max]}, 1]},
+            "lastRequest": {"$cond": [{"$and": [&recent, {"$gte": ["$count", max]}]}, "$lastRequest", now]}
+        }}]).upsert(true).await.map_err(internal)?;
+        if old.as_ref().is_some_and(|doc| doc.last_request <= now.saturating_sub(window)) {
+            limits
+                .delete_many(doc! {"lastRequest": {"$lt": now.saturating_sub(60_000)}})
+                .await
+                .map_err(internal)?;
+        }
+        Ok(!old.is_some_and(|doc| doc.count >= max && doc.last_request > now.saturating_sub(window)))
+    }
+
+    async fn identifier_hit(&self, email: &str) -> Result<bool> {
+        let key = format!("hit|{}|{email}", self.route);
+        let recent = doc! {"$gt":["$windowStart", self.date_after(-60_000)]};
+        let old = self
+            .router
+            .auth
+            .collection::<IdentifierLimit>("identifier_limits")
+            .find_one_and_update(
+                doc! {"_id": key},
+                vec![doc! {"$set": {
+                    "count": {"$cond": [&recent, {"$add": ["$count", 1]}, 1]},
+                    "windowStart": {"$cond": [&recent, "$windowStart", self.now]},
+                    "expiresAt": self.date_after(60_000)
+                }}],
+            )
+            .upsert(true)
+            .await
+            .map_err(internal)?;
+        Ok(!old.is_some_and(|doc| {
+            doc.extra.get_i32("count").unwrap_or_default() >= 10
+                && doc.extra.get_datetime("windowStart").is_ok_and(|date| *date > self.date_after(-60_000))
+        }))
+    }
+}
+
+fn object_id(now: DateTime) -> bson::oid::ObjectId {
+    let mut bytes = bson::oid::ObjectId::new().bytes();
+    if let (Some(prefix), Ok(seconds)) =
+        (bytes.get_mut(..4), u32::try_from(now.timestamp_millis().div_euclid(1000)))
+    {
+        prefix.copy_from_slice(&seconds.to_be_bytes());
+    }
+    bson::oid::ObjectId::from_bytes(bytes)
+}
+
+fn internal(error: impl std::fmt::Display) -> CanopyError {
+    CanopyError::new(ErrorCode::Internal, format!("Authentication failed: {error}"))
+}
+
+fn header(response: &mut Response, key: &str, value: impl Into<String>) {
+    let value = value.into();
+    if let Some((_, prior)) = response.headers.iter_mut().find(|(name, _)| name == key) {
+        *prior = value;
+    } else {
+        response.headers.push((key.into(), value));
+    }
+}
+
+fn response(status: u16, body: impl Serialize) -> Response {
+    Response {
+        status,
+        body: serde_json::to_vec(&body).unwrap_or_default(),
+        headers: vec![("content-type".into(), "application/json".into())],
+    }
+}
+
+fn empty(status: u16) -> Response {
+    Response { status, body: Vec::new(), headers: vec![("content-type".into(), "application/json".into())] }
+}
+
+fn error(status: u16, code: &str, message: &str) -> Response {
+    response(status, object!("message": message, "code": code))
+}
+
+fn validation(body: &Value, field: &str) -> Response {
+    let kind = match body.get(field) {
+        None => "undefined",
+        Some(Value::Null) => "null",
+        Some(Value::Bool(_)) => "boolean",
+        Some(Value::Number(_)) => "number",
+        Some(Value::Array(_)) => "array",
+        _ => "object",
+    };
+    error(400, "VALIDATION_ERROR", &format!("[body.{field}] Invalid input: expected string, received {kind}"))
+}
+
+fn status() -> Response {
+    response(200, json!({"status": true}))
+}
+
+fn random_token(length: usize) -> Result<String> {
+    let mut token = String::with_capacity(length);
+    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let mut entropy = [0; 64];
+    while token.len() < length {
+        getrandom::fill(&mut entropy).map_err(internal)?;
+        for value in entropy.into_iter().filter(|value| *value < 248) {
+            if let Some(character) = alphabet.get(usize::from(value % 62)) {
+                token.push(char::from(*character));
+            }
+            if token.len() == length {
+                break;
+            }
+        }
+    }
+    Ok(token)
+}
