@@ -189,6 +189,57 @@ fn js_limit(text: Option<&str>, fallback: f64) -> i64 {
     limit
 }
 
+/// Resolves the policy context for a validated view as identity.
+pub(crate) async fn impersonate(
+    input: Option<&Value>,
+    collections: Option<&[&str]>,
+    engine: &PolicyEngine,
+    resolver: &ContextResolver,
+    now: i64,
+) -> Result<RequestContext, CanopyError> {
+    Schema::Object(vec![
+        ("role", optional(string(1, 200))),
+        ("roles", optional(Schema::Array(Box::new(string(1, 200)), 32))),
+        ("user", optional(string(1, 500))),
+        ("claims", optional(Schema::Document)),
+    ])
+    .check(input, "as")?;
+    let Some(input) = input.and_then(Value::as_document) else {
+        return Err(err(ErrorCode::ValidationFailed, "as must be an object"));
+    };
+    let mut roles: Roles = input
+        .get("role")
+        .and_then(Value::as_str)
+        .into_iter()
+        .chain(
+            input.get("roles").and_then(Value::as_array).unwrap_or_default().iter().filter_map(Value::as_str),
+        )
+        .collect();
+    let mut claims = input.get("claims").and_then(Value::as_document).cloned();
+    if let Some(user) = input.get("user") {
+        claims.get_or_insert_with(canopy_protocol::Document::new).insert("sub", user.clone());
+    }
+    if claims.is_some() {
+        roles.insert(Role::AUTHENTICATED);
+    }
+    let invalid = |message| err(ErrorCode::ValidationFailed, message);
+    if roles.is_empty() {
+        return Err(invalid("as needs a role, a user or claims"));
+    }
+    if roles.contains(Role::SERVICE) {
+        return Err(invalid("Impersonating service is not allowed; act as service directly"));
+    }
+    if roles.contains(Role::ANON) && roles.len() > 1 {
+        return Err(invalid("anon cannot be combined with other roles"));
+    }
+    let mut context = RequestContext { roles, claims, ctx: None, now };
+    let names = engine.context_names(collections, &context.roles);
+    if !names.is_empty() {
+        context.ctx = Some(resolver.resolve(engine.set().contexts(), &names, &context).await);
+    }
+    Ok(context)
+}
+
 /// The policy route group.
 pub struct PolicyRoutes {
     meta: Database,
@@ -250,61 +301,6 @@ impl PolicyRoutes {
         )
     }
 
-    async fn impersonate(
-        &self,
-        call: &Call,
-        collection: &str,
-        engine: &PolicyEngine,
-    ) -> Result<RequestContext, CanopyError> {
-        let input = body_field(call, "as");
-        Schema::Object(vec![
-            ("role", optional(string(1, 200))),
-            ("roles", optional(Schema::Array(Box::new(string(1, 200)), 32))),
-            ("user", optional(string(1, 500))),
-            ("claims", optional(Schema::Document)),
-        ])
-        .check(input, "as")?;
-        let Some(input) = input.and_then(Value::as_document) else {
-            return Err(err(ErrorCode::ValidationFailed, "as must be an object"));
-        };
-        let mut roles: Roles = input
-            .get("role")
-            .and_then(Value::as_str)
-            .into_iter()
-            .chain(
-                input
-                    .get("roles")
-                    .and_then(Value::as_array)
-                    .unwrap_or_default()
-                    .iter()
-                    .filter_map(Value::as_str),
-            )
-            .collect();
-        let mut claims = input.get("claims").and_then(Value::as_document).cloned();
-        if let Some(user) = input.get("user") {
-            claims.get_or_insert_with(canopy_protocol::Document::new).insert("sub", user.clone());
-        }
-        if claims.is_some() {
-            roles.insert(Role::AUTHENTICATED);
-        }
-        let invalid = |message| err(ErrorCode::ValidationFailed, message);
-        if roles.is_empty() {
-            return Err(invalid("as needs a role, a user or claims"));
-        }
-        if roles.contains(Role::SERVICE) {
-            return Err(invalid("Impersonating service is not allowed; act as service directly"));
-        }
-        if roles.contains(Role::ANON) && roles.len() > 1 {
-            return Err(invalid("anon cannot be combined with other roles"));
-        }
-        let mut context = RequestContext { roles, claims, ctx: None, now: (self.now)() };
-        let names = engine.context_names(Some(&[collection]), &context.roles);
-        if !names.is_empty() {
-            context.ctx = Some(self.contexts.resolve(engine.set().contexts(), &names, &context).await);
-        }
-        Ok(context)
-    }
-
     async fn simulate(&self, call: &Call) -> Result<Reply, CanopyError> {
         let collection = collection_name(call.param("collection"))?;
         Schema::Object(vec![
@@ -320,7 +316,9 @@ impl PolicyRoutes {
             None => canopy_mongo::load_policies(&self.meta).await?,
         };
         let engine = PolicyEngine::new(set);
-        let context = self.impersonate(call, collection, &engine).await?;
+        let context =
+            impersonate(body_field(call, "as"), Some(&[collection]), &engine, &self.contexts, (self.now)())
+                .await?;
         let filter = match body_field(call, "filter") {
             None => canopy_protocol::Document::new(),
             Some(Value::Document(filter)) => filter.clone(),
@@ -493,7 +491,14 @@ impl PolicyRoutes {
                     ("filter", optional(Schema::Document)),
                 ])?;
                 let engine = PolicyEngine::new(canopy_mongo::load_policies(&self.meta).await?);
-                let context = self.impersonate(call, collection, &engine).await?;
+                let context = impersonate(
+                    body_field(call, "as"),
+                    Some(&[collection]),
+                    &engine,
+                    &self.contexts,
+                    (self.now)(),
+                )
+                .await?;
                 let request = ExplainRequest {
                     collection: collection.to_owned(),
                     op: operation(call),

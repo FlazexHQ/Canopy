@@ -9,7 +9,7 @@
 //! placeholder to the first value found at its place and requires every later use to repeat it (and no two
 //! placeholders to share a value), which is the same relation without depending on numbering order.
 //!
-//! Policy and email template routes are served through their delegates. Steps for the data routes, realtime
+//! Policy, data and email template routes are served through their delegates. Steps for realtime
 //! inspector and signing keys also match when the router answers them directly. Remaining steps in those
 //! groups and the doctor can be pending. Every other step must match.
 
@@ -21,8 +21,8 @@ use std::sync::atomic::{AtomicI64, Ordering};
 
 use canopy_control::totp::{TotpOptions, base32_decode, totp};
 use canopy_control::{
-    BuiltinMethods, Control, ControlOptions, Environment, PolicyRoutes, ROLE_NAMES, TemplateRoutes,
-    WebhookAdmin, builtin_providers,
+    AdminRole, BuiltinMethods, Call, Control, ControlOptions, DataRoutes, Delegate, Environment,
+    PolicyRoutes, ROLE_NAMES, TemplateRoutes, WebhookAdmin, builtin_providers,
 };
 use canopy_http::Request;
 use canopy_mongo::mongodb::bson::{Bson, DateTime, Document, doc, oid::ObjectId};
@@ -34,6 +34,7 @@ use regex::Regex;
 const ORIGIN: &str = "https://admin.example.test";
 const HOST: &str = "admin.example.test";
 const PEER: &str = "127.0.0.1";
+const FIXTURE_SECRET: &str = "fixture private field";
 
 const COLLECTIONS: [&str; 11] = [
     "admin_sessions",
@@ -50,13 +51,11 @@ const COLLECTIONS: [&str; 11] = [
 ];
 
 /// Route groups served by delegates this test does not provide, by their method and path.
-fn delegated(method: &str, path: &str) -> Option<&'static str> {
+fn delegated(path: &str) -> Option<&'static str> {
     let route = path.trim_start_matches("/admin/v1/");
     let route = route.split('?').next().unwrap_or_default();
     let first = route.split('/').next().unwrap_or_default();
     match first {
-        "collections" if method == "PATCH" && route.matches('/').count() == 1 => None,
-        "collections" | "openapi" | "graphql" => Some("data"),
         "realtime" => Some("realtime"),
         "users" => Some("users"),
         "auth" if route.starts_with("auth/keys") => Some("signing keys"),
@@ -390,7 +389,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     client
         .database(&database)
         .collection::<Document>("notes")
-        .insert_one(doc! { "_id": "seed", "title": "Seed note", "secret": "fixture private field" })
+        .insert_one(doc! { "_id": "seed", "title": "Seed note", "secret": FIXTURE_SECRET })
         .await
         .map_err(|error| error.to_string())?;
     canopy_migrations::migrate(&meta, canopy_migrations::MigrationOptions::default())
@@ -426,6 +425,15 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
         Some(Arc::new(TemplateRoutes::new(&meta, "Fixture app".into(), Arc::clone(&clock))));
     options.services.policies =
         Some(Arc::new(PolicyRoutes::new(&meta, &client.database(&database), Arc::clone(&clock))));
+    let http_client = reqwest::Client::builder().build().map_err(|error| error.to_string())?;
+    let auth = canopy_auth::Authenticator::new(None, None, Vec::new(), http_client)?;
+    let data =
+        Arc::new(DataRoutes::new(client.clone(), &database, &meta_name, Arc::clone(&clock)).with_graphql(
+            auth,
+            canopy_graphql::endpoint::GraphqlOptions::default(),
+            canopy_data::ReadLimits::default(),
+        ));
+    options.services.data = Some(data.clone());
     let control = Control::new(options);
     let setup = control
         .create_setup_token()
@@ -462,6 +470,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
     bindings.bind("<setup-token-hash>", &setup_hash);
     bindings.bind("<meta>", &meta_name);
     bindings.bind("<database>", &database);
+    bindings.bind("<secret:documents>", FIXTURE_SECRET);
 
     let mut previous: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut matched = 0;
@@ -478,7 +487,7 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
         advance(100);
         let request = get(&step, "request");
         let target = string(get(request, "target"));
-        let group = delegated(&string(get(request, "method")), &target);
+        let group = delegated(&target);
         let resolved_target = bindings.resolve(&target, epoch);
         let mut headers = Vec::new();
         let mut unresolved = resolved_target.is_none();
@@ -625,14 +634,92 @@ async fn replay(client: &Client, role: &str) -> Result<Outcome, String> {
             }
         }
     }
+    if role == "owner"
+        && let Err(error) = check_view_as(&data, &client.database(&database), &meta).await
+    {
+        failures.push(error);
+    }
     for name in [&database, &meta_name] {
         let _ = client.database(name).drop().await;
     }
     if failures.is_empty() { Ok(Outcome { matched, pending }) } else { Err(failures.join("\n")) }
 }
 
+async fn check_view_as(data: &DataRoutes, app: &Database, meta: &Database) -> Result<(), String> {
+    use canopy_protocol::ejson::stringify;
+    use canopy_protocol::{ErrorCode, Value};
+    meta.collection::<Document>("policies")
+        .insert_one(doc! {
+            "_id": "restricted", "exposed": true, "realtime": false,
+            "policies": [{
+                "name": "read own", "kind": "permissive", "ops": ["read"], "roles": ["authenticated"],
+                "using": r#"{"owner":{"$auth":"sub"}}"#,
+            }],
+            "fields": { "read": { "default": { "omit": ["private"] } } },
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    app.collection::<Document>("restricted")
+        .insert_many([
+            doc! { "_id": "mine", "owner": "alice", "private": "visible document private field" },
+            doc! { "_id": "theirs", "owner": "bob", "private": "other document private field" },
+        ])
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut call = Call {
+        route: "GET collections/:collection/documents".to_owned(),
+        params: vec![("collection".to_owned(), "restricted".to_owned())],
+        query: vec![("as".to_owned(), r#"{"user":"alice"}"#.to_owned())],
+        headers: Vec::new(),
+        body: None,
+        role: AdminRole::Owner,
+        production: false,
+        actor: Document::new(),
+        origin: Document::new(),
+    };
+    let reply = data.serve(&call).await.map_err(|error| error.message().to_owned())?;
+    let Some(Value::Document(body)) = reply.body else {
+        return Err("Expected a view as response".to_owned());
+    };
+    let actual = stringify(body.get("data").ok_or("Missing view as documents")?)
+        .map_err(|error| error.message().to_owned())?;
+    assert_eq!(actual, r#"[{"_id":"mine","owner":"alice"}]"#);
+    call.route = "GET collections/:collection/documents/:id".to_owned();
+    call.params.push(("id".to_owned(), "theirs".to_owned()));
+    assert_eq!(
+        data.serve(&call).await.expect_err("The other document must be hidden").code(),
+        ErrorCode::NotFound
+    );
+
+    call.route = "POST graphql".to_owned();
+    call.body = Some(
+        canopy_protocol::ejson::parse(
+            r#"{"query":"{ restricted { nodes { _id owner } } }","as":{"user":"alice"}}"#,
+            canopy_protocol::ejson::DecodeOptions::default(),
+        )
+        .map_err(|error| error.message().to_owned())?,
+    );
+    let reply = data.serve(&call).await.map_err(|error| error.message().to_owned())?;
+    let actual =
+        stringify(&reply.body.ok_or("Missing GraphQL body")?).map_err(|error| error.message().to_owned())?;
+    assert_eq!(actual, r#"{"data":{"restricted":{"nodes":[{"_id":"mine","owner":"alice"}]}}}"#);
+
+    call.route = "GET openapi".to_owned();
+    call.query.clear();
+    let reply = data.serve(&call).await.map_err(|error| error.message().to_owned())?;
+    let body = reply.body.ok_or("Missing OpenAPI body")?;
+    let spec = stringify(&body).map_err(|error| error.message().to_owned())?;
+    assert!(spec.contains("/rest/v1/restricted"));
+    assert!(spec.contains("read own"));
+    assert!(!spec.contains("$auth"));
+    assert!(!spec.contains("\"private\""));
+    assert!(!spec.contains("restricted.Insert"));
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn replays_the_typescript_admin_oracle() -> Result<(), String> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
         eprintln!("Skipping the admin oracle replay because CANOPY_TEST_MONGODB_URI is unset");
         return Ok(());

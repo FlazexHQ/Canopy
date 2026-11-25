@@ -371,6 +371,11 @@ fn introspects(document: &ExecutableDocument) -> bool {
         || document.fragments.values().any(|fragment| walk_introspects(&fragment.selection_set))
 }
 
+struct AdminExecution {
+    allow_mutations: bool,
+    mutation: bool,
+}
+
 /// The outcome of one operation, before it is written.
 #[derive(Clone, Debug, PartialEq)]
 struct Outcome {
@@ -801,10 +806,19 @@ impl Graphql {
         compiled: &CompiledSchema,
         params: &Json,
     ) -> Outcome {
-        let prepared = match self.prepare(request, caller, compiled, params) {
+        let prepared = match self.prepare(request, caller, compiled, params, None) {
             Ok(prepared) => prepared,
             Err(outcome) => return outcome,
         };
+        self.execute_prepared(caller, compiled, &prepared).await
+    }
+
+    async fn execute_prepared(
+        &self,
+        caller: &Caller,
+        compiled: &CompiledSchema,
+        prepared: &Prepared,
+    ) -> Outcome {
         let services = Services {
             reads: self.reads(),
             writes: self.rest.write_path().map(Arc::as_ref),
@@ -821,6 +835,51 @@ impl Graphql {
         )
         .await
         .into()
+    }
+
+    /// Runs the explorer with a caller already authorized by the admin API. Returns the GraphQL result
+    /// and whether the selected operation was a mutation, for audit.
+    pub async fn run_admin(
+        &self,
+        caller: &Caller,
+        params: &Json,
+        allow_mutations: bool,
+    ) -> Result<(Json, bool), CanopyError> {
+        let mut admin = AdminExecution { allow_mutations, mutation: false };
+        let outcome = match self.schema_of(caller).await {
+            Ok(compiled) => match self.prepare(
+                &Request::new("POST", &self.options.path),
+                caller,
+                &compiled,
+                params,
+                Some(&mut admin),
+            ) {
+                Ok(prepared) => {
+                    let mut outcome = self.execute_prepared(caller, &compiled, &prepared).await;
+                    outcome.data = Some(outcome.data.unwrap_or(Json::Null));
+                    outcome
+                }
+                Err(outcome) => outcome,
+            },
+            Err(error) => Outcome::failed(GraphqlError::from_canopy(&error)),
+        };
+        let mut entries = Vec::new();
+        if let Some(data) = outcome.data {
+            entries.push(("data".to_owned(), data));
+        }
+        if !outcome.errors.is_empty() {
+            let errors = outcome
+                .errors
+                .into_iter()
+                .map(|error| {
+                    let mut text = String::new();
+                    masked(error).write(&mut text);
+                    parse_json(&text)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            entries.push(("errors".to_owned(), Json::Array(errors)));
+        }
+        Ok((Json::Object(entries), admin.mutation))
     }
 
     /// Starts one operation for a streaming transport, as the TypeScript `prepare` does for graphql-ws: the
@@ -846,8 +905,9 @@ impl Graphql {
             .map_err(|error| errors(&[GraphqlError::from_canopy(&error)]))?;
         let compiled =
             self.schema_of(&caller).await.map_err(|error| errors(&[GraphqlError::from_canopy(&error)]))?;
-        let prepared =
-            self.prepare(request, &caller, &compiled, params).map_err(|outcome| errors(&outcome.errors))?;
+        let prepared = self
+            .prepare(request, &caller, &compiled, params, None)
+            .map_err(|outcome| errors(&outcome.errors))?;
         let services = Services {
             reads: self.reads(),
             writes: self.rest.write_path().map(Arc::as_ref),
@@ -894,6 +954,7 @@ impl Graphql {
         caller: &Caller,
         compiled: &CompiledSchema,
         params: &Json,
+        mut admin: Option<&mut AdminExecution>,
     ) -> Result<Prepared, Outcome> {
         let query = match self.persisted(params) {
             Ok(query) => query,
@@ -963,6 +1024,9 @@ impl Graphql {
                 .with_status(400),
             ));
         };
+        if let Some(admin) = admin.as_deref_mut() {
+            admin.mutation = chosen.operation_type == OperationType::Mutation;
+        }
         if chosen.operation_type == OperationType::Mutation && request.method == "GET" {
             return Err(Outcome::failed(allow(
                 bad_request("Can only perform a mutation operation from a POST request.", 405),
@@ -999,6 +1063,20 @@ impl Graphql {
                 .with_status(400),
             ));
         };
+        if let Some(admin) = admin {
+            if operation.operation_type == OperationType::Subscription {
+                return Err(Outcome::failed(GraphqlError::coded(
+                    "Subscriptions need a transport; use /graphql/v1",
+                    "CANOPY_INVALID_QUERY",
+                )));
+            }
+            if admin.mutation && !admin.allow_mutations {
+                return Err(Outcome::failed(GraphqlError::coded(
+                    "Mutations are not allowed here",
+                    "CANOPY_FORBIDDEN",
+                )));
+            }
+        }
         let operation: Node<Operation> = operation.clone();
         let idempotency_key = request.header("idempotency-key");
         if let Some(error) =
@@ -1264,7 +1342,7 @@ impl Graphql {
             }
             return Ok(Answer::Response(self.respond(request, request_id, &outcomes, true)));
         }
-        let prepared = match self.prepare(request, &caller, &compiled, &params) {
+        let prepared = match self.prepare(request, &caller, &compiled, &params, None) {
             Ok(prepared) => prepared,
             Err(outcome) => return Ok(self.answer_one(request, request_id, outcome, DEFAULT_PROCESSORS)),
         };

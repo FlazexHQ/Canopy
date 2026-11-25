@@ -48,8 +48,14 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   their history commit in one transaction with optimistic version checks. The control role registers
   the delegate for built in auth. The mailer can send a test preview through the configured transport.
   Mail tests exercise concurrent edits and test delivery through a local SMTP relay on both replica sets.
-- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one. The data routes,
-  realtime inspector, app users and signing keys still need their delegates.
+- The [data delegate](../../../crates/canopy-control/src/data.rs) serves collections, schema, statistics,
+  OpenAPI, the GraphQL explorer and document reads and writes in the control role. Collection toggles
+  use the policy publisher. View as resolves context lookups and uses the same policy snapshot for
+  document filtering and field visibility. Viewer document reads mask fields hidden from the authenticated
+  role. The [OpenAPI renderer](../../../crates/canopy-control/src/openapi.rs) derives operations and field
+  schemas from the selected role's grants and names policies without exposing their filters.
+- Groups owned elsewhere go through a `Delegate` trait and answer `404` without one. The realtime
+  inspector, app users and signing keys still need their delegates.
 - The [oracle replay](../../../crates/canopy-control/tests/admin_oracle.rs) rebuilds every recorded request
   from earlier Rust answers, applies the recorder's substitutions to the Rust output, and binds the numbered
   placeholders by unification, so a pending step cannot shift later numbering. On MongoDB 8.0.34 and 9.0.8,
@@ -57,6 +63,13 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   with their state diffs (owner 75, admin 79, developer 82, viewer 95). This includes every template
   step and the audit list. The 102 pending steps in that run include policy diagnostics under parallel
   development, the other delegated groups, and the doctor (its realtime and revocation checks).
+- With the data delegate and policy diagnostics, the oracle matches 391 of 433 steps on MongoDB 8.0.34
+  (port 37017) and 9.0.8 (port 37090). Owner matches 92 with 14 pending, admin 96 with 14 pending,
+  developer 99 with 11 pending, and viewer 104 with 3 pending. All data steps match byte for byte
+  after substitutions, including the document write audit entries. The 42 pending steps cover realtime,
+  signing keys and doctor. The replay also verifies that a view as caller cannot see another user's
+  document through the admin list, document or GraphQL routes, and that OpenAPI omits fields and
+  operations the selected role cannot access.
 - `CANOPY_ROLE=control` in `canopyd` ([control.rs](../../../crates/canopyd/src/control.rs)) migrates the meta
   database, publishes `CANOPY_POLICY_BUNDLE`, logs a setup token while no owner exists, runs the webhooks of
   the config's `webhooks` section (or `CANOPY_WEBHOOKS`), and serves only `/admin/v1`, `/healthz` and
@@ -64,9 +77,8 @@ evidence, what is in progress, and what comes next. The newest checkpoint is at 
   `CANOPY_MASTER_KEY_PREVIOUS` and `CANOPY_WEBHOOK_SECRET`. The [role test](../../../crates/canopyd/tests/control.rs)
   checks the migrations, the setup token, the schedule state and that data routes answer `404`.
 - Fixed in `canopy-webhooks`: requeueing a dead letter writes the delivery fields in the TypeScript order.
-- Remaining for R1: the data route delegate (collections, schema, stats, OpenAPI, the GraphQL explorer,
-  documents with view as, masking and writes), the realtime inspector (needs
-  engine introspection in `canopyd`), the providers document from the config in `canopyd`, app user session
+- Remaining for R1: the realtime inspector (needs engine introspection in `canopyd`),
+  the providers document from the config in `canopyd`, app user session
   revocation in the danger zone (R5), compose, Helm and Kubernetes running `control` as a role of the
   `canopy` image, and the edge routing `/admin/v1` to it.
 

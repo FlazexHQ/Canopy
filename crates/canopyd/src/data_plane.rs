@@ -68,16 +68,23 @@ pub(crate) fn write_path(
         .with_mutation_ttl(config.writes.mutation_ttl_seconds)
         .with_explained_denials(config.writes.explain_denials);
     if config.writes.audit {
-        let audit = meta.collection::<canopy_mongo::mongodb::bson::Document>("audit_log");
-        writes = writes.with_observer(Arc::new(move |event: &WriteEvent| {
-            let Ok(entry) = audit_entry(event) else { return };
-            let audit = audit.clone();
-            tokio::spawn(async move {
-                let _ = audit.insert_one(entry).await;
-            });
-        }));
+        writes = writes.with_observer(write_observer(&meta));
     }
     Ok(writes)
+}
+
+/// Records data writes for either HTTP role when data write auditing is enabled.
+pub(crate) fn write_observer(
+    meta: &canopy_mongo::mongodb::Database,
+) -> Arc<dyn Fn(&WriteEvent) + Send + Sync> {
+    let audit = meta.collection::<canopy_mongo::mongodb::bson::Document>("audit_log");
+    Arc::new(move |event: &WriteEvent| {
+        let Ok(entry) = audit_entry(event) else { return };
+        let audit = audit.clone();
+        tokio::spawn(async move {
+            let _ = audit.insert_one(entry).await;
+        });
+    })
 }
 
 /// The audit entry of a committed write, as the server records it: the operation, the caller, the collection
@@ -112,7 +119,8 @@ fn audit_entry(
     canopy_mongo::to_bson(&entry)
 }
 
-fn graphql_options(
+/// The GraphQL settings shared by the public endpoint and the admin explorer.
+pub(crate) fn graphql_options(
     settings: &GraphqlSettings,
     cors: Option<canopy_http::Cors>,
     max_body_bytes: u64,

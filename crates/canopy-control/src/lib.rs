@@ -14,7 +14,9 @@ mod accounts;
 mod api;
 mod api_keys;
 mod core;
+mod data;
 mod http;
+mod openapi;
 mod passwords;
 mod policies;
 mod rate_limit;
@@ -35,6 +37,7 @@ use canopy_mongo::mongodb::{Client, Database};
 use canopy_protocol::CanopyError;
 
 pub use crate::core::{Actor, Clock, RequestOrigin, system_clock};
+pub use crate::data::DataRoutes;
 pub use crate::http::{API_CSP, CSRF_COOKIE, CSRF_HEADER, SESSION_COOKIE};
 pub use crate::policies::PolicyRoutes;
 pub use crate::rbac::{ADMIN_ROLES, AdminRole, Permission, ROLE_NAMES, can};

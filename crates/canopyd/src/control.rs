@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use canopy_config::GatewayConfig;
 use canopy_control::{
-    Control, ControlOptions, Environment, MetaStatus, PolicyRoutes, TemplateRoutes, WebhookAdmin,
+    Control, ControlOptions, DataRoutes, Environment, MetaStatus, PolicyRoutes, TemplateRoutes, WebhookAdmin,
 };
 use canopy_mongo::mongodb::bson::{Bson, Document, doc};
 use canopy_mongo::mongodb::{self, Client};
@@ -262,10 +262,10 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
     control_options.admin_listen = env("CANOPY_ADMIN_LISTEN");
     control_options.search_collections = config.search_collections.clone();
     control_options.webhooks = webhook_admin;
+    let raw_config = text.as_deref().map(parse_json).transpose().map_err(|error| message(&error))?;
     if config.auth.as_ref().is_some_and(|auth| auth.builtin_jwks_grace_ms.is_some())
         || env("CANOPY_SPLIT_BUILTIN_AUTH").as_deref() == Some("on")
     {
-        let raw_config = text.as_deref().map(parse_json).transpose().map_err(|error| message(&error))?;
         let app_name = match raw_config
             .as_ref()
             .and_then(|config| config.get("auth"))
@@ -282,6 +282,31 @@ pub(crate) async fn start(config: GatewayConfig, text: Option<String>, log: Log)
         &client.database(&config.database),
         canopy_control::system_clock(),
     )));
+    let rest_enabled =
+        !matches!(raw_config.as_ref().and_then(|value| value.get("rest")), Some(Json::Bool(false)));
+    let mut data = DataRoutes::new(
+        client.clone(),
+        &config.database,
+        &config.meta_database,
+        Arc::clone(&control_options.now),
+    )
+    .with_rest(rest_enabled, config.writes.clone());
+    if config.writes.audit {
+        data = data.with_write_observer(crate::data_plane::write_observer(&meta));
+    }
+    if let Some(settings) = &config.graphql {
+        let http_client = reqwest::Client::builder().build().map_err(|error| error.to_string())?;
+        let auth = canopy_auth::Authenticator::new(None, None, Vec::new(), http_client)?;
+        let options = crate::data_plane::graphql_options(settings, None, config.rest_limits.max_body_bytes);
+        let limits = canopy_data::ReadLimits {
+            default_limit: config.rest_limits.default_limit,
+            max_limit: config.rest_limits.max_limit,
+            max_skip: config.rest_limits.max_skip,
+            ..canopy_data::ReadLimits::default()
+        };
+        data = data.with_graphql(auth, options, limits);
+    }
+    control_options.services.data = Some(Arc::new(data));
     control_options.status = Arc::new(MetaStatus::new(&meta));
     if control_options.environment == Environment::Production && control_options.master_key.is_none() {
         return Err("CANOPY_MASTER_KEY is required in production".to_owned());
