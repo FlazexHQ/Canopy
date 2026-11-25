@@ -3,6 +3,28 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R2 gates after the maintainer's decisions, CI green
+
+- The decisions (ec3e1809): startup timed on the first snapshot shown; keep working on matching in
+  browsers; do the Document refactor in R2.
+- Gate status with numbers: client module 81,328 Brotli bytes (reproducible, gate enforced in CI;
+  f0e495c6 kept the native release profile overrides out of the Wasm build); eager JavaScript smaller
+  than TypeScript; compile and instantiate about 6.4 ms; startup first snapshot within 2.5% of TypeScript
+  (default CSP) and 1.1% over (strict CSP), ready 55 ms later (105 ms with wasm2js), 248f76bb; matching on
+  retained documents: Bun and Node pass all six, Chromium 4x passes five, simple equality about 1.45x
+  (work in progress by Codex, paused on a usage limit until about 6:02 AM IST, uncommitted); first
+  contact cost (not gated) broken down: mostly JavaScript BSON encoding and the Rust decode into owned
+  documents (e2158298, Canopy.js f3d8db9); update ratio waits on the Document refactor (claudeAgent in
+  a separate worktree, paused on a usage limit until 6:50 AM IST); wasm2js on Hermes 2.36x to 3.85x for
+  matching (gate 3x).
+- Commits: 9e397129 and Canopy.js d4dcb90 (shared slot buffer; a per filter decision cache was removed
+  because document objects are not frozen), e2158298 and f3d8db9, f963edb0 (startup harness times first
+  snapshot and ready), d81daa15 and fe3b720f (images build canopy.js/emit with Canopy.js's own
+  dependencies; schema guide no longer describes Standard Schema), cfa17272 (macOS path in a CLI test),
+  f0e495c6, 248f76bb.
+- CI on fe3b720f passed every job (run 45717973070); the Security check on PR #6 stays red by the
+  maintainer's decision.
+
 ## Checkpoint (2026-11-26): R2 closure work, CI repairs and R7 preparation
 
 - R2: the client module size fix and the build gate (a8a2c3c1, dbac0c47), the reproducible Wasm build
@@ -1367,7 +1389,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2: client size fixed at 81,126 Brotli bytes, build gate and reproducible Wasm in CI, Canopy.js core removed; open for maintainer: quiet machine matching measurement, Hermes wasm2js gate, startup re-measurement | R2 | Big | `claudeAgent` |
+| 2 | R2: client module 81,328 Brotli bytes, build gate and reproducible Wasm in CI; startup gate passes on first snapshot; matching passes on Bun, Node and 5 of 6 on Chromium 4x (Codex on browser equality); update ratio waits on Document refactor (claudeAgent); Hermes wasm2js 2.36x to 3.85x | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 in progress: claudeAgent paused on usage limit, resumes on its own (wiring pull, schema, indexes, type generation, init, doctor, dev, real emitter in golden replay, usage text) | R4 | Big | `claudeAgent` |
 | 5 | R7 preparation: removal map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
