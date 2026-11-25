@@ -522,6 +522,25 @@ benchmark. Module evaluation and first ready results over 50 runs per sample:
 Module evaluation is 6.45 ms to 6.50 ms median in the two Rust runs without strict CSP. First ready is
 144.45 ms and 148.40 ms in those runs, compared with 97.30 ms and 94.80 ms on the TypeScript baseline.
 
+### First snapshot and startup gate (2026-11-26)
+
+Measurements on Windows 11 with an AMD processor under an idle machine state (measured CPU load was 5%). Headless Chromium at 4x CPU slowdown loaded the R0 app built by `root-entry.ts` over two interleaved rounds of 50 runs for the TypeScript baseline and Rust core with default CSP, and one round of 50 runs each with strict CSP (`script-src 'self' 'nonce-r2startup'`). The Canopy dev server ran on port 3000 against a MongoDB replica set on port 37017 with publishable key `canopy_pk_dev_test123456`. Each Rust run passed the TypeScript JSON of the same CSP configuration as `--baseline`.
+
+| Build and configuration | Evaluation median / p95 (ms) | First snapshot median / p95 (ms) | First ready median / p95 (ms) | Delay median / p95 (ms) |        Startup gate verdict |
+| ----------------------- | ---------------------------: | -------------------------------: | ----------------------------: | ----------------------: | --------------------------: |
+| TypeScript round 1      |                28.15 / 31.20 |                   96.15 / 104.80 |                96.15 / 104.80 |             0.00 / 0.00 |                    Baseline |
+| Rust core round 1       |                  6.45 / 7.80 |                   95.10 / 113.20 |               150.00 / 174.80 |           55.65 / 65.10 | Pass (1.09% faster than TS) |
+| TypeScript round 2      |                28.60 / 30.50 |                   97.80 / 102.20 |                97.80 / 102.20 |             0.00 / 0.00 |                    Baseline |
+| Rust core round 2       |                 6.40 / 27.20 |                   95.35 / 102.60 |               150.20 / 156.80 |           55.20 / 59.90 | Pass (2.51% faster than TS) |
+| TypeScript strict CSP   |                27.75 / 29.60 |                   95.05 / 106.30 |                95.05 / 106.30 |             0.00 / 0.00 |                    Baseline |
+| Rust core strict CSP    |                 6.30 / 26.10 |                   96.10 / 102.70 |               200.80 / 223.40 |         104.60 / 121.90 |       Pass (+1.10% over TS) |
+
+All startup gate criteria pass:
+
+1. First snapshot timing: the startup gate requires the first snapshot shown (stale or ready) to be at most 5% over the TypeScript baseline. The Rust core first snapshot median was 95.10 ms in round 1 (1.09% faster than TypeScript at 96.15 ms), 95.35 ms in round 2 (2.51% faster than TypeScript at 97.80 ms), and 96.10 ms under strict CSP (1.10% over TypeScript at 95.05 ms, well within the 5% allowance).
+2. Module evaluation: module compile and instantiate is 6.30 ms to 6.45 ms median across all Rust configurations (p95 between 7.80 ms and 27.20 ms), passing the 30 ms threshold.
+3. Delay to ready: the live query shows its first server snapshot immediately as stale, then reports ready once the client core has loaded and optimistic changes apply. The median delay between the first snapshot and the ready state was 55.65 ms in round 1, 55.20 ms in round 2, and 104.60 ms under strict CSP with wasm2js fallback.
+
 ### Engine matching throughput (nanoseconds per document)
 
 These runs used repeated document objects, the warm number the gate uses. Values are median [spread
