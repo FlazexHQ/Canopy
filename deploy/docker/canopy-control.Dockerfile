@@ -7,7 +7,7 @@ COPY --from=canopyjs . /Canopy.js
 COPY package.json bun.lock bunfig.toml tsconfig*.json ./
 COPY packages ./packages
 RUN bun install --frozen-lockfile --ignore-scripts \
-    && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json /Canopy.js/src/tsconfig.config.json \
+    && node_modules/.bin/tsc -b /Canopy.js/src/tsconfig.json && bun /Canopy.js/scripts/sync-wasm.ts --dist \
     && bun install --frozen-lockfile --ignore-scripts
 RUN bunx tsc -b packages/control
 RUN mkdir /runtime \
@@ -24,7 +24,7 @@ RUN mkdir -p node_modules/@canopy \
     && ln -s ../../packages/policy node_modules/@canopy/policy \
     && ln -s ../../packages/config node_modules/@canopy/config \
     && ln -sfn "$(realpath --relative-to=node_modules "$(readlink -f packages/server/node_modules/canopy.js)")" node_modules/canopy.js \
-    && test -f node_modules/canopy.js/dist/core/policy/index.js
+    && test -f node_modules/canopy.js/dist/policy/index.js
 
 FROM oven/bun:1.4.4-distroless@sha256:153a951ae40106e125898103e6e990ee0f38e6aee7f561029e26cf9fbed23470
 WORKDIR /app
