@@ -6,7 +6,11 @@ use documents::{Account, Verification};
 pub(super) const RESET_TTL_MS: i64 = 3_600_000;
 
 impl Call<'_> {
-    async fn derive(&self, password: &str, stored: Option<String>) -> Result<(bool, Option<String>)> {
+    pub(super) async fn derive(
+        &self,
+        password: &str,
+        stored: Option<String>,
+    ) -> Result<(bool, Option<String>)> {
         let permit = Arc::clone(&self.router.password_slots).acquire_owned().await.map_err(internal)?;
         let password = password.to_owned();
         tokio::task::spawn_blocking(move || {
@@ -28,7 +32,7 @@ impl Call<'_> {
         .map_err(internal)?
     }
 
-    fn check_password(&self, password: &str) -> Option<Response> {
+    pub(super) fn check_password(&self, password: &str) -> Option<Response> {
         let length = password.encode_utf16().count();
         if length < self.router.options.min_password_length {
             Some(error(400, "PASSWORD_TOO_SHORT", "Password too short"))
@@ -168,7 +172,7 @@ impl Call<'_> {
             return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
         }
         if body.get("password").and_then(Value::as_str).is_none() {
-            return self.sign_in_failure(&email, validation(body, "password")).await;
+            return self.sign_in_failure(&email, "password", validation(body, "password")).await;
         }
         let password = body.get("password").and_then(Value::as_str).unwrap_or_default();
         let user = self.user(doc! {"email": &email}).await?;
@@ -180,20 +184,25 @@ impl Call<'_> {
         let (verified, replacement) = self.derive(password, stored.clone()).await?;
         let Some(user) = user.filter(|_| verified) else {
             return self
-                .sign_in_failure(&email, error(401, "INVALID_EMAIL_OR_PASSWORD", "Invalid email or password"))
+                .sign_in_failure(
+                    &email,
+                    "password",
+                    error(401, "INVALID_EMAIL_OR_PASSWORD", "Invalid email or password"),
+                )
                 .await;
         };
         if self.banned(&user) || user.extra.get_bool("twoFactorEnabled").unwrap_or(false) {
             return self
                 .sign_in_failure(
                     &email,
+                    "password",
                     error(403, "FORBIDDEN", "Password sign in is unavailable for this user"),
                 )
                 .await;
         }
         if self.router.options.require_email_verification && !user.email_verified {
             return self
-                .sign_in_failure(&email, error(403, "EMAIL_NOT_VERIFIED", "Email not verified"))
+                .sign_in_failure(&email, "password", error(403, "EMAIL_NOT_VERIFIED", "Email not verified"))
                 .await;
         }
         if let (Some(account), Some(previous), Some(replacement)) = (account, stored, replacement) {
@@ -223,7 +232,12 @@ impl Call<'_> {
         Ok(reply)
     }
 
-    async fn sign_in_failure(&self, email: &str, reply: Response) -> Result<Response> {
+    pub(super) async fn sign_in_failure(
+        &self,
+        email: &str,
+        method: &str,
+        reply: Response,
+    ) -> Result<Response> {
         let key = format!("fail|{email}");
         self.router.collection("identifier_limits").update_one(doc! {"_id": key}, vec![
             doc! {"$set": {
@@ -239,7 +253,7 @@ impl Call<'_> {
             "auth.sign_in_failed",
             doc! {"type":"anonymous"},
             None,
-            Some(doc! {"method":"password", "email":email, "status":i32::from(reply.status)}),
+            Some(doc! {"method":method, "email":email, "status":i32::from(reply.status)}),
             true,
         )
         .await?;

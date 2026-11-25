@@ -694,9 +694,18 @@ export async function recordAdmin(uri: string, dir: string, check: boolean): Pro
   if (!check) await mkdir(dir, { recursive: true })
   for (const [name, content] of outputs) {
     const path = join(dir, name)
-    if (!check) await writeFile(path, content)
-    else if ((await readFile(path, "utf8")).replaceAll("\r\n", "\n") !== content)
-      differing.push(name)
+    if (!check) {
+      await writeFile(path, content)
+      continue
+    }
+    const saved = (await readFile(path, "utf8")).replaceAll("\r\n", "\n")
+    if (saved === content) continue
+    const want = saved.split("\n")
+    const got = content.split("\n")
+    const line = got.findIndex((text, at) => text !== want[at])
+    differing.push(
+      line < 0 ? name : `${name}:${line + 1}: ${want[line]?.trim()} became ${got[line]?.trim()}`,
+    )
   }
   return differing
 }

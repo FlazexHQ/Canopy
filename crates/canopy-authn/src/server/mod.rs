@@ -28,6 +28,8 @@ macro_rules! object {
 mod documents;
 mod email;
 mod floor;
+mod magic_link;
+mod otp;
 mod password;
 mod session;
 
@@ -158,17 +160,8 @@ impl AuthRouter {
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             floor,
         };
-        for (collection, key) in [("users", "email"), ("sessions", "token"), ("rate_limits", "key")] {
-            router
-                .collection(collection)
-                .create_index(
-                    IndexModel::builder()
-                        .keys(doc! { key: 1 })
-                        .options(IndexOptions::builder().name(key.to_owned()).unique(true).build())
-                        .build(),
-                )
-                .await
-                .map_err(internal)?;
+        for (collection, indexes) in auth_indexes() {
+            router.collection(collection).create_indexes(indexes).await.map_err(internal)?;
         }
         Ok(router)
     }
@@ -316,6 +309,9 @@ impl Call<'_> {
         let reset_link = get && self.route.starts_with("/reset-password/");
         let allowed = match self.route {
             "/verify-email" | "/get-session" | "/list-sessions" => get,
+            "/magic-link/verify" => get && self.feature("magic_link"),
+            "/sign-in/magic-link" => self.request.method == "POST" && self.feature("magic_link"),
+            route if otp::is_route(route) => self.request.method == "POST" && self.feature("email_otp"),
             "/sign-up/email"
             | "/sign-in/email"
             | "/sign-out"
@@ -357,6 +353,22 @@ impl Call<'_> {
             Body::Unreadable => return Ok(error(400, "BAD_REQUEST", "Invalid JSON in request body")),
             _ => return Ok(error(413, "PAYLOAD_TOO_LARGE", "Request body is too large")),
         };
+        if matches!(
+            self.route,
+            "/sign-up/email"
+                | "/sign-in/email"
+                | "/send-verification-email"
+                | "/request-password-reset"
+                | "/sign-in/magic-link"
+                | "/sign-in/email-otp"
+                | "/email-otp/send-verification-otp"
+                | "/email-otp/request-password-reset"
+                | "/forget-password/email-otp"
+        ) && let Some(email) = body.get("email").and_then(Value::as_str).filter(|email| email.len() <= 320)
+            && !self.identifier_hit(&email.trim().to_lowercase()).await?
+        {
+            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
+        }
         for callback in [
             params.get("callbackURL").map(String::as_str),
             body.get("callbackURL").and_then(Value::as_str),
@@ -369,13 +381,14 @@ impl Call<'_> {
                 return Ok(error(403, "INVALID_CALLBACK_URL", "Invalid callbackURL"));
             }
         }
-        if matches!(
-            self.route,
-            "/sign-up/email" | "/sign-in/email" | "/send-verification-email" | "/request-password-reset"
-        ) && let Some(email) = body.get("email").and_then(Value::as_str).filter(|email| email.len() <= 320)
-            && !self.identifier_hit(&email.trim().to_lowercase()).await?
-        {
-            return Ok(error(429, "TOO_MANY_REQUESTS", "Too many requests"));
+        if matches!(self.route, "/sign-in/magic-link" | "/magic-link/verify") {
+            for field in ["newUserCallbackURL", "errorCallbackURL"] {
+                let callback =
+                    params.get(field).map(String::as_str).or_else(|| body.get(field).and_then(Value::as_str));
+                if callback.is_some_and(|callback| !self.router.trusts_callback(callback)) {
+                    return Ok(error(403, "INVALID_CALLBACK_URL", &format!("Invalid {field}")));
+                }
+            }
         }
         if reset_link {
             return self.reset_link(&params).await;
@@ -383,6 +396,9 @@ impl Call<'_> {
         match self.route {
             "/sign-up/email" => self.sign_up(&body).await,
             "/sign-in/email" => self.sign_in(&body).await,
+            "/sign-in/magic-link" => self.send_magic_link(&body).await,
+            "/magic-link/verify" => self.verify_magic_link(&params).await,
+            route if otp::is_route(route) => self.otp_route(&body).await,
             "/verify-email" => self.verify_email(&params).await,
             "/send-verification-email" => self.resend(&body).await,
             "/request-password-reset" => self.request_reset(&body).await,
@@ -392,6 +408,10 @@ impl Call<'_> {
         }
     }
 
+    fn feature(&self, name: &str) -> bool {
+        self.router.options.external.get(name).and_then(Value::as_bool).unwrap_or(true)
+    }
+
     fn settings(&self) -> Response {
         let issuer = format!("{}/auth/v1", self.router.public_url());
         let mut external = object!("email": true);
@@ -399,6 +419,11 @@ impl Call<'_> {
             fields.extend(
                 self.router.options.external.iter().map(|(name, value)| (name.clone(), value.clone())),
             );
+            for name in ["magic_link", "email_otp"] {
+                if !fields.contains_key(name) {
+                    fields.insert(name, json!(self.feature(name)));
+                }
+            }
         }
         response(
             200,
@@ -524,7 +549,11 @@ impl Call<'_> {
         let sensitive =
             matches!(self.route, "/sign-up/email" | "/sign-in/email" | "/change-password" | "/change-email");
         let window = if sensitive { 10_000 } else { 60_000 };
-        let max = if sensitive { 3 } else { 100 };
+        let max = match self.route {
+            "/sign-in/magic-link" | "/magic-link/verify" => 5,
+            route if sensitive || otp::is_route(route) => 3,
+            _ => 100,
+        };
         let now = self.now.timestamp_millis();
         let recent = doc! {"$gt": ["$lastRequest", now.saturating_sub(window)]};
         let limits = self.router.auth.collection::<AddressLimit>("rate_limits");
@@ -564,6 +593,46 @@ impl Call<'_> {
                 && doc.extra.get_datetime("windowStart").is_ok_and(|date| *date > self.date_after(-60_000))
         }))
     }
+}
+
+/// The indexes of `canopy_auth`, the same names and keys the TypeScript server creates.
+fn auth_indexes() -> [(&'static str, Vec<IndexModel>); 7] {
+    fn index(keys: Document, name: &str, unique: bool, expire_after: Option<u64>) -> IndexModel {
+        let mut options = IndexOptions::builder().name(name.to_owned()).build();
+        if unique {
+            options.unique = Some(true);
+        }
+        options.expire_after = expire_after.map(Duration::from_secs);
+        IndexModel::builder().keys(keys).options(options).build()
+    }
+    [
+        ("users", vec![index(doc! {"email": 1}, "email", true, None)]),
+        (
+            "sessions",
+            vec![
+                index(doc! {"token": 1}, "token", true, None),
+                index(doc! {"userId": 1}, "user", false, None),
+                index(doc! {"expiresAt": 1}, "ttl_expires", false, Some(0)),
+            ],
+        ),
+        (
+            "accounts",
+            vec![
+                index(doc! {"providerId": 1, "accountId": 1}, "provider_account", true, None),
+                index(doc! {"userId": 1}, "user", false, None),
+            ],
+        ),
+        (
+            "verifications",
+            vec![
+                index(doc! {"identifier": 1}, "identifier", false, None),
+                index(doc! {"expiresAt": 1}, "ttl_expires", false, Some(3600)),
+            ],
+        ),
+        ("rate_limits", vec![index(doc! {"key": 1}, "key", true, None)]),
+        ("signing_keys", vec![index(doc! {"createdAt": -1}, "created", false, None)]),
+        ("identifier_limits", vec![index(doc! {"expiresAt": 1}, "ttl_expires", false, Some(0))]),
+    ]
 }
 
 fn object_id(now: DateTime) -> bson::oid::ObjectId {

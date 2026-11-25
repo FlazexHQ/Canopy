@@ -1,4 +1,4 @@
-//! Replays the TypeScript password, session and token flows against MongoDB.
+//! Replays the TypeScript password, email, session and token flows against MongoDB.
 
 #![allow(clippy::expect_used, clippy::print_stderr)]
 
@@ -28,7 +28,15 @@ use serde_json_bytes::{Value, json};
 use url::Url;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
-const GROUPS: [&str; 5] = ["email-password", "email-verification", "password-reset", "sessions", "tokens"];
+const GROUPS: [&str; 7] = [
+    "email-password",
+    "email-verification",
+    "password-reset",
+    "magic-link",
+    "email-otp",
+    "sessions",
+    "tokens",
+];
 
 macro_rules! object {
     ($($key:literal : $value:expr),* $(,)?) => {
@@ -113,6 +121,7 @@ impl Bindings {
                     "user-id" | "account-id" | "session-id" | "audit-id" | "revocation-id"
                     | "verification-id" | "rate-limit-id" | "target-id" => "[a-f0-9]{24}",
                     "session-token" => "[A-Za-z0-9]{32}",
+                    "otp" => "[0-9]{6}",
                     "mail-token" => "[A-Za-z0-9]{16,64}",
                     "mail-jwt-claims" => "[A-Za-z0-9_-]+",
                     "mail-jwt-signature" | "tampered-signature" => "[A-Za-z0-9_-]{43}",
@@ -242,8 +251,12 @@ fn mail_with_jwts(mut mail: Value, secret: &str, expected: &Value, bindings: &mu
             let key = "<mail-token-1>";
             bindings.compare_text(key, token)?;
         }
-        for (_, jwt) in url.query_pairs().filter(|(name, _)| name == "token") {
-            let (signed, header, claims, tag) = split_jwt(&jwt)?;
+        for (_, token) in url.query_pairs().filter(|(name, _)| name == "token") {
+            if url.path() == "/auth/v1/magic-link/verify" {
+                bindings.compare_text("<mail-token-1>", &token)?;
+                continue;
+            }
+            let (signed, header, claims, tag) = split_jwt(&token)?;
             let key = hmac::Key::new(hmac::HMAC_SHA256, secret.as_bytes());
             hmac::verify(&key, signed.as_bytes(), &tag).map_err(|_| "Invalid mail JWT signature")?;
             tokens.push(object!("header":header, "claims":claims));
@@ -525,7 +538,116 @@ async fn replays_typescript_auth_oracle() -> Result<()> {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-    assert_eq!(cases, 13);
-    assert_eq!(steps, 86);
+    assert_eq!(cases, 20);
+    assert_eq!(steps, 114);
+    Ok(())
+}
+
+#[tokio::test]
+async fn consumes_only_the_latest_otp_and_removes_stale_proofs() -> Result<()> {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = Client::with_uri_str(uri).await?;
+    let name = uuid::Uuid::new_v4().simple().to_string();
+    let auth = client.database(&format!("auth_oracle_{name}"));
+    let meta = client.database(&format!("meta_oracle_{name}"));
+    let result = async {
+        let outbox = Arc::new(Outbox { messages: Mutex::default(), app: "Canopy".into(), from: String::new() });
+        let options = AuthOptions::new(Url::parse("https://auth.canopy.test")?, "a".repeat(32));
+        let router = AuthRouter::open(auth.clone(), meta.clone(), options, outbox).await?;
+        let now = DateTime::parse_rfc3339_str("2031-01-01T00:00:00.000Z")?;
+        let email = "duplicate@example.com";
+        let verifications = auth.collection::<Document>("verifications");
+        let identifier = format!("sign-in-otp-{email}");
+        let expires = DateTime::from_millis(now.timestamp_millis() + 60_000);
+        let earlier = DateTime::from_millis(now.timestamp_millis() - 1_000);
+        verifications.insert_many([
+            doc! {"identifier": &identifier, "value": "123456:0", "createdAt": earlier, "updatedAt": earlier, "expiresAt": expires},
+            doc! {"identifier": &identifier, "value": "234567:0", "createdAt": now, "updatedAt": now, "expiresAt": expires},
+        ]).await?;
+        let request = |code: &str, ip: &str| {
+            let mut request = Request::new("POST", "/auth/v1/sign-in/email-otp")
+                .with_header("content-type", "application/json")
+                .with_body(json!({"email":email,"otp":code}).to_string().into_bytes());
+            request.client_address = Some(ip.to_owned());
+            request
+        };
+        let first = request("234567", "203.0.113.1");
+        let second = request("234567", "203.0.113.2");
+        let (first, second) = tokio::join!(
+            router.handle_at(&first, now.timestamp_millis()),
+            router.handle_at(&second, now.timestamp_millis()),
+        );
+        let stale = request("123456", "203.0.113.3");
+        let stale = router.handle_at(&stale, now.timestamp_millis()).await.ok_or("Missing stale response")?;
+        let remaining = verifications.count_documents(doc! {"identifier": &identifier}).await?;
+        let mut statuses = [first.ok_or("Missing first response")?.status, second.ok_or("Missing second response")?.status];
+        statuses.sort_unstable();
+        Ok::<_, Box<dyn Error>>((statuses, stale.status, remaining))
+    }.await;
+    auth.drop().await?;
+    meta.drop().await?;
+    assert_eq!(result?, ([200, 400], 400, 0));
+    Ok(())
+}
+
+#[tokio::test]
+async fn opens_over_the_indexes_the_typescript_server_created() -> Result<()> {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else {
+        return Ok(());
+    };
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let client = Client::with_uri_str(uri).await?;
+    let name = uuid::Uuid::new_v4().simple().to_string();
+    let auth = client.database(&format!("auth_indexes_{name}"));
+    let meta = client.database(&format!("meta_indexes_{name}"));
+    let typescript: [(&str, Document); 11] = [
+        ("users", doc! {"key": {"email": 1}, "name": "email", "unique": true}),
+        ("sessions", doc! {"key": {"token": 1}, "name": "token", "unique": true}),
+        ("sessions", doc! {"key": {"userId": 1}, "name": "user"}),
+        ("sessions", doc! {"key": {"expiresAt": 1}, "name": "ttl_expires", "expireAfterSeconds": 0}),
+        (
+            "accounts",
+            doc! {"key": {"providerId": 1, "accountId": 1}, "name": "provider_account", "unique": true},
+        ),
+        ("accounts", doc! {"key": {"userId": 1}, "name": "user"}),
+        ("verifications", doc! {"key": {"identifier": 1}, "name": "identifier"}),
+        ("verifications", doc! {"key": {"expiresAt": 1}, "name": "ttl_expires", "expireAfterSeconds": 3600}),
+        ("rate_limits", doc! {"key": {"key": 1}, "name": "key", "unique": true}),
+        ("signing_keys", doc! {"key": {"createdAt": -1}, "name": "created"}),
+        ("identifier_limits", doc! {"key": {"expiresAt": 1}, "name": "ttl_expires", "expireAfterSeconds": 0}),
+    ];
+    let result = async {
+        for (collection, index) in &typescript {
+            auth.run_command(doc! {"createIndexes": *collection, "indexes": [index.clone()]}).await?;
+        }
+        let outbox =
+            Arc::new(Outbox { messages: Mutex::default(), app: "Canopy".into(), from: String::new() });
+        let options = AuthOptions::new(Url::parse("https://auth.canopy.test")?, "a".repeat(32));
+        AuthRouter::open(auth.clone(), meta.clone(), options, outbox).await?;
+        let mut found = Vec::new();
+        for collection in auth.list_collection_names().await? {
+            let mut cursor = auth.collection::<Document>(&collection).list_indexes().await?;
+            while let Some(index) = cursor.try_next().await? {
+                let name = index.options.and_then(|options| options.name).unwrap_or_default();
+                if name != "_id_" {
+                    found.push(format!("{collection}.{name}"));
+                }
+            }
+        }
+        found.sort();
+        Ok::<_, Box<dyn Error>>(found)
+    }
+    .await;
+    auth.drop().await?;
+    meta.drop().await?;
+    let mut expected: Vec<String> = typescript
+        .iter()
+        .map(|(collection, index)| format!("{collection}.{}", index.get_str("name").unwrap_or_default()))
+        .collect();
+    expected.sort();
+    assert_eq!(result?, expected);
     Ok(())
 }
