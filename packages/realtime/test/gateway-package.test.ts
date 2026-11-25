@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { delimiter, join } from "node:path"
 import { NATIVE_TARGETS, type NativeTarget, targetFor } from "@canopy/native"
@@ -17,7 +17,7 @@ function target(os: string, cpu: string, libc?: "glibc" | "musl"): NativeTarget 
 let dir: string
 
 beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "canopyd-package-"))
+  dir = await realpath(await mkdtemp(join(tmpdir(), "canopyd-package-")))
 })
 
 afterEach(async () => {
