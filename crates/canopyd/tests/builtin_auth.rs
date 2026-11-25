@@ -244,22 +244,40 @@ fn rust_auth_rejects_incomplete_social_providers_on_startup() {
             json!({"myspace": {"clientId": "test", "clientSecret": "test"}}),
             "auth.providers.myspace is not a provider",
         ),
-        (
-            json!({"apple": {"clientId": "test", "teamId": "TEAM", "keyId": "KEY", "privateKey": "not a key"}}),
-            "The Apple signing key is not a PKCS#8 P-256 private key",
-        ),
     ] {
         let config = config(
-            "mongodb://127.0.0.1:37017/?replicaSet=rs0",
+            "mongodb://127.0.0.1:9/?replicaSet=rs0&serverSelectionTimeoutMS=500",
             "unused_auth",
             json!({"kind": "builtin", "providers": providers}),
         );
-        let output = spawn(&config, "all", Some("rust")).wait_with_output().expect("startup exits");
-        assert_eq!(output.status.code(), Some(1));
-        let err = String::from_utf8(output.stderr).expect("startup error");
-        assert!(err.contains(problem), "{err}");
-        assert!(output.stdout.is_empty());
+        assert_startup_refused(&config, problem);
     }
+}
+
+#[tokio::test]
+async fn rust_auth_rejects_an_apple_key_that_does_not_parse() {
+    let Ok(uri) = std::env::var("CANOPY_TEST_MONGODB_URI") else { return };
+    let database = format!("gateway_apple_{}", std::process::id());
+    let config = config(
+        &uri,
+        &database,
+        json!({"kind": "builtin", "providers": {
+            "apple": {"clientId": "test", "teamId": "TEAM", "keyId": "KEY", "privateKey": "not a key"},
+        }}),
+    );
+    assert_startup_refused(&config, "The Apple signing key is not a PKCS#8 P-256 private key");
+    let mongo = Client::with_uri_str(&uri).await.expect("backing database");
+    for suffix in ["", "_auth", "_meta"] {
+        mongo.database(&format!("{database}{suffix}")).drop().await.unwrap();
+    }
+}
+
+fn assert_startup_refused(config: &Value, problem: &str) {
+    let output = spawn(config, "all", Some("rust")).wait_with_output().expect("startup exits");
+    assert_eq!(output.status.code(), Some(1));
+    let err = String::from_utf8(output.stderr).expect("startup error");
+    assert!(err.contains(problem), "{err}");
+    assert!(output.stdout.is_empty());
 }
 
 #[tokio::test]
