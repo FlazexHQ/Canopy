@@ -204,7 +204,8 @@ async function main(): Promise<void> {
     }
     const translated = join(dir, `${name}_translated.js`)
     run(translator, ["-O", "--pedantic", "--emscripten", ...features, wasm, "-o", translated])
-    writeFileSync(translated, `${readFileSync(translated, "utf8")}\nexport { instantiate };\n`)
+    const translation = readFileSync(translated, "utf8").replace(/\r\n/g, "\n")
+    writeFileSync(translated, `${translation}\nexport { instantiate };\n`)
     const glue = readFileSync(join(dir, `${name}.js`), "utf8")
     const loader = glue.indexOf("let wasmModule, wasmInstance, wasm;")
     if (loader < 0) throw new Error("The wasm-bindgen initializer has changed")
