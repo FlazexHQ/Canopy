@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { isDeepStrictEqual } from "node:util"
 import * as serverPolicy from "@canopy/policy"
+import * as serverTesting from "@canopy/policy/testing"
 import { canonicalString, ErrorCode, isDocument } from "@canopy/protocol"
 import { Ajv2020, type ValidateFunction } from "ajv/dist/2020.js"
 import * as policy from "canopy.js/policy"
@@ -195,13 +196,12 @@ function checkPublishing(input: PolicyInput, document: ReturnType<typeof encodeS
 /** Captures the canonical outputs of the installed Canopy.js builders and the authoring diagnostics. */
 export async function recordAuthoringPolicy(): Promise<string> {
   const fixtures = sources()
-  const policies = new Map<string, policy.PolicySet>()
+  const policies = new Map<string, serverPolicy.PolicySet>()
   const sets = fixtures.sets.map(({ name, source }) => {
-    const input = evaluate<PolicyInput>(source)
-    const document = encodeSet(input)
-    const set = policy.createPolicySet(input.collections, input.contexts)
-    policies.set(name, set)
-    checkPublishing(evaluate<PolicyInput>(source, serverPolicy), document)
+    const document = encodeSet(evaluate<PolicyInput>(source))
+    const reference = evaluate<PolicyInput>(source, serverPolicy)
+    policies.set(name, serverPolicy.createPolicySet(reference.collections, reference.contexts))
+    checkPublishing(reference, document)
     return { name, source, document }
   })
   const suites = []
@@ -210,10 +210,17 @@ export async function recordAuthoringPolicy(): Promise<string> {
     const set = policies.get(setName)
     if (set === undefined) throw new Error(`Missing policy set ${setName}`)
     const documents = suite.cases.map(encodeTest)
-    const cases = documents.map((document) => protocol.decode(document) as testing.PolicyTestCase)
-    const results = await testing.runPolicyTests(
+    const cases = documents.map(
+      (document) => protocol.decode(document) as serverTesting.PolicyTestCase,
+    )
+    const results = await serverTesting.runPolicyTests(
       [{ ...suite, cases }],
-      [testing.memoryBackend(new policy.PolicyEngine(set), new Date("2026-01-01T00:00:00Z"))],
+      [
+        serverTesting.memoryBackend(
+          new serverPolicy.PolicyEngine(set),
+          new Date("2026-01-01T00:00:00Z"),
+        ),
+      ],
     )
     const failed = results.flatMap((result) => result.failures)
     if (failed.length > 0) throw new Error(`${name}: ${failed.join(", ")}`)

@@ -12,8 +12,7 @@ import {
   NotFoundError,
   ObjectId,
 } from "canopy.js"
-import { createRestClient, type RestClient } from "canopy.js/rest"
-import { collection as defineCollection, t } from "canopy.js/schema"
+import { createRestClient, type OutputDecoder, type RestClient } from "canopy.js/rest"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import {
   Decimal128 as DriverDecimal,
@@ -54,7 +53,19 @@ const items = collection("items", {
   policies: [allow.read("authenticated").where({ ownerId: auth("sub") })],
 })
 
-const totals = defineCollection("totals", { _id: t.string(), n: t.int() })
+/** A Standard Schema decoder for the totals the aggregation test groups by owner. */
+const totals: OutputDecoder<{ _id: string; n: number }> = {
+  "~standard": {
+    validate: (value) => {
+      if (typeof value !== "object" || value === null)
+        return { issues: [{ message: "not a document" }] }
+      const { _id, n } = value as { _id?: unknown; n?: unknown }
+      return typeof _id === "string" && Number.isInteger(n)
+        ? { value: { _id, n: n as number } }
+        : { issues: [{ message: "expected a string _id and an integer n" }] }
+    },
+  },
+}
 
 suite("the REST reader against the composed server", () => {
   const name = splitUrl
