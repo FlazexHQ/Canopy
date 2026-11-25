@@ -329,13 +329,25 @@ Canopy.js vendors the client and transforms builds with `bun scripts/sync-wasm.t
 client creation (see the R2 adoption checkpoint in the plan 005 progress log for every result).
 `root-entry.ts` builds the R0 live query app against a Canopy.js `src` folder with code splitting and
 reports the entry chunk, the lazy chunks and the Wasm assets. `startup.mjs` serves that output to headless
-Chromium at 4x CPU slowdown and reports the first live query; it needs a Canopy server on port 3000 with the
-R0 publishable key, and `--csp strict` serves the page without `'wasm-unsafe-eval'`.
+Chromium at 4x CPU slowdown. Start Canopy on port 3000 with `MONGODB_URI=mongodb://localhost:37017/?replicaSet=rs0`
+and `CANOPY_PUBLISHABLE_KEYS=canopy_pk_dev_test123456`. Use `--csp strict` to serve the page without
+`'wasm-unsafe-eval'`.
+
+Both builds time the first snapshot and first `ready` from the same inline script start. Each run uses a fresh
+browser context and the app uses neither hydration nor document caching. The first `stale` or `ready` state
+therefore carries the server snapshot, which may be empty. The TypeScript build emits both events in the same
+state. The Rust build can show the snapshot as `stale` while the client core initializes.
+
+The JSON reports median and p95 in `first_live_query_result_ms` (first snapshot),
+`first_live_query_ready_ms` (first `ready`), and `live_query_ready_delay_ms` (the difference within each run).
+Pass the TypeScript JSON from the same CSP configuration as `--baseline` to include `startup_gate` in the
+Rust report. The gate compares first snapshot medians and allows at most 5% over TypeScript.
 
 ```sh
-bun bench/baselines/r2/root-entry.ts --src ../Canopy.js/src --out <dir>
-fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir <dir> --runs 50
-fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir <dir> --runs 50 --csp strict
+bun bench/baselines/r2/root-entry.ts --src <baseline>/src --out target/app-ts
+bun bench/baselines/r2/root-entry.ts --src ../Canopy.js/src --out target/app-rust
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-ts --runs 50 > target/startup-ts.json
+fnm exec --using=26 -- node bench/baselines/r2/startup.mjs --dir target/app-rust --runs 50 --baseline target/startup-ts.json
 ```
 
 | Build of the R0 app   | Eager JavaScript (Brotli) | Loaded at client creation           | First live query median (ms) |
@@ -424,18 +436,21 @@ The standalone client Wasm module is 81,126 Brotli bytes, meeting the 81,920 byt
 
 ### Startup first live query
 
-`startup.mjs` measures `window.__firstResultDuration` when `state.status === "ready"`. After Canopy.js commit 0307378, the query reports ready only once the core has loaded. Module evaluation and first live query results over 50 runs per sample:
+These historical runs timed the first `ready` state. With Canopy.js commit `0307378`, the Rust query reports
+ready once the core has loaded. A first snapshot comparison for the startup gate requires running the updated
+benchmark. Module evaluation and first ready results over 50 runs per sample:
 
-| Build and configuration | Evaluation median / p95 (ms) | First live query median / p95 (ms) | Wasm requests per run |
-| ----------------------- | ---------------------------: | ---------------------------------: | --------------------: |
-| TypeScript round 1      |                28.80 / 31.60 |                     97.30 / 118.40 |                     0 |
-| Rust core round 1       |                 6.50 / 27.50 |                    144.45 / 158.60 |                     2 |
-| TypeScript round 2      |                28.25 / 30.50 |                      94.80 / 99.00 |                     0 |
-| Rust core round 2       |                 6.45 / 26.90 |                    148.40 / 164.00 |                     2 |
-| TypeScript strict CSP   |                28.00 / 30.60 |                     94.15 / 106.30 |                     0 |
-| Rust core strict CSP    |                 6.30 / 27.00 |                    195.95 / 207.10 |                     2 |
+| Build and configuration | Evaluation median / p95 (ms) | First ready median / p95 (ms) | Wasm requests per run |
+| ----------------------- | ---------------------------: | ----------------------------: | --------------------: |
+| TypeScript round 1      |                28.80 / 31.60 |                97.30 / 118.40 |                     0 |
+| Rust core round 1       |                 6.50 / 27.50 |               144.45 / 158.60 |                     2 |
+| TypeScript round 2      |                28.25 / 30.50 |                 94.80 / 99.00 |                     0 |
+| Rust core round 2       |                 6.45 / 26.90 |               148.40 / 164.00 |                     2 |
+| TypeScript strict CSP   |                28.00 / 30.60 |                94.15 / 106.30 |                     0 |
+| Rust core strict CSP    |                 6.30 / 27.00 |               195.95 / 207.10 |                     2 |
 
-Module compilation and instantiation is 6.45 ms to 6.50 ms median, passing the 30 ms threshold. Because ready status now waits for the client core and transforms modules to finish loading and initialize, the first live query median is 144.45 ms and 148.40 ms (compared with 97.30 ms and 94.80 ms on the TypeScript baseline).
+Module evaluation is 6.45 ms to 6.50 ms median in the two Rust runs without strict CSP. First ready is
+144.45 ms and 148.40 ms in those runs, compared with 97.30 ms and 94.80 ms on the TypeScript baseline.
 
 ### Engine matching throughput (nanoseconds per document)
 

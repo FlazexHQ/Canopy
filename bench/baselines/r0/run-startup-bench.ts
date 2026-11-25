@@ -1,9 +1,12 @@
-import { chromium } from "D:/Coding/Canopy/node_modules/.bun/@playwright+test@1.64.1/node_modules/@playwright/test/index.js"
 import { type ChildProcess, spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { createServer, type Server } from "node:http"
+import { createRequire } from "node:module"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+
+const require = createRequire(new URL("../../../apps/studio/package.json", import.meta.url))
+const { chromium } = require("@playwright/test") as typeof import("@playwright/test")
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const rootDir = resolve(__dirname, "../../..")
@@ -85,6 +88,7 @@ interface RunTiming {
   run: number
   evalMs: number
   firstResultMs: number
+  firstReadyMs: number
 }
 
 function calculateStats(values: number[]): {
@@ -124,6 +128,7 @@ async function main() {
 
       await page.waitForFunction(
         () => (window as unknown as { __done?: boolean }).__done === true,
+        undefined,
         { timeout: 15000 },
       )
 
@@ -131,11 +136,13 @@ async function main() {
         const win = window as unknown as {
           __evalDuration: number
           __firstResultDuration: number
+          __firstReadyDuration: number
           __error?: string
         }
         return {
           evalMs: win.__evalDuration,
           firstResultMs: win.__firstResultDuration,
+          firstReadyMs: win.__firstReadyDuration,
           error: win.__error,
         }
       })
@@ -143,11 +150,19 @@ async function main() {
       if (result.error) {
         throw new Error(`Run ${i} failed with error: ${result.error}`)
       }
+      if (
+        !Number.isFinite(result.firstResultMs) ||
+        !Number.isFinite(result.firstReadyMs) ||
+        result.firstReadyMs < result.firstResultMs
+      ) {
+        throw new Error(`Run ${i} returned invalid startup timings. Rebuild the app.`)
+      }
 
       runTimings.push({
         run: i,
         evalMs: result.evalMs,
         firstResultMs: result.firstResultMs,
+        firstReadyMs: result.firstReadyMs,
       })
 
       await context.close()
@@ -163,6 +178,10 @@ async function main() {
       throttling: "4x CPU slowdown (CDP Emulation.setCPUThrottlingRate: 4)",
       module_evaluated_ms: evalStats,
       first_live_query_result_ms: firstResultStats,
+      first_live_query_ready_ms: calculateStats(runTimings.map((t) => t.firstReadyMs)),
+      live_query_ready_delay_ms: calculateStats(
+        runTimings.map((t) => t.firstReadyMs - t.firstResultMs),
+      ),
       all_runs: runTimings,
     }
 

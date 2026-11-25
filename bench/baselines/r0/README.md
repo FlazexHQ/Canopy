@@ -46,7 +46,7 @@ Each entry point was bundled with `bun build --minify --target=browser`. Sizes a
 
 Measured in headless Chromium through Playwright with 4x CPU slowdown applied via the Chrome DevTools Protocol (`Emulation.setCPUThrottlingRate: 4`), simulating a mid range mobile device profile. The Canopy server was started via `bun run dev` pointing at the replica set on port 37017. 20 consecutive runs were recorded.
 
-The module evaluation metric measures elapsed time from inline script execution start to the entry module body starting execution. The first live query result metric measures elapsed time from script start until the live query subscription emits `status: "ready"` with server snapshot data.
+The module evaluation metric measures elapsed time from inline script execution start to the entry module body starting execution. In the TypeScript baseline below, the first snapshot and the first `ready` state coincide. The current app records both times from script start, and the [R2 startup benchmark](../r2/README.md#canopyjs-adoption) uses the first snapshot for the gate.
 
 | Metric                                  | Median (ms) | p95 (ms) | Min (ms) | Max (ms) |
 | --------------------------------------- | ----------: | -------: | -------: | -------: |

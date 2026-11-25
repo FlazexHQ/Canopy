@@ -6,11 +6,11 @@ import { extname, join, normalize, resolve, sep } from "node:path"
 
 /**
  * Measures the first live query of the R0 app built by `root-entry.ts`: headless Chromium at 4x CPU
- * slowdown loads the page and records when the module is evaluated and when the live query first reports
- * `ready`, as the R0 startup baseline does. It needs a Canopy server on port 3000 accepting the R0
- * publishable key (`bun run dev --port 3000` with `CANOPY_PUBLISHABLE_KEYS=canopy_pk_dev_test123456`).
+ * slowdown loads the page and times module evaluation, the first snapshot and the first `ready` state.
+ * It needs a Canopy server on port 3000 accepting the R0 publishable key
+ * (`bun run dev --port 3000` with `CANOPY_PUBLISHABLE_KEYS=canopy_pk_dev_test123456`).
  *
- *   node bench/baselines/r2/startup.mjs --dir <out of root-entry.ts> [--runs 20] [--csp strict]
+ *   node bench/baselines/r2/startup.mjs --dir <out of root-entry.ts> [--runs 20] [--csp strict] [--baseline <json>]
  *
  * `--csp strict` serves the page with `script-src 'self'` (plus a nonce for the timing script) and no
  * `'wasm-unsafe-eval'`, so the client core loads as its JavaScript translation.
@@ -26,8 +26,28 @@ function option(name, fallback) {
 
 const dir = resolve(option("--dir"))
 const runs = Number(option("--runs", "20"))
+if (!Number.isSafeInteger(runs) || runs < 1) throw new Error("--runs must be a positive integer")
 const strict = option("--csp", "none") === "strict"
 const nonce = "r2startup"
+const csp = strict ? `script-src 'self' 'nonce-${nonce}'` : "none"
+const baselinePath = option("--baseline")
+const baseline =
+  baselinePath === undefined
+    ? undefined
+    : JSON.parse((await readFile(baselinePath, "utf8")).replace(/^\uFEFF/, ""))
+const baselineMedian = baseline?.first_live_query_result_ms?.median
+if (
+  baselinePath !== undefined &&
+  (baseline?.csp !== csp ||
+    !Number.isFinite(baselineMedian) ||
+    baselineMedian <= 0 ||
+    baseline.first_live_query_ready_ms?.median !== baselineMedian ||
+    baseline.live_query_ready_delay_ms?.max !== 0)
+) {
+  throw new Error(
+    "Expected a TypeScript startup report with matching CSP and coincident snapshot and ready times",
+  )
+}
 const types = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -87,6 +107,8 @@ const browser = await chromium.launch({ headless: true })
 try {
   const evaluated = []
   const first = []
+  const ready = []
+  const readyDelay = []
   const wasmRequests = []
   for (let run = 0; run < runs; run++) {
     const context = await browser.newContext()
@@ -102,22 +124,48 @@ try {
     const result = await tab.evaluate(() => ({
       evalMs: window.__evalDuration,
       firstResultMs: window.__firstResultDuration,
+      firstReadyMs: window.__firstReadyDuration,
       error: window.__error,
     }))
     if (result.error !== undefined) throw new Error(`Run ${run + 1} failed: ${result.error}`)
+    if (
+      !Number.isFinite(result.evalMs) ||
+      !Number.isFinite(result.firstResultMs) ||
+      !Number.isFinite(result.firstReadyMs) ||
+      result.firstResultMs < result.evalMs ||
+      result.firstReadyMs < result.firstResultMs
+    ) {
+      throw new Error(
+        `Run ${run + 1} returned invalid startup timings. Rebuild the app with root-entry.ts.`,
+      )
+    }
     evaluated.push(result.evalMs)
     first.push(result.firstResultMs)
+    ready.push(result.firstReadyMs)
+    readyDelay.push(result.firstReadyMs - result.firstResultMs)
     wasmRequests.push(wasm)
     await context.close()
   }
+  const firstSnapshot = stats(first)
+  const startupGate =
+    baselineMedian === undefined
+      ? undefined
+      : {
+          baseline_first_snapshot_median_ms: baselineMedian,
+          first_snapshot_median_change_percent: (firstSnapshot.median / baselineMedian - 1) * 100,
+          passes: firstSnapshot.median <= baselineMedian * 1.05,
+        }
   process.stdout.write(
     `${JSON.stringify(
       {
         runs,
-        csp: strict ? `script-src 'self' 'nonce-${nonce}'` : "none",
+        csp,
         throttling: "4x CPU slowdown",
         module_evaluated_ms: stats(evaluated),
-        first_live_query_result_ms: stats(first),
+        first_live_query_result_ms: firstSnapshot,
+        first_live_query_ready_ms: stats(ready),
+        live_query_ready_delay_ms: stats(readyDelay),
+        startup_gate: startupGate,
         wasm_requests_per_run: [...new Set(wasmRequests)],
       },
       null,
