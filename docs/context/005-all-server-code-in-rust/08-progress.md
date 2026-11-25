@@ -3,6 +3,32 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R2 closure work, CI repairs and R7 preparation
+
+- R2: the client module size fix and the build gate (a8a2c3c1, dbac0c47), the reproducible Wasm build
+  (63995c35; client now 81,126 Brotli bytes; note it uses RUSTC_BOOTSTRAP for two -Z flags and a rustc
+  wrapper for stable crate identities), securePipeline in the authoring module (cbb94dc5), the Canopy.js
+  core removal and vector check (Canopy.js 57627d2, a50e1e9; CLAUDE.md updated in 964b1d74), the Hermes
+  replay (67adf81c: Hermes 0.12.0 and 1.0.0 pass all 11 vector sets; matching 2.36x to 3.85x TypeScript
+  on desktop CLIs; React Native devices unmeasured), the engine benchmark with a frozen TypeScript
+  baseline (b76d4afb; first numbers taken on a loaded machine, not gate results), the cross runtime
+  replay results (Wasm passes on Bun, Node 24 and 26, Deno, Chromium, Firefox and WebKit; strict CSP
+  refuses Wasm in all three browsers as expected; the authoring module has no wasm2js build by design).
+- Fixes found by CI: d2d2d28d (wire unified replay stores change stream images), 1e3ba435 (CI builds
+  Canopy.js refactor/rust-core and gives the Rust job Bun), 5ac86df5 (tests stop using APIs Canopy.js
+  removed), 87a8ede6 and e155b5dc (macOS /private/var paths in CLI tests), 86c0f599 (Dockerfiles follow
+  the new Canopy.js layout), 3250d706 (schemas through the canonical collection schema document),
+  Canopy.js 0307378 (a live query reports ready only once optimistic changes apply; fixed the sdk-e2e
+  optimistic mutation failures).
+- R7 preparation: b7d1e94b (the removal map in [10-r7-removal-map.md](10-r7-removal-map.md)), fcbda683 (the
+  wire test key issued natively).
+- 00ceb883: the deploy manifest tests moved from packages/server to the private @canopy/deploy-tests
+  package (32 tests).
+- In progress: R4 (claudeAgent, paused on a usage limit, resumes on its own).
+- Open for the maintainer: the R2 matching gate needs a quiet machine measurement with b76d4afb's tool; the
+  wasm2js gate (at most 3x) is borderline on Hermes for matching; the startup gate should be re-measured
+  because a live query now reports ready only after the core loads.
+
 ## Checkpoint (2026-11-26): commits since the decisions
 
 - Commits: bbb00fcf (auth import firebase, auth0, cognito), ad1f616e (Microsoft profile photo on redirect sign in; provider tokens stay unencrypted, as TypeScript stores them), 8b8be881 (Rust type generation and pull writers in canopy-schema), 6a7e0272 (canopy binary in the platform packages), 78efa0a2 (schema diff and push planning), 52468fca (index advice in canopy-policy), 49e889fc (CLI replay substitutes the resolved project path for macOS), c2553ee6 (the progress notes no longer quote the test credential URL), 7bffa277 (auth oracle checks the response floor on a controlled clock; fixes the identifier-limit heldForTheFloor flake), a49760a9 (fuzz lock), 4293707b (matcher speedup: equality 47 to 80 down to 14 to 16 ns per document, dotted path 130 to 144 down to 58 to 64, natively; it grew the client Wasm module from 81,646 to 82,630 Brotli bytes, over the 81,920 gate, being fixed by Codex).
@@ -346,7 +372,7 @@ The default split stacks no longer need the TypeScript `canopy-control` image: `
   [`deploy/kubernetes/split.yaml`](../../../deploy/kubernetes/split.yaml) edited to match by hand
   (`canopy:latest`, `auth.json` key, no `canopy-auth-metrics`); its checksum annotations were not
   regenerated. [`deploy/README.md`](../../../deploy/README.md) updated.
-- [`packages/server/test/deploy-manifests.test.ts`](../../../packages/server/test/deploy-manifests.test.ts):
+- [`packages/deploy-tests/test/deploy-manifests.test.ts`](../../../packages/deploy-tests/test/deploy-manifests.test.ts):
   the split tests now check Rust auth in Compose, the auth overlay's config, the relay (network namespace and
   its port equal to the claims URL's, the secret variable passed to `auth`), the TypeScript overlay, and the
   Kubernetes and Helm auth component.
@@ -1341,10 +1367,10 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2: update gate accepted; matching gate to re-measure after the matcher speedup and the size fix; wasm2js gate open | R2 | Big | `claudeAgent` |
+| 2 | R2: client size fixed at 81,126 Brotli bytes, build gate and reproducible Wasm in CI, Canopy.js core removed; open for maintainer: quiet machine matching measurement, Hermes wasm2js gate, startup re-measurement | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 4 | R4 in progress: wiring pull, schema, indexes, type generation, init, doctor, dev, the real emitter in the golden replay, the usage text | R4 | Big | `claudeAgent` |
-| 5 | R7 not started: removal of TypeScript server packages, documentation updates, and cleanup | R7 | Big | `claudeAgent` |
+| 4 | R4 in progress: claudeAgent paused on usage limit, resumes on its own (wiring pull, schema, indexes, type generation, init, doctor, dev, real emitter in golden replay, usage text) | R4 | Big | `claudeAgent` |
+| 5 | R7 preparation: removal map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
 
 ## Done
 
