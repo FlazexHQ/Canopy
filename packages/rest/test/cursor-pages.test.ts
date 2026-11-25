@@ -370,7 +370,7 @@ suite("keyset pages through the REST read path", () => {
       if (last === undefined) throw new Error("The owner has fewer documents")
       const cursor = encodeCursor({ values: positionOf(last, keys) }, hash)
       const profile = db.collection("system.profile")
-      const comment = randomUUID()
+      const comment = `cursorPage:${randomUUID()}`
       const find = Collection.prototype.find
       const tagged = vi.spyOn(Collection.prototype, "find").mockImplementation(function (
         this: Collection,
@@ -400,31 +400,61 @@ suite("keyset pages through the REST read path", () => {
       expect(body.data.map((doc) => doc._id)).toEqual(
         docs.slice(depth * LIMIT, (depth + 1) * LIMIT).map((doc) => Number(doc["_id"])),
       )
-      const deadline = performance.now() + 30_000
-      do {
-        const entry = await profile.findOne({
-          ns: `${dbName}.orders`,
-          op: "query",
-          "command.comment": comment,
-        })
-        if (entry !== null)
-          return {
-            keys: Number(entry["keysExamined"]),
-            docs: Number(entry["docsExamined"]),
-            returned: Number(entry["nreturned"]),
-            plan: String(entry["planSummary"]),
+      const ns = `${dbName}.orders`
+      const match = {
+        ns,
+        "command.find": "orders",
+        "command.comment": comment,
+        errCode: { $exists: false },
+      }
+      let entry: Document | null = await profile.findOne(match)
+      if (entry === null) {
+        const { log } = (await client.db("admin").command({ getLog: "global" })) as {
+          log: string[]
+        }
+        for (const line of log) {
+          if (!line.includes(comment)) continue
+          const event = JSON.parse(line) as {
+            msg: string
+            attr?: Document & { command?: { find?: string; comment?: string } }
           }
+          const query = event.attr
+          if (
+            event.msg === "Slow query" &&
+            query?.["ns"] === ns &&
+            query.command?.find === "orders" &&
+            query.command.comment === comment &&
+            query["errCode"] === undefined
+          ) {
+            entry = query
+            break
+          }
+        }
+      }
+      const deadline = performance.now() + 30_000
+      while (entry === null && performance.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 50))
-      } while (performance.now() < deadline)
-      throw new Error(`The profiler recorded no query for ${owner} at depth ${depth} (${comment})`)
+        entry = await profile.findOne(match)
+      }
+      if (entry === null)
+        throw new Error(`MongoDB recorded no query for ${owner} at depth ${depth} (${comment})`)
+      return {
+        keys: Number(entry["keysExamined"]),
+        docs: Number(entry["docsExamined"]),
+        returned: Number(entry["nreturned"]),
+        plan: String(entry["planSummary"]),
+      }
     }
 
     beforeAll(async () => {
-      await db.command({ profile: 2 })
+      await db.command({
+        profile: 1,
+        filter: { ns: `${dbName}.orders`, "command.comment": /^cursorPage:/ },
+      })
     })
 
     afterAll(async () => {
-      await db.command({ profile: 0 })
+      await db.command({ profile: 0, filter: "unset" })
     })
 
     const expectTight = (
