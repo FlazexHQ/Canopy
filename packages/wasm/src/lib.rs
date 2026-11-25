@@ -8,7 +8,7 @@
 //! This target aborts on a panic: the call traps with a `RuntimeError`, which the wrapper turns into a denial,
 //! and the instance must then be discarded, since its memory may be left mid operation.
 
-#[cfg(feature = "client")]
+#[cfg(any(feature = "client", feature = "transforms"))]
 mod documents;
 mod errors;
 #[cfg(feature = "client")]
@@ -24,9 +24,11 @@ mod schema;
 
 #[cfg(feature = "client")]
 use js_sys::Uint8Array;
+#[cfg(any(feature = "client", feature = "authoring"))]
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 
+#[cfg(any(feature = "client", feature = "authoring"))]
 use crate::errors::thrown;
 
 /// The engine behind this build, always `wasm`.

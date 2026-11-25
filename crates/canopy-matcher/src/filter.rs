@@ -219,12 +219,12 @@ fn compile_top_operator(key: &str, value: &Value) -> Result<DocTest, CanopyError
     if is_logical(key) {
         let branches = match value {
             Value::Array(items) if !items.is_empty() => items,
-            _ => return Err(invalid(format!("{key} must be a nonempty array"))),
+            _ => return Err(invalid([key, " must be a nonempty array"].concat())),
         };
         let mut compiled = Vec::with_capacity(branches.len());
         for branch in branches {
             let Value::Document(branch) = branch else {
-                return Err(invalid(format!("{key} argument entries must be objects")));
+                return Err(invalid([key, " argument entries must be objects"].concat()));
             };
             compiled.push(compile_document(branch)?);
         }
@@ -235,15 +235,15 @@ fn compile_top_operator(key: &str, value: &Value) -> Result<DocTest, CanopyError
         });
     }
     if UNSUPPORTED_TOP.contains(&key) {
-        return Err(unsupported_query(format!("{key} is not evaluated in process")));
+        return Err(unsupported_query([key, " is not evaluated in process"].concat()));
     }
-    Err(invalid(format!("unknown top level operator: {key}")))
+    Err(invalid(["unknown top level operator: ", key].concat()))
 }
 
 fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyError> {
     let parts = split_path(path);
     if parts.iter().any(String::is_empty) {
-        return Err(invalid(format!("Invalid field path: {path}")));
+        return Err(invalid(["Invalid field path: ", path].concat()));
     }
     let parts = Arc::new(parts);
     if let Some(regex) = regex_of(value) {
@@ -264,7 +264,7 @@ fn compile_operators(parts: &Arc<Vec<String>>, ops: &Document) -> Result<DocTest
     let mut tests = Vec::with_capacity(ops.len());
     for (key, operand) in ops.iter() {
         if !key.starts_with('$') {
-            return Err(invalid(format!("unknown operator: {key}")));
+            return Err(invalid(["unknown operator: ", key].concat()));
         }
         match key {
             "$options" => {}
@@ -309,9 +309,9 @@ fn compile_operator(parts: &Arc<Vec<String>>, op: &str, operand: &Value) -> Resu
         "$elemMatch" => compile_elem_match(parts, operand)?,
         "$not" => compile_not(parts, operand)?,
         _ if UNSUPPORTED_FIELD.contains(&op) => {
-            return Err(unsupported_query(format!("{op} is not evaluated in process")));
+            return Err(unsupported_query([op, " is not evaluated in process"].concat()));
         }
-        _ => return Err(invalid(format!("unknown operator: {op}"))),
+        _ => return Err(invalid(["unknown operator: ", op].concat())),
     })
 }
 
@@ -385,7 +385,7 @@ fn comparison_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
 }
 
 fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
-    let Value::Array(items) = operand else { return Err(invalid(format!("{op} needs an array"))) };
+    let Value::Array(items) = operand else { return Err(invalid([op, " needs an array"].concat())) };
     let mut keyed = KeySet::default();
     let mut keyed_numbers: Vec<Leaf> = Vec::new();
     let mut regexes: Vec<Leaf> = Vec::new();
@@ -393,7 +393,7 @@ fn in_leaf(operand: &Value, op: &str) -> Result<Leaf, CanopyError> {
     let mut matches_null = false;
     for item in items {
         if is_operator_object(item) {
-            return Err(invalid(format!("cannot nest $ under {op}")));
+            return Err(invalid(["cannot nest $ under ", op].concat()));
         }
         if let Some(regex) = regex_of(item) {
             regexes.push(regex_leaf(regex)?);
@@ -456,16 +456,18 @@ fn type_leaf(operand: &Value) -> Result<Leaf, CanopyError> {
     for spec in specs {
         if let Value::String(name) = spec {
             let types =
-                type_alias(name).ok_or_else(|| invalid(format!("Unknown type name alias: {name}")))?;
+                type_alias(name).ok_or_else(|| invalid(["Unknown type name alias: ", name].concat()))?;
             wanted.extend_from_slice(types);
             continue;
         }
         let numeric = read_numeric(spec.view())
             .ok_or_else(|| invalid("type must be represented as a number or a string"))?;
         let code = to_double(numeric);
-        let code_text = js_number_string(code);
+
         wanted.push(
-            type_code(code).ok_or_else(|| invalid(format!("Invalid numerical type code: {code_text}")))?,
+            type_code(code).ok_or_else(|| {
+                invalid(["Invalid numerical type code: ", &js_number_string(code)].concat())
+            })?,
         );
     }
     Ok(Arc::new(move |value| Ok(value.is_some_and(|value| wanted.contains(&bson_type(value))))))
@@ -664,9 +666,9 @@ fn value_operator_leaf(op: &str, operand: &Value) -> Result<Leaf, CanopyError> {
         "$all" => single_all_leaf(operand)?,
         "$not" => single_not_leaf(operand)?,
         _ if UNSUPPORTED_FIELD.contains(&op) => {
-            return Err(unsupported_query(format!("{op} is not evaluated in process")));
+            return Err(unsupported_query([op, " is not evaluated in process"].concat()));
         }
-        _ => return Err(invalid(format!("unknown operator: {op}"))),
+        _ => return Err(invalid(["unknown operator: ", op].concat())),
     })
 }
 

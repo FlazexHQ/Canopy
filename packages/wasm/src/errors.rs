@@ -8,7 +8,7 @@ use wasm_bindgen::JsValue;
 /// matching TypeScript error class and a colon, such as `UnsupportedQueryError: $where is not supported`, as
 /// the Node-API port throws them.
 pub(crate) fn thrown(error: &CanopyError) -> JsValue {
-    let thrown = Error::new(&format!("{}: {}", error.name(), error.message()));
+    let thrown = Error::new(&[error.name(), ": ", error.message()].concat());
     let _ = Reflect::set(&thrown, &JsValue::from_str("code"), &JsValue::from_str(error.code().as_str()));
     thrown.into()
 }

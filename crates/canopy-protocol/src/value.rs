@@ -88,9 +88,8 @@ pub struct Regex {
 impl Regex {
     /// Creates a regular expression, sorting the option letters.
     pub fn new(pattern: impl Into<String>, options: &str) -> Regex {
-        let mut letters: Vec<char> = options.chars().collect();
-        letters.sort_unstable();
-        Regex { pattern: pattern.into(), options: letters.into_iter().collect() }
+        let letters: std::collections::BinaryHeap<char> = options.chars().collect();
+        Regex { pattern: pattern.into(), options: letters.into_sorted_vec().into_iter().collect() }
     }
 }
 

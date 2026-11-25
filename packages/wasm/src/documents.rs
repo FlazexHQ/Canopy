@@ -1,14 +1,21 @@
 //! A page of documents retained by the client core between operations.
 
+#[cfg(feature = "transforms")]
 use canopy_matcher::update::{UpdateOptions, apply_update};
+#[cfg(feature = "transforms")]
 use canopy_matcher::{compile_projection, compile_sort};
-use canopy_port::{split_documents, value_of};
+use canopy_port::split_documents;
+#[cfg(feature = "transforms")]
+use canopy_port::value_of;
+use canopy_protocol::Document;
 use canopy_protocol::bson::{decode_document, encode_document};
-use canopy_protocol::{DocRef, Document, Value};
+#[cfg(feature = "transforms")]
+use canopy_protocol::{DocRef, Value};
 use wasm_bindgen::JsValue;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::errors::thrown;
+#[cfg(feature = "client")]
 use crate::filter::Filter;
 
 /// An owned page of BSON documents. Release the handle with the generated `free()` method.
@@ -37,12 +44,14 @@ impl DocumentPage {
         Ok(out)
     }
 
+    #[cfg(feature = "client")]
     /// Returns one decision byte per document, in page order.
     #[wasm_bindgen(js_name = "matchFilter")]
     pub fn match_filter(&self, filter: &Filter) -> Vec<u8> {
         self.documents.iter().map(|document| filter.decide_document(document)).collect()
     }
 
+    #[cfg(feature = "transforms")]
     /// Sorts the page using the MongoDB sort and its implicit identifier tie breaker.
     pub fn sort(&mut self, spec: &str) -> Result<(), JsValue> {
         value_of(spec)
@@ -51,6 +60,7 @@ impl DocumentPage {
             .map_err(|error| thrown(&error))
     }
 
+    #[cfg(feature = "transforms")]
     /// Projects every document in the page with the same specification.
     pub fn project(&mut self, spec: &str) -> Result<(), JsValue> {
         let projection =
@@ -61,6 +71,7 @@ impl DocumentPage {
         Ok(())
     }
 
+    #[cfg(feature = "transforms")]
     /// Applies one update to all documents. A refusal leaves the page unchanged.
     #[wasm_bindgen(js_name = "applyUpdate")]
     pub fn apply_update(
@@ -79,6 +90,7 @@ impl DocumentPage {
         self.update(&update, array_filters, is_insert, now.as_deref())
     }
 
+    #[cfg(feature = "transforms")]
     /// Applies an update document and positional filters supplied as BSON.
     #[wasm_bindgen(js_name = "applyBsonUpdate")]
     pub fn apply_bson_update(
@@ -98,6 +110,7 @@ impl DocumentPage {
     }
 }
 
+#[cfg(feature = "transforms")]
 impl DocumentPage {
     fn update(
         &mut self,
@@ -112,12 +125,11 @@ impl DocumentPage {
             ))
         })?;
         let options = UpdateOptions { is_insert, array_filters, now };
-        self.documents = self
-            .documents
-            .iter()
-            .map(|document| apply_update(document, update, &options))
-            .collect::<Result<_, _>>()
-            .map_err(|error| thrown(&error))?;
+        let mut updated = Vec::with_capacity(self.documents.len());
+        for document in &self.documents {
+            updated.push(apply_update(document, update, &options).map_err(|error| thrown(&error))?);
+        }
+        self.documents = updated;
         Ok(())
     }
 }

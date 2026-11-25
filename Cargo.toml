@@ -28,6 +28,11 @@ print_stderr = "deny"
 lto = "thin"
 codegen-units = 1
 
+[profile.wasm]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+
 # Password hashing runs at full speed in tests too: the admin oracle replay hashes dozens of passwords.
 [profile.dev.package.argon2]
 opt-level = 3

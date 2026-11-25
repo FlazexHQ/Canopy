@@ -23,6 +23,49 @@ env:
   MONGODB_VERSION: 8.0.34
 
 jobs:
+  wasm-conformance:
+    if: github.event_name == 'schedule' || inputs.suite == 'all'
+    name: Split Wasm conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+      - run: bun install --frozen-lockfile
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Install Binaryen 133
+        shell: python
+        run: |
+          import hashlib
+          import io
+          import os
+          from pathlib import Path
+          import tarfile
+          from urllib.request import urlopen
+
+          release = "https://github.com/WebAssembly/binaryen/releases/download/version_133"
+          with urlopen(f"{release}/binaryen-version_133-x86_64-linux.tar.gz") as response:
+              archive = response.read()
+          if hashlib.sha256(archive).hexdigest() != "2dc9c7813f5375db93d96ead4b78222fcc3e2677bbb832297af4797782a37489":
+              raise ValueError("Binaryen archive SHA-256 mismatch")
+          directory = Path(os.environ["RUNNER_TEMP"])
+          with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tar:
+              tar.extractall(directory, filter="data")
+          with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as path:
+              path.write(f"{directory / 'binaryen-version_133' / 'bin'}\n")
+      - run: bun --filter @canopy/wasm build:native --split
+      - run: deno run --no-prompt --allow-read=conformance,packages/wasm/generated --node-modules-dir=manual bench/baselines/r2/conformance.mjs
+      - run: node apps/studio/node_modules/@playwright/test/cli.js install --with-deps chromium firefox webkit
+      - run: node bench/baselines/r2/browser.mjs
+
   replica-set:
     if: github.event_name == 'schedule' || inputs.suite == 'all'
     name: ${{ matrix.name }}

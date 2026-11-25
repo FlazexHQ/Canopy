@@ -10,11 +10,16 @@ import { benchDocument, SCENARIOS } from "../../workloads/matcher/scenarios.ts"
 
 const root = new URL("../../../", import.meta.url)
 const generated = new URL("packages/wasm/generated/", root)
-const runs = 20
+const runs = 50
+const modules = ["client", "transforms", "authoring"]
 
 function summary(values) {
   const sorted = values.toSorted((a, b) => a - b)
-  return { median: (sorted[9] + sorted[10]) / 2, p95: sorted[18] }
+  const middle = Math.floor(sorted.length / 2)
+  return {
+    median: (sorted[middle - 1] + sorted[middle]) / 2,
+    p95: sorted[Math.ceil(sorted.length * 0.95) - 1],
+  }
 }
 
 function size(bytes) {
@@ -120,7 +125,7 @@ async function browserTimings() {
   const require = createRequire(new URL("apps/studio/package.json", root))
   const { chromium } = require("@playwright/test")
   const assets = new Map()
-  for (const name of ["client", "authoring"]) {
+  for (const name of modules) {
     for (const suffix of [".js", "_bg.wasm"]) {
       const path = `${name}/canopy_${name}${suffix}`
       assets.set(`/${path}`, await readFile(new URL(path, generated)))
@@ -146,7 +151,7 @@ async function browserTimings() {
   try {
     browser = await chromium.launch({ headless: true })
     const results = {}
-    for (const name of ["client", "authoring"]) {
+    for (const name of modules) {
       const values = []
       for (let i = 0; i < runs; i++) {
         const page = await browser.newPage()
@@ -182,7 +187,7 @@ async function browserTimings() {
 }
 
 const results = { runtime: process.versions.bun ? `Bun ${process.versions.bun}` : process.version }
-for (const name of ["client", "authoring"]) {
+for (const name of modules) {
   const prefix = new URL(`${name}/canopy_${name}`, generated).href
   const bytes = await readFile(new URL(`${prefix}_bg.wasm`))
   const glue = await readFile(new URL(`${prefix}.js`))

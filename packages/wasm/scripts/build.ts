@@ -107,20 +107,10 @@ async function main(): Promise<void> {
   run("rustup", ["target", "add", TARGET])
   const target = resolve(root, process.env["CARGO_TARGET_DIR"] ?? "target")
   const input = join(target, TARGET, "release", "canopy_wasm.wasm")
-  const cargo = [
-    "build",
-    "-j",
-    "2",
-    "--release",
-    "--locked",
-    "--target",
-    TARGET,
-    "-p",
-    "canopy-wasm",
-  ]
+  const cargo = ["build", "-j", "2", "--locked", "--target", TARGET, "-p", "canopy-wasm"]
   mkdirSync(generated, { recursive: true })
   if (!process.argv.includes("--split")) {
-    run("cargo", cargo)
+    run("cargo", [...cargo, "--release"])
     run(bindgen, [
       input,
       "--target",
@@ -147,19 +137,26 @@ async function main(): Promise<void> {
     "--enable-nontrapping-float-to-int",
     "--enable-mutable-globals",
   ]
-  for (const feature of ["client", "authoring"]) {
+  const splitInput = join(target, TARGET, "wasm", "canopy_wasm.wasm")
+  for (const feature of ["client", "transforms", "authoring"]) {
     const name = `canopy_${feature}`
     const dir = join(generated, feature)
     const env = {
       ...process.env,
       RUSTFLAGS:
-        `${process.env["RUSTFLAGS"] ?? ""} -C target-feature=-reference-types,-multivalue -C opt-level=z`.trim(),
+        `${process.env["RUSTFLAGS"] ?? ""} -C target-feature=-reference-types,-multivalue -C panic=abort`.trim(),
     }
-    run("cargo", [...cargo, "--no-default-features", "--features", feature], root, undefined, env)
+    run(
+      "cargo",
+      [...cargo, "--profile", "wasm", "--no-default-features", "--features", feature],
+      root,
+      undefined,
+      env,
+    )
     mkdirSync(dir, { recursive: true })
     const portable = join(target, `${name}_portable.wasm`)
-    run(optimizer, [...features, "--strip-target-features", input, "-o", portable])
-    const bindgenEnv = { ...env }
+    run(optimizer, [...features, "--strip-target-features", splitInput, "-o", portable])
+    const bindgenEnv: Record<string, string | undefined> = { ...env }
     delete bindgenEnv.WASM_BINDGEN_ANYREF
     delete bindgenEnv.WASM_BINDGEN_EXTERNREF
     delete bindgenEnv.WASM_BINDGEN_MULTI_VALUE
@@ -181,7 +178,20 @@ async function main(): Promise<void> {
       bindgenEnv,
     )
     const wasm = join(dir, `${name}_bg.wasm`)
-    run(optimizer, ["-Oz", ...features, wasm, "-o", wasm])
+    run(optimizer, ["-Oz", "--converge", "--strip-debug", ...features, wasm, "-o", wasm])
+    if (feature === "client") {
+      run(optimizer, [
+        "--flatten",
+        "--dfo",
+        "--rereloop",
+        "-Oz",
+        "--converge",
+        ...features,
+        wasm,
+        "-o",
+        wasm,
+      ])
+    }
     const translated = join(dir, `${name}_translated.js`)
     run(translator, ["-O", "--pedantic", "--emscripten", ...features, wasm, "-o", translated])
     writeFileSync(translated, `${readFileSync(translated, "utf8")}\nexport { instantiate };\n`)
@@ -210,6 +220,35 @@ wasm.__wbindgen_start?.();
     if (initTypes < 0) throw new Error("The wasm-bindgen initializer types have changed")
     writeFileSync(join(dir, `${name}_js.d.ts`), types.slice(0, initTypes))
   }
+  const transforms = join(generated, "transforms")
+  writeFileSync(
+    join(transforms, "load.js"),
+    `let loading;
+export function loadTransforms(source) {
+    loading ??= (async () => {
+        if (typeof WebAssembly === "undefined") return import("./canopy_transforms_js.js");
+        const binding = await import("./canopy_transforms.js");
+        await binding.default(source === undefined ? undefined : { module_or_path: source });
+        return binding;
+    })().catch(error => {
+        loading = undefined;
+        throw error;
+    });
+    return loading;
+}
+`,
+  )
+  writeFileSync(
+    join(transforms, "load.d.ts"),
+    `import type { InitInput, DocumentPage, engine } from "./canopy_transforms.js";
+
+/** Loads the document transform bindings on first use. Pass bytes or a response when needed by the host. */
+export function loadTransforms(source?: InitInput): Promise<{
+    DocumentPage: typeof DocumentPage;
+    engine: typeof engine;
+}>;
+`,
+  )
 }
 
 await main()
