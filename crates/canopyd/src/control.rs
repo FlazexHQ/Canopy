@@ -563,6 +563,8 @@ pub(crate) struct Services {
     pub(crate) remote: Option<RemoteInspector>,
     pub(crate) request_log: Option<Arc<RequestLog>>,
     pub(crate) users: Option<Arc<canopy_control::UserRoutes>>,
+    /// Holds the setup token for the program that embeds the gateway, instead of logging it.
+    pub(crate) setup_token: Option<Arc<std::sync::Mutex<Option<String>>>>,
 }
 
 pub(crate) async fn build(
@@ -572,7 +574,7 @@ pub(crate) async fn build(
     log: Log,
     services: Services,
 ) -> Result<(Admin, Option<canopy_webhooks::Handle>), String> {
-    let Services { realtime, remote, request_log, users } = services;
+    let Services { realtime, remote, request_log, users, setup_token } = services;
     let meta = client.database(&config.meta_database);
     let migrated = canopy_migrations::migrate(&meta, canopy_migrations::MigrationOptions::default())
         .await
@@ -711,7 +713,12 @@ pub(crate) async fn build(
         return Err("CANOPY_MASTER_KEY is required in production".to_owned());
     }
     let control = Control::new(control_options);
-    if let Some(token) = control.create_setup_token().await.map_err(|error| message(&error))? {
+    let token = control.create_setup_token().await.map_err(|error| message(&error))?;
+    if let (Some(token), Some(holder)) = (&token, &setup_token)
+        && let Ok(mut held) = holder.lock()
+    {
+        *held = Some(token.clone());
+    } else if let Some(token) = token {
         log.info(
             "this server has no owner yet: claim it in Studio with the setup token",
             &[("token", &token)],
