@@ -564,3 +564,88 @@ Values are median [spread min .. max] across 5 interleaved rounds.
 | single  | 1.06 [1.05 .. 1.83] |     4.62 [3.53 .. 7.31] (3.99x) | 1.34 [1.33 .. 2.59] | 4.33 [4.30 .. 4.92] (3.20x) |    7.75 [7.00 .. 8.00] | 22.75 [21.25 .. 23.50] (3.03x) |
 | chained | 1.07 [1.05 .. 1.36] |     5.39 [3.74 .. 7.13] (4.99x) | 1.41 [1.33 .. 2.00] | 4.36 [4.13 .. 4.57] (2.93x) |    5.50 [5.00 .. 6.00] | 19.75 [19.00 .. 20.75] (3.59x) |
 | fresh   | 1.08 [1.06 .. 1.15] | 16.13 [14.81 .. 16.71] (14.56x) | 1.36 [1.34 .. 1.76] | 8.56 [8.42 .. 9.42] (6.30x) |    5.75 [5.25 .. 6.00] | 41.50 [39.50 .. 42.50] (7.09x) |
+
+## Client JavaScript translation experiments
+
+All variants used the same split client module and Binaryen 133. Client Wasm measured 81,583
+Brotli bytes at quality 11, already 255 bytes above the requested 81,328 byte limit. The three
+generated Wasm files kept their SHA-256 hashes listed below. Two independent split builds into
+scratch output directories reproduced all 23 files, including the client, transforms and
+authoring translations.
+
+- Client: `4a87673c784fd9f966d8192a567c3a8f4b50f181db7c5de081b5c1c885015f70`
+- Transforms: `a32f28c449723bd95c39a0d30c1ff7fc1df228cb9a2b21e57c4027615f60dacd`
+- Authoring: `ca42ba3bd12675df130809fb26819f1aaac3731805fdf3e832d260da4d6d3e33`
+
+Each variant used `--pedantic`, `--emscripten` and the four feature flags from the split build.
+The inline variant ran `wasm-opt --optimize-level=3 --flexible-inline-max-function-size=120
+--inlining-optimizing` on a copy before translating at `-O`. The memory variant ran
+`wasm-opt --llvm-memory-copy-fill-lowering` on a copy. The rotate variant replaced only the
+client JavaScript helper for 64 bit left rotation, using two 32 bit words. It agreed with a
+BigInt reference for 257,280 inputs, including all rotation counts modulo 64.
+
+Adding `--optimize-for-js` produced byte identical JavaScript, so its timings are those of
+the baseline. Removing `--emscripten` retained the memory copy and fill helpers and emitted
+eager ES module exports with a static Wasm import object in place of the instantiation API.
+Binaryen rejected standalone `--i64-to-i32-lowering` both with and without flattening.
+
+Hermes 1.0.0 sampling attributed 210 of 6,369 leaf samples to Binaryen's 64 bit rotate
+helper across conformance and the benchmark together. The 1,236 samples beneath
+`canonicalEjson` were spread across translated functions and the host decoder.
+
+The Hermes cells show the spread of run medians as translated microseconds per 1,000
+documents, except canonical EJSON, which is microseconds per frame. Parentheses give the
+spread of the paired ratios to TypeScript. The five samples in each run alternate implementations.
+Some runs overlapped other benchmarks and total CPU load reached 100%, so these spreads
+include contention.
+
+### Hermes 0.12.0
+
+| Variant                    | Runs | Owner equality               | Range and `$in`                | `$or`                          | `$elemMatch`                   | DLS and user                  | Canonical EJSON                    |
+| -------------------------- | ---- | ---------------------------- | ------------------------------ | ------------------------------ | ------------------------------ | ----------------------------- | ---------------------------------- |
+| `-O` baseline              | 4    | 2360 to 4880 (1.79 to 1.86×) | 21600 to 45460 (1.99 to 2.57×) | 9980 to 25500 (1.63 to 1.94×)  | 16600 to 36440 (2.73 to 2.97×) | 3600 to 7600 (2.29 to 2.57×)  | 1120.4 to 1727.4 (18.27 to 28.74×) |
+| `-O3`                      | 4    | 3320 to 6380 (1.79 to 2.07×) | 28320 to 60220 (2.24 to 3.31×) | 14420 to 24580 (1.56 to 1.78×) | 25120 to 36840 (2.60 to 2.91×) | 5440 to 7980 (2.20 to 2.43×)  | 1183.6 to 1693.4 (15.89 to 20.84×) |
+| No optimization            | 3    | 3080 to 5480 (2.52 to 2.66×) | 29360 to 45780 (3.40 to 3.91×) | 13900 to 34640 (2.15 to 2.67×) | 22860 to 45920 (3.78 to 4.50×) | 4720 to 11500 (3.32 to 3.63×) | 1026.2 to 2051.0 (26.29 to 28.66×) |
+| Inline on a copy           | 3    | 2400 to 8160 (1.85 to 1.88×) | 20740 to 38080 (2.46 to 2.51×) | 9840 to 13840 (1.66 to 1.73×)  | 16920 to 24940 (3.00 to 3.06×) | 3520 to 5200 (2.44 to 2.52×)  | 799.8 to 1614.8 (15.71 to 19.80×)  |
+| `wasm-opt -O3` on a copy   | 3    | 2400 to 4980 (1.76 to 1.89×) | 21620 to 29020 (2.00 to 2.63×) | 10320 to 14020 (1.62 to 1.83×) | 16800 to 24620 (2.91 to 2.96×) | 3660 to 5620 (2.30 to 2.44×)  | 821.8 to 1828.0 (20.22 to 21.01×)  |
+| Lower memory copy and fill | 3    | 2400 to 4680 (1.77 to 1.88×) | 21600 to 34400 (2.41 to 2.62×) | 10220 to 14360 (1.78 to 1.83×) | 16820 to 25820 (2.97 to 3.29×) | 3560 to 4760 (2.35 to 2.48×)  | 890.6 to 1770.6 (22.11 to 23.48×)  |
+| Two word rotate            | 3    | 4540 to 5080 (1.78 to 1.85×) | 38380 to 57200 (1.97 to 2.99×) | 19820 to 23720 (1.54 to 1.80×) | 33080 to 40640 (2.42 to 3.02×) | 6820 to 7540 (2.37 to 2.47×)  | 1344.6 to 1592.8 (15.03 to 19.37×) |
+
+### Hermes 1.0.0
+
+| Variant                    | Runs | Owner equality               | Range and `$in`                | `$or`                          | `$elemMatch`                   | DLS and user                 | Canonical EJSON                    |
+| -------------------------- | ---- | ---------------------------- | ------------------------------ | ------------------------------ | ------------------------------ | ---------------------------- | ---------------------------------- |
+| `-O` baseline              | 4    | 1840 to 3000 (1.64 to 1.96×) | 17280 to 23960 (2.37 to 2.97×) | 8120 to 10960 (1.66 to 1.80×)  | 13400 to 27700 (2.88 to 3.20×) | 2600 to 8700 (2.41 to 3.26×) | 700.6 to 1341.0 (17.02 to 24.20×)  |
+| `-O3`                      | 4    | 2980 to 5380 (1.57 to 1.73×) | 28540 to 38840 (2.22 to 2.56×) | 14340 to 16360 (1.52 to 1.80×) | 25840 to 31420 (2.75 to 3.51×) | 4860 to 6500 (2.24 to 2.53×) | 1108.6 to 1259.2 (14.99 to 21.46×) |
+| No optimization            | 3    | 2300 to 4440 (2.13 to 2.56×) | 23800 to 42080 (3.48 to 4.42×) | 10940 to 18760 (2.34 to 2.71×) | 19420 to 29820 (3.50 to 5.11×) | 3340 to 5340 (2.90 to 3.57×) | 815.0 to 1164.6 (26.25 to 30.41×)  |
+| Inline on a copy           | 3    | 1660 to 3380 (1.57 to 1.89×) | 16420 to 42960 (2.68 to 3.01×) | 7180 to 19640 (1.86 to 1.99×)  | 13060 to 30160 (3.35 to 3.40×) | 2360 to 6380 (2.29 to 2.45×) | 619.4 to 1089.4 (20.40 to 22.61×)  |
+| `wasm-opt -O3` on a copy   | 3    | 1560 to 3280 (1.62 to 1.77×) | 16700 to 37460 (2.56 to 3.09×) | 7260 to 17540 (1.78 to 1.97×)  | 12940 to 26040 (2.85 to 3.34×) | 2380 to 4720 (1.96 to 2.38×) | 628.8 to 1091.2 (20.04 to 23.29×)  |
+| Lower memory copy and fill | 3    | 1560 to 4980 (1.55 to 1.81×) | 16660 to 32400 (2.61 to 3.10×) | 7340 to 15960 (1.90 to 1.95×)  | 13040 to 26460 (2.67 to 3.82×) | 2380 to 5120 (2.33 to 2.42×) | 672.2 to 1226.8 (22.47 to 25.85×)  |
+| Two word rotate            | 4    | 2980 to 3900 (1.58 to 1.84×) | 25320 to 41620 (2.36 to 3.32×) | 16160 to 21640 (1.64 to 1.93×) | 25700 to 32520 (2.85 to 2.99×) | 4720 to 8360 (2.19 to 3.07×) | 1114.4 to 1277.4 (16.43 to 24.19×) |
+
+### Chromium strict CSP
+
+Each entry used 12 runs at 4× CPU slowdown with `script-src 'self' 'nonce-r2startup'`.
+The Canopy dev server used the MongoDB replica set on port 37017. Timings are median / p95
+in milliseconds. The rotate variant and its controls ran separately under higher CPU load.
+
+| Variant                    | Client JavaScript chunk Brotli bytes | Evaluation     | First snapshot  | First ready     | Snapshot gate |
+| -------------------------- | ------------------------------------ | -------------- | --------------- | --------------- | ------------- |
+| TypeScript                 |                                      | 30.15 / 33.10  | 98.90 / 165.40  | 98.90 / 165.40  |               |
+| `-O` baseline              | 110420                               | 6.50 / 14.40   | 96.45 / 124.60  | 201.15 / 245.00 | Pass          |
+| `-O3`                      | 110348                               | 6.25 / 16.40   | 96.25 / 132.80  | 207.60 / 241.20 | Pass          |
+| No optimization            | 140145                               | 6.70 / 9.50    | 96.40 / 115.10  | 210.00 / 233.20 | Pass          |
+| Inline on a copy           | 116506                               | 6.70 / 30.10   | 97.20 / 129.20  | 207.80 / 250.20 | Pass          |
+| `wasm-opt -O3` on a copy   | 110287                               | 7.25 / 33.20   | 112.60 / 180.80 | 266.15 / 411.70 | Fail          |
+| Lower memory copy and fill | 110489                               | 8.05 / 45.10   | 111.20 / 157.70 | 235.15 / 342.20 | Fail          |
+| TypeScript, rotate control |                                      | 56.45 / 104.20 | 181.80 / 289.30 | 181.80 / 289.30 |               |
+| `-O`, rotate control       | 110420                               | 53.25 / 64.50  | 189.25 / 245.30 | 416.70 / 524.20 | Pass          |
+| Two word rotate            | 110257                               | 47.35 / 134.70 | 160.15 / 444.90 | 376.60 / 707.90 | Pass          |
+
+All timed variants replayed all 11 vector sets on both desktop Hermes versions. The existing
+translation also passed Bun conformance in JavaScript and Wasm modes. Canopy.js passed
+`check:wasm`, `check:core-layout` and 359 JavaScript core tests each on Bun and Node 26.
+
+Canonical EJSON exceeded the 3× gate in every variant. The matching changes varied by
+scenario and runtime, and the Wasm input was already above the requested cap. The split
+build kept its existing translation pipeline and no artifacts were synced.
