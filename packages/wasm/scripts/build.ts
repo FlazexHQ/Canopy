@@ -142,6 +142,14 @@ async function download(version: string): Promise<string> {
   return binary
 }
 
+/** The function each module exports to read its linear memory, through which callers share scratch space. */
+const MEMORY_EXPORTS: Readonly<
+  Record<string, { readonly name: string; readonly purpose: string }>
+> = {
+  client: { name: "matchBatchMemory", purpose: "for the document cache batch" },
+  transforms: { name: "updateMemory", purpose: "for the input and changes of an update" },
+}
+
 async function main(): Promise<void> {
   const version = lockedVersion("wasm-bindgen")
   const bindgen =
@@ -257,10 +265,11 @@ async function main(): Promise<void> {
     const glue = readFileSync(join(dir, `${name}.js`), "utf8")
     const loader = glue.indexOf("let wasmModule, wasmInstance, wasm;")
     if (loader < 0) throw new Error("The wasm-bindgen initializer has changed")
+    const memoryExport = MEMORY_EXPORTS[feature]
     const batchMemory =
-      feature === "client"
-        ? "\n/** Returns the current linear memory buffer for the document cache batch. */\nexport function matchBatchMemory() { return wasm.memory.buffer; }\n"
-        : ""
+      memoryExport === undefined
+        ? ""
+        : `\n/** Returns the current linear memory buffer ${memoryExport.purpose}. */\nexport function ${memoryExport.name}() { return wasm.memory.buffer; }\n`
     if (batchMemory !== "") writeFileSync(join(dir, `${name}.js`), glue + batchMemory)
     // Binaryen replaces the buffer on growth without detaching existing views.
     const bindings = glue.slice(0, loader)
@@ -283,9 +292,9 @@ wasm.__wbindgen_start?.();
     const initTypes = types.indexOf("export type InitInput")
     if (initTypes < 0) throw new Error("The wasm-bindgen initializer types have changed")
     const batchMemoryType =
-      batchMemory === ""
+      memoryExport === undefined
         ? ""
-        : "\n/** Returns the current linear memory buffer for the document cache batch. */\nexport function matchBatchMemory(): ArrayBuffer;\n"
+        : `\n/** Returns the current linear memory buffer ${memoryExport.purpose}. */\nexport function ${memoryExport.name}(): ArrayBuffer;\n`
     if (batchMemoryType !== "") writeFileSync(join(dir, `${name}.d.ts`), types + batchMemoryType)
     writeFileSync(join(dir, `${name}_js.d.ts`), types.slice(0, initTypes) + batchMemoryType)
   }

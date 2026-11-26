@@ -240,6 +240,15 @@ pub fn encode_document(document: &Document) -> Result<Vec<u8>, CanopyError> {
     Ok(out)
 }
 
+/// Appends a BSON document made of `fields`, in the order given, to `out`. Field names are not checked for
+/// duplicates.
+pub fn encode_fields<'a>(
+    out: &mut Vec<u8>,
+    fields: impl Iterator<Item = (&'a str, &'a Value)>,
+) -> Result<(), CanopyError> {
+    write_elements(out, fields)
+}
+
 pub(crate) fn binary_payload(subtype: u8, bytes: &[u8]) -> Result<&[u8], &'static str> {
     if subtype != 0x02 {
         return Ok(bytes);

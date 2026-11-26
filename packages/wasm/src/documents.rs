@@ -8,6 +8,8 @@ use canopy_port::split_documents;
 #[cfg(feature = "transforms")]
 use canopy_port::value_of;
 use canopy_protocol::Document;
+#[cfg(feature = "transforms")]
+use canopy_protocol::bson::encode_fields;
 use canopy_protocol::bson::{decode_document, encode_document};
 #[cfg(feature = "transforms")]
 use canopy_protocol::{DocRef, RawDocument, Value};
@@ -198,15 +200,53 @@ fn decide_slot(slots: &[Option<Document>], filter: &Filter, slot: u32) -> u8 {
     }
 }
 
-/// Documents decoded once and kept for optimistic updates, each in a numbered slot. An update reads the
-/// document of one slot and keeps the result in a new slot, so both versions stay available until released.
-/// Release the handle with the generated `free()` method.
+/// How many documents an `UpdateCache` keeps: retaining one more drops the one retained longest ago.
+#[cfg(feature = "transforms")]
+const RETAINED: u64 = 256;
+
+/// Identifiers stay below 2^53, so JavaScript numbers carry them exactly.
+#[cfg(feature = "transforms")]
+const MAX_IDENTIFIER: u64 = 1 << 53;
+
+/// What `UpdateCache::update` returns when the identifier names no retained document.
+#[cfg(feature = "transforms")]
+const NOT_RETAINED: f64 = -1.0;
+
+/// What `UpdateCache::update` returns when the update is refused; `takeError` returns the error.
+#[cfg(feature = "transforms")]
+const REFUSED: f64 = -2.0;
+
+/// Documents decoded once and kept for optimistic updates, each under an identifier that is never reused. An
+/// update reads the document of one identifier and keeps the result under a new one, so both versions stay
+/// available. The cache keeps the 256 documents retained last; an update of an older one reports that it is no
+/// longer retained, and the caller retains it again. Release the handle with the generated `free()` method.
+///
+/// One update crosses the boundary once: the caller writes the update's BSON into the input space that
+/// `reserveInput` returns and reads the changes at the offset and length that `update` writes into the two
+/// little endian 32 bit words (the width of `usize` in WebAssembly) at `output()`.
 #[cfg(feature = "transforms")]
 #[wasm_bindgen]
-#[derive(Default)]
 pub struct UpdateCache {
-    slots: Vec<Option<Document>>,
-    vacant: Vec<u32>,
+    entries: Vec<(u64, Document)>,
+    next: u64,
+    input: Vec<u8>,
+    changes: Vec<u8>,
+    output: Box<[usize; 2]>,
+    error: Option<canopy_protocol::CanopyError>,
+}
+
+#[cfg(feature = "transforms")]
+impl Default for UpdateCache {
+    fn default() -> Self {
+        UpdateCache {
+            entries: Vec::new(),
+            next: 0,
+            input: Vec::new(),
+            changes: Vec::new(),
+            output: Box::new([0, 0]),
+            error: None,
+        }
+    }
 }
 
 #[cfg(feature = "transforms")]
@@ -218,71 +258,116 @@ impl UpdateCache {
         UpdateCache::default()
     }
 
-    /// Decodes one BSON document and retains it. Returns its slot. Throws, and retains nothing, when the BSON
-    /// is malformed.
-    pub fn retain(&mut self, document: &[u8]) -> Result<u32, JsValue> {
+    /// Decodes one BSON document and retains it. Returns its identifier. Throws, and retains nothing, when the
+    /// BSON is malformed.
+    pub fn retain(&mut self, document: &[u8]) -> Result<f64, JsValue> {
         let document = decode_document(document).map_err(|error| thrown(&error))?;
-        self.keep(document)
+        self.keep(document).map_err(|error| thrown(&error))
     }
 
-    /// Releases slots, so they can hold other documents. Slots that hold nothing are ignored.
-    pub fn release(&mut self, slots: &[u32]) {
-        for &slot in slots {
-            let entry = usize::try_from(slot).ok().and_then(|index| self.slots.get_mut(index));
-            if let Some(entry) = entry
-                && entry.take().is_some()
-            {
-                self.vacant.push(slot);
+    /// Makes the input space at least `capacity` bytes long and returns its offset in linear memory. The
+    /// offset stays valid until the next call of this method.
+    #[wasm_bindgen(js_name = "reserveInput")]
+    pub fn reserve_input(&mut self, capacity: usize) -> usize {
+        if self.input.len() < capacity {
+            self.input.resize(capacity, 0);
+        }
+        self.input.as_ptr() as usize
+    }
+
+    /// The offset in linear memory of the two words where `update` writes the offset and the length of its
+    /// changes. It stays valid for the life of the cache.
+    pub fn output(&self) -> usize {
+        self.output.as_ptr() as usize
+    }
+
+    /// Applies the update whose BSON fills the first `length` bytes of the input space to the document of
+    /// `id` and retains the result under a new identifier, which it returns; the document of `id` is kept as
+    /// it was. The changes are a BSON document whose `c` field holds the top level fields of the result that
+    /// the update touched and, when the field names of the result or their order differ from the original's,
+    /// whose `k` field lists every field name of the result in order. They stay valid until the next update.
+    /// `now` is the clock of `$currentDate` in milliseconds since the Unix epoch. Returns -1 when `id` names
+    /// no retained document, and -2 when MongoDB would refuse the update (`takeError` returns the error);
+    /// nothing is retained then.
+    pub fn update(&mut self, id: f64, length: usize, now: Option<f64>) -> f64 {
+        match self.apply(id, length, now) {
+            Ok(Some(next)) => next,
+            Ok(None) => NOT_RETAINED,
+            Err(error) => {
+                self.error = Some(error);
+                REFUSED
             }
         }
     }
 
-    /// Applies one update (given as BSON) to the document of `slot` and retains the result in a new slot; the
-    /// document of `slot` is kept as it was. Returns the new slot as four little endian bytes, followed by a
-    /// BSON document whose `c` field holds the top level fields of the result that the update touched and,
-    /// when the field names of the result or their order differ from the original's, whose `k` field lists
-    /// every field name of the result in order. Throws when MongoDB would refuse the update or when `slot`
-    /// holds no document; nothing is retained then.
-    pub fn update(&mut self, slot: u32, update: &[u8], now: Option<String>) -> Result<Vec<u8>, JsValue> {
-        let original = usize::try_from(slot)
-            .ok()
-            .and_then(|index| self.slots.get(index))
-            .and_then(Option::as_ref)
-            .ok_or_else(|| {
-                thrown(&canopy_protocol::CanopyError::invalid_query("No document is retained there"))
-            })?;
-        let update = Value::Document(decode_document(update).map_err(|error| thrown(&error))?);
-        let now = parse_clock(now.as_deref())?;
-        let options = UpdateOptions { is_insert: false, array_filters: Vec::new(), now };
-        let result = apply_update(original, &update, &options).map_err(|error| thrown(&error))?;
-        let changes =
-            encode_document(&update_changes(original, &update, &result)).map_err(|error| thrown(&error))?;
-        let next = self.keep(result)?;
-        let mut out = Vec::with_capacity(changes.len() + 4);
-        out.extend_from_slice(&next.to_le_bytes());
-        out.extend(changes);
-        Ok(out)
+    /// The error of the last refused update, once, or `undefined`.
+    #[wasm_bindgen(js_name = "takeError")]
+    pub fn take_error(&mut self) -> JsValue {
+        self.error.take().map_or(JsValue::UNDEFINED, |error| thrown(&error))
     }
 }
 
 #[cfg(feature = "transforms")]
 impl UpdateCache {
-    fn keep(&mut self, document: Document) -> Result<u32, JsValue> {
-        let slot = match self.vacant.pop() {
-            Some(slot) => slot,
-            None => {
-                let slot = u32::try_from(self.slots.len()).map_err(|_| {
-                    thrown(&canopy_protocol::CanopyError::invalid_query("Too many retained documents"))
-                })?;
-                self.slots.push(None);
-                slot
-            }
+    fn apply(
+        &mut self,
+        id: f64,
+        length: usize,
+        now: Option<f64>,
+    ) -> Result<Option<f64>, canopy_protocol::CanopyError> {
+        let Some(original) = retained(&self.entries, id) else {
+            return Ok(None);
         };
-        if let Some(entry) = usize::try_from(slot).ok().and_then(|index| self.slots.get_mut(index)) {
-            *entry = Some(document);
-        }
-        Ok(slot)
+        let update = self.input.get(..length).ok_or_else(|| {
+            canopy_protocol::CanopyError::invalid_query("The update is longer than the input space")
+        })?;
+        let update = Value::Document(decode_document(update)?);
+        let options = UpdateOptions { is_insert: false, array_filters: Vec::new(), now: clock(now)? };
+        let result = apply_update(original, &update, &options)?;
+        self.changes.clear();
+        write_changes(&mut self.changes, original, &update, &result)?;
+        let next = self.keep(result)?;
+        *self.output = [self.changes.as_ptr() as usize, self.changes.len()];
+        Ok(Some(next))
     }
+
+    fn keep(&mut self, document: Document) -> Result<f64, canopy_protocol::CanopyError> {
+        let id = self.next;
+        if id >= MAX_IDENTIFIER {
+            return Err(canopy_protocol::CanopyError::invalid_query("Too many retained documents"));
+        }
+        self.next = id + 1;
+        let position = usize::try_from(id % RETAINED).unwrap_or_default();
+        match self.entries.get_mut(position) {
+            Some(entry) => *entry = (id, document),
+            None => self.entries.push((id, document)),
+        }
+        Ok(id as f64)
+    }
+}
+
+/// The document retained under `id`, unless it has been dropped or `id` is not an identifier.
+#[cfg(feature = "transforms")]
+fn retained(entries: &[(u64, Document)], id: f64) -> Option<&Document> {
+    if !(id >= 0.0 && id.fract() == 0.0 && id < MAX_IDENTIFIER as f64) {
+        return None;
+    }
+    let id = id as u64;
+    let (kept, document) = entries.get(usize::try_from(id % RETAINED).ok()?)?;
+    (*kept == id).then_some(document)
+}
+
+/// The clock of `$currentDate`, given in milliseconds since the Unix epoch.
+#[cfg(feature = "transforms")]
+fn clock(now: Option<f64>) -> Result<Option<i64>, canopy_protocol::CanopyError> {
+    now.map(|ms| {
+        if ms.fract() == 0.0 && ms.abs() < MAX_IDENTIFIER as f64 {
+            Ok(ms as i64)
+        } else {
+            Err(canopy_protocol::CanopyError::invalid_query("The clock must be an integer in milliseconds"))
+        }
+    })
+    .transpose()
 }
 
 /// The clock of `$currentDate`, given in milliseconds since the Unix epoch as text.
@@ -293,11 +378,16 @@ fn parse_clock(now: Option<&str>) -> Result<Option<i64>, JsValue> {
     })
 }
 
-/// What an update changed, as `UpdateCache::update` reports it: the top level fields of `result` that
-/// `update` names (every field for a replacement), and the field names of `result` in order when they differ
-/// from those of `original`.
+/// Writes what an update changed, as `UpdateCache::update` reports it, to `out`: the top level fields of
+/// `result` that `update` names (every field for a replacement), and the field names of `result` in order
+/// when they differ from those of `original`.
 #[cfg(feature = "transforms")]
-fn update_changes(original: &Document, update: &Value, result: &Document) -> Document {
+fn write_changes(
+    out: &mut Vec<u8>,
+    original: &Document,
+    update: &Value,
+    result: &Document,
+) -> Result<(), canopy_protocol::CanopyError> {
     let update = match update {
         Value::Document(update) => Some(update).filter(|update| canopy_matcher::is_operator_update(update)),
         _ => None,
@@ -317,18 +407,44 @@ fn update_changes(original: &Document, update: &Value, result: &Document) -> Doc
             }
         }
     }
-    let mut changed = Document::new();
-    for (name, value) in result.iter() {
-        if !operators || touched.contains(&name) {
-            changed.insert(name, value.clone());
-        }
-    }
-    let mut changes = Document::with_capacity(2);
-    changes.insert("c", Value::Document(changed));
+    let start = out.len();
+    out.extend_from_slice(&[0, 0, 0, 0, 0x03, b'c', 0]);
+    encode_fields(out, result.iter().filter(|(name, _)| !operators || touched.contains(name)))?;
     if !operators || !original.keys().eq(result.keys()) {
-        changes.insert("k", Value::Array(result.keys().map(|name| Value::String(name.to_owned())).collect()));
+        out.extend_from_slice(&[0x04, b'k', 0]);
+        let names = out.len();
+        out.extend_from_slice(&[0, 0, 0, 0]);
+        for (index, name) in result.keys().enumerate() {
+            out.push(0x02);
+            out.extend_from_slice(index.to_string().as_bytes());
+            out.push(0);
+            out.extend_from_slice(&bson_length(name.len() + 1)?);
+            out.extend_from_slice(name.as_bytes());
+            out.push(0);
+        }
+        out.push(0);
+        patch_length(out, names)?;
     }
-    changes
+    out.push(0);
+    patch_length(out, start)
+}
+
+/// A BSON length prefix.
+#[cfg(feature = "transforms")]
+fn bson_length(length: usize) -> Result<[u8; 4], canopy_protocol::CanopyError> {
+    i32::try_from(length)
+        .map(i32::to_le_bytes)
+        .map_err(|_| canopy_protocol::CanopyError::invalid_query("The changes are larger than 2 GiB"))
+}
+
+/// Writes the length of the document or array that starts at `start` and ends `out`.
+#[cfg(feature = "transforms")]
+fn patch_length(out: &mut [u8], start: usize) -> Result<(), canopy_protocol::CanopyError> {
+    let length = bson_length(out.len().saturating_sub(start))?;
+    if let Some(prefix) = out.get_mut(start..start.saturating_add(4)) {
+        prefix.copy_from_slice(&length);
+    }
+    Ok(())
 }
 
 /// The top level field name of a dotted path.
@@ -429,7 +545,7 @@ mod tests {
     use canopy_matcher::update::{UpdateOptions, apply_update};
     use canopy_protocol::{CanopyError, Document, Value};
 
-    use super::update_changes;
+    use super::{UpdateCache, write_changes};
 
     fn document(fields: &[(&str, Value)]) -> Document {
         fields.iter().map(|(name, value)| ((*name).to_owned(), value.clone())).collect()
@@ -447,7 +563,10 @@ mod tests {
         let update = Value::Document(update);
         let options = UpdateOptions { is_insert: false, array_filters: Vec::new(), now: Some(0) };
         let result = apply_update(original, &update, &options)?;
-        Ok(update_changes(original, &update, &result))
+        let mut out = vec![7];
+        write_changes(&mut out, original, &update, &result)?;
+        assert_eq!(out.first(), Some(&7));
+        canopy_protocol::bson::decode_document(out.get(1..).unwrap_or_default())
     }
 
     fn note() -> Document {
@@ -532,6 +651,125 @@ mod tests {
         assert_eq!(
             changes(&note(), same)?,
             document(&[("c", Value::Document(document(&[("n", Value::Int32(1))])))])
+        );
+        Ok(())
+    }
+
+    fn encoded(document: &Document) -> Result<Vec<u8>, CanopyError> {
+        canopy_protocol::bson::encode_document(document)
+    }
+
+    fn update_in(cache: &mut UpdateCache, id: f64, update: &Document) -> Result<Option<f64>, CanopyError> {
+        let bytes = encoded(update)?;
+        cache.input = bytes.clone();
+        cache.input.extend_from_slice(&[0xff; 8]);
+        cache.apply(id, bytes.len(), Some(0.0))
+    }
+
+    fn output(cache: &UpdateCache) -> Result<Document, CanopyError> {
+        let [offset, length] = *cache.output;
+        assert_eq!(offset, cache.changes.as_ptr() as usize);
+        assert_eq!(length, cache.changes.len());
+        canopy_protocol::bson::decode_document(&cache.changes)
+    }
+
+    fn increment() -> Document {
+        document(&[("$inc", Value::Document(document(&[("n", Value::Int32(1))])))])
+    }
+
+    #[test]
+    fn writes_the_bytes_the_document_encoder_writes_for_more_than_ten_names() -> Result<(), CanopyError> {
+        let replacement: Document = (0..12).map(|index| (format!("f{index}"), Value::Int32(index))).collect();
+        let order: Vec<String> = replacement.keys().map(str::to_owned).collect();
+        let order: Vec<&str> = order.iter().map(String::as_str).collect();
+        let expected = document(&[("c", Value::Document(replacement.clone())), ("k", names(&order))]);
+        let mut out = Vec::new();
+        write_changes(&mut out, &note(), &Value::Document(replacement.clone()), &replacement)?;
+        assert_eq!(out, encoded(&expected)?);
+        Ok(())
+    }
+
+    #[test]
+    fn keeps_every_version_and_reports_the_changes_in_place() -> Result<(), CanopyError> {
+        let mut cache = UpdateCache::default();
+        let first = cache.keep(note())?;
+        let second = update_in(&mut cache, first, &increment())?;
+        assert_eq!(second, Some(1.0));
+        assert_eq!(output(&cache)?, document(&[("c", Value::Document(document(&[("n", Value::Int32(2))])))]));
+        let third = update_in(&mut cache, 1.0, &increment())?;
+        assert_eq!(third, Some(2.0));
+        assert_eq!(output(&cache)?, document(&[("c", Value::Document(document(&[("n", Value::Int32(3))])))]));
+        assert_eq!(update_in(&mut cache, first, &increment())?, Some(3.0));
+        assert_eq!(output(&cache)?, document(&[("c", Value::Document(document(&[("n", Value::Int32(2))])))]));
+        Ok(())
+    }
+
+    #[test]
+    fn drops_the_document_retained_longest_ago() -> Result<(), CanopyError> {
+        let mut cache = UpdateCache::default();
+        let first = cache.keep(note())?;
+        let mut last = first;
+        for _ in 0..255 {
+            last = update_in(&mut cache, last, &increment())?.unwrap_or(-1.0);
+        }
+        assert_eq!(last, 255.0);
+        assert_eq!(update_in(&mut cache, first, &increment())?, Some(256.0));
+        assert_eq!(update_in(&mut cache, first, &increment())?, None);
+        assert_eq!(update_in(&mut cache, 1.0, &increment())?, Some(257.0));
+        assert_eq!(update_in(&mut cache, 1.0, &increment())?, None);
+        assert_eq!(update_in(&mut cache, 2.0, &increment())?, Some(258.0));
+        assert_eq!(output(&cache)?, document(&[("c", Value::Document(document(&[("n", Value::Int32(4))])))]));
+        assert_eq!(cache.entries.len(), 256);
+        Ok(())
+    }
+
+    #[test]
+    fn answers_identifiers_it_never_gave_as_not_retained() -> Result<(), CanopyError> {
+        let mut cache = UpdateCache::default();
+        cache.keep(note())?;
+        for id in [1.0, 256.0, -1.0, 0.5, f64::NAN, f64::INFINITY, 9_007_199_254_740_992.0] {
+            assert_eq!(update_in(&mut cache, id, &increment())?, None, "{id}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn refuses_without_retaining_and_keeps_the_error_once() -> Result<(), CanopyError> {
+        let mut cache = UpdateCache::default();
+        let first = cache.keep(document(&[("_id", Value::Int32(1)), ("n", text("x"))]))?;
+        let refused = document(&[("$inc", Value::Document(document(&[("n", Value::Int32(1))])))]);
+        let bytes = encoded(&refused)?;
+        cache.input = bytes.clone();
+        assert_eq!(cache.update(first, bytes.len(), Some(0.0)), super::REFUSED);
+        assert!(cache.error.take().is_some_and(|error| error.message().contains("non-numeric")));
+        assert_eq!(cache.next, 1);
+        assert_eq!(cache.update(first, bytes.len() + 1, Some(0.0)), super::REFUSED);
+        assert_eq!(cache.next, 1);
+        assert_eq!(cache.update(7.0, bytes.len(), Some(0.0)), super::NOT_RETAINED);
+        assert!(cache.error.is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn takes_the_clock_as_whole_milliseconds() -> Result<(), CanopyError> {
+        assert_eq!(super::clock(None)?, None);
+        assert_eq!(super::clock(Some(1_764_115_200_123.0))?, Some(1_764_115_200_123));
+        assert_eq!(super::clock(Some(-5.0))?, Some(-5));
+        for refused in [0.5, f64::NAN, f64::INFINITY, 9_007_199_254_740_992.0] {
+            assert!(super::clock(Some(refused)).is_err(), "{refused}");
+        }
+        let mut cache = UpdateCache::default();
+        let first = cache.keep(document(&[("_id", Value::Int32(1))]))?;
+        let stamp = document(&[("$currentDate", Value::Document(document(&[("at", Value::Bool(true))])))]);
+        let bytes = encoded(&stamp)?;
+        cache.input = bytes.clone();
+        assert_eq!(cache.apply(first, bytes.len(), Some(1_764_115_200_123.0))?, Some(1.0));
+        assert_eq!(
+            output(&cache)?,
+            document(&[
+                ("c", Value::Document(document(&[("at", Value::DateTime(1_764_115_200_123))]))),
+                ("k", names(&["_id", "at"])),
+            ])
         );
         Ok(())
     }
