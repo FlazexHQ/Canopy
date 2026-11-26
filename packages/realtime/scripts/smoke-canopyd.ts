@@ -41,7 +41,7 @@ function run(binary: string, ...args: string[]): string {
   const result = spawnSync(binary, args, { encoding: "utf8", env })
   if (result.status !== 0)
     throw new Error(
-      `${binary} ${flag} exited with ${String(result.status ?? result.error)}\n${result.stderr}`,
+      `${binary} ${args.join(" ")} exited with ${String(result.status ?? result.error)}\n${result.stderr}`,
     )
   return result.stdout + result.stderr
 }

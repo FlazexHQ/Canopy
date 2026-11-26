@@ -105,15 +105,14 @@ it("passes arguments and Studio settings to an override executable", () => {
   const studio = join(dir, "node_modules", "@canopy", "studio-assets")
   mkdirSync(studio, { recursive: true })
   writeFileSync(join(studio, "index.html"), "<html></html>")
-  const inherited = { ...env, CANOPY_BINARY: "node" }
+  const script = join(dir, "print-settings.cjs")
+  writeFileSync(
+    script,
+    "console.log(JSON.stringify([process.env.CANOPY_STUDIO_DIR, ...process.argv.slice(2)]))",
+  )
+  const inherited: NodeJS.ProcessEnv = { ...env, CANOPY_BINARY: "node" }
   delete inherited["CANOPY_STUDIO_DIR"]
-  const args = [
-    launcher,
-    "-p",
-    "JSON.stringify([process.env.CANOPY_STUDIO_DIR, process.argv[1]])",
-    "--",
-    "argument with spaces",
-  ]
+  const args = [launcher, script, "argument with spaces"]
   for (const expected of [studio, "custom Studio"]) {
     const result = spawnSync("node", args, {
       env: expected === studio ? inherited : { ...inherited, CANOPY_STUDIO_DIR: expected },
