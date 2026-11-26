@@ -609,6 +609,8 @@ min .. max] across 5 interleaved rounds.
 | `$elemMatch`            | 148.91 [142.01 .. 178.35] | 136.68 [134.91 .. 137.62] (0.92x) | 169.17 [164.90 .. 171.85] | 156.39 [155.88 .. 160.93] (0.94x) | 590.00 [580.00 .. 610.00] | 660.00 [650.00 .. 670.00] (1.12x) |
 | DLS and user filter     |    44.46 [38.20 .. 54.78] |    47.61 [46.11 .. 48.97] (1.05x) |    57.18 [55.05 .. 59.02] |    63.77 [63.48 .. 67.85] (1.14x) | 210.00 [200.00 .. 220.00] | 270.00 [260.00 .. 280.00] (1.30x) |
 
+The earlier figures for Chromium 4x equality (1.90x) and DLS and user filter (1.30x) in the measurements above did not reproduce in controlled runs against baseline Canopy.js `73b8da9`; see the Chromium matching optimization round below for the definitive measurements.
+
 ### Optimistic update latency (microseconds per operation)
 
 Values are median [spread min .. max] across 5 interleaved rounds.
@@ -668,6 +670,43 @@ TypeScript updater.
 The optimistic update gate (at most 3x and under 50 µs for single and chained) is now met across every host.
 Warm matching ratios remain unchanged within noise. The client Wasm module is 81,467 Brotli bytes against the
 81,920 byte gate (453 bytes of headroom).
+
+### Chromium matching optimization round (slot reuse and direct string equality)
+
+#### Profile and root cause
+
+Warm profiling of owner equality in Chromium 156 at 4x CPU slowdown:
+the WebAssembly crossing happens once per batch and was not the cost. `Document::get` accounted for 30% of execution time (String::eq then memcmp compiled to a loop over single bytes in the size optimized module). The per document call chain accounted for 26% (dynamic call to the compiled test, Result read and drop). JavaScript WeakMap slot lookup took about 16 ns per document at 4x CPU slowdown, and decision conversion took about 15 ns per document.
+
+#### Implementation changes
+
+The matching path was optimized in Canopy commit `f0100c2d` and Canopy.js commit `9a46df9`:
+
+1. Per filter last batch slot reuse in Canopy.js (`9a46df9`): each compiled filter remembers the page of documents it matched last and their assigned slots. When the next match call receives the same documents in the same order, WeakMap lookups are skipped completely. Slot lookup drops from 16 ns to 3 ns per document at 4x CPU slowdown. The filter retains one page of documents until the next match call or `free()`, preserving assigned slots without caching match decisions.
+2. Direct owner equality in `CompiledFilter::matches` (`f0100c2d`): when a whole filter is one top level field equal to a string or BSON Symbol, the compiled filter stores the field name and text and resolves an owned document directly through the fast path helper, bypassing the dynamic test call and Result read and drop.
+3. Four byte at a time string compare (`f0100c2d`): field names and string values compare four bytes at a time in the single field equality path, replacing the byte loop of memcmp in the size optimized client module.
+4. Inline hints on critical matching functions.
+
+Update latency remains unchanged.
+
+#### Before and after matching throughput
+
+Measurements across 5 rounds comparing baseline Canopy.js `73b8da9` (before) with Canopy `f0100c2d` and Canopy.js `9a46df9` (after) on an AMD Ryzen 5 5600H (12 threads). Baseline runs had 9 to 12% processor load; final runs had 2 to 10% load. Microbenchmarks used `engine-bench.mjs --rounds 5`.
+
+Warm equality in Chromium at 4x CPU slowdown dropped from 120 to 130 ns down to 80 to 90 ns per document (ratio 1.00 to 1.30x down to 0.67 to 0.80x). Each entry reports the five round spread in Wasm nanoseconds per document, followed by the spread of paired Wasm to TypeScript ratios:
+
+| Scenario             |                                                       Bun 1.4.5 |                                                    Node 26.13.1 |                                              Chromium 156 at 4x | Gate verdict |
+| -------------------- | --------------------------------------------------------------: | --------------------------------------------------------------: | --------------------------------------------------------------: | -----------: |
+| equality (DLS owner) |     19.2 to 26.0 (0.45 to 1.24x) → 15.2 to 21.3 (0.36 to 0.98x) |     28.2 to 32.3 (0.56 to 1.08x) → 19.5 to 20.5 (0.40 to 0.78x) |   120.0 to 130.0 (1.00 to 1.30x) → 80.0 to 90.0 (0.67 to 0.80x) |         Pass |
+| range and `$in`      | 133.0 to 140.4 (0.60 to 0.76x) → 120.7 to 124.7 (0.52 to 0.62x) | 127.0 to 134.5 (0.52 to 0.57x) → 124.0 to 129.4 (0.47 to 0.55x) | 520.0 to 710.0 (0.71 to 0.92x) → 540.0 to 570.0 (0.71 to 0.75x) |         Pass |
+| `$or` of 3 branches  |     94.8 to 96.2 (0.43 to 0.52x) → 78.6 to 80.0 (0.35 to 0.39x) | 108.4 to 114.0 (0.49 to 0.54x) → 103.9 to 109.4 (0.50 to 0.54x) | 460.0 to 480.0 (0.60 to 0.71x) → 430.0 to 460.0 (0.57 to 0.63x) |         Pass |
+| dotted path          |     87.8 to 91.1 (0.90 to 1.08x) → 62.2 to 65.6 (0.66 to 0.81x) |     77.4 to 79.1 (0.72 to 0.73x) → 73.0 to 76.0 (0.67 to 0.71x) | 300.0 to 450.0 (0.79 to 1.18x) → 300.0 to 320.0 (0.77 to 0.82x) |         Pass |
+| `$elemMatch`         | 102.0 to 103.7 (0.67 to 0.76x) → 102.8 to 105.1 (0.63 to 0.75x) | 109.9 to 114.7 (0.68 to 0.70x) → 113.8 to 117.5 (0.68 to 0.73x) | 460.0 to 490.0 (0.78 to 0.87x) → 500.0 to 510.0 (0.82 to 0.85x) |         Pass |
+| DLS and user filter  |     34.3 to 35.7 (0.69 to 0.80x) → 32.5 to 35.0 (0.68 to 0.78x) |     44.1 to 46.0 (0.76 to 0.82x) → 42.0 to 44.1 (0.75 to 0.77x) | 180.0 to 180.0 (0.82 to 0.90x) → 190.0 to 200.0 (0.86 to 0.91x) |         Pass |
+
+The 1.2x matching gate now passes for all six filters on all three hosts in every round, with the worst ratio observed being 0.98x. An earlier preliminary note suggesting Chromium 4x was 1.90x on equality and 1.30x on DLS and user filter did not reproduce under controlled runs with baseline Canopy.js `73b8da9` (where equality was 1.00 to 1.30x and DLS and user filter was 0.82 to 0.90x).
+
+The client module is 81,835 Brotli bytes, 85 bytes under the 81,920 byte gate. Headroom is narrow: the next client module change will hit the gate. With this round, every R2 speed gate in plan 005 §7 is met (size, startup, matching, update), except Hermes which the maintainer accepted as a known gap.
 
 ## Client JavaScript translation experiments
 

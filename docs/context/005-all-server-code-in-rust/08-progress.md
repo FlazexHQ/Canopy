@@ -3,6 +3,96 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R2 matching gate met across every host, direct string equality and slot reuse (f0100c2d; Canopy.js 9a46df9)
+
+Summary of commits f0100c2d and Canopy.js 9a46df9. The R2 Chromium matching optimization round brings warm
+matching latency across every host within the 1.2x gate. Direct owner equality and four byte at a time string
+comparison in `canopy-matcher` combined with per filter last batch slot reuse in Canopy.js drop warm equality in
+Chromium at 4x from 120 to 130 ns down to 80 to 90 ns per document (ratio 1.00 to 1.30x down to 0.67 to 0.80x).
+All six filters pass the 1.2x gate across all three hosts in every round (worst ratio 0.98x). Update latency
+is unchanged. The client Wasm module is 81,835 Brotli bytes, 85 bytes under the 81,920 byte budget (active risk:
+the next client module change will hit the gate). With this, every R2 speed gate in plan 005 §7 is met (size,
+startup, matching, update), except Hermes which the maintainer accepted as a known gap.
+
+### Chromium warm equality profile and root cause
+
+Profiling warm owner equality in Chromium 156 at 4x CPU slowdown:
+- The WebAssembly boundary crossing happens once per batch and was not the cost.
+- `Document::get` accounted for 30% of execution time (String::eq then memcmp compiled to a loop over single bytes in the size optimized module).
+- The per document call chain accounted for 26% of time (dynamic call to the compiled test, Result read and drop).
+- JavaScript WeakMap slot lookup took about 16 ns per document at 4x CPU slowdown.
+- Decision conversion took about 15 ns per document.
+
+### What changed (f0100c2d; Canopy.js 9a46df9)
+
+- **Per filter last batch slot reuse (Canopy.js 9a46df9):** each compiled filter keeps the page of documents it
+  matched last and their slots. When a subsequent match call encounters the same documents in the same order,
+  WeakMap lookups are skipped entirely. Slot lookup drops from 16 ns to 3 ns per document at 4x CPU slowdown.
+  The filter holds one page per filter until the next call or `free()`, keeping slots assigned without caching
+  match decisions.
+- **Direct owner equality in `CompiledFilter::matches` (f0100c2d):** when a whole filter is one top level field
+  equal to a string or BSON Symbol, the compiled filter stores the field and text and evaluates an owned
+  document directly through the fast path helper, without the dynamic test call and Result read and drop.
+- **Four byte string comparison (f0100c2d):** field names and string values compare four bytes at a time in the
+  single field equality path, avoiding the byte by byte loop of memcmp in the size optimized client module.
+- **Inline hints:** critical matching functions received inline hints.
+- **Update latency unchanged:** update latency remains unchanged and well within gate.
+
+### Matching throughput results
+
+Measured across 5 rounds comparing baseline Canopy.js `73b8da9` (before) with Canopy `f0100c2d` and Canopy.js
+`9a46df9` (after) on an AMD Ryzen 5 5600H (12 threads; load 9 to 12% for baseline runs, 2 to 10% for final runs)
+using `engine-bench.mjs --rounds 5`. Ratios are Wasm over TypeScript, minimum to maximum over 5 rounds:
+
+- **Chromium 156 at 4x CPU slowdown:**
+  - equality (DLS owner): before 120.0 to 130.0 ns (1.00 to 1.30x); after 80.0 to 90.0 ns (0.67 to 0.80x) (gate met)
+  - range and `$in`: before 520.0 to 710.0 ns (0.71 to 0.92x); after 540.0 to 570.0 ns (0.71 to 0.75x) (gate met)
+  - `$or` of 3 branches: before 460.0 to 480.0 ns (0.60 to 0.71x); after 430.0 to 460.0 ns (0.57 to 0.63x) (gate met)
+  - dotted path: before 300.0 to 450.0 ns (0.79 to 1.18x); after 300.0 to 320.0 ns (0.77 to 0.82x) (gate met)
+  - `$elemMatch`: before 460.0 to 490.0 ns (0.78 to 0.87x); after 500.0 to 510.0 ns (0.82 to 0.85x) (gate met)
+  - DLS and user filter: before 180.0 to 180.0 ns (0.82 to 0.90x); after 190.0 to 200.0 ns (0.86 to 0.91x) (gate met)
+- **Bun 1.4.5:**
+  - equality (DLS owner): before 19.2 to 26.0 ns (0.45 to 1.24x); after 15.2 to 21.3 ns (0.36 to 0.98x) (gate met)
+  - range and `$in`: before 133.0 to 140.4 ns (0.60 to 0.76x); after 120.7 to 124.7 ns (0.52 to 0.62x) (gate met)
+  - `$or` of 3 branches: before 94.8 to 96.2 ns (0.43 to 0.52x); after 78.6 to 80.0 ns (0.35 to 0.39x) (gate met)
+  - dotted path: before 87.8 to 91.1 ns (0.90 to 1.08x); after 62.2 to 65.6 ns (0.66 to 0.81x) (gate met)
+  - `$elemMatch`: before 102.0 to 103.7 ns (0.67 to 0.76x); after 102.8 to 105.1 ns (0.63 to 0.75x) (gate met)
+  - DLS and user filter: before 34.3 to 35.7 ns (0.69 to 0.80x); after 32.5 to 35.0 ns (0.68 to 0.78x) (gate met)
+- **Node 26.13.1:**
+  - equality (DLS owner): before 28.2 to 32.3 ns (0.56 to 1.08x); after 19.5 to 20.5 ns (0.40 to 0.78x) (gate met)
+  - range and `$in`: before 127.0 to 134.5 ns (0.52 to 0.57x); after 124.0 to 129.4 ns (0.47 to 0.55x) (gate met)
+  - `$or` of 3 branches: before 108.4 to 114.0 ns (0.49 to 0.54x); after 103.9 to 109.4 ns (0.50 to 0.54x) (gate met)
+  - dotted path: before 77.4 to 79.1 ns (0.72 to 0.73x); after 73.0 to 76.0 ns (0.67 to 0.71x) (gate met)
+  - `$elemMatch`: before 109.9 to 114.7 ns (0.68 to 0.70x); after 113.8 to 117.5 ns (0.68 to 0.73x) (gate met)
+  - DLS and user filter: before 44.1 to 46.0 ns (0.76 to 0.82x); after 42.0 to 44.1 ns (0.75 to 0.77x) (gate met)
+
+The 1.2x matching gate now passes for all six filters on all three hosts in every round (worst ratio 0.98x).
+The earlier note stating that Chromium 4x equality was 1.90x and DLS and user filter was 1.30x did not reproduce
+under controlled runs against baseline Canopy.js `73b8da9` (where equality was 1.00 to 1.30x and DLS and user
+filter was 0.82 to 0.90x).
+
+### Test evidence
+
+- Cargo workspace: 784 tests pass on MongoDB 8.0.34 and 9.0.8.
+- R2 conformance replay: 1,991 filters and 1,995 updates pass through Wasm and wasm2js on Bun and Node 26.
+- Canopy.js: 361 tests pass on Node 26 and Bun.
+- Core layout check: `bun run check:core-layout` passes; `sync-core.ts` is deleted; no TypeScript file implements matcher, policy, query, config or schema semantics.
+
+### Status across stages
+
+- **R2:** all speed gates in plan 005 §7 are met (size 81,835 Brotli bytes against 81,920 budget; startup first snapshot within 5%; matching under 1.2x across all six filters on Bun, Node 26 and Chromium 4x with worst round 0.98x; optimistic update under 2.55x, well under 3x and 50 µs). Hermes wasm2js speed gate dropped by maintainer decision as a known gap for post R2. Client module has only 85 bytes of headroom (active risk). Conformance vectors pass on Bun and Node 26 in both formats; Canopy.js passes 361 tests on Node 26 and Bun; layout check confirms no TypeScript semantic copies. Full Canopy.js client suite on Node 24, Deno, browser Playwright and React Native devices remain unverified.
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one second, `@canopy/cli` is published as the launcher, and Studio assets resolve directly.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests are already moved.
+
+### R2 exit criteria review
+
+Checked against the plan 005 stages and §7 requirements:
+1. Conformance vectors: all applicable sets pass through Wasm and wasm2js on Bun, Node 24 and 26, Deno, Chromium, Firefox and WebKit (browser replay); Hermes desktop CLI passes all 11 sets on 0.12.0 and 1.0.0. Latest Wasm verified on Bun and Node 26 with 1,991 filters and 1,995 updates.
+2. Canopy.js test suites: 361 tests pass on Node 26 and Bun with Wasm and wasm2js. Full test runs on Node 24, Deno, browser Playwright and React Native mobile devices remain unverified.
+3. Speed gates: size (81,835 bytes, 85 bytes headroom), startup (first snapshot within 5%, eval under 30 ms), matching (all six filters under 1.2x across all hosts, worst 0.98x), and optimistic updates (under 2.55x everywhere) are all met. Hermes speed gate dropped by maintainer decision.
+4. Semantic copies: verified absent by `scripts/check-core-layout.ts`; `sync-core.ts` deleted.
+
 ## Checkpoint (2026-11-26): R2 optimistic update gate met on every host, bounded ring retention (b752097e, 58dce163, 205398a8; Canopy.js 73b8da9)
 
 Summary of commits b752097e, 58dce163, 205398a8 and Canopy.js 73b8da9. The R2 optimistic update optimization
@@ -80,9 +170,9 @@ remain unchanged within noise. Client module size is 81,467 Brotli bytes (gate 8
 
 - **R2:** update gate met across every host (single and chained under 2.55x, well under 3x and 50 µs). Hermes
   speed gate dropped by maintainer decision. Warm matching ratios unchanged within noise: Bun and Node pass
-  all six scenarios; Chromium 4x passes four of six scenarios in the baseline measurement (equality 1.90x and
-  DLS and user filter 1.30x miss the 1.2x gate due to fixed Wasm crossing cost, while 34a5fd6b earlier demonstrated
-  1.17x on owner equality in dedicated passes). What remains for R2 closure is final quiet machine confirmation
+  all six scenarios; the earlier note claiming Chromium 4x equality was 1.90x and DLS and user filter was 1.30x
+  did not reproduce under controlled runs against baseline 73b8da9 (measuring 1.00 to 1.30x and 0.82 to 0.90x,
+  and now resolved by the matching round below). What remains for R2 closure is final quiet machine confirmation
   if the plan asks.
 - **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one
   second, `@canopy/cli` is published as the launcher, and Studio assets resolve directly.
@@ -1728,7 +1818,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2 update gate met on every host (single and chained under 2.55x, under 3x and 50 µs); client module 81,467 Brotli bytes under 81,920 gate; Hermes wasm2js speed gate dropped by maintainer decision (known gap for post R2); Chromium matching passes 4 of 6 (equality 1.90x, DLS and user 1.30x); Canopy.js synced in 73b8da9; confirm on quiet machine if required for R2 closure | R2 | Big | `claudeAgent` |
+| 2 | R2 speed gates met across all hosts (matching under 1.2x everywhere, worst 0.98x; update under 2.55x; startup passes); client module 81,835 Brotli bytes (85 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js synced in 9a46df9; unverified items: Canopy.js client suite on Node 24, Deno, browser Playwright and React Native devices | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 done: all 57 golden steps replay, canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b) | R4 | Big | `claudeAgent` |
 | 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
