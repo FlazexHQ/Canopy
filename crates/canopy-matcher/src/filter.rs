@@ -578,12 +578,12 @@ fn regex_from_operator(pattern: &Value, options: Option<&Value>) -> Result<Regex
         Some(_) => return Err(invalid("$options has to be a string")),
     };
     match pattern {
-        Value::String(text) => Ok(Regex::new(text.clone(), options.unwrap_or(""))),
+        Value::String(text) => Ok(Regex::new(text, options.unwrap_or(""))),
         Value::Regex(regex) => {
             if options.is_some() && !regex.options.is_empty() {
                 return Err(invalid("options set in both $regex and $options"));
             }
-            Ok(Regex::new(regex.pattern.clone(), options.unwrap_or(&regex.options)))
+            Ok(Regex::new(&regex.pattern, options.unwrap_or(&regex.options)))
         }
         _ => Err(invalid("$regex has to be a string")),
     }

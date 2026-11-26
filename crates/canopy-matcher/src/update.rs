@@ -136,6 +136,8 @@ struct Leaf<'a> {
 #[derive(Debug, Default)]
 struct Node<'a> {
     children: Vec<(&'a str, Node<'a>)>,
+    /// The name of the first child added, which error messages name.
+    first: &'a str,
     leaf: Option<Leaf<'a>>,
     creates: bool,
     strict: bool,
@@ -200,8 +202,8 @@ fn apply_replacement(document: &Document, replacement: &Document) -> Result<Docu
     Ok(out)
 }
 
-fn join(path: &str, key: &str) -> String {
-    if path.is_empty() { key.to_owned() } else { format!("{path}.{key}") }
+fn join<'k>(path: &str, key: &'k str) -> Cow<'k, str> {
+    if path.is_empty() { Cow::Borrowed(key) } else { Cow::Owned(format!("{path}.{key}")) }
 }
 
 fn validate_storage(value: &Value, path: &str) -> Result<(), CanopyError> {
@@ -262,6 +264,7 @@ fn apply_operators(
     if let Some((identifier, _)) = identifiers.iter().find(|(identifier, _)| !used.contains(identifier)) {
         return fail(format!("The array filter for identifier '{identifier}' was not used in the update"));
     }
+    sort_children(&mut root);
     let mut out = document.clone();
     let settings = Settings { options, identifiers: &identifiers };
     apply_children(Container::Document(&mut out), &root, "", &settings)?;
@@ -495,6 +498,9 @@ fn add_leaf<'a>(
         let position = match node.children.iter().position(|(name, _)| name == part) {
             Some(position) => position,
             None => {
+                if node.children.is_empty() {
+                    node.first = part;
+                }
                 node.children.push((part, Node::default()));
                 node.children.len() - 1
             }
@@ -691,16 +697,23 @@ impl Container<'_> {
     }
 }
 
+/// Orders the children of every node as MongoDB applies them: array positions numerically, other names by
+/// byte order, keeping the order of equal names.
+fn sort_children(node: &mut Node<'_>) {
+    node.children.sort_by(|(a, _), (b, _)| compare_field_names(a, b));
+    for (_, child) in &mut node.children {
+        sort_children(child);
+    }
+}
+
 fn apply_children(
     mut container: Container<'_>,
     node: &Node<'_>,
     prefix: &str,
     settings: &Settings<'_>,
 ) -> Result<(), CanopyError> {
-    let mut ordered: Vec<&(&str, Node<'_>)> = node.children.iter().collect();
-    ordered.sort_by(|(a, _), (b, _)| compare_field_names(a, b));
     let mut touched: Vec<usize> = Vec::new();
-    for (key, child) in ordered {
+    for (key, child) in &node.children {
         if key.starts_with("$[") {
             let Container::Array(items) = &container else {
                 return fail(format!("Cannot apply array updates to non-array element {prefix}"));
@@ -779,7 +792,7 @@ fn apply_at(
         Value::Document(inner) => apply_children(Container::Document(inner), node, path, settings),
         Value::Array(inner) => apply_children(Container::Array(inner), node, path, settings),
         scalar => {
-            let first = node.children.first().map(|(name, _)| *name).unwrap_or_default();
+            let first = node.first;
             let kind = type_name(scalar);
             if has_positional {
                 return fail(format!("Cannot apply array updates to non-array element {path}: {kind}"));

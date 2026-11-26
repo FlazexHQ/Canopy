@@ -41,9 +41,11 @@ impl<'a> RawDocument<'a> {
         self.iter().find(|(key, _)| *key == name).map(|(_, value)| value)
     }
 
-    /// Converts the document to an owned [`Document`].
+    /// Converts the document to an owned [`Document`]. Validation already refused duplicate names.
     pub fn to_document(&self) -> Document {
-        self.iter().map(|(key, value)| (key.to_owned(), value.to_value())).collect()
+        Document::from_unique_fields(
+            self.iter().map(|(key, value)| (key.to_owned(), value.to_value())).collect(),
+        )
     }
 }
 

@@ -32,6 +32,25 @@ pub fn decode_documents(bytes: &[u8]) -> Result<Vec<Document>, CanopyError> {
     Ok(documents)
 }
 
+/// A generous guess at the number of elements in a document or array of `length` bytes, so most decoded
+/// documents and arrays fill one allocation, which is then shrunk to fit: a small field (a short name and a
+/// number or a short string) takes about 16 bytes, a small array element (its position as the name) about 8.
+fn expected_elements(length: usize, named: bool) -> usize {
+    (length / if named { 16 } else { 8 }).clamp(1, 64)
+}
+
+/// Returns true when two fields share a name. Small documents compare every pair, which is faster than
+/// hashing.
+fn has_duplicate_names(fields: &[(String, Value)]) -> bool {
+    if fields.len() <= 16 {
+        return fields.iter().enumerate().any(|(index, (name, _))| {
+            fields.get(..index).is_some_and(|before| before.iter().any(|(other, _)| other == name))
+        });
+    }
+    let mut names: HashSet<&[u8]> = HashSet::with_capacity(fields.len());
+    !fields.iter().all(|(name, _)| names.insert(name.as_bytes()))
+}
+
 struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
@@ -67,39 +86,40 @@ impl<'a> Reader<'a> {
         usize::try_from(self.i32()?).map_err(|_| malformed("negative length"))
     }
 
-    fn cstring(&mut self) -> Result<String, CanopyError> {
-        let rest = &self.bytes[self.position..];
+    fn cstr(&mut self) -> Result<&'a str, CanopyError> {
+        let rest = self.bytes.get(self.position..).unwrap_or_default();
         let end = rest.iter().position(|byte| *byte == 0).ok_or_else(|| malformed("unterminated name"))?;
-        let text = std::str::from_utf8(&rest[..end]).map_err(|_| malformed("invalid UTF-8"))?.to_owned();
+        let text = rest.get(..end).ok_or_else(|| malformed("unterminated name"))?;
+        let text = std::str::from_utf8(text).map_err(|_| malformed("invalid UTF-8"))?;
         self.position += end + 1;
         Ok(text)
     }
 
-    fn string(&mut self) -> Result<String, CanopyError> {
+    fn str(&mut self) -> Result<&'a str, CanopyError> {
         let length = self.length()?;
-        if length == 0 {
-            return Err(malformed("string length 0"));
-        }
         let bytes = self.take(length)?;
-        let (text, terminator) = bytes.split_at(length - 1);
-        if terminator != [0] {
+        let Some((terminator, text)) = bytes.split_last() else {
+            return Err(malformed("string length 0"));
+        };
+        if *terminator != 0 {
             return Err(malformed("string without terminator"));
         }
-        Ok(std::str::from_utf8(text).map_err(|_| malformed("invalid UTF-8"))?.to_owned())
+        std::str::from_utf8(text).map_err(|_| malformed("invalid UTF-8"))
+    }
+
+    fn string(&mut self) -> Result<String, CanopyError> {
+        self.str().map(str::to_owned)
     }
 
     fn document(&mut self, depth: usize) -> Result<Document, CanopyError> {
-        let elements = self.elements(depth)?;
-        let mut names = HashSet::with_capacity(elements.len());
-        for (name, _) in &elements {
-            if !names.insert(name) {
-                return Err(malformed("duplicate field name"));
-            }
+        match self.elements(depth, true)? {
+            Value::Document(document) => Ok(document),
+            _ => Err(malformed("expected a document")),
         }
-        Ok(elements.into_iter().collect())
     }
 
-    fn elements(&mut self, depth: usize) -> Result<Vec<(String, Value)>, CanopyError> {
+    /// Reads a document, or an array when `named` is false, whose elements are then kept without their names.
+    fn elements(&mut self, depth: usize, named: bool) -> Result<Value, CanopyError> {
         if depth >= MAX_BSON_DEPTH {
             return Err(malformed("nesting too deep"));
         }
@@ -112,15 +132,26 @@ impl<'a> Reader<'a> {
         if end > self.bytes.len() {
             return Err(malformed("document longer than the input"));
         }
-        let mut elements = Vec::new();
+        let capacity = expected_elements(length, named);
+        let mut fields: Vec<(String, Value)> = Vec::new();
+        let mut items: Vec<Value> = Vec::new();
+        if named {
+            fields.reserve_exact(capacity);
+        } else {
+            items.reserve_exact(capacity);
+        }
         loop {
             let kind = self.u8()?;
             if kind == 0 {
                 break;
             }
-            let name = self.cstring()?;
+            let name = self.cstr()?;
             let value = self.value(kind, depth)?;
-            elements.push((name, value));
+            if named {
+                fields.push((name.to_owned(), value));
+            } else {
+                items.push(value);
+            }
             if self.position >= end {
                 return Err(malformed("document without terminator"));
             }
@@ -128,15 +159,23 @@ impl<'a> Reader<'a> {
         if self.position != end {
             return Err(malformed("document length does not match its content"));
         }
-        Ok(elements)
+        if !named {
+            items.shrink_to_fit();
+            return Ok(Value::Array(items));
+        }
+        if has_duplicate_names(&fields) {
+            return Err(malformed("duplicate field name"));
+        }
+        fields.shrink_to_fit();
+        Ok(Value::Document(Document::from_unique_fields(fields)))
     }
 
     fn value(&mut self, kind: u8, depth: usize) -> Result<Value, CanopyError> {
         Ok(match kind {
             0x01 => Value::Double(f64::from_le_bytes(self.array()?)),
             0x02 => Value::String(self.string()?),
-            0x03 => Value::Document(self.document(depth + 1)?),
-            0x04 => Value::Array(self.elements(depth + 1)?.into_iter().map(|(_, value)| value).collect()),
+            0x03 => self.elements(depth + 1, true)?,
+            0x04 => self.elements(depth + 1, false)?,
             0x05 => {
                 let length = self.length()?;
                 let subtype = self.u8()?;
@@ -153,9 +192,9 @@ impl<'a> Reader<'a> {
             0x09 => Value::DateTime(self.i64()?),
             0x0a => Value::Null,
             0x0b => {
-                let pattern = self.cstring()?;
-                let options = self.cstring()?;
-                Value::Regex(Box::new(Regex::new(pattern, &options)))
+                let pattern = self.cstr()?;
+                let options = self.cstr()?;
+                Value::Regex(Box::new(Regex::new(pattern, options)))
             }
             0x0c => {
                 let namespace = self.string()?;
@@ -190,9 +229,13 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// The starting size of an encoding buffer: most documents encode in a few hundred bytes, so they take one
+/// allocation.
+const ENCODE_CAPACITY: usize = 256;
+
 /// Encodes a document as BSON.
 pub fn encode_document(document: &Document) -> Result<Vec<u8>, CanopyError> {
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(ENCODE_CAPACITY);
     write_elements(&mut out, document.iter())?;
     Ok(out)
 }
@@ -240,6 +283,22 @@ fn write_cstring(out: &mut Vec<u8>, text: &str) -> Result<(), CanopyError> {
     Ok(())
 }
 
+/// Writes an array index in decimal, as the name of an array element.
+fn write_index(out: &mut Vec<u8>, index: usize) {
+    let mut digits = [0u8; 20];
+    let mut rest = index;
+    let mut start = digits.len();
+    for slot in digits.iter_mut().rev() {
+        *slot = b'0' + u8::try_from(rest % 10).unwrap_or(0);
+        start -= 1;
+        rest /= 10;
+        if rest == 0 {
+            break;
+        }
+    }
+    out.extend_from_slice(digits.get(start..).unwrap_or_default());
+}
+
 fn write_string(out: &mut Vec<u8>, text: &str) -> Result<(), CanopyError> {
     let length = i32::try_from(text.len() + 1).map_err(|_| malformed("string larger than 2 GiB"))?;
     out.extend_from_slice(&length.to_le_bytes());
@@ -280,8 +339,16 @@ fn write_value(out: &mut Vec<u8>, value: &Value) -> Result<(), CanopyError> {
         Value::String(text) | Value::Symbol(text) => write_string(out, text)?,
         Value::Document(document) => write_elements(out, document.iter())?,
         Value::Array(items) => {
-            let names: Vec<String> = (0..items.len()).map(|index| index.to_string()).collect();
-            write_elements(out, names.iter().map(String::as_str).zip(items.iter()))?;
+            let start = out.len();
+            out.extend_from_slice(&[0, 0, 0, 0]);
+            for (index, item) in items.iter().enumerate() {
+                out.push(element_type(item));
+                write_index(out, index);
+                out.push(0);
+                write_value(out, item)?;
+            }
+            out.push(0);
+            patch_length(out, start)?;
         }
         Value::Binary(binary) => {
             let length =
@@ -539,6 +606,82 @@ mod tests {
             crate::RawDocument::new(&bytes).unwrap_err().message(),
             "Malformed BSON: duplicate field name"
         );
+    }
+
+    fn element(out: &mut Vec<u8>, name: &[u8], value: i32) {
+        out.push(0x10);
+        out.extend_from_slice(name);
+        out.push(0);
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn framed(body: &[u8]) -> Vec<u8> {
+        let length = i32::try_from(body.len() + 5).unwrap();
+        let mut out = length.to_le_bytes().to_vec();
+        out.extend_from_slice(body);
+        out.push(0);
+        out
+    }
+
+    #[test]
+    fn array_elements_are_named_by_their_decimal_position() {
+        let items: Vec<Value> = (0..12).map(Value::Int32).collect();
+        let mut document = Document::new();
+        document.insert("a", Value::Array(items));
+        let mut array = Vec::new();
+        for index in 0..12 {
+            element(&mut array, index.to_string().as_bytes(), index);
+        }
+        let mut body = vec![0x04, b'a', 0];
+        body.extend(framed(&array));
+        let expected = framed(&body);
+        assert_eq!(encode_document(&document).unwrap(), expected);
+        assert_eq!(decode_document(&expected).unwrap(), document);
+    }
+
+    #[test]
+    fn invalid_utf8_in_an_array_element_name_is_refused_by_both_readers() {
+        let mut array = Vec::new();
+        element(&mut array, &[0xff], 1);
+        let mut body = vec![0x04, b'a', 0];
+        body.extend(framed(&array));
+        let bytes = framed(&body);
+        assert_eq!(decode_document(&bytes).unwrap_err().message(), "Malformed BSON: invalid UTF-8");
+        assert_eq!(crate::RawDocument::new(&bytes).unwrap_err().message(), "Malformed BSON: invalid UTF-8");
+    }
+
+    #[test]
+    fn duplicate_names_are_found_in_large_documents() {
+        let names: Vec<String> = (0..40).map(|index| format!("field{index}")).collect();
+        let mut unique = Vec::new();
+        for (index, name) in names.iter().enumerate() {
+            element(&mut unique, name.as_bytes(), i32::try_from(index).unwrap());
+        }
+        let decoded = decode_document(&framed(&unique)).unwrap();
+        assert_eq!(decoded.keys().collect::<Vec<_>>(), names.iter().map(String::as_str).collect::<Vec<_>>());
+        let mut repeated = unique.clone();
+        element(&mut repeated, b"field3", 99);
+        let bytes = framed(&repeated);
+        assert_eq!(decode_document(&bytes).unwrap_err().message(), "Malformed BSON: duplicate field name");
+        assert_eq!(
+            crate::RawDocument::new(&bytes).unwrap_err().message(),
+            "Malformed BSON: duplicate field name"
+        );
+    }
+
+    #[test]
+    fn long_field_names_round_trip() {
+        let long = "a field name longer than twenty three bytes";
+        let mut document = Document::new();
+        document.insert(long, Value::Int32(1));
+        document.insert("short", Value::Int32(2));
+        document.insert(long.to_owned(), Value::Int32(3));
+        let bytes = encode_document(&document).unwrap();
+        let decoded = decode_document(&bytes).unwrap();
+        assert_eq!(decoded.keys().collect::<Vec<_>>(), [long, "short"]);
+        assert_eq!(decoded.get(long), Some(&Value::Int32(3)));
+        assert_eq!(decoded.clone(), document);
+        assert_eq!(crate::RawDocument::new(&bytes).unwrap().to_document(), document);
     }
 
     #[test]

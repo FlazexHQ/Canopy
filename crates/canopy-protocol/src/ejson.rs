@@ -202,7 +202,7 @@ fn decode_wrapper(entries: &[(String, Json)]) -> Result<Value, CanopyError> {
             if !options.chars().all(|c| matches!(c, 'i' | 'm' | 's' | 'u' | 'x')) {
                 return Err(fail("$regularExpression"));
             }
-            Ok(Value::Regex(Box::new(Regex::new(pattern.clone(), options))))
+            Ok(Value::Regex(Box::new(Regex::new(pattern, options))))
         }
         "$minKey" => match inner {
             Json::Number(n) if *n == 1.0 => Ok(Value::MinKey),

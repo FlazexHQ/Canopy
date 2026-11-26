@@ -3,6 +3,93 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R2 Document refactor for fewer allocations (not committed)
+
+Done in a worktree of `refactor/rust-port` (base `ec3e1809`), left uncommitted for review. The maintainer's
+decision of [plan 005 §7](../../plans/005-all-server-code-in-rust.md#7-the-wasm-core-in-canopyjs-bundle-and-startup-gate)
+asked for inline keys in `Document`; they were built, measured and then dropped, see below.
+
+### What changed
+
+- [`bson.rs`](../../../crates/canopy-protocol/src/bson.rs): one decoding loop fills a document or an array
+  straight into one vector, sized from the byte length and shrunk to fit (before: a vector of name and value
+  pairs, then a hash set of the names, then a second document built field by field with a linear lookup per
+  field, and one `String` per array position). Duplicate names: pairwise for up to 16 fields, a hash set of
+  byte slices above. The encoder writes array positions as digits instead of a `String` per position and starts
+  with a 256 byte buffer. Every error message and its order are unchanged.
+- [`raw.rs`](../../../crates/canopy-protocol/src/raw.rs): `RawDocument::to_document` builds the field vector
+  directly (validation already refused duplicates).
+- [`value.rs`](../../../crates/canopy-protocol/src/value.rs): `Document::insert` looks the name up as `&str`
+  and copies it only for a new field (`impl AsRef<str> + Into<String>`; every caller compiled unchanged);
+  `FromIterator` accepts any such key and presizes; `Regex::new(&str, &str)`. Field order, duplicate handling,
+  every BSON type, Decimal128 and EJSON are unchanged; `fields()` and the `(String, Value)` iterators keep their
+  types, so no other crate needed changes beyond the `Regex::new` callers.
+- [`update.rs`](../../../crates/canopy-matcher/src/update.rs): the update tree is sorted once in place instead
+  of collecting each node's children into a new vector, top level paths are borrowed instead of copied, and
+  the first child name is kept so the error messages that name it stay identical.
+- New tests: array positions as decimal names (12 elements, bytes built from the specification), invalid UTF-8
+  in an array element name refused by both readers, duplicates in a 40 field document refused by both
+  readers, names longer than 23 bytes, `collect` keeping first position and last value.
+- New native probe [`update_probe.rs`](../../../crates/canopy-matcher/examples/update_probe.rs) (the six field
+  note of the engine benchmark, `{ $set: { title }, $inc: { n } }`): `cargo run -j 2 --release -p
+  canopy-matcher --example update_probe`.
+
+### Inline keys and inline string values: tried and dropped
+
+- `smol_str` 0.3 (MIT or Apache 2.0) as the key type compiled across the workspace with one change (`js_order`
+  generic) and as the string value type with about 200 mechanical edits. Natively it was the fastest (whole
+  pipeline 1.97 µs keys only, 1.90 µs with values), but the native probe overstates allocation cost: the
+  Windows system allocator is much slower than dlmalloc in Wasm.
+- In Wasm, inline keys gave the same update time as `String` keys (Node 26 3.98 vs 4.12 µs, Chromium 4x 19.5 vs
+  19.25 µs) but slowed matching of retained documents in the size optimized client module, where every key
+  comparison goes through `SmolStr::as_str` (Node 26: range and `$in` 137 to 202 ns, dotted path 95 to 150 ns;
+  Chromium 4x dotted path 400 to 640 ns). Client module: 81,508 Brotli bytes with inline keys, 82,132 with
+  inline values as well (over the 81,920 gate); the `Arc<str>` and whitespace paths of `smol_str` cost about
+  1,240 bytes for values. So `String` keys and values stay.
+- Also learned: the client module's decoded documents are matched in place, so their vectors' spare capacity
+  matters; shrinking to fit after decoding brought `$or` and dotted path matching back to or below the base.
+
+### Evidence
+
+- Native probe, release (thin LTO), Windows, median of 9 rounds of 200,000, two runs each:
+
+  | Phase           | Before (ns)  | After (ns)  |
+  | --------------- | -----------: | ----------: |
+  | decode update   |   991 to 1009 |  667 to 693 |
+  | decode document | 1434 to 1536 |  958 to 986 |
+  | clone document  |    648 to 667 |  638 to 642 |
+  | apply update    |  1144 to 1297 |  970 to 977 |
+  | encode document |    466 to 470 |  142 to 144 |
+  | whole pipeline  |  3803 to 3910 | 2556 to 2642 |
+
+- Split Wasm build (`bun packages/wasm/scripts/build.ts --split`, Binaryen 133 from the main checkout): client
+  module 80,961 Brotli bytes, 959 bytes of headroom (base 81,126). Raw sizes: client 192,387 (base 193,146),
+  transforms 438,715 (442,518), authoring 1,349,747 (1,347,928).
+- `bench/baselines/r2/engine-bench.mjs --rounds 5`, base and refactor run alternately in one session (Node 26
+  twice), against scratch copies of Canopy.js under `target/` (Canopy.js `8e6eeca` dist with
+  `src/client/bson.ts` and `engine.ts` from `0307378` transpiled in, because `8e6eeca` calls
+  `reserveMatchBatch`, which this branch's client module does not have; `D:\Coding\Canopy.js` untouched).
+  Reported processor load before the runs was 5 %, but other agents may have been working. Optimistic update,
+  median µs (ratio to TypeScript):
+
+  | Mode    | Bun base     | Bun after    | Node 26 base | Node 26 after | Chromium 4x base | Chromium 4x after |
+  | ------- | -----------: | -----------: | -----------: | ------------: | ---------------: | ----------------: |
+  | single  | 3.84 (3.67x) | 3.60 (3.31x) | 4.38 (3.19x) |  3.97 (2.85x) |    21.50 (3.07x) |     19.50 (2.76x) |
+  | chained | 3.83 (3.46x) | 3.77 (3.47x) | 4.13 (3.10x) |  3.74 (2.81x) |    19.50 (3.29x) |     17.25 (3.14x) |
+  | fresh   | 15.61 (14.3x) | 13.50 (12.2x) | 8.47 (6.31x) | 7.36 (5.37x) |   40.50 (7.45x) |     35.00 (6.75x) |
+
+  Matching (ns per document) stayed at or below the base: for example Node 26 dotted path 94.5 to 86.7,
+  `$elemMatch` 153.8 to 139.1; Chromium 4x `$elemMatch` 640 to 590; Bun dotted path 75.1 to 67.2.
+- The update gate (at most 3x and under 50 µs): single updates now pass on Node 26 (2.85x) and Chromium 4x
+  (2.76x) and stay over on Bun (3.31x); chained on Chromium is 3.14x. The rest of the Wasm time is outside
+  the document tree (the JavaScript BSON codec, the boundary, `update_changes`), so a further gain needs work
+  on that path, not on `Document`.
+- Tests: `cargo test -j 2 --workspace --no-fail-fast` with `CANOPY_TEST_MONGODB_URI` on 8.0.34 (37017) and
+  9.0.8 (37090): 127 test binaries, 758 passed on each. The two `canopy-cli` replays that compare the
+  binary's path (`meta_vectors`, `policy_vectors`) first failed because `CARGO_TARGET_DIR` had been given
+  with forward slashes, so the test and the `canopy` binary spelled the path differently; with a backslash
+  path both pass on both replica sets, as they do on the base. Clippy `--workspace --all-targets -D warnings`
+  is clean and `cargo check --manifest-path fuzz/Cargo.toml` passes.
 ## Checkpoint (2026-11-26): R4 the rest of the Rust CLI (not committed)
 
 Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage text now runs in Rust.

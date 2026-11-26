@@ -87,9 +87,9 @@ pub struct Regex {
 
 impl Regex {
     /// Creates a regular expression, sorting the option letters.
-    pub fn new(pattern: impl Into<String>, options: &str) -> Regex {
+    pub fn new(pattern: &str, options: &str) -> Regex {
         let letters: std::collections::BinaryHeap<char> = options.chars().collect();
-        Regex { pattern: pattern.into(), options: letters.into_sorted_vec().into_iter().collect() }
+        Regex { pattern: pattern.to_owned(), options: letters.into_sorted_vec().into_iter().collect() }
     }
 }
 
@@ -110,6 +110,11 @@ impl Document {
         Document { fields: Vec::with_capacity(capacity) }
     }
 
+    /// Wraps fields whose names the caller has already checked to be unique.
+    pub(crate) fn from_unique_fields(fields: Vec<(String, Value)>) -> Document {
+        Document { fields }
+    }
+
     /// Returns the value of a field.
     pub fn get(&self, name: &str) -> Option<&Value> {
         self.fields.iter().find(|(key, _)| key == name).map(|(_, value)| value)
@@ -120,12 +125,12 @@ impl Document {
         self.fields.iter_mut().find(|(key, _)| key == name).map(|(_, value)| value)
     }
 
-    /// Sets a field, keeping its position when it exists and appending it otherwise.
-    pub fn insert(&mut self, name: impl Into<String>, value: Value) {
-        let name = name.into();
-        match self.get_mut(&name) {
+    /// Sets a field, keeping its position when it exists and appending it otherwise. The name is copied only
+    /// when the field is new.
+    pub fn insert(&mut self, name: impl AsRef<str> + Into<String>, value: Value) {
+        match self.get_mut(name.as_ref()) {
             Some(slot) => *slot = value,
-            None => self.fields.push((name, value)),
+            None => self.fields.push((name.into(), value)),
         }
     }
 
@@ -171,9 +176,10 @@ impl Document {
     }
 }
 
-impl FromIterator<(String, Value)> for Document {
-    fn from_iter<I: IntoIterator<Item = (String, Value)>>(iter: I) -> Document {
-        let mut document = Document::new();
+impl<K: AsRef<str> + Into<String>> FromIterator<(K, Value)> for Document {
+    fn from_iter<I: IntoIterator<Item = (K, Value)>>(iter: I) -> Document {
+        let iter = iter.into_iter();
+        let mut document = Document::with_capacity(iter.size_hint().0);
         for (name, value) in iter {
             document.insert(name, value);
         }
@@ -292,6 +298,16 @@ mod tests {
         let keys: Vec<&str> = document.keys().collect();
         assert_eq!(keys, ["a", "b"]);
         assert_eq!(document.get("a"), Some(&Value::Int32(3)));
+    }
+
+    #[test]
+    fn collecting_repeated_names_keeps_the_first_position_and_the_last_value() {
+        let document: Document =
+            [("a", Value::Int32(1)), ("b", Value::Int32(2)), ("a", Value::Int32(3))].into_iter().collect();
+        assert_eq!(document.keys().collect::<Vec<_>>(), ["a", "b"]);
+        assert_eq!(document.get("a"), Some(&Value::Int32(3)));
+        let names: Vec<String> = document.into_iter().map(|(name, _)| name).collect();
+        assert_eq!(names, ["a", "b"]);
     }
 
     #[test]
