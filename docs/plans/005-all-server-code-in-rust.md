@@ -236,6 +236,16 @@ After the quiet machine measurement of 2026-11-26 (`bench/baselines/r2/README.md
   `canopy-protocol`'s `Document`) is done in R2 after all, then the update gate is measured again; it stays
   at most 3x and under 50 µs.
 
+After the document refactor, a single update meets the gate on Node (2.85x) and Chromium (2.76x), while Bun
+(3.31x) and chained updates on Chromium (3.14x) miss it. On 2026-11-26 the maintainer decided:
+
+- **Optimistic update.** R2 takes one more optimization round on the update path (the JavaScript side of the
+  BSON codec, the crossing and computing the changes), then measures again on a quiet machine.
+- **Without WebAssembly on Hermes.** Matching through `wasm2js` on Hermes runs at 2.36x to 3.85x the
+  TypeScript times and EJSON at about 15x; no translation variant helped. The numbers are recorded as a known
+  gap, R2 closes without a Hermes speed gate (every vector must still pass there), and a faster path for
+  React Native is a follow up after R2.
+
 ## 8. Keeping I1 to I6 tested without the TypeScript reference
 
 The TypeScript reference compared one implementation with another. Without it, each invariant of
