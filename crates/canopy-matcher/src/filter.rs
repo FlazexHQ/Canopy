@@ -207,6 +207,27 @@ fn string_matches(expected: &str, value: Option<ValueRef<'_>>) -> Outcome {
     Ok(matches!(value, Some(ValueRef::String(text) | ValueRef::Symbol(text)) if text == expected))
 }
 
+fn equality_test(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
+    if let ([part], Value::String(text) | Value::Symbol(text)) = (parts.as_slice(), operand) {
+        let field = part.name.clone();
+        let expected = text.clone();
+        let fallback = expand(parts, eq_leaf(operand));
+        return Arc::new(move |item| {
+            let Item::Document(DocRef::Owned(document)) = item else {
+                return fallback(item);
+            };
+            Ok(match document.get(&field) {
+                Some(Value::String(text) | Value::Symbol(text)) => text == &expected,
+                Some(Value::Array(items)) => items.iter().any(
+                    |item| matches!(item, Value::String(text) | Value::Symbol(text) if text == &expected),
+                ),
+                _ => false,
+            })
+        });
+    }
+    expand(parts, eq_leaf(operand))
+}
+
 fn compile_document(filter: &Document) -> Result<DocTest, CanopyError> {
     let mut tests = Vec::with_capacity(filter.len());
     for (key, value) in filter.iter() {
@@ -260,7 +281,7 @@ fn compile_field_condition(path: &str, value: &Value) -> Result<DocTest, CanopyE
         let Value::Document(ops) = value else { return Err(invalid("expected operators")) };
         return compile_operators(&parts, ops);
     }
-    Ok(expand(&parts, eq_leaf(value)))
+    Ok(equality_test(&parts, value))
 }
 
 fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTest, CanopyError> {
@@ -287,7 +308,7 @@ fn compile_operators(parts: &Arc<Vec<Segment>>, ops: &Document) -> Result<DocTes
 
 fn compile_operator(parts: &Arc<Vec<Segment>>, op: &str, operand: &Value) -> Result<DocTest, CanopyError> {
     Ok(match op {
-        "$eq" => expand(parts, eq_leaf(operand)),
+        "$eq" => equality_test(parts, operand),
         "$ne" => {
             if regex_of(operand).is_some() {
                 return Err(invalid("Can't have regex as arg to $ne."));

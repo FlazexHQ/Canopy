@@ -5,7 +5,7 @@
 
 use canopy_matcher::{compile_filter, is_matcher_safe, is_unsupported};
 use canopy_protocol::ejson::{DecodeOptions, parse};
-use canopy_protocol::{ErrorCode, Value};
+use canopy_protocol::{Document, ErrorCode, Value};
 
 fn value(text: &str) -> Value {
     parse(text, DecodeOptions::default()).expect("EJSON")
@@ -17,6 +17,33 @@ fn matches(filter: &str, document: &str) -> bool {
 
 fn refusal(filter: &str) -> String {
     compile_filter(&value(filter)).expect_err("refused").message().to_owned()
+}
+
+#[test]
+fn owned_top_level_string_equality_expands_only_the_immediate_array() {
+    let string = Value::String("u42".into());
+    let symbol = Value::Symbol("u42".into());
+    let mut operators = Document::new();
+    operators.insert("$eq", symbol.clone());
+    for operand in [string.clone(), Value::Document(operators)] {
+        let mut filter = Document::new();
+        filter.insert("a", operand);
+        let compiled = compile_filter(&Value::Document(filter)).expect("compiles");
+        for (field, expected) in [
+            (string.clone(), true),
+            (symbol.clone(), true),
+            (Value::Array(vec![Value::Null, symbol.clone()]), true),
+            (Value::Array(vec![Value::Array(vec![string.clone()])]), false),
+            (Value::String("u420".into()), false),
+            (Value::Null, false),
+            (Value::Undefined, false),
+        ] {
+            let mut document = Document::new();
+            document.insert("a", field);
+            assert_eq!(compiled.matches(&document), Ok(expected), "{document:?}");
+        }
+        assert_eq!(compiled.matches(&Document::new()), Ok(false));
+    }
 }
 
 #[test]

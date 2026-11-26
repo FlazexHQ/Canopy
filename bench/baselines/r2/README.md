@@ -469,6 +469,60 @@ build reproduced all 25 generated assets byte for byte.
 | `$elemMatch`         | 138 to 140 (0.86 to 0.97x) → 141 to 146 (0.84 to 1.05x) | 149 to 152 (0.89 to 0.93x) → 149 to 154 (0.86 to 0.90x) | 620 to 680 (1.00 to 1.07x) → 640 to 670 (1.05 to 1.10x) |
 | DLS and user filter  |     43 to 44 (0.86 to 0.99x) → 42 to 45 (0.80 to 1.00x) |     53 to 55 (0.90 to 0.92x) → 52 to 57 (0.83 to 0.93x) | 220 to 230 (0.92 to 1.00x) → 220 to 220 (0.96 to 1.00x) |
 
+### Retained string equality profile
+
+Chromium 156 at 4× CPU slowdown profiled 15,000 scans of the same 1,000 documents after 3,000
+warmup scans. The CDP CPU profiler sampled at 100 μs. A temporary split client build kept its
+function names through wasm-bindgen and Binaryen while keeping the release optimization passes.
+The benchmark checked that exactly one document matched per scan.
+
+Of the time attributed to the scan, 69% was in Wasm and 31% was in JavaScript. Field lookup
+accounted for 23%, terminal value handling and string comparison for 25%, and the Wasm batch
+entry for 20%. The batch entry includes the slot lookup and matcher dispatch, which the compiler
+inlined. JavaScript slot lookup, shared buffer writes and binding calls took 11%. Decision
+conversion and the benchmark's loop over the returned array were inlined into the same
+JavaScript frame and accounted for the remaining 20% together. These shares exclude idle,
+browser and garbage collector frames and are rounded independently.
+
+For owned documents, a single path segment with string or BSON Symbol equality now tests the
+field directly. It still tests immediate array elements and treats missing fields and other
+types as nonmatches. Raw BSON, dotted paths and array positions use the general traversal.
+
+The warm Chromium owner ratio ranged from 1.23× to 1.64× at baseline and from
+1.00× to 1.30× after the change. Four of the five revised rounds met the 1.2× gate.
+The other five Chromium scenarios met the gate in every revised round. A JavaScript
+decision lookup table gave a 1.20× median warm owner ratio in Chromium and increased
+the median cold owner time to 7,180 ns per document, so the existing conversion was kept.
+The release client module is 81,583 Brotli bytes at quality 11, leaving 337 bytes under
+the limit. A second run of the checked in split build reproduced all 23 split assets byte for byte.
+
+Five interleaved rounds per runtime measured the release artifacts with `engine-bench.mjs`.
+Each cell shows the median Wasm nanoseconds per document and the median paired ratio to
+TypeScript, from the batch encoding baseline (Canopy `e2158298`, Canopy.js `f3d8db9`)
+to the owned equality change.
+
+**Warm matching**
+
+| Scenario             |                 Bun 1.4.5 |              Node 26.13.1 |        Chromium 156 at 4× |
+| :------------------- | ------------------------: | ------------------------: | ------------------------: |
+| equality (DLS owner) |   29 (0.75×) → 22 (0.49×) |   42 (0.82×) → 30 (0.58×) | 170 (1.50×) → 130 (1.17×) |
+| range and `$in`      | 121 (0.52×) → 112 (0.48×) | 136 (0.48×) → 131 (0.51×) | 560 (0.73×) → 570 (0.73×) |
+| `$or` of 3 branches  |  132 (0.58×) → 87 (0.35×) |  151 (0.67×) → 97 (0.45×) | 650 (0.89×) → 420 (0.55×) |
+| dotted path          |   75 (0.76×) → 75 (0.78×) |   89 (0.77×) → 88 (0.77×) | 370 (0.92×) → 360 (0.88×) |
+| `$elemMatch`         | 143 (0.86×) → 125 (0.72×) | 148 (0.87×) → 133 (0.77×) | 640 (1.05×) → 570 (0.93×) |
+| DLS and user filter  |   43 (0.96×) → 35 (0.74×) |   53 (0.88×) → 45 (0.75×) | 220 (1.00×) → 190 (0.86×) |
+
+**Cold matching**
+
+| Scenario             |                       Bun 1.4.5 |                    Node 26.13.1 |              Chromium 156 at 4× |
+| :------------------- | ------------------------------: | ------------------------------: | ------------------------------: |
+| equality (DLS owner) | 1,772 (43.82×) → 1,869 (42.32×) | 1,785 (32.55×) → 1,759 (32.09×) | 7,250 (60.50×) → 6,970 (63.00×) |
+| range and `$in`      |   2,112 (9.24×) → 2,172 (9.38×) |   2,078 (7.45×) → 2,027 (7.84×) | 8,560 (10.97×) → 8,690 (10.36×) |
+| `$or` of 3 branches  |   2,152 (9.22×) → 2,258 (9.03×) |   2,133 (9.49×) → 2,104 (9.94×) | 9,390 (12.31×) → 9,230 (12.17×) |
+| dotted path          | 2,077 (20.62×) → 2,153 (21.36×) | 2,091 (17.43×) → 2,032 (17.45×) | 9,160 (21.50×) → 8,880 (21.98×) |
+| `$elemMatch`         | 2,137 (12.73×) → 2,198 (12.76×) | 2,119 (12.76×) → 2,095 (11.92×) | 8,660 (14.20×) → 9,000 (14.84×) |
+| DLS and user filter  | 1,857 (38.06×) → 1,922 (37.58×) | 1,820 (28.28×) → 1,759 (27.46×) | 7,370 (33.64×) → 7,650 (33.74×) |
+
 ## Measurements (2026-11-26)
 
 Measurements on Windows 11 with an AMD processor under an idle machine state (reported processor load was 5% to 10%). Canopy.js was built from commit `0307378` on `refactor/rust-core`, where a live query reports ready status only after optimistic changes apply and the Rust core finishes initialization.
