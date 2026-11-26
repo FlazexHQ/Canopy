@@ -3,9 +3,75 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
-## Checkpoint (2026-11-26): R2 Document refactor for fewer allocations (not committed)
+## Checkpoint (2026-11-26): R4 complete, @canopy/cli launcher published, R2 gates status (b841cd40 to 05a59d0b)
 
-Done in a worktree of `refactor/rust-port` (base `ec3e1809`), left uncommitted for review. The maintainer's
+Summary of commits b841cd40, e4363792, 34a5fd6b, a82b774f, 07e1e799, d9af8cf0 and 05a59d0b. R4 is complete:
+all 57 golden CLI steps replay against the Rust binary, `canopy dev` starts and reloads in under one second,
+and `@canopy/cli` is published as a dependency free launcher of the native executable. The Document allocation
+refactor is committed in `a82b774f`, bringing client Wasm size to 81,502 Brotli bytes, and the latest R2 update
+and matching gates are measured.
+
+### R4 complete and `@canopy/cli` launcher published (697b0bdf, 07e1e799, d9af8cf0, 05a59d0b)
+
+- **R4 complete:** all 57 golden CLI steps replay against the Rust `canopy` binary. `canopy dev` runs the
+  gateway in process and reloads policies in under one second (142 ms on 8.0 and 257 ms on 9.0 in tests,
+  subsecond with both Bun and Node 26 emitters on `deploy/dev`).
+- **`canopy gen types` dropped (07e1e799):** the maintainer decided to keep type generation where the
+  TypeScript CLI has it, in the schema file and `canopy pull`. The standalone `gen types` command and its
+  `--check` flag were removed. The CLI replay continues to verify generated types byte for byte: after `schema
+  push`, it loads the `notes` validator from MongoDB and compares `canopy_schema::generate_types` output with
+  `typeGeneration.types`.
+- **`@canopy/cli` launcher published (d9af8cf0):** published as a dependency free launcher
+  (`dist/launcher.mjs`). It inspects the host platform and architecture (detecting glibc or musl on Linux via
+  `process.report.getReport().header.glibcVersionRuntime`), resolves the `canopy` binary from the platform
+  package or honours `CANOPY_BINARY`, points `CANOPY_STUDIO_DIR` at `@canopy/studio-assets`, forwards
+  `SIGINT`, `SIGTERM` and `SIGBREAK`, and passes the exit code on. The eight platform packages become optional
+  dependencies of `@canopy/cli`. The TypeScript CLI stays in the repository, outside the published files, for
+  the R0 recorder until removed in R7. Install test passes with Bun, pnpm, Yarn and npm on Windows x64.
+  Interactive Windows Ctrl+C and Ctrl+Break remain unverified.
+- **CI and portability fixes (05a59d0b):** resolved type errors in the launcher test and `smoke-canopyd.ts`.
+  The override executable test now reads arguments from a script file so Bun's node shim and Node.js agree.
+- **Studio assets packaging (e4363792):** the native release builds Studio once and publishes it, with third
+  party notices, as `@canopy/studio-assets`. Every `@canopy/canopyd-*` platform package depends on that
+  version, allowing the launcher to resolve `@canopy/studio-assets/index.html` and pass its directory as
+  `CANOPY_STUDIO_DIR`. Release smoke tests the installed `canopyd` with Studio and verifies the page and its
+  Content Security Policy.
+
+### R2 gates, Document allocation refactor and Hermes benchmarks (b841cd40, 34a5fd6b, a82b774f)
+
+- **Retained document matcher speedup (34a5fd6b):** filters comparing one top level field with a string or
+  Symbol now read that field on a retained document directly, without the general path walk. In Chromium at 4x
+  CPU slowdown, retained owner equality dropped from 170 to 130 ns per document, a median of about 1.2x the
+  TypeScript lite matcher. Recorded in `bench/baselines/r2/README.md`.
+- **Hermes wasm2js experiments recorded (b841cd40):** seven translation configurations were measured on
+  Hermes 0.12.0 and 1.0.0 and under a strict CSP in Chromium, with byte identical Wasm modules. None brings
+  the JavaScript fallback within 3x of TypeScript: canonical EJSON stays about 15x at best, and matching
+  varies by workload (2.36x to 3.85x on Hermes). The translation pipeline is unchanged; results are recorded
+  in `bench/baselines/r2/README.md`.
+- **Document refactor committed (a82b774f):** protocol decode and encode with fewer allocations (one vector
+  per document or array sized from byte length, pairwise duplicate checks up to 16 fields, digit array encoding,
+  insert without copy for existing keys, update tree sorting in place). Workspace passed 739 tests on MongoDB
+  8.0. Client Wasm module is 81,502 Brotli bytes in the reproducible split build synced to Canopy.js (gate 81,920, 418 bytes of headroom).
+- **R2 update gate after a82b774f:** single updates met on Node 26 (2.85x, 3.97 µs) and Chromium 4x (2.76x,
+  19.50 µs), both satisfying the gate of at most 3x and under 50 µs. Single updates on Bun missed at 3.31x
+  (3.60 µs). Chained updates on Chromium missed at 3.14x (17.25 µs).
+- **Remaining R2 misses for maintainer decision:** Bun single update at 3.31x, Chromium chained update at
+  3.14x, and Hermes wasm2js matching at 2.36x to 3.85x against the 3x threshold.
+- **Canopy.js:** the Wasm built from 05a59d0b is synced in Canopy.js 843aeb2 (`check:wasm`, typecheck, build and 359 tests on Node 26 pass).
+
+### Status across stages
+
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one
+  second, and `@canopy/cli` is published as the launcher.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external
+  review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in
+  [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests
+  are already moved.
+
+## Checkpoint (2026-11-26): R2 Document refactor for fewer allocations (commit a82b774f)
+
+Committed in a82b774f (refactor/rust-port). The maintainer's decision of
 decision of [plan 005 §7](../../plans/005-all-server-code-in-rust.md#7-the-wasm-core-in-canopyjs-bundle-and-startup-gate)
 asked for inline keys in `Document`; they were built, measured and then dropped, see below.
 
@@ -63,7 +129,7 @@ asked for inline keys in `Document`; they were built, measured and then dropped,
   | whole pipeline  |  3803 to 3910 | 2556 to 2642 |
 
 - Split Wasm build (`bun packages/wasm/scripts/build.ts --split`, Binaryen 133 from the main checkout): client
-  module 80,961 Brotli bytes, 959 bytes of headroom (base 81,126). Raw sizes: client 192,387 (base 193,146),
+  module 81,502 Brotli bytes, 959 bytes of headroom (base 81,126). Raw sizes: client 192,387 (base 193,146),
   transforms 438,715 (442,518), authoring 1,349,747 (1,347,928).
 - `bench/baselines/r2/engine-bench.mjs --rounds 5`, base and refactor run alternately in one session (Node 26
   twice), against scratch copies of Canopy.js under `target/` (Canopy.js `8e6eeca` dist with
@@ -1571,10 +1637,10 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2: client module 81,328 Brotli bytes, build gate and reproducible Wasm in CI; startup gate passes on first snapshot; matching passes on Bun, Node and 5 of 6 on Chromium 4x (Codex on browser equality); update ratio waits on Document refactor (claudeAgent); Hermes wasm2js 2.36x to 3.85x | R2 | Big | `claudeAgent` |
+| 2 | R2: client module 81,502 Brotli bytes under 81,920 gate; Node 2.85x and Chromium 2.76x update met; remaining misses for maintainer decision: Bun update 3.31x, Chromium chained 3.14x, Hermes wasm2js matching 2.36x to 3.85x against 3x; Canopy.js synced in 843aeb2 | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
-| 4 | R4 in progress: claudeAgent paused on usage limit, resumes on its own (wiring pull, schema, indexes, type generation, init, doctor, dev, real emitter in golden replay, usage text) | R4 | Big | `claudeAgent` |
-| 5 | R7 preparation: removal map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
+| 4 | R4 done: all 57 golden steps replay, canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b) | R4 | Big | `claudeAgent` |
+| 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
 
 ## Done
 

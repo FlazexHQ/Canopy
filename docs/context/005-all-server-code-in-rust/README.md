@@ -43,10 +43,10 @@ Gemini (`antigravity_sudhan_s_antigravity`, gemini-3.8-flash) for tests and cont
 1. [08-progress.md](08-progress.md): the starting state, recent checkpoints, and the next tasks.
 2. [09-auth-router.md](09-auth-router.md): guide to the Rust auth router for agents working on R5 auth routes.
 3. [10-r7-removal-map.md](10-r7-removal-map.md): who imports each TypeScript package R7 removes, what must move first, the gates that still block R7, and a proposed order of removal commits.
-3. [Plan 005](../../plans/005-all-server-code-in-rust.md): target, stages and gates (§5), auth (§6), the Wasm
+4. [Plan 005](../../plans/005-all-server-code-in-rust.md): target, stages and gates (§5), auth (§6), the Wasm
    gate (§7), invariants (§8), what moves (§9), risks and open questions.
-4. [ADR-0018](../../adr/0018-all-server-code-in-rust.md): the decision and the auth building blocks.
-5. Plan 004's context for the data plane that already exists: [current Rust workspace](../004-rust-data-plane/02-current-rust-workspace.md),
+5. [ADR-0018](../../adr/0018-all-server-code-in-rust.md): the decision and the auth building blocks.
+6. Plan 004's context for the data plane that already exists: [current Rust workspace](../004-rust-data-plane/02-current-rust-workspace.md),
    [security invariants and compliance](../004-rust-data-plane/07-security-invariants-and-compliance.md).
 
 ## Key sources by stage
