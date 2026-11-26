@@ -40,7 +40,7 @@ import {
  * `--assemble` takes the `packs/` folders of several such runs, downloaded anywhere under `<dir>`, checks every
  * platform package, and packs the release into `packs/`: the platform packages, `@canopy/cli` and
  * `@canopy/realtime`. Both launchers name the platform packages as optional dependencies. The Studio build goes
- * into one shared package at the same version. The optional dependencies
+ * into one shared package at the same version as a direct dependency of the CLI. The optional dependencies
  * exist only in that tarball, so the repository installs without packages that are not published. It fails
  * when a target is missing, unless `--partial` allows a subset for local testing. Nothing is published.
  */
@@ -154,7 +154,15 @@ function packLauncher(targets: readonly NativeTarget[], destination: string, stu
     const { devDependencies, scripts, ...published } = cliSource
     writeFileSync(
       join(staging, "package.json"),
-      `${JSON.stringify({ ...published, optionalDependencies: optional }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          ...published,
+          dependencies: { [studio.name]: release.version },
+          optionalDependencies: optional,
+        },
+        null,
+        2,
+      )}\n`,
     )
     pack(process.execPath, staging, destination)
   } finally {

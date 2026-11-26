@@ -211,10 +211,7 @@ describe("platformManifest", () => {
     expect(manifest["preferUnplugged"]).toBe(true)
     expect(manifest["main"]).toBeUndefined()
     expect(manifest["bin"]).toBeUndefined()
-    for (const each of NATIVE_TARGETS)
-      expect(platformManifest(each, RELEASE)["dependencies"]).toEqual({
-        "@canopy/studio-assets": "1.2.3",
-      })
+    expect(manifest["dependencies"]).toBeUndefined()
     expect(manifest["exports"]).toEqual({
       "./package.json": "./package.json",
       "./canopy": "./canopy",

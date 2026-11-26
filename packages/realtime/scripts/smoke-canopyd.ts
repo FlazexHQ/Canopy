@@ -124,11 +124,10 @@ try {
   if (install.status !== 0) throw new Error(`npm install failed with ${String(install.status)}`)
   const binary = packagedGateway(target, scratch)
   if (binary === undefined) throw new Error(`${name} does not resolve from ${scratch}`)
-  const cli = createRequire(manifest).resolve(`${name}/canopy`)
-  const index = createRequire(cli).resolve(`${STUDIO_PACKAGE}/index.html`)
   const launcherManifest = createRequire(manifest).resolve("@canopy/cli/package.json")
   const { bin } = JSON.parse(readFileSync(launcherManifest, "utf8")) as { bin: { canopy: string } }
   const entry = join(dirname(launcherManifest), bin.canopy)
+  const index = createRequire(entry).resolve(`${STUDIO_PACKAGE}/index.html`)
   match(run(binary, "--help"), /Usage: canopyd\b/)
   match(run(process.execPath, entry, "--version").trim(), /^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/)
   match(run(process.execPath, entry, "--help"), /Usage: canopy\s/)

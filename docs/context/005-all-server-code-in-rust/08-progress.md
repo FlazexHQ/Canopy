@@ -36,6 +36,8 @@ and matching gates are measured.
   version, allowing the launcher to resolve `@canopy/studio-assets/index.html` and pass its directory as
   `CANOPY_STUDIO_DIR`. Release smoke tests the installed `canopyd` with Studio and verifies the page and its
   Content Security Policy.
+- **Studio dependency resolution:** the released CLI depends directly on `@canopy/studio-assets`.
+  pnpm 10 can skip shared dependencies first encountered through incompatible optional platform packages.
 
 ### R2 gates, Document allocation refactor and Hermes benchmarks (b841cd40, 34a5fd6b, a82b774f)
 

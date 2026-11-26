@@ -18,19 +18,20 @@ refuses `/internal` and all paths beneath it. The data service continues to serv
 
 ## Studio with the native npm release
 
-Each `@canopy/canopyd-<suffix>` package contains the native `canopy` and `canopyd` executables
-and installs the matching `@canopy/studio-assets` package. The Studio build is shared across
-platforms. Its third party notices are at the root of the assets package.
+Each `@canopy/canopyd-<suffix>` package contains the native `canopy` and `canopyd` executables.
+`@canopy/cli` depends on `@canopy/studio-assets`, the Studio build shared across platforms, and
+its launcher points `CANOPY_STUDIO_DIR` at that package. Its third party notices are at the root of the assets
+package. The dependency belongs to the launcher rather than the platform packages because pnpm can
+skip a dependency it first meets through an optional package for another platform.
 
-A launcher can resolve the Studio entry point from the installed platform package and set
-`CANOPY_STUDIO_DIR` to its parent directory. For example, given the resolved path to the native
-`canopy` executable as `cliPath`:
+To serve Studio from `canopyd` installed another way, add `@canopy/studio-assets` to the project,
+resolve its entry point and set `CANOPY_STUDIO_DIR` to its parent directory:
 
 ```js
 import { createRequire } from "node:module"
 import { dirname } from "node:path"
 
-const index = createRequire(cliPath).resolve("@canopy/studio-assets/index.html")
+const index = createRequire(import.meta.url).resolve("@canopy/studio-assets/index.html")
 const env = { ...process.env, CANOPY_STUDIO_DIR: dirname(index), CANOPY_ROLE: "studio" }
 ```
 

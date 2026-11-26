@@ -45,7 +45,6 @@ export function platformManifest(target: NativeTarget, release: Release): Record
     ...(target.libc === undefined ? {} : { libc: [target.libc] }),
     files: [gatewayExecutable(target.os), cliExecutable(target.os)],
     exports: platformExports(target),
-    dependencies: { [STUDIO_PACKAGE]: release.version },
     preferUnplugged: true,
   }
 }
@@ -57,8 +56,6 @@ function readme(target: NativeTarget): string {
 The \`canopy\` CLI and \`canopyd\` data plane, prebuilt for \`${target.triple}\`. Package managers install this
 package only on ${platform}, as an optional dependency of \`@canopy/cli\` and \`@canopy/realtime\`. Resolve the \`./canopy\`
 export to locate the CLI executable.
-Resolve \`${STUDIO_PACKAGE}/index.html\` from this package and pass its parent directory as
-\`CANOPY_STUDIO_DIR\` to serve Studio.
 `
 }
 
@@ -180,7 +177,7 @@ export function verifyPlatformTarball(
   expect(problems, "libc", manifest.libc, target.libc === undefined ? undefined : [target.libc])
   expect(problems, "preferUnplugged", manifest.preferUnplugged, true)
   expect(problems, "exports", manifest.exports, platformExports(target))
-  expect(problems, "dependencies", manifest.dependencies, { [STUDIO_PACKAGE]: release.version })
+  expect(problems, "dependencies", manifest.dependencies, undefined)
   for (const file of [gatewayExecutable(target.os), cliExecutable(target.os)]) {
     const binary = files.get(`package/${file}`)
     if (binary === undefined) {
@@ -256,7 +253,7 @@ export function verifyCliTarball(
   const problems: string[] = []
   expect(problems, "name", manifest.name, name)
   expect(problems, "version", manifest.version, version)
-  expect(problems, "dependencies", manifest.dependencies, undefined)
+  expect(problems, "dependencies", manifest.dependencies, { [STUDIO_PACKAGE]: version })
   expect(problems, "optionalDependencies", manifest.optionalDependencies, optional)
   expect(problems, "preferUnplugged", manifest.preferUnplugged, true)
   expect(problems, "bin", manifest.bin, { canopy: "./dist/launcher.mjs" })

@@ -382,10 +382,15 @@ async function pack(
       files.set(launcher.name, launcher.file)
       if (gateway === undefined) {
         for (const { name, file } of list) {
-          if (platforms.includes(name) || name === "@canopy/studio-assets") {
-            await copyFile(join(canopydPacks, file), join(into, file))
-            optional.set(name, file)
-          }
+          const destination =
+            name === "@canopy/studio-assets"
+              ? files
+              : platforms.includes(name)
+                ? optional
+                : undefined
+          if (destination === undefined) continue
+          await copyFile(join(canopydPacks, file), join(into, file))
+          destination.set(name, file)
         }
         gateway = { host, platforms }
       }
@@ -718,8 +723,7 @@ assert.equal(result.status, 0, result.stderr)
 assert.match(result.stdout + result.stderr, /Usage: canopyd/)
 const cliManifest = require.resolve("@canopy/cli/package.json")
 const cli = join(dirname(cliManifest), JSON.parse(readFileSync(cliManifest, "utf8")).bin.canopy)
-const executable = createRequire(cli).resolve(host + "/canopy")
-const studio = createRequire(executable).resolve("@canopy/studio-assets/index.html")
+const studio = createRequire(cli).resolve("@canopy/studio-assets/index.html")
 assert.ok(existsSync(studio), "The Studio entry point must be a physical file")
 for (const [flag, pattern] of [
   ["--version", /^\\d+\\.\\d+\\.\\d+(?:[-+][\\w.+-]+)?$/],

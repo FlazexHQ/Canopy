@@ -10,9 +10,9 @@ const require = createRequire(import.meta.url)
 const target = hostTarget()
 const packageName = target === undefined ? undefined : gatewayPackage(target)
 
-function resolveOptional(specifier: string, from = require): string | undefined {
+function resolveOptional(specifier: string): string | undefined {
   try {
-    return from.resolve(specifier)
+    return require.resolve(specifier)
   } catch (error: unknown) {
     if (
       error instanceof Error &&
@@ -26,11 +26,8 @@ function resolveOptional(specifier: string, from = require): string | undefined 
 
 const override = process.env["CANOPY_BINARY"]
 const studioOverride = process.env["CANOPY_STUDIO_DIR"]
-const packaged =
-  packageName === undefined || (override && studioOverride !== undefined)
-    ? undefined
-    : resolveOptional(`${packageName}/canopy`)
-const binary = override || packaged
+const binary =
+  override || (packageName === undefined ? undefined : resolveOptional(`${packageName}/canopy`))
 if (binary === undefined) {
   const detail =
     packageName === undefined
@@ -42,10 +39,7 @@ if (binary === undefined) {
 
 const env = { ...process.env }
 if (studioOverride === undefined) {
-  const index = "@canopy/studio-assets/index.html"
-  const studio =
-    (packaged === undefined ? undefined : resolveOptional(index, createRequire(packaged))) ??
-    resolveOptional(index)
+  const studio = resolveOptional("@canopy/studio-assets/index.html")
   if (studio !== undefined) env["CANOPY_STUDIO_DIR"] = dirname(studio)
 }
 if (!override && process.platform !== "win32") ensureExecutable(binary)
