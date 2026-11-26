@@ -3,6 +3,95 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R2 optimistic update gate met on every host, bounded ring retention (b752097e, 58dce163, 205398a8; Canopy.js 73b8da9)
+
+Summary of commits b752097e, 58dce163, 205398a8 and Canopy.js 73b8da9. The R2 optimistic update optimization
+round brings update latency across every host within the gate (at most 3x and under 50 µs for single and chained
+updates). Bounded ring retention in `UpdateCache` eliminates `FinalizationRegistry` tracking on updates, one
+boundary crossing handles each update, and changes are encoded straight to BSON in linear memory. The client
+Wasm module is 81,467 Brotli bytes under the 81,920 byte budget (453 bytes of headroom). Maintainer decisions
+record Hermes wasm2js matching as a known gap for post R2 follow up, and `@canopy/cli` directly depends on
+`@canopy/studio-assets` to resolve pnpm 10 installation issues.
+
+### Optimistic update profile and root cause
+
+Warm profiling of one update of the six field note with `$set` plus `$inc` (microseconds):
+- Frozen TypeScript updater: Bun 1.44 µs, Node 1.94 µs
+- `engine.applyUpdate` before the round: Bun 7.19 µs, Node 3.93 µs
+- `UpdateCache.update` with new slot freed immediately: Bun 2.05 µs, Node 2.01 µs
+- `UpdateCache.update` with slot kept: Bun 3.27 µs, Node 2.03 µs
+- JavaScript decode of changes: Bun 0.19 µs, Node 0.43 µs
+
+Root cause: every update result was retained in a Rust slot that only a JavaScript `FinalizationRegistry`
+finalizer freed. Retained documents accumulated in linear memory (worst on Bun), and each update incurred
+approximately six calls into WebAssembly.
+
+### What changed (b752097e; Canopy.js 73b8da9)
+
+- **Bounded retention ring:** `UpdateCache` keeps the 256 documents retained last in a ring buffer with 64 bit
+  identifiers that are never reused (up to 2^53). If an update targets an evicted document, the core returns -1
+  and the engine resends the document. Finalizers are no longer required on the update path.
+- **Single boundary crossing:** `reserveInput` prepares linear memory for the update BSON, `update(id, length, now)`
+  applies the update and returns the document identifier, `output()` yields the result words, and `takeError()`
+  extracts error state.
+- **Direct BSON change encoding:** changes are written straight to BSON via `canopy_protocol::bson::encode_fields`.
+  Clock is passed as a numeric timestamp. The transforms module exports `updateMemory()`.
+- **Canopy.js sync (73b8da9):** the client engine writes update BSON into the core input space, makes one call,
+  and reads changes where the core leaves them.
+
+### Optimistic update latency results
+
+Measured across 5 rounds comparing Canopy.js `843aeb2` (before) with Canopy `b752097e` and Canopy.js `73b8da9`
+(after) on a quiet machine (approximately 11% CPU load). Timings are minimum to maximum Wasm microseconds per
+update with median in parentheses, followed by the paired ratio to the frozen TypeScript updater:
+
+- **Bun 1.4.5:**
+  - single: before 3.08 to 5.68 (4.53), 2.83 to 4.20x; after 2.24 to 4.25 (2.27), 1.66 to 2.17x (gate met)
+  - chained: before 3.35 to 4.90 (4.04), 2.28 to 4.58x; after 2.18 to 2.47 (2.26), 1.83 to 2.16x (gate met)
+  - fresh: before 12.97 to 14.28 (13.85), 11.13 to 12.36x; after 4.88 to 5.42 (4.94), 4.55 to 4.82x
+- **Node 26.13.1:**
+  - single: before 3.93 to 4.62 (4.19), 1.89 to 3.29x; after 2.50 to 3.00 (2.53), 1.52 to 1.92x (gate met)
+  - chained: before 3.83 to 4.23 (3.99), 2.20 to 3.14x; after 2.49 to 2.71 (2.51), 1.61 to 1.90x (gate met)
+  - fresh: before 7.50 to 8.24 (7.71), 4.44 to 6.13x; after 5.32 to 5.75 (5.43), 3.47 to 4.09x
+- **Chromium 156 at 4x CPU slowdown:**
+  - single: before 18.50 to 19.50 (18.75), 2.85 to 2.89x; after 13.25 to 14.50 (14.00), 1.89 to 2.23x (gate met)
+  - chained: before 16.50 to 17.00 (17.00), 3.00 to 3.40x; after 12.00 to 14.00 (12.25), 2.00 to 2.55x (gate met)
+  - fresh: before 34.25 to 37.25 (35.25), 6.85 to 7.45x; after 26.75 to 27.75 (27.50), 5.35 to 5.55x
+
+The gate (at most 3x and under 50 µs for single and chained) is met across every host. Warm matching ratios
+remain unchanged within noise. Client module size is 81,467 Brotli bytes (gate 81,920).
+
+### Test evidence
+
+- Cargo workspace: 782 tests pass on MongoDB 8.0.34 and 9.0.8.
+- R2 conformance replay: 1,991 filters and 1,995 updates pass through Wasm and wasm2js on Bun and Node 26.
+- Canopy.js: 360 tests pass on Node 26 and Bun.
+
+### Maintainer decisions and packaging fixes (58dce163, 205398a8)
+
+- **Hermes wasm2js matching (58dce163):** Hermes wasm2js matching (2.36x to 3.85x, EJSON about 15x) is accepted
+  as a known gap with follow up work scheduled after R2. R2 closes without a Hermes speed gate; all conformance
+  vectors must still pass there.
+- **pnpm Studio assets fix (205398a8):** `@canopy/cli` depends directly on `@canopy/studio-assets` because pnpm 10
+  can skip a dependency first encountered through an incompatible optional platform package. Native release
+  builds are green on commit 205398a8.
+
+### Status across stages
+
+- **R2:** update gate met across every host (single and chained under 2.55x, well under 3x and 50 µs). Hermes
+  speed gate dropped by maintainer decision. Warm matching ratios unchanged within noise: Bun and Node pass
+  all six scenarios; Chromium 4x passes four of six scenarios in the baseline measurement (equality 1.90x and
+  DLS and user filter 1.30x miss the 1.2x gate due to fixed Wasm crossing cost, while 34a5fd6b earlier demonstrated
+  1.17x on owner equality in dedicated passes). What remains for R2 closure is final quiet machine confirmation
+  if the plan asks.
+- **R4:** complete. All 57 golden CLI steps replay against Rust, `canopy dev` starts and reloads in under one
+  second, `@canopy/cli` is published as the launcher, and Studio assets resolve directly.
+- **R5:** open, waiting on master for the 24 CPU hours per auth fuzz target campaign, clean runs, and external
+  review with no open P0 or P1 issues. The TypeScript auth fallback overlay remains in place until then.
+- **R7:** gated on the completion of earlier stages and soak. Preparation map recorded in
+  [10-r7-removal-map.md](10-r7-removal-map.md); native wire test key issuance and deployment manifest tests
+  are already moved.
+
 ## Checkpoint (2026-11-26): R4 complete, @canopy/cli launcher published, R2 gates status (b841cd40 to 05a59d0b)
 
 Summary of commits b841cd40, e4363792, 34a5fd6b, a82b774f, 07e1e799, d9af8cf0 and 05a59d0b. R4 is complete:
@@ -1639,7 +1728,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2: client module 81,502 Brotli bytes under 81,920 gate; Node 2.85x and Chromium 2.76x update met; remaining misses for maintainer decision: Bun update 3.31x, Chromium chained 3.14x, Hermes wasm2js matching 2.36x to 3.85x against 3x; Canopy.js synced in 843aeb2 | R2 | Big | `claudeAgent` |
+| 2 | R2 update gate met on every host (single and chained under 2.55x, under 3x and 50 µs); client module 81,467 Brotli bytes under 81,920 gate; Hermes wasm2js speed gate dropped by maintainer decision (known gap for post R2); Chromium matching passes 4 of 6 (equality 1.90x, DLS and user 1.30x); Canopy.js synced in 73b8da9; confirm on quiet machine if required for R2 closure | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 done: all 57 golden steps replay, canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b) | R4 | Big | `claudeAgent` |
 | 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |

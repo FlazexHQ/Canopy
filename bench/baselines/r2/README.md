@@ -619,6 +619,56 @@ Values are median [spread min .. max] across 5 interleaved rounds.
 | chained | 1.07 [1.05 .. 1.36] |     5.39 [3.74 .. 7.13] (4.99x) | 1.41 [1.33 .. 2.00] | 4.36 [4.13 .. 4.57] (2.93x) |    5.50 [5.00 .. 6.00] | 19.75 [19.00 .. 20.75] (3.59x) |
 | fresh   | 1.08 [1.06 .. 1.15] | 16.13 [14.81 .. 16.71] (14.56x) | 1.36 [1.34 .. 1.76] | 8.56 [8.42 .. 9.42] (6.30x) |    5.75 [5.25 .. 6.00] | 41.50 [39.50 .. 42.50] (7.09x) |
 
+### Optimistic update optimization round (single crossing and bounded ring)
+
+#### Profile and root cause
+
+Warm profiling of one update of the six field note with `$set` plus `$inc` (microseconds):
+frozen TypeScript updater was 1.44 µs on Bun and 1.94 µs on Node; `engine.applyUpdate` before the change was
+7.19 µs on Bun and 3.93 µs on Node; `UpdateCache.update` with a new slot freed immediately was 2.05 µs on Bun
+and 2.01 µs on Node, but with the slot kept it rose to 3.27 µs on Bun and 2.03 µs on Node; JavaScript decode of
+changes was 0.19 µs on Bun and 0.43 µs on Node.
+
+The root cause was retention: every update result was retained in a Rust slot that was freed only when JavaScript
+`FinalizationRegistry` finalizers ran, allowing retained documents to accumulate in linear memory (worst on Bun),
+combined with approximately six boundary crossings per update operation.
+
+#### Implementation change
+
+The update pipeline was streamlined in Canopy commit `b752097e` and Canopy.js commit `73b8da9`:
+
+1. `UpdateCache` retains the 256 documents updated last in a fixed ring buffer with identifiers that are never
+   reused (up to 2^53). If an update targets an evicted document, the cache returns -1 and the engine sends the
+   document again. This removes the need for `FinalizationRegistry` tracking on updates.
+2. A single crossing per update: `reserveInput` prepares linear memory for the update BSON, `update(id, length, now)`
+   executes the update and returns the document identifier, `output()` exposes the result words, and `takeError()`
+   extracts errors.
+3. Update changes are encoded straight to BSON in linear memory using `canopy_protocol::bson::encode_fields`.
+4. The clock parameter is passed directly as a numeric timestamp. The transforms module exports `updateMemory()`.
+
+#### Before and after update latency
+
+Measurements across 5 rounds comparing Canopy.js `843aeb2` (before) with Canopy `b752097e` and Canopy.js `73b8da9`
+(after), measured back to back on a quiet machine (about 11% CPU load). Figures report minimum to maximum Wasm
+microseconds per update across 5 rounds with median in parentheses, followed by paired ratios to the frozen
+TypeScript updater.
+
+| Runtime and mode    | Before Wasm µs (median) | Before ratio to TS | After Wasm µs (median) | After ratio to TS | Gate verdict |
+| ------------------- | ----------------------: | -----------------: | ---------------------: | ----------------: | -----------: |
+| Bun single          |     3.08 to 5.68 (4.53) |      2.83 to 4.20x |    2.24 to 4.25 (2.27) |     1.66 to 2.17x |         Pass |
+| Bun chained         |     3.35 to 4.90 (4.04) |      2.28 to 4.58x |    2.18 to 2.47 (2.26) |     1.83 to 2.16x |         Pass |
+| Bun fresh           |  12.97 to 14.28 (13.85) |    11.13 to 12.36x |    4.88 to 5.42 (4.94) |     4.55 to 4.82x |    Not gated |
+| Node 26 single      |     3.93 to 4.62 (4.19) |      1.89 to 3.29x |    2.50 to 3.00 (2.53) |     1.52 to 1.92x |         Pass |
+| Node 26 chained     |     3.83 to 4.23 (3.99) |      2.20 to 3.14x |    2.49 to 2.71 (2.51) |     1.61 to 1.90x |         Pass |
+| Node 26 fresh       |     7.50 to 8.24 (7.71) |      4.44 to 6.13x |    5.32 to 5.75 (5.43) |     3.47 to 4.09x |    Not gated |
+| Chromium 4x single  |  18.50 to 19.50 (18.75) |      2.85 to 2.89x | 13.25 to 14.50 (14.00) |     1.89 to 2.23x |         Pass |
+| Chromium 4x chained |  16.50 to 17.00 (17.00) |      3.00 to 3.40x | 12.00 to 14.00 (12.25) |     2.00 to 2.55x |         Pass |
+| Chromium 4x fresh   |  34.25 to 37.25 (35.25) |      6.85 to 7.45x | 26.75 to 27.75 (27.50) |     5.35 to 5.55x |    Not gated |
+
+The optimistic update gate (at most 3x and under 50 µs for single and chained) is now met across every host.
+Warm matching ratios remain unchanged within noise. The client Wasm module is 81,467 Brotli bytes against the
+81,920 byte gate (453 bytes of headroom).
+
 ## Client JavaScript translation experiments
 
 All variants used the same split client module and Binaryen 133. Client Wasm measured 81,583
