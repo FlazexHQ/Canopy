@@ -4,8 +4,13 @@ mod admin;
 mod auth_import;
 mod bundle;
 mod credentials;
+mod dev;
+mod diagnostics;
+mod doctor;
 mod dsl;
 mod explain;
+mod indexes;
+mod init;
 mod invocation;
 mod login;
 mod meta;
@@ -15,7 +20,9 @@ mod project;
 mod project_commands;
 mod realtime;
 mod remote;
+mod schema_commands;
 mod targets;
+mod templates;
 mod tokens;
 
 use std::fmt;
@@ -72,22 +79,18 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
         ("auth import", [file]) => auth_import::run(file, &call),
         ("config print", _) => project_commands::config_print(&call),
         ("build", _) => project_commands::build(&call),
+        ("pull", _) => schema_commands::pull(&call),
+        ("init", _) => init::run(&call),
+        ("doctor", _) => doctor::run(&call),
+        ("gen types", _) => schema_commands::gen_types(&call),
+        ("schema diff" | "schema push", _) => schema_commands::schema(name, &call),
+        ("indexes advise" | "indexes create", _) => indexes::run(name, &call),
         (
             "policies lint" | "policies test" | "policies explain" | "policies diff" | "policies push"
             | "policies pull" | "policies history" | "policies rollback",
             _,
         ) => policies::run(name, args, &call),
-        ("dev", _) => {
-            let errors = ["port", "mongo-port"]
-                .into_iter()
-                .filter_map(|flag| {
-                    let value = call.text(flag)?;
-                    (!value.bytes().all(|byte| byte.is_ascii_digit()) || value.parse::<u16>().is_err())
-                        .then(|| format!("--{flag} needs a port number between 0 and 65535"))
-                })
-                .collect::<Vec<_>>();
-            if errors.is_empty() { Err(unavailable(name)) } else { Err(errors.join("\n")) }
-        }
+        ("dev", _) => dev::run(&call),
         _ => Err(unavailable(name)),
     }
 }

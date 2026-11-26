@@ -45,6 +45,8 @@ pub(crate) struct Bundle {
     pub(crate) policies: Option<PolicySet>,
     /// The policy test cases.
     pub(crate) tests: Vec<TestCase>,
+    /// The collection schemas of the schema file, when the project has one.
+    pub(crate) schema: Option<Vec<canopy_schema::CollectionSchema>>,
 }
 
 fn text(value: &Json, key: &str) -> Option<String> {
@@ -143,7 +145,7 @@ impl Bundle {
             ("tests".to_owned(), Json::Array(Vec::new())),
             ("schema".to_owned(), Json::Null),
         ]);
-        Bundle { json, files_policies: None, config: None, policies: None, tests: Vec::new() }
+        Bundle { json, files_policies: None, config: None, policies: None, tests: Vec::new(), schema: None }
     }
 
     /// Validates a bundle against the canonical documents and reads its parts.
@@ -164,12 +166,24 @@ impl Bundle {
                 .collect::<Result<_, _>>()?,
             _ => Vec::new(),
         };
+        let schema = match json.get("schema") {
+            Some(value @ Json::Object(_)) => {
+                let mut source = String::new();
+                canopy_protocol::json::write_json(&mut source, value);
+                Some(
+                    canopy_schema::parse_collection_schemas(&source)
+                        .map_err(|error| invalid("schema", error.message().to_owned()))?,
+                )
+            }
+            _ => None,
+        };
         Ok(Bundle {
             json: json.clone(),
             files_policies: json.get("files").and_then(|files| text(files, "policies")),
             config: json.get("config").filter(|config| !matches!(config, Json::Null)).cloned(),
             policies: validated.policies,
             tests,
+            schema,
         })
     }
 

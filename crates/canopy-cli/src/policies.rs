@@ -50,7 +50,7 @@ fn local_set(project: &Project) -> Result<PolicySet, LoadError> {
     })
 }
 
-fn format_finding(finding: &LintFinding) -> String {
+pub(crate) fn format_finding(finding: &LintFinding) -> String {
     let place = match &finding.policy {
         Some(policy) => format!("{} > {policy}", finding.collection),
         None => finding.collection.clone(),
@@ -98,7 +98,7 @@ fn with_target(
 
 fn lifecycle(name: &str, args: &[String], call: &Invocation) -> Result<ExitCode, String> {
     let debug = call.has_flag("debug");
-    let needs_local = matches!(name, "policies diff" | "policies push" | "policies pull");
+    let needs_local = matches!(name, "policies diff" | "policies push");
     let project = project::configure(call, Command::Gen, needs_local).map_err(|error| error.text(debug))?;
     let local = || {
         local_set(&project).map_err(|error| {

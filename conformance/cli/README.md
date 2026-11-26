@@ -49,3 +49,26 @@ fnm exec --using=26 -- node --conditions=@canopy/source packages/testing/scripts
 ```
 
 The CLI Vitest project runs the same check when `CANOPY_TEST_MONGODB_URI` is set.
+
+## Rust replay
+
+`crates/canopy-cli` replays these steps against the Rust `canopy` binary:
+
+- `tests/vectors.rs`: the steps without MongoDB (help, version, refusals, the admin API commands).
+- `tests/meta_vectors.rs`: migrations, keys, admins, realtime images and user import, without a config file.
+- `tests/policy_vectors.rs`: the project steps (config, policies, init, doctor, schema, pull, indexes and
+  dev) with the fixture loaded through the real `canopy.js/emit`. The copy of the fixture moves its imports of
+  `@canopy/policy`, `@canopy/policy/testing` and `@canopy/schema/define` to `canopy.js/policy`,
+  `canopy.js/policy/testing` and `canopy.js/schema`, and links `node_modules/canopy.js` to the Canopy.js build
+  (`CANOPY_JS_DIR`, else the repository's installed `node_modules/canopy.js`). After `schema-push` it also
+  checks `canopy gen types` against `typeGeneration`.
+- `tests/pull_vectors.rs`: `conformance/typegen/pull.json` against a database seeded from its fixture.
+
+The Rust usage text has commands and options the TypeScript CLI lacks (`build`, `gen types`, `--bundle`,
+`--check`). The help, no command and unknown command steps are compared after inserting exactly those lines
+at fixed anchors (`USAGE_ADDITIONS` in `tests/vectors.rs`); the recorded vectors are not edited, and any other
+difference fails.
+
+```text
+CANOPY_TEST_MONGODB_URI="mongodb://localhost:37017/?replicaSet=rs0" cargo test -j 2 -p canopy-cli
+```

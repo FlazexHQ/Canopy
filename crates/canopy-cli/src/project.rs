@@ -46,6 +46,33 @@ pub(crate) struct Project {
     pub(crate) resolution: Resolution,
     /// The policy directory: `--dir`, else `policies.dir` of the config, else `canopy/policies`.
     pub(crate) policy_dir: PathBuf,
+    /// The variables the config was resolved with, env files included.
+    pub(crate) env: HashMap<String, String>,
+    /// Whether `--dir` or the config names the policy folder (otherwise policies come from the database).
+    pub(crate) dir_given: bool,
+    /// The command the config was resolved for.
+    pub(crate) resolved_as: Command,
+    /// For variables read from an env file: the file.
+    pub(crate) env_origins: HashMap<String, String>,
+}
+
+impl Project {
+    /// Resolves the config again with more variables, as `canopy dev` does with its session keys.
+    pub(crate) fn resolve_with(&mut self, extra: &[(String, String)]) -> Result<(), LoadError> {
+        for (key, value) in extra {
+            self.env.insert(key.clone(), value.clone());
+            self.env_origins.remove(key);
+        }
+        self.resolution = resolve(
+            &self.bundle,
+            &self.env,
+            &self.env_origins,
+            self.file.as_deref(),
+            &self.cwd,
+            self.resolved_as,
+        )?;
+        Ok(())
+    }
 }
 
 impl Project {
@@ -121,8 +148,34 @@ pub(crate) fn load_with(
     emit_as: Command,
     needs_policies: bool,
 ) -> Result<Project, LoadError> {
+    load_from(
+        call,
+        &Loading { command, emit_as, needs_policies, schema: None, env_files: false, overrides: &[] },
+    )
+}
+
+/// What a project load reads besides the config and the policy folder.
+pub(crate) struct Loading<'a> {
+    /// The command the config is resolved for.
+    pub(crate) command: Command,
+    /// The command the config function is called with.
+    pub(crate) emit_as: Command,
+    /// Whether the policy folder the config names must be the one emitted.
+    pub(crate) needs_policies: bool,
+    /// A schema file to emit, relative to the working directory.
+    pub(crate) schema: Option<&'a Path>,
+    /// Whether `.env`, `.env.local`, `.env.<mode>` and `.env.<mode>.local` next to the config file are read.
+    pub(crate) env_files: bool,
+    /// Variables that replace the process environment's, such as the URI of a MongoDB `canopy dev` started.
+    pub(crate) overrides: &'a [(String, String)],
+}
+
+/// Loads a project as `loading` says.
+pub(crate) fn load_from(call: &Invocation, loading: &Loading<'_>) -> Result<Project, LoadError> {
+    let Loading { command, emit_as, needs_policies, schema, env_files, overrides } = *loading;
     let cwd = std::env::current_dir().map_err(|error| LoadError::Unexpected(error.to_string()))?;
-    let env = environment(call);
+    let mut env = environment(call);
+    env.extend(overrides.iter().cloned());
     let file = match call.text("config") {
         Some(file) => {
             let path = absolute(&cwd, file);
@@ -137,6 +190,21 @@ pub(crate) fn load_with(
         }
         None => find_config(&cwd),
     };
+    let mut env_origins = HashMap::new();
+    if env_files {
+        let base = file.as_deref().and_then(Path::parent).unwrap_or(&cwd);
+        let mode = if env.get("CANOPY_ENV").map(String::as_str) == Some("production") {
+            "production"
+        } else {
+            "development"
+        };
+        for (key, value, origin) in read_env_files(base, mode) {
+            if !env.contains_key(&key) {
+                env.insert(key.clone(), value);
+                env_origins.insert(key, origin);
+            }
+        }
+    }
     let dir_flag = call.text("dir").map(|dir| absolute(&cwd, dir));
     let mode = if env.get("CANOPY_ENV").map(String::as_str) == Some("production") {
         "production"
@@ -161,18 +229,21 @@ pub(crate) fn load_with(
                 root: &root,
                 file: file.as_deref(),
                 policies,
+                schema,
                 mode,
                 command: emit_as,
                 env: &env,
             }),
         }
     };
-    let mut bundle = if file.is_none() && dir_flag.is_none() && call.text("bundle").is_none() {
-        Bundle::empty(mode, emit_as)
-    } else {
-        emit(dir_flag.as_deref())?
-    };
-    let resolution = resolve(&bundle, &env, file.as_deref(), &cwd, command)?;
+    let mut bundle =
+        if file.is_none() && dir_flag.is_none() && schema.is_none() && call.text("bundle").is_none() {
+            Bundle::empty(mode, emit_as)
+        } else {
+            emit(dir_flag.as_deref().filter(|dir| needs_policies || dir.is_dir()))?
+        };
+    let resolution = resolve(&bundle, &env, &env_origins, file.as_deref(), &cwd, command)?;
+    let dir_given = dir_flag.is_some() || resolution.text("policies.dir").is_some();
     let policy_dir = dir_flag.unwrap_or_else(|| match resolution.text("policies.dir") {
         Some(dir) => PathBuf::from(dir),
         None => cwd.join("canopy").join("policies"),
@@ -184,7 +255,36 @@ pub(crate) fn load_with(
     {
         bundle = emit(Some(&policy_dir))?;
     }
-    Ok(Project { cwd, root, mode, command: emit_as, file, bundle, resolution, policy_dir })
+    Ok(Project {
+        cwd,
+        root,
+        mode,
+        command: emit_as,
+        resolved_as: command,
+        file,
+        bundle,
+        resolution,
+        policy_dir,
+        env,
+        env_origins,
+        dir_given,
+    })
+}
+
+/// The variables of the env files next to the config file, later files winning: each with its file.
+pub(crate) fn read_env_files(dir: &Path, mode: &str) -> Vec<(String, String, String)> {
+    let mut out: Vec<(String, String, String)> = Vec::new();
+    for name in
+        [".env".to_owned(), ".env.local".to_owned(), format!(".env.{mode}"), format!(".env.{mode}.local")]
+    {
+        let path = dir.join(name);
+        let Ok(text) = std::fs::read_to_string(&path) else { continue };
+        for (key, value) in canopy_config::authoring::parse_env_file(&text) {
+            out.retain(|(known, ..)| *known != key);
+            out.push((key, value, display(&path)));
+        }
+    }
+    out
 }
 
 fn normalized(path: &Path) -> PathBuf {
@@ -195,6 +295,7 @@ fn normalized(path: &Path) -> PathBuf {
 fn resolve(
     bundle: &Bundle,
     env: &HashMap<String, String>,
+    env_files: &HashMap<String, String>,
     file: Option<&Path>,
     cwd: &Path,
     command: Command,
@@ -202,7 +303,7 @@ fn resolve(
     let base_dir = file.and_then(Path::parent).unwrap_or(cwd);
     let options = ResolveOptions {
         env: env.clone(),
-        env_files: HashMap::new(),
+        env_files: env_files.clone(),
         file: file.map(display),
         base_dir: display(base_dir),
         cwd: display(cwd),
@@ -235,6 +336,7 @@ struct Emit<'a> {
     root: &'a Path,
     file: Option<&'a Path>,
     policies: Option<&'a Path>,
+    schema: Option<&'a Path>,
     mode: &'a str,
     command: Command,
     env: &'a HashMap<String, String>,
@@ -356,7 +458,11 @@ fn emit(request: &Emit<'_>) -> Result<Bundle, LoadError> {
     if let Some(policies) = request.policies {
         process.arg("--policies").arg(policies);
     }
+    if let Some(schema) = request.schema {
+        process.arg("--schema").arg(schema);
+    }
     process.args(["--mode", request.mode, "--command", request.command.as_str()]);
+    process.envs(request.env);
     process.current_dir(request.root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
     if runtime.kind == "node" {
         process.env("NODE_NO_WARNINGS", "1");
@@ -389,16 +495,19 @@ fn emit(request: &Emit<'_>) -> Result<Bundle, LoadError> {
         _ => None,
     };
     let message = text("message").unwrap_or_else(|| "The project could not be loaded".to_owned());
+    let path = text("path").unwrap_or_default();
+    let pointer = if path.is_empty() { "/" } else { path.as_str() };
+    let bare =
+        message.strip_prefix(pointer).and_then(|rest| rest.strip_prefix(": ")).unwrap_or(&message).to_owned();
     match text("part") {
         Some(part) if output.status.code() == Some(1) => {
-            let path = text("path").filter(|path| !path.is_empty());
-            let message = match (part.as_str(), path) {
-                ("config", Some(path)) if !message.starts_with(&path) => format!("{path}: {message}"),
-                _ => message,
+            let message = match part.as_str() {
+                "config" if !path.is_empty() => format!("{path}: {bare}"),
+                _ => bare,
             };
             Err(LoadError::Invalid { part, message })
         }
-        _ => Err(LoadError::Unexpected(message)),
+        _ => Err(LoadError::Unexpected(bare)),
     }
 }
 
@@ -429,6 +538,7 @@ pub(crate) fn emit_policies(
         root: &project.root,
         file: project.file.as_deref(),
         policies: Some(dir),
+        schema: None,
         mode: project.mode,
         command: project.command,
         env: &env,

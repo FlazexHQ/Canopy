@@ -3,6 +3,102 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-26): R4 the rest of the Rust CLI (not committed)
+
+Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage text now runs in Rust.
+
+### What was built
+
+- **Schema commands** ([`schema_commands.rs`](../../../crates/canopy-cli/src/schema_commands.rs)): `pull`
+  (`--out`, `--js`, `--collection`, `--infer-enums`, `--sample`, `--force`, the edited file diff ported from
+  the TypeScript `lineDiff`), `schema diff` (`--file`, `--sample`, `--infer-enums`, `--role`) and `schema push`
+  (`--yes`), wired to `canopy_schema` (`update_schema_file`, `schema_diff`, `schema_push`) and to
+  `canopy_data::schema::load_schema` (validator, else the newest documents). The schema file is loaded through
+  the emitter with `--schema`; the bundle's `schema` part is parsed by `parse_collection_schemas`.
+- **Type generation**: `canopy gen types [--out <file>] [--check]` (default the config's `types.out`), the
+  `Database` types from `generate_types`. The TypeScript CLI removed `gen types` (0c08fd38); it is back
+  because plan 005 §5 R4 lists type generation, so **the maintainer should confirm the command name** (or
+  drop it in favour of `pull`).
+- **Indexes** ([`indexes.rs`](../../../crates/canopy-cli/src/indexes.rs)): `advise` and `create` through
+  `canopy_policy::plan_indexes`, policies from the folder when `--dir` or `policies.dir` names one, else the
+  meta database.
+- **`init`** ([`init.rs`](../../../crates/canopy-cli/src/init.rs), [`templates.rs`](../../../crates/canopy-cli/src/templates.rs)) and
+  **`doctor`** ([`doctor.rs`](../../../crates/canopy-cli/src/doctor.rs), with the MongoDB diagnostics of
+  `@canopy/protocol` ported to the Rust driver's errors in [`diagnostics.rs`](../../../crates/canopy-cli/src/diagnostics.rs)).
+  One difference: an invalid policy folder makes the Rust `doctor` stop with the emitter's error, where the
+  TypeScript one printed `fail  policies do not load` and went on.
+- **`canopy dev`** ([`dev/`](../../../crates/canopy-cli/src/dev/mod.rs)): the gateway runs **in process**.
+  `canopyd` is now a library plus its binary (`src/lib.rs` holds what `main.rs` held; `main.rs` calls
+  `canopyd::cli()`), with `canopyd::embedded(config, policies, Embedding)`: the configuration document, the
+  starting policy set, a channel of later policy sets, the bound port, the setup token (kept for the caller
+  instead of logged) and a stop notification. [`dev/gateway.rs`](../../../crates/canopy-cli/src/dev/gateway.rs)
+  ports `gatewayConfig` from the resolved config (log level `warn`, metrics on a free port, `realtime: false`
+  offers no transport; persisted GraphQL operations are not passed yet). The loop polls the policy folder
+  (every 50 ms, 30 ms settle) and emits again on save, sending the new set; the config file and the `.env*`
+  files next to it restart the server (a broken edit keeps the running one); a `canopy.schema.ts` or `.js`
+  is checked for drift at start, on save and on `create`, `modify`, `drop`, `rename` and `dropDatabase`
+  events. Env files load as the TypeScript `loadConfig` does; session keys are generated when the
+  development config has none. `--with-mongo` uses Docker (`docker inspect`, `run`, `start`, the same
+  container and volume names) or the official binaries (fastdl URL, SHA-256 checked against the published
+  `.sha256`, unpacked with `tar`, data in `.canopy/mongodb`), then waits for a writable primary. `SIGINT`,
+  `SIGTERM`, Ctrl+Break and the console close event stop it through one path that drains the gateway and
+  stops a started `mongod`.
+- **Project loading**: the emitter's `"<pointer>: "` message prefix is removed for policies and tests (the
+  real emitter's `invalid-policy` message then equals the recorded one); a `--dir` that does not exist is not
+  passed to the emitter unless the command needs the local policies (`policies pull` into a new folder);
+  `Loading` adds the schema file, env files and overrides.
+- **Usage**: `build`, `gen types`, `--bundle`, `--check` and a continuation line for `--out`.
+
+### Evidence
+
+- [`tests/policy_vectors.rs`](../../../crates/canopy-cli/tests/policy_vectors.rs) now loads the fixture
+  through the **real `canopy.js/emit`** (no stand in): 33 golden steps replay, `missing-config`, `init`,
+  `init-again`, `doctor`, `doctor-unreachable`, the 20 R3b steps, `schema-diff`, `schema-push-refused`,
+  `schema-push`, `pull-typescript`, `pull-javascript`, `indexes-advise`, `indexes-create`,
+  `dev-missing-config` and `dev-startup` (the summary with port, keys and setup token replaced, and the
+  `settings/"setup"` document), with stdout, stderr, exit code, file changes and meta documents. After
+  `schema-push`, `canopy gen types` writes exactly `typeGeneration.types`. The real emitter's actor labels
+  (`alice`, `bob`) and its `invalid-policy` message match the recording.
+- [`tests/pull_vectors.rs`](../../../crates/canopy-cli/tests/pull_vectors.rs): all 9 examples of
+  `conformance/typegen/pull.json` through the binary against a database seeded from the fixture (validators,
+  index, documents), byte identical including CRLF (a mutation of one expected line fails it).
+- [`tests/vectors.rs`](../../../crates/canopy-cli/tests/vectors.rs): `help`, `no-command` and
+  `unknown-command` replay with `USAGE_ADDITIONS` inserted at fixed anchors; a test checks the additions only
+  insert lines. Documented in [conformance/cli/README.md](../../../conformance/cli/README.md#rust-replay).
+- `canopy dev` save to active policy, measured from the file write to REST serving the new policy:
+  142 ms (8.0) and 257 ms (9.0) in the test with Bun as the emitter runtime; on a copy of `deploy/dev`
+  against 37017, 333 and 645 ms with Bun and 651 and 674 ms with Node 26 (each including curl start up per
+  poll). The test asserts under one second.
+- Stops: on POSIX the test sends `SIGINT` and `SIGTERM` and asserts exit 0 with nothing on stderr (not run
+  here, Windows machine). On Windows a test cannot raise Ctrl+C or Ctrl+Break for another console without
+  native calls (`unsafe` is forbidden), so checked by hand: `canopy dev` in its own console closed with
+  `taskkill` (no `/F`) exits 0; with `--with-mongo` (Docker not running, so the binaries path, port 37555)
+  the started `mongod` stops too. Ctrl+C and Ctrl+Break generated through `GenerateConsoleCtrlEvent` from a
+  helper did not reach any process in this session (the helper itself survived), so those two are unverified.
+- Whole crate on 8.0.34 (37017) and 9.0.8 (37090): `cargo test -j 2 -p canopy-cli` all suites pass
+  (20 unit, auth_import 2, bundle_publishing 3, meta_vectors 3, policy_vectors 4, pull_vectors 1, vectors 4).
+  `canopyd` after the library split: lib 21, builtin_auth 7, control 3, studio 1, data_plane 30 pass on 8.0.
+  `cargo clippy -j 2 --no-deps -p canopy-cli -p canopyd --all-targets -- -D warnings` clean, `cargo fmt`
+  applied to both crates, `tools/repo-check workspace dashes` pass. `Cargo.lock` adds only canopy-cli's new
+  dependencies (canopy-data, canopy-schema, canopyd, ring); `fuzz/Cargo.lock` unchanged. Isolated databases
+  dropped.
+
+### Left for R4 and the `@canopy/cli` launcher
+
+- Golden steps not replayed against the Rust CLI: none of the 57 is left; `realtime-*`, `key-*`, `admin-*`
+  and `auth-import*` replay in zero config mode (`meta_vectors.rs`), the remote ones in `vectors.rs`.
+  `policies push`/`pull` with `--env` remain unreplayed (R3b).
+- Not run here: the replay on Windows arm64, Linux glibc and musl, macOS; Docker for `--with-mongo`.
+- The launcher (not built): a generated, dependency free JavaScript `bin` in `@canopy/cli` that maps
+  `process.platform`, `process.arch` and, on Linux, glibc or musl (`process.report.getReport().header.glibcVersionRuntime`)
+  to the platform package, resolves its `./canopy` export (6a7e0272) with `require.resolve` from the
+  launcher's own location (works hoisted, isolated, pnpm and Yarn Plug'n'Play; the platform packages need
+  `"preferUnplugged": true` so PnP extracts the executable), honours a `CANOPY_BINARY` override, spawns the
+  binary with an argument array and inherited stdio, forwards `SIGINT`, `SIGTERM` and `SIGBREAK` and exits with
+  its code; the eight platform packages become `optionalDependencies` of `@canopy/cli` (today of
+  `@canopy/realtime`), with a clear message when none installed. `canopy dev` serving Studio needs the
+  `@canopy/studio-assets` path passed as `CANOPY_STUDIO_DIR` (R6). Then the install tests of the R4 gate.
+
 ## Checkpoint (2026-11-26): R2 gates after the maintainer's decisions, CI green
 
 - The decisions (ec3e1809): startup timed on the first snapshot shown; keep working on matching in

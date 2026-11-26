@@ -57,6 +57,7 @@ const COMMANDS: &[Spec] = &[
     Spec::new("config print", &["sources"]),
     Spec::new("init", &[]),
     Spec::new("build", &["out"]),
+    Spec::new("gen types", &["out", "check", "sample", "infer-enums"]),
     Spec::new("dev", &["with-mongo", "mongo-binary", "mongo-version", "port", "mongo-port", "mongo-image"]),
     Spec::new("realtime enable-images", &["yes"]).variadic(),
     Spec::new("realtime disable-images", &["yes"]).variadic(),

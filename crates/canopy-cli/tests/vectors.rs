@@ -149,6 +149,77 @@ fn login_registers_an_environment_and_logout_removes_the_token() -> Result<(), B
     Ok(())
 }
 
+/// The lines the Rust usage text adds to the recorded TypeScript one: each is inserted right after its anchor
+/// line, and every recorded line stays as it was. The additions are the commands and options the TypeScript CLI
+/// does not have (`build` and `--bundle` from the bundle format, `gen types`, and their options). Every other
+/// difference fails the replay.
+const USAGE_ADDITIONS: &[(&str, &[&str])] = &[
+    (
+        "  config print           Print the resolved config with secrets masked",
+        &[
+            "  build                  Write the project's bundle (config, policies, tests, schema) for deployments",
+            "                         that publish without a JavaScript runtime",
+            "  gen types              Write the Database types of the app database (--out, else the config's types.out)",
+        ],
+    ),
+    (
+        "  --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)",
+        &[
+            "  --bundle <file>        Read the project from a bundle written by canopy build instead of running the config",
+        ],
+    ),
+    (
+        "  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)",
+        &[
+            "                         build: the bundle (default canopy.bundle.json); gen types: the types file",
+        ],
+    ),
+    (
+        "  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)",
+        &[
+            "  --check                gen types: exit 1 when the types file is out of date instead of writing it",
+        ],
+    ),
+];
+
+/// A recorded output with the usage additions applied when it contains the usage text.
+fn with_usage_additions(recorded: &str) -> String {
+    if !recorded.contains("Usage: canopy <command> [options]") {
+        return recorded.to_owned();
+    }
+    let mut out = String::new();
+    let mut applied = 0;
+    for line in recorded.split_inclusive('\n') {
+        out.push_str(line);
+        if let Some((_, added)) =
+            USAGE_ADDITIONS.iter().find(|(anchor, _)| line.trim_end_matches('\n') == *anchor)
+        {
+            applied += 1;
+            for addition in *added {
+                out.push_str(addition);
+                out.push('\n');
+            }
+        }
+    }
+    assert_eq!(applied, USAGE_ADDITIONS.len(), "every anchor of the usage additions is a recorded line");
+    out
+}
+
+#[test]
+fn the_usage_additions_only_insert_lines() {
+    let recorded = include_str!("../../../conformance/cli/vectors.json");
+    let vectors: Vectors = serde_json::from_str(recorded).expect("vectors");
+    let help = vectors.steps.iter().find(|step| step.id == "help").expect("help step");
+    let expanded = with_usage_additions(&help.stdout);
+    let added: usize = USAGE_ADDITIONS.iter().map(|(_, lines)| lines.len()).sum();
+    assert_eq!(expanded.lines().count(), help.stdout.lines().count() + added);
+    let kept: Vec<&str> = expanded
+        .lines()
+        .filter(|line| !USAGE_ADDITIONS.iter().any(|(_, lines)| lines.contains(line)))
+        .collect();
+    assert_eq!(kept, help.stdout.lines().collect::<Vec<_>>());
+}
+
 #[test]
 fn cli_vectors() -> Result<(), Box<dyn std::error::Error>> {
     let oracle = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../conformance/cli");
@@ -247,8 +318,10 @@ fn replay(fixture: &Path, step: &Step) -> Result<(), Box<dyn std::error::Error>>
     }
 
     assert_eq!(output.status.code(), Some(step.exit_code), "{} exit code", step.id);
-    assert_eq!(normalize(&String::from_utf8(output.stdout)?), step.stdout, "{} stdout", step.id);
-    assert_eq!(normalize(&String::from_utf8(output.stderr)?), step.stderr, "{} stderr", step.id);
+    let expected_stdout = with_usage_additions(&step.stdout);
+    let expected_stderr = with_usage_additions(&step.stderr);
+    assert_eq!(normalize(&String::from_utf8(output.stdout)?), expected_stdout, "{} stdout", step.id);
+    assert_eq!(normalize(&String::from_utf8(output.stderr)?), expected_stderr, "{} stderr", step.id);
     let after = snapshot(project)?;
     let mut changes = BTreeMap::new();
     for name in before.keys().chain(after.keys()).collect::<BTreeSet<_>>() {
