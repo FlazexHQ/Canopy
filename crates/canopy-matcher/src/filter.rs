@@ -20,6 +20,9 @@ type DocTest = Arc<dyn for<'a> Fn(Item<'a>) -> Outcome + Send + Sync>;
 #[derive(Clone)]
 pub struct CompiledFilter {
     test: DocTest,
+    /// The field and the string when the whole filter is one top level field equal to a string, the most
+    /// common filter (a document owner), which an owned document then answers without the dynamic test.
+    equals: Option<Arc<(String, String)>>,
 }
 
 impl std::fmt::Debug for CompiledFilter {
@@ -32,7 +35,11 @@ impl CompiledFilter {
     /// Returns true when the document matches. An error (a regular expression input too large to match in
     /// process) means the decision is unknown; callers must treat it as a refusal, never as "no match" under
     /// a negation.
+    #[inline(always)]
     pub fn matches(&self, document: &Document) -> Outcome {
+        if let Some(equals) = &self.equals {
+            return Ok(field_equals_text(document, &equals.0, &equals.1));
+        }
         (self.test)(Item::Document(DocRef::Owned(document)))
     }
 
@@ -143,7 +150,16 @@ fn regex_of(value: &Value) -> Option<&Regex> {
 /// an `InvalidQueryError` for filters MongoDB would refuse.
 pub fn compile_filter(filter: &Value) -> Result<CompiledFilter, CanopyError> {
     let Value::Document(filter) = filter else { return Err(invalid("A filter must be a document")) };
-    Ok(CompiledFilter { test: compile_document(filter)? })
+    let test = compile_document(filter)?;
+    let equals = match filter.fields() {
+        [(field, Value::String(text) | Value::Symbol(text))]
+            if !field.starts_with('$') && !field.contains('.') =>
+        {
+            Some(Arc::new((field.clone(), text.clone())))
+        }
+        _ => None,
+    };
+    Ok(CompiledFilter { test, equals })
 }
 
 /// Returns true when every operator in `filter` can be evaluated in process. Filters MongoDB would refuse
@@ -207,6 +223,56 @@ fn string_matches(expected: &str, value: Option<ValueRef<'_>>) -> Outcome {
     Ok(matches!(value, Some(ValueRef::String(text) | ValueRef::Symbol(text)) if text == expected))
 }
 
+/// Whether the top level `field` of an owned document equals `expected` as MongoDB compares a string (or
+/// symbol) operand: a string or symbol with the same text, or an array holding one at its top level.
+fn field_equals_text(document: &Document, field: &str, expected: &str) -> bool {
+    let value = document.fields().iter().find(|(key, _)| same_text(key, field)).map(|(_, value)| value);
+    match value {
+        Some(Value::String(text) | Value::Symbol(text)) => same_text(text, expected),
+        Some(Value::Array(items)) => items.iter().any(
+            |item| matches!(item, Value::String(text) | Value::Symbol(text) if same_text(text, expected)),
+        ),
+        _ => false,
+    }
+}
+
+/// Whether two strings are equal. Compares four bytes at a time in place instead of calling `memcmp`, which
+/// the size optimized WebAssembly client compiles to a loop over single bytes; field names and the strings
+/// such filters compare are mostly a few bytes long.
+fn same_text(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let length = left.len();
+    if length != right.len() {
+        return false;
+    }
+    if length < 4 {
+        let mut index = 0;
+        while index < length {
+            if left.get(index) != right.get(index) {
+                return false;
+            }
+            index += 1;
+        }
+        return true;
+    }
+    let mut index = 0;
+    while index + 4 <= length {
+        if word(left, index) != word(right, index) {
+            return false;
+        }
+        index += 4;
+    }
+    index == length || word(left, length - 4) == word(right, length - 4)
+}
+
+/// The four bytes at `at` as one little endian number, or `None` past the end.
+fn word(bytes: &[u8], at: usize) -> Option<u32> {
+    match bytes.get(at..at.checked_add(4)?) {
+        Some(&[a, b, c, d]) => Some(u32::from_le_bytes([a, b, c, d])),
+        _ => None,
+    }
+}
+
 fn equality_test(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
     if let ([part], Value::String(text) | Value::Symbol(text)) = (parts.as_slice(), operand) {
         let field = part.name.clone();
@@ -216,13 +282,7 @@ fn equality_test(parts: &Arc<Vec<Segment>>, operand: &Value) -> DocTest {
             let Item::Document(DocRef::Owned(document)) = item else {
                 return fallback(item);
             };
-            Ok(match document.get(&field) {
-                Some(Value::String(text) | Value::Symbol(text)) => text == &expected,
-                Some(Value::Array(items)) => items.iter().any(
-                    |item| matches!(item, Value::String(text) | Value::Symbol(text) if text == &expected),
-                ),
-                _ => false,
-            })
+            Ok(field_equals_text(document, &field, &expected))
         });
     }
     expand(parts, eq_leaf(operand))

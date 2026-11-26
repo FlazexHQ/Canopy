@@ -4,8 +4,9 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
 use canopy_matcher::{compile_filter, is_matcher_safe, is_unsupported};
+use canopy_protocol::bson::encode_document;
 use canopy_protocol::ejson::{DecodeOptions, parse};
-use canopy_protocol::{Document, ErrorCode, Value};
+use canopy_protocol::{Document, ErrorCode, RawDocument, Value};
 
 fn value(text: &str) -> Value {
     parse(text, DecodeOptions::default()).expect("EJSON")
@@ -43,6 +44,65 @@ fn owned_top_level_string_equality_expands_only_the_immediate_array() {
             assert_eq!(compiled.matches(&document), Ok(expected), "{document:?}");
         }
         assert_eq!(compiled.matches(&Document::new()), Ok(false));
+    }
+}
+
+/// Strings of every length up to 12 bytes, each also with one byte changed at every position, plus text with
+/// multibyte characters.
+fn texts() -> Vec<String> {
+    let mut texts = vec!["é".to_owned(), "éa".to_owned(), "aé".to_owned(), "ownerIé".to_owned()];
+    for length in 0..=12 {
+        let text: String = "ownerIdabcde".chars().take(length).collect();
+        for position in 0..length {
+            let mut changed = text.clone().into_bytes();
+            changed[position] = b'Z';
+            texts.push(String::from_utf8(changed).expect("ASCII"));
+        }
+        texts.push(text);
+    }
+    texts
+}
+
+#[test]
+fn owned_string_equality_agrees_with_raw_documents_for_every_length_and_difference() {
+    let texts = texts();
+    for field in texts.iter().filter(|text| !text.is_empty()) {
+        for wanted in &texts {
+            let mut filter = Document::new();
+            filter.insert(field.as_str(), Value::String(wanted.clone()));
+            let compiled = compile_filter(&Value::Document(filter)).expect("compiles");
+            for actual in texts.iter().filter(|text| text.len().abs_diff(wanted.len()) <= 1) {
+                let mut document = Document::new();
+                document.insert("_id", Value::Int32(1));
+                for other in texts.iter().filter(|other| other.len() == field.len() && *other != field) {
+                    document.insert(other.as_str(), Value::String(wanted.clone()));
+                }
+                document.insert(field.as_str(), Value::String(actual.clone()));
+                let expected = actual == wanted;
+                assert_eq!(compiled.matches(&document), Ok(expected), "{field} {wanted} {actual}");
+                let bytes = encode_document(&document).expect("encodes");
+                let raw = RawDocument::new(&bytes).expect("well formed");
+                assert_eq!(compiled.matches_raw(raw), Ok(expected), "{field} {wanted} {actual}");
+            }
+        }
+    }
+}
+
+#[test]
+fn only_a_single_top_level_string_condition_takes_the_direct_owner_test() {
+    for (filter, document, expected) in [
+        (r#"{"a":"x","b":"y"}"#, r#"{"a":"x","b":"z"}"#, false),
+        (r#"{"a":"x","b":"y"}"#, r#"{"b":"y","a":"x"}"#, true),
+        (r#"{"a.b":"x"}"#, r#"{"a":{"b":"x"}}"#, true),
+        (r#"{"a.b":"x"}"#, r#"{"a.b":"x"}"#, false),
+        (r#"{"a":{"$eq":"x"}}"#, r#"{"a":["y","x"]}"#, true),
+        (r#"{"a":1}"#, r#"{"a":"1"}"#, false),
+        (r#"{"0":"x"}"#, r#"{"0":"x"}"#, true),
+    ] {
+        let compiled = compile_filter(&value(filter)).expect("compiles");
+        let Value::Document(owned) = value(document) else { panic!("not a document") };
+        assert_eq!(compiled.matches(&owned), Ok(expected), "{filter} {document}");
+        assert_eq!(matches(filter, document), expected, "{filter} {document}");
     }
 }
 

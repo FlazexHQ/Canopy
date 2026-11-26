@@ -30,6 +30,7 @@ pub struct FilterHandle {
 }
 
 impl Filter {
+    #[inline(always)]
     pub(crate) fn decide_document(&self, document: &canopy_protocol::Document) -> u8 {
         match self.compiled.matches(document) {
             Ok(true) => canopy_port::MATCH,

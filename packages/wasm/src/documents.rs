@@ -193,6 +193,7 @@ impl DocumentCache {
 }
 
 #[cfg(feature = "client")]
+#[inline(always)]
 fn decide_slot(slots: &[Option<Document>], filter: &Filter, slot: u32) -> u8 {
     match usize::try_from(slot).ok().and_then(|index| slots.get(index)).and_then(Option::as_ref) {
         Some(document) => filter.decide_document(document),
