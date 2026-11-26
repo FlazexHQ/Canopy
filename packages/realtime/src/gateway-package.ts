@@ -17,7 +17,7 @@ export function gatewayExecutable(os: NativeTarget["os"] | NodeJS.Platform): str
  * Lets the owner and everyone who may read a file also execute it, since a package manager can unpack a
  * tarball without its permission bits. This only makes the file runnable and is never a security check.
  */
-function ensureExecutable(file: string): void {
+export function ensureExecutable(file: string): void {
   try {
     const mode = statSync(file).mode & 0o777
     const execute = (mode & 0o444) >> 2

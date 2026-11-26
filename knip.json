@@ -1,5 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "ignore": ["tools/**"],
+  "workspaces": {
+    "packages/realtime": { "entry": ["scripts/pack-canopyd.ts"] }
+  },
   "include": ["exports", "types", "nsExports", "nsTypes", "duplicates"]
 }

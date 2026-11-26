@@ -97,7 +97,7 @@
   },
   "trustedDependencies": [],
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && bun --filter @canopy/cli build:launcher",
     "build:native": "turbo run build:native",
     "typecheck": "tsc -b",
     "clean": "tsc -b --clean",

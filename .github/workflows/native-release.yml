@@ -4,7 +4,7 @@ name: Native release builds
 # packages and the root package naming them all), checks it, installs it with every package manager and loads
 # each addon where the hardware exists. It assembles the checked tarballs as the native-release artifact.
 # Each Rust target gets an archive containing the gateway and CLI. Both binaries also ship
-# in one npm package per platform (@canopy/canopyd-<suffix>) plus the @canopy/realtime tarball
+# in one npm package per platform (@canopy/canopyd-<suffix>) plus the @canopy/cli and @canopy/realtime tarballs
 # whose optionalDependencies name them all, plus one shared Studio package, as the canopyd-npm-release artifact.
 on:
   pull_request:
@@ -14,6 +14,7 @@ on:
       - "bun.lock"
       - "conformance/**"
       - "packages/native/**"
+      - "packages/cli/**"
       - "packages/wasm/**"
       - "packages/realtime/package.json"
       - "packages/realtime/scripts/**"
@@ -270,7 +271,7 @@ jobs:
       - name: Build Studio and its third party notices
         working-directory: apps/studio
         run: bun --bun run build --outDir "$RUNNER_TEMP/studio-assets"
-      - name: Assemble and check the canopyd packages, Studio assets and realtime launcher
+      - name: Assemble and check the canopyd packages, Studio assets and launchers
         run: bun packages/realtime/scripts/pack-canopyd.ts --assemble "$RUNNER_TEMP/canopyd-packs" --studio-dir "$RUNNER_TEMP/studio-assets"
       - name: Licenses of what the published packages install, the WebAssembly package included
         run: bun packages/testing/scripts/licenses.ts

@@ -1,7 +1,7 @@
 import { equal, match } from "node:assert/strict"
 import { spawn, spawnSync } from "node:child_process"
 import { once } from "node:events"
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
@@ -30,11 +30,15 @@ if (target === undefined)
 const name = gatewayPackage(target)
 const packed = packs.find((entry) => entry.name === name)
 if (packed === undefined) throw new Error(`${folder} has no ${name}`)
+const launcher = packs.find((entry) => entry.name === "@canopy/cli")
+if (launcher === undefined) throw new Error(`${folder} has no @canopy/cli`)
 const studio = packs.find((entry) => entry.name === STUDIO_PACKAGE)
 if (studio === undefined) throw new Error(`${folder} has no ${STUDIO_PACKAGE}`)
 
-function run(binary: string, flag: string): string {
-  const result = spawnSync(binary, [flag], { encoding: "utf8" })
+function run(binary: string, ...args: string[]): string {
+  const env = { ...process.env }
+  delete env["CANOPY_BINARY"]
+  const result = spawnSync(binary, args, { encoding: "utf8", env })
   if (result.status !== 0)
     throw new Error(
       `${binary} ${flag} exited with ${String(result.status ?? result.error)}\n${result.stderr}`,
@@ -110,6 +114,7 @@ try {
       "--update-notifier=false",
       "--cache",
       join(scratch, "npm-cache"),
+      join(folder, launcher.file),
       join(folder, packed.file),
       join(folder, studio.file),
     ],
@@ -121,10 +126,12 @@ try {
   if (binary === undefined) throw new Error(`${name} does not resolve from ${scratch}`)
   const cli = createRequire(manifest).resolve(`${name}/canopy`)
   const index = createRequire(cli).resolve(`${STUDIO_PACKAGE}/index.html`)
-  if (process.platform !== "win32") chmodSync(cli, 0o755)
+  const launcherManifest = createRequire(manifest).resolve("@canopy/cli/package.json")
+  const { bin } = JSON.parse(readFileSync(launcherManifest, "utf8")) as { bin: { canopy: string } }
+  const entry = join(dirname(launcherManifest), bin.canopy)
   match(run(binary, "--help"), /Usage: canopyd\b/)
-  match(run(cli, "--version").trim(), /^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/)
-  match(run(cli, "--help"), /Usage: canopy\s/)
+  match(run(process.execPath, entry, "--version").trim(), /^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/)
+  match(run(process.execPath, entry, "--help"), /Usage: canopy\s/)
   await checkStudio(binary, index, scratch)
   process.stdout.write(`${name} passed canopy --version, canopy --help and canopyd --help\n`)
   process.stdout.write(

@@ -16,7 +16,7 @@ The file imports its builders from `@canopy/schema`, so the app depends on it ne
 ```bash
 bun add canopy.js @canopy/schema
 bun add -d @canopy/cli
-bunx canopy pull
+bunx --package @canopy/cli canopy pull
 ```
 
 `canopy pull` reads each collection's `$jsonSchema` validator, then the config, then a sample of documents,
@@ -140,8 +140,8 @@ const titles = canopy.from("todos").find({ done: false }).fields({ title: 1 })
 ## Keep the database and the file in step
 
 ```bash
-bunx canopy schema diff        # exits 1 and lists each difference when MongoDB drifted
-bunx canopy schema push        # writes the declared collections' validators, after asking
+bunx --package @canopy/cli canopy schema diff        # exits 1 and lists each difference when MongoDB drifted
+bunx --package @canopy/cli canopy schema push        # writes the declared collections' validators, after asking
 ```
 
 `canopy schema diff` compares the file with each collection's validator, or with sampled documents when a

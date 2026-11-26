@@ -53,7 +53,7 @@ function stubs() {
 }
 
 describe("publishTarballs", () => {
-  it("publishes shared Studio first and platform packages before either launcher", async () => {
+  it("publishes shared Studio first and platform packages before the launchers", async () => {
     const setup = [
       [native, "@canopy/native", "@canopy/native-linux-x64-gnu"],
       [canopyd, "@canopy/realtime", "@canopy/canopyd-linux-x64-gnu"],
@@ -66,6 +66,11 @@ describe("publishTarballs", () => {
       }),
       platform: pack(folder, "z-platform", { name: platform, license: "MIT" }),
     }))
+    const cli = pack(canopyd, "b-cli", {
+      name: "@canopy/cli",
+      license: "MIT",
+      optionalDependencies: { "@canopy/canopyd-linux-x64-gnu": "1.2.3" },
+    })
     const studio = pack(canopyd, "zz-studio", { name: "@canopy/studio-assets", license: "MIT" })
     const operations = stubs()
     await publishTarballs([native, canopyd], true, operations)
@@ -75,6 +80,7 @@ describe("publishTarballs", () => {
       ["publish", files[1]?.platform],
       ["publish", files[0]?.launcher],
       ["publish", files[1]?.launcher],
+      ["publish", cli],
     ])
     for (const [args] of operations.runNpm.mock.calls) {
       expect(args).toContain("--provenance")

@@ -21,6 +21,7 @@ import {
   stagePlatformPackage,
   stageStudioPackage,
   tarballName,
+  verifyCliTarball,
   verifyLauncherTarball,
   verifyPlatformTarball,
   verifyStudioTarball,
@@ -37,14 +38,22 @@ import {
  * Linux build links against) and lists it in `packs/packs.json`.
  *
  * `--assemble` takes the `packs/` folders of several such runs, downloaded anywhere under `<dir>`, checks every
- * platform package, and packs the release into `packs/`: the platform packages and `@canopy/realtime`, which
- * launches canopyd, with `optionalDependencies` naming all of them at its version. The Studio build goes
+ * platform package, and packs the release into `packs/`: the platform packages, `@canopy/cli` and
+ * `@canopy/realtime`. Both launchers name the platform packages as optional dependencies. The Studio build goes
  * into one shared package at the same version. The optional dependencies
  * exist only in that tarball, so the repository installs without packages that are not published. It fails
  * when a target is missing, unless `--partial` allows a subset for local testing. Nothing is published.
  */
 const root = fileURLToPath(new URL("..", import.meta.url))
 const packs = join(root, "packs")
+const cliRoot = join(root, "..", "cli")
+const cliSource = JSON.parse(readFileSync(join(cliRoot, "package.json"), "utf8")) as {
+  name: string
+  version: string
+  bin: { canopy: string }
+  devDependencies: unknown
+  scripts: unknown
+}
 const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as Record<
   string,
   unknown
@@ -117,7 +126,7 @@ function run(command: string, commandArgs: readonly string[]): void {
     throw new Error(`${command} ${commandArgs.join(" ")} failed with ${String(result.status)}`)
 }
 
-/** Packs `@canopy/realtime` naming the platform packages of `targets`, checks it and writes `packs.json`. */
+/** Packs both launchers, checks their platform dependencies and writes `packs.json`. */
 function packLauncher(targets: readonly NativeTarget[], destination: string, studio: Packed): void {
   run(process.execPath, ["run", "build"])
   const optional = optionalDependencies(targets, release.version)
@@ -134,8 +143,27 @@ function packLauncher(targets: readonly NativeTarget[], destination: string, stu
   }
   const own: Packed = { name: source.name, file: tarballName(source.name, release.version) }
   fail(verifyLauncherTarball(join(destination, own.file), source.name, release.version, optional))
+  if (cliSource.version !== release.version)
+    throw new Error("The CLI and realtime packages must have the same release version")
+  const cli: Packed = { name: cliSource.name, file: tarballName(cliSource.name, release.version) }
+  const staging = mkdtempSync(join(destination, "cli-stage-"))
+  try {
+    const bin = join(staging, cliSource.bin.canopy)
+    run(process.execPath, [join(cliRoot, "build-launcher.ts"), dirname(bin)])
+    copyFileSync(join(cliRoot, "README.md"), join(staging, "README.md"))
+    const { devDependencies, scripts, ...published } = cliSource
+    writeFileSync(
+      join(staging, "package.json"),
+      `${JSON.stringify({ ...published, optionalDependencies: optional }, null, 2)}\n`,
+    )
+    pack(process.execPath, staging, destination)
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
+  }
+  fail(verifyCliTarball(join(destination, cli.file), cli.name, release.version, optional))
   const all = [
     own,
+    cli,
     ...targets.map((target) => ({
       name: gatewayPackage(target),
       file: tarballName(gatewayPackage(target), release.version),
@@ -160,7 +188,7 @@ function assemble(folder: string, studioDir: string, partial: boolean, destinati
   for (const list of lists) {
     const entries = JSON.parse(readFileSync(join(input, list), "utf8")) as Packed[]
     for (const { name, file } of entries) {
-      if (name === source.name) continue
+      if (name === source.name || name === cliSource.name) continue
       if (file !== tarballName(name, release.version))
         throw new Error(
           `${list} lists ${file} for ${name}, expected ${tarballName(name, release.version)}`,
@@ -184,6 +212,7 @@ function assemble(folder: string, studioDir: string, partial: boolean, destinati
   const outputs = new Set([
     studio.file,
     tarballName(source.name, release.version),
+    tarballName(cliSource.name, release.version),
     ...[...found.keys()].map((name) => tarballName(name, release.version)),
   ])
   const stale = readdirSync(destination).filter(

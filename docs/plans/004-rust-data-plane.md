@@ -127,7 +127,7 @@ services. D5 also closes Phase 7's dependency on the wire endpoint.
 
 - **One binary, every platform.** The data plane ships prebuilt for the eight targets of
   [14 §6](../design/14-native-core.md#6-platforms-toolchain-and-distribution) as optional npm dependencies of
-  the CLI, so `bunx canopy dev` (or `npx`, `pnpm dlx`, `yarn dlx`) downloads it and starts it with no Rust or
+  the CLI, so `bunx --package @canopy/cli canopy dev` (or `npx`, `pnpm dlx`, `yarn dlx`) downloads it and starts it with no Rust or
   container needed; `canopy dev --with-mongo` adds the replica set as today.
 - **Same behavior on Atlas.** `canopy link atlas` (M7) only writes the URI; `canopy doctor` reports what the
   capability probe found and which features are on.

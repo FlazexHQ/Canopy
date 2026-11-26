@@ -269,7 +269,7 @@ Short property runs on every pull request and long runs nightly, as 09 §5 alrea
 | Config and policy loading in `packages/config`, `packages/cli/src/policies.ts` | `canopy.js/emit` plus `canopy-config` and `canopy-policy` | R3 |
 | `packages/schema` (inference, type generation, diff, DSL writer) | `crates/canopy-schema` | R3, R4 |
 | `packages/cli` | `crates/canopy-cli`; `@canopy/cli` becomes a launcher | R4 |
-| `canopyd` platform packages as optional dependencies of `@canopy/realtime` | The same eight packages carry `canopy` and `canopyd`, optional dependencies of `@canopy/cli` | R4 |
+| `canopyd` platform packages as optional dependencies of `@canopy/realtime` | The same eight packages carry `canopy` and `canopyd`, optional dependencies of `@canopy/cli` and `@canopy/realtime` | R4 |
 | `packages/auth-builtin`, `packages/auth` | `crates/canopy-auth` (verification, already) and the new auth crate | R5 |
 | `packages/studio` server, `canopy-studio` image | `canopyd --role studio` | R6 |
 | Every remaining TypeScript server package, `@canopy/native`, `@canopy/embedded` | Deleted | R7 |

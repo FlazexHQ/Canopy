@@ -46,13 +46,13 @@ export default collection("orders", {
 `auth("sub")` is the `sub` claim of the user's token. A missing claim denies access. Check the folder:
 
 ```bash
-bunx canopy policies lint --dir canopy/policies
+bunx --package @canopy/cli canopy policies lint --dir canopy/policies
 ```
 
 ## 3. Check the deployment
 
 ```bash
-bunx canopy doctor --mongodb-uri "$MONGODB_URI" --dir canopy/policies
+bunx --package @canopy/cli canopy doctor --mongodb-uri "$MONGODB_URI" --dir canopy/policies
 ```
 
 `doctor` confirms the replica set, the server version and the change stream permission, and lists policy

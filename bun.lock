@@ -266,9 +266,9 @@
       "name": "@canopy/cli",
       "version": "0.0.0",
       "bin": {
-        "canopy": "./dist/cli.js",
+        "canopy": "./dist/launcher.mjs",
       },
-      "dependencies": {
+      "devDependencies": {
         "@canopy/auth": "workspace:*",
         "@canopy/config": "workspace:*",
         "@canopy/policy": "workspace:*",
@@ -278,12 +278,10 @@
         "@canopy/rest": "workspace:*",
         "@canopy/schema": "workspace:*",
         "@canopy/server": "workspace:*",
-        "mongodb": "catalog:",
-      },
-      "devDependencies": {
         "@canopy/testing": "workspace:*",
         "@types/node": "catalog:",
         "canopy.js": "0.0.0",
+        "mongodb": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:",
       },

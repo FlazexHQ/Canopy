@@ -6,13 +6,13 @@ import { readTarball } from "../../native/scripts/verify.ts"
 
 /**
  * The native release workflow owns @canopy/native, its platform packages including the WASI fallback,
- * @canopy/realtime, @canopy/studio-assets and every @canopy/canopyd platform package. Changesets versions
+ * @canopy/realtime, @canopy/cli, @canopy/studio-assets and every @canopy/canopyd platform package. Changesets versions
  * the workspace packages.
  * Publish their assembled tarballs so the launchers include the platform optional dependencies.
  */
 
 const registry = "https://registry.npmjs.org/"
-const launchers = new Set(["@canopy/native", "@canopy/realtime"])
+const launchers = new Set(["@canopy/native", "@canopy/realtime", "@canopy/cli"])
 
 function readManifest(file: string) {
   const json = readTarball(file).get("package/package.json")

@@ -37,7 +37,6 @@ import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
-import { tmpdir } from "node:os"
 import { delimiter, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { readTarball } from "../../native/scripts/verify.ts"
@@ -361,30 +360,35 @@ async function pack(
   const addons: Addon[] = []
   let gateway: GatewayRelease | undefined
   for (const { dir, json } of packages) {
-    if (json.name === "@canopy/realtime" && canopydPacks !== undefined) {
+    if (canopydPacks !== undefined && ["@canopy/realtime", "@canopy/cli"].includes(json.name)) {
       const list = JSON.parse(await readFile(join(canopydPacks, "packs.json"), "utf8")) as Packed[]
-      const [launcher, ...companions] = list
-      if (launcher?.name !== json.name) throw new Error(`${canopydPacks} has no assembled launcher`)
+      const launcher = list.find(({ name }) => name === json.name)
+      if (launcher === undefined) throw new Error(`${canopydPacks} has no assembled ${json.name}`)
       const manifest = readTarball(join(canopydPacks, launcher.file)).get("package/package.json")
       if (manifest === undefined) throw new Error(`${launcher.file} has no package.json`)
       const { version, optionalDependencies } = JSON.parse(manifest.toString("utf8")) as PackageJson
-      const names = companions
+      const platforms = list
         .map(({ name }) => name)
         .filter((name) => name.startsWith("@canopy/canopyd-"))
       assert.deepEqual(
         optionalDependencies,
-        Object.fromEntries(names.map((name) => [name, version])),
+        Object.fromEntries(platforms.map((name) => [name, version])),
         "The launcher should name every packed platform as an optional dependency",
       )
       const target = hostTarget() ?? usage("No prebuilt canopyd target for this host")
       const host = gatewayPackage(target)
-      if (!names.includes(host)) throw new Error(`${canopydPacks} has no ${host}`)
-      for (const { name, file } of list) {
-        await copyFile(join(canopydPacks, file), join(into, file))
-        if (name === launcher.name) files.set(name, file)
-        else optional.set(name, file)
+      if (!platforms.includes(host)) throw new Error(`${canopydPacks} has no ${host}`)
+      await copyFile(join(canopydPacks, launcher.file), join(into, launcher.file))
+      files.set(launcher.name, launcher.file)
+      if (gateway === undefined) {
+        for (const { name, file } of list) {
+          if (platforms.includes(name) || name === "@canopy/studio-assets") {
+            await copyFile(join(canopydPacks, file), join(into, file))
+            optional.set(name, file)
+          }
+        }
+        gateway = { host, platforms }
       }
-      gateway = { host, platforms: names }
       continue
     }
     if (json.napi !== undefined) {
@@ -669,12 +673,13 @@ const INSTALL: Readonly<Record<Manager, readonly string[]>> = {
 function gatewayScript({ host, platforms }: GatewayRelease, pnp: boolean): string {
   return `import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { chmodSync, existsSync, readdirSync, realpathSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import { createRequire } from "node:module"
 import { basename, dirname, join } from "node:path"
 
 delete process.env.CANOPYD_BIN
 delete process.env.CANOPY_GATEWAY_BIN
+delete process.env.CANOPY_BINARY
 delete process.env.PATH
 delete process.env.Path
 const { findGatewayBinary } = await import("@canopy/realtime")
@@ -711,20 +716,21 @@ const result = spawnSync(binary, ["--help"], { encoding: "utf8" })
 assert.ifError(result.error)
 assert.equal(result.status, 0, result.stderr)
 assert.match(result.stdout + result.stderr, /Usage: canopyd/)
-const cli = launcher.resolve(host + "/canopy")
-const studio = createRequire(cli).resolve("@canopy/studio-assets/index.html")
+const cliManifest = require.resolve("@canopy/cli/package.json")
+const cli = join(dirname(cliManifest), JSON.parse(readFileSync(cliManifest, "utf8")).bin.canopy)
+const executable = createRequire(cli).resolve(host + "/canopy")
+const studio = createRequire(executable).resolve("@canopy/studio-assets/index.html")
 assert.ok(existsSync(studio), "The Studio entry point must be a physical file")
-if (process.platform !== "win32") chmodSync(cli, 0o755)
 for (const [flag, pattern] of [
   ["--version", /^\\d+\\.\\d+\\.\\d+(?:[-+][\\w.+-]+)?$/],
   ["--help", /Usage: canopy\\s/],
 ]) {
-  const checked = spawnSync(cli, [flag], { encoding: "utf8" })
+  const checked = spawnSync(process.execPath, [...process.execArgv, cli, flag], { encoding: "utf8" })
   assert.ifError(checked.error)
   assert.equal(checked.status, 0, checked.stderr)
   assert.match((checked.stdout + checked.stderr).trim(), pattern)
 }
-process.stdout.write(host + " resolves and runs\\n")
+process.stdout.write(host + " resolves and runs through both launchers\\n")
 `
 }
 
@@ -776,7 +782,9 @@ async function testManager(
       process.stdout.write(`${manager}: ${lastLine(checked.output)}\n`)
       if (extra !== undefined) {
         const alternate = join(scratch, extra)
-        const launcher = packages.filter(({ json }) => json.name === "@canopy/realtime")
+        const launcher = packages.filter(({ json }) =>
+          ["@canopy/realtime", "@canopy/cli"].includes(json.name),
+        )
         await scratchProject(manager, alternate, registry, tarballs, launcher, extra === "pnp")
         const flags = manager === "bun" ? ["--linker", "isolated"] : []
         const installed = await run(
@@ -846,7 +854,9 @@ async function main(): Promise<void> {
   if (outside.length > 0)
     usage(`Published outside @${SCOPE}: ${outside.map(({ json }) => json.name).join(", ")}`)
 
-  const scratch = await mkdtemp(join(tmpdir(), "ci-"))
+  const target = join(root, "target")
+  await mkdir(target, { recursive: true })
+  const scratch = await mkdtemp(join(target, "install-test-"))
   const failures: string[] = []
   let registry: Registry | undefined
   try {
@@ -857,6 +867,7 @@ async function main(): Promise<void> {
     )
     registry = await serve(tarballsDir, [...tarballs.files, ...tarballs.optional])
     // One at a time, so the `bun x` fallbacks fill the shared Bun cache before the managers run concurrently.
+    await writeFile(join(scratch, "package.json"), '{"private":true}\n')
     const commands = new Map<Manager, Command>()
     for (const manager of options.managers) {
       const command = await managerCommand(manager)

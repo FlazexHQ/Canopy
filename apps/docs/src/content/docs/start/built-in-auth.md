@@ -8,7 +8,7 @@ and each of them sees a live list of their own notes. The finished app is
 [`examples/auth-notes`](https://github.com/FlazexHQ/Canopy/tree/master/examples/auth-notes) in the repository,
 with browser tests.
 
-You need Node.js 24 or later (or Bun) and a MongoDB replica set; `bunx canopy dev --with-mongo` or
+You need Node.js 24 or later (or Bun) and a MongoDB replica set; `bunx --package @canopy/cli canopy dev --with-mongo` or
 `bun run db:up` in a clone of the repository starts one.
 
 ## 1. Write the policy
@@ -56,7 +56,7 @@ Users live in the `notes_auth` database and Canopy's own state in `notes_meta`; 
 holds your documents. Email verification is off so the quickstart needs no mail server. In production, turn
 it on and configure `email` (see [auth](/concepts/auth/)).
 
-Start it with `bunx canopy dev`, which prints the URLs, or embed it with `createCanopy` as
+Start it with `bunx --package @canopy/cli canopy dev`, which prints the URLs, or embed it with `createCanopy` as
 [the embedded guide](/start/embedded/) shows.
 
 ## 3. Sign up and sign in from the browser

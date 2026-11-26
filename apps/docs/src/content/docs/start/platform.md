@@ -7,7 +7,7 @@ The platform server serves everything from one process. Start a project with the
 a file and never touches your app database:
 
 ```bash
-bunx canopy init --mongodb-uri "mongodb://localhost:27017/app?replicaSet=rs0"
+bunx --package @canopy/cli canopy init --mongodb-uri "mongodb://localhost:27017/app?replicaSet=rs0"
 ```
 
 `init` writes `canopy/canopy.config.ts`, starter policy templates and one policy file per collection it finds,
@@ -42,7 +42,7 @@ redacted in `canopy config print`. Every setting is in the [configuration refere
 ## Develop
 
 ```bash
-bunx canopy dev --with-mongo
+bunx --package @canopy/cli canopy dev --with-mongo
 ```
 
 `dev --with-mongo` starts a single node replica set: in Docker when it runs, otherwise from the official MongoDB
@@ -79,8 +79,8 @@ it as a bearer token.
 ## Create the first admin
 
 ```bash
-bunx canopy migrate
-bunx canopy admin create --email you@example.com --role owner
+bunx --package @canopy/cli canopy migrate
+bunx --package @canopy/cli canopy admin create --email you@example.com --role owner
 ```
 
 The command prints a generated password that must be changed at the first Studio login.

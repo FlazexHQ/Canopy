@@ -55,7 +55,7 @@ function readme(target: NativeTarget): string {
   return `# ${gatewayPackage(target)}
 
 The \`canopy\` CLI and \`canopyd\` data plane, prebuilt for \`${target.triple}\`. Package managers install this
-package only on ${platform}, as an optional dependency of \`@canopy/realtime\`. Resolve the \`./canopy\`
+package only on ${platform}, as an optional dependency of \`@canopy/cli\` and \`@canopy/realtime\`. Resolve the \`./canopy\`
 export to locate the CLI executable.
 Resolve \`${STUDIO_PACKAGE}/index.html\` from this package and pass its parent directory as
 \`CANOPY_STUDIO_DIR\` to serve Studio.
@@ -134,6 +134,8 @@ export function pack(bun: string, folder: string, destination: string): void {
 }
 
 interface Manifest {
+  readonly bin?: unknown
+  readonly preferUnplugged?: unknown
   readonly name?: unknown
   readonly version?: unknown
   readonly os?: unknown
@@ -176,6 +178,7 @@ export function verifyPlatformTarball(
   expect(problems, "os", manifest.os, [target.os])
   expect(problems, "cpu", manifest.cpu, [target.cpu])
   expect(problems, "libc", manifest.libc, target.libc === undefined ? undefined : [target.libc])
+  expect(problems, "preferUnplugged", manifest.preferUnplugged, true)
   expect(problems, "exports", manifest.exports, platformExports(target))
   expect(problems, "dependencies", manifest.dependencies, { [STUDIO_PACKAGE]: release.version })
   for (const file of [gatewayExecutable(target.os), cliExecutable(target.os)]) {
@@ -237,5 +240,32 @@ export function verifyLauncherTarball(
   expect(problems, "optionalDependencies", manifest.optionalDependencies, optional)
   for (const file of ["dist/index.js", "dist/index.d.ts", "dist/gateway-package.js"])
     if (!files.has(`package/${file}`)) problems.push(`${file} is missing`)
+  return problems.map((problem) => `${tarball}: ${problem}`)
+}
+
+/** Checks that the CLI tarball contains only the generated executable launcher and its metadata. */
+export function verifyCliTarball(
+  tarball: string,
+  name: string,
+  version: string,
+  optional: Readonly<Record<string, string>>,
+): string[] {
+  const files = readTarball(tarball)
+  const manifest = manifestOf(files)
+  if (manifest === undefined) return [`${tarball}: package.json is missing`]
+  const problems: string[] = []
+  expect(problems, "name", manifest.name, name)
+  expect(problems, "version", manifest.version, version)
+  expect(problems, "dependencies", manifest.dependencies, undefined)
+  expect(problems, "optionalDependencies", manifest.optionalDependencies, optional)
+  expect(problems, "preferUnplugged", manifest.preferUnplugged, true)
+  expect(problems, "bin", manifest.bin, { canopy: "./dist/launcher.mjs" })
+  expect(problems, "exports", manifest.exports, { "./package.json": "./package.json" })
+  if (!files.get("package/dist/launcher.mjs")?.toString("utf8").startsWith("#!/usr/bin/env node"))
+    problems.push("The CLI launcher must start with a Node shebang")
+  for (const file of files.keys()) {
+    if (!["package/package.json", "package/README.md", "package/dist/launcher.mjs"].includes(file))
+      problems.push(`Unexpected CLI package file: ${file}`)
+  }
   return problems.map((problem) => `${tarball}: ${problem}`)
 }
