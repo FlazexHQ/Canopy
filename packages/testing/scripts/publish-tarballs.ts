@@ -6,7 +6,8 @@ import { readTarball } from "../../native/scripts/verify.ts"
 
 /**
  * The native release workflow owns @canopy/native, its platform packages including the WASI fallback,
- * @canopy/realtime and every @canopy/canopyd platform package. Changesets versions the workspace packages.
+ * @canopy/realtime, @canopy/studio-assets and every @canopy/canopyd platform package. Changesets versions
+ * the workspace packages.
  * Publish their assembled tarballs so the launchers include the platform optional dependencies.
  */
 
@@ -83,7 +84,9 @@ export async function publishTarballs(
     operations.warn(message)
   }
 
-  packages.sort((a, b) => Number(launchers.has(a.name)) - Number(launchers.has(b.name)))
+  const order = (name: string) =>
+    name === "@canopy/studio-assets" ? 0 : launchers.has(name) ? 2 : 1
+  packages.sort((a, b) => order(a.name) - order(b.name))
   for (const { file, name, version } of packages) {
     if (publish && (await operations.isPublished(name, version))) {
       process.stdout.write(`Skipping ${name}@${version}, already published\n`)

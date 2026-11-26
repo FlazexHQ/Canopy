@@ -1,18 +1,21 @@
-import { match } from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { equal, match } from "node:assert/strict"
+import { spawn, spawnSync } from "node:child_process"
+import { once } from "node:events"
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { createInterface } from "node:readline"
 import { fileURLToPath } from "node:url"
 import { hostTarget } from "../../native/src/targets.ts"
 import { gatewayPackage, packagedGateway } from "../src/gateway-package.ts"
+import { STUDIO_PACKAGE } from "./canopyd-packages.ts"
 
 /**
  * Installs this machine's platform tarball from `pack-canopyd.ts` with npm and checks help for both
- * binaries and the CLI version. Runs on Node.js 24 or newer, including on Alpine Linux:
+ * binaries, the CLI version and Studio HTTP serving. Runs on Node.js 24 or newer, including on Alpine Linux:
  *
- *   node packages/realtime/scripts/smoke-canopyd.ts [packs folder]
+ *   node packages/realtime/scripts/smoke-canopyd.ts [packs folder] [scratch parent]
  */
 interface Packed {
   readonly name: string
@@ -27,6 +30,8 @@ if (target === undefined)
 const name = gatewayPackage(target)
 const packed = packs.find((entry) => entry.name === name)
 if (packed === undefined) throw new Error(`${folder} has no ${name}`)
+const studio = packs.find((entry) => entry.name === STUDIO_PACKAGE)
+if (studio === undefined) throw new Error(`${folder} has no ${STUDIO_PACKAGE}`)
 
 function run(binary: string, flag: string): string {
   const result = spawnSync(binary, [flag], { encoding: "utf8" })
@@ -37,7 +42,53 @@ function run(binary: string, flag: string): string {
   return result.stdout + result.stderr
 }
 
-const scratch = mkdtempSync(join(tmpdir(), "canopyd-smoke-"))
+async function checkStudio(binary: string, index: string, cwd: string): Promise<void> {
+  const child = spawn(binary, [], {
+    cwd,
+    env: {
+      ...process.env,
+      CANOPY_ROLE: "studio",
+      CANOPY_STUDIO_DIR: dirname(index),
+      MONGODB_URI: "invalid",
+      HOST: "127.0.0.1",
+      PORT: "0",
+    },
+    stdio: ["ignore", "pipe", "inherit"],
+    windowsHide: true,
+  })
+  const closed = once(child, "close")
+  const lines = createInterface({ input: child.stdout })
+  try {
+    const [line] = await Promise.race([
+      once(lines, "line", { signal: AbortSignal.timeout(10_000) }),
+      closed.then(([code, signal]) => {
+        throw new Error(`canopyd exited before listening (${code ?? signal})`)
+      }),
+    ])
+    const { t, port } = JSON.parse(line) as { t: string; port: number }
+    equal(t, "listening")
+    const origin = `http://127.0.0.1:${port}`
+    const response = await fetch(origin, { signal: AbortSignal.timeout(10_000) })
+    equal(response.status, 200)
+    equal(response.url, `${origin}/studio/`)
+    match(response.headers.get("content-type") ?? "", /^text\/html\b/)
+    const oracle = JSON.parse(
+      readFileSync(new URL("../../../conformance/http/studio/bun.json", import.meta.url), "utf8"),
+    ) as { cases: { id: string; response: { headers: Record<string, string> } }[] }
+    const csp = oracle.cases.find(({ id }) => id === "index")?.response.headers[
+      "content-security-policy"
+    ]
+    if (!csp) throw new Error("Studio index CSP is missing from the HTTP oracle")
+    equal(response.headers.get("content-security-policy"), csp)
+    equal(await response.text(), readFileSync(index, "utf8"))
+  } finally {
+    lines.close()
+    if (child.exitCode === null && child.signalCode === null) child.kill()
+    await closed
+  }
+}
+
+const scratch = mkdtempSync(join(resolve(process.argv[3] ?? tmpdir()), "canopyd-smoke-"))
 try {
   const manifest = join(scratch, "package.json")
   writeFileSync(manifest, '{"private":true}\n')
@@ -56,9 +107,11 @@ try {
       "--no-audit",
       "--no-fund",
       "--no-save",
+      "--update-notifier=false",
       "--cache",
       join(scratch, "npm-cache"),
       join(folder, packed.file),
+      join(folder, studio.file),
     ],
     { cwd: scratch, stdio: "inherit" },
   )
@@ -67,11 +120,16 @@ try {
   const binary = packagedGateway(target, scratch)
   if (binary === undefined) throw new Error(`${name} does not resolve from ${scratch}`)
   const cli = createRequire(manifest).resolve(`${name}/canopy`)
+  const index = createRequire(cli).resolve(`${STUDIO_PACKAGE}/index.html`)
   if (process.platform !== "win32") chmodSync(cli, 0o755)
   match(run(binary, "--help"), /Usage: canopyd\b/)
   match(run(cli, "--version").trim(), /^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/)
   match(run(cli, "--help"), /Usage: canopy\s/)
+  await checkStudio(binary, index, scratch)
   process.stdout.write(`${name} passed canopy --version, canopy --help and canopyd --help\n`)
+  process.stdout.write(
+    "Studio served the installed page with the expected CSP after redirecting /\n",
+  )
 } finally {
   rmSync(scratch, { recursive: true, force: true })
 }

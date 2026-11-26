@@ -9,7 +9,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs"
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 import { NATIVE_TARGETS, type NativeTarget } from "../../native/src/targets.ts"
 import { gatewayPackage } from "../src/gateway-package.ts"
@@ -17,17 +17,20 @@ import {
   optionalDependencies,
   pack,
   type Release,
+  STUDIO_PACKAGE,
   stagePlatformPackage,
+  stageStudioPackage,
   tarballName,
   verifyLauncherTarball,
   verifyPlatformTarball,
+  verifyStudioTarball,
 } from "./canopyd-packages.ts"
 
 /**
  * Packs the prebuilt `canopyd` and `canopy` executables as npm packages. Run with Bun:
  *
  *   bun packages/realtime/scripts/pack-canopyd.ts --target <triple> --binary <file> --cli-binary <file> [--glibc-baseline] [--out <dir>]
- *   bun packages/realtime/scripts/pack-canopyd.ts --assemble <dir> [--partial]
+ *   bun packages/realtime/scripts/pack-canopyd.ts --assemble <dir> --studio-dir <build> [--partial] [--out <dir>]
  *
  * The first form packs the release builds of one target into `packs/` (or `--out <dir>`) as `@canopy/canopyd-<suffix>`
  * (the suffixes of `@canopy/native`), checks the tarball (with `--glibc-baseline`, also the glibc version a
@@ -35,7 +38,8 @@ import {
  *
  * `--assemble` takes the `packs/` folders of several such runs, downloaded anywhere under `<dir>`, checks every
  * platform package, and packs the release into `packs/`: the platform packages and `@canopy/realtime`, which
- * launches canopyd, with `optionalDependencies` naming all of them at its version. The optional dependencies
+ * launches canopyd, with `optionalDependencies` naming all of them at its version. The Studio build goes
+ * into one shared package at the same version. The optional dependencies
  * exist only in that tarball, so the repository installs without packages that are not published. It fails
  * when a target is missing, unless `--partial` allows a subset for local testing. Nothing is published.
  */
@@ -59,7 +63,7 @@ interface Packed {
 
 function usage(message: string): never {
   throw new Error(
-    `${message}\nUsage: pack-canopyd.ts --target <triple> --binary <file> --cli-binary <file> [--glibc-baseline] [--out <dir>]\n       pack-canopyd.ts --assemble <dir> [--partial]`,
+    `${message}\nUsage: pack-canopyd.ts --target <triple> --binary <file> --cli-binary <file> [--glibc-baseline] [--out <dir>]\n       pack-canopyd.ts --assemble <dir> --studio-dir <build> [--partial] [--out <dir>]`,
   )
 }
 
@@ -114,7 +118,7 @@ function run(command: string, commandArgs: readonly string[]): void {
 }
 
 /** Packs `@canopy/realtime` naming the platform packages of `targets`, checks it and writes `packs.json`. */
-function packLauncher(targets: readonly NativeTarget[]): void {
+function packLauncher(targets: readonly NativeTarget[], destination: string, studio: Packed): void {
   run(process.execPath, ["run", "build"])
   const optional = optionalDependencies(targets, release.version)
   const manifest = join(root, "package.json")
@@ -124,28 +128,31 @@ function packLauncher(targets: readonly NativeTarget[]): void {
       manifest,
       `${JSON.stringify({ ...source, optionalDependencies: optional }, null, 2)}\n`,
     )
-    pack(process.execPath, root, packs)
+    pack(process.execPath, root, destination)
   } finally {
     writeFileSync(manifest, original)
   }
   const own: Packed = { name: source.name, file: tarballName(source.name, release.version) }
-  fail(verifyLauncherTarball(join(packs, own.file), source.name, release.version, optional))
+  fail(verifyLauncherTarball(join(destination, own.file), source.name, release.version, optional))
   const all = [
     own,
     ...targets.map((target) => ({
       name: gatewayPackage(target),
       file: tarballName(gatewayPackage(target), release.version),
     })),
+    studio,
   ]
-  writeFileSync(join(packs, "packs.json"), `${JSON.stringify(all, null, 2)}\n`)
-  process.stdout.write(`packed ${all.map(({ name }) => name).join(", ")} into ${packs}\n`)
+  writeFileSync(join(destination, "packs.json"), `${JSON.stringify(all, null, 2)}\n`)
+  process.stdout.write(`packed ${all.map(({ name }) => name).join(", ")} into ${destination}\n`)
 }
 
-function assemble(folder: string, partial: boolean): void {
+function assemble(folder: string, studioDir: string, partial: boolean, destination: string): void {
   const input = resolve(folder)
-  const inside = relative(packs, input)
-  if (!inside.startsWith("..") && !isAbsolute(inside))
-    usage(`--assemble cannot read from ${packs}, which it replaces`)
+  for (const directory of [input, studioDir]) {
+    const inside = relative(destination, directory)
+    if (!isAbsolute(inside) && inside.split(sep)[0] !== "..")
+      usage(`--assemble cannot read from ${destination}, which it writes to`)
+  }
   const found = new Map<string, string>()
   const lists = readdirSync(input, { recursive: true, encoding: "utf8" }).filter(
     (path) => basename(path) === "packs.json",
@@ -172,21 +179,42 @@ function assemble(folder: string, partial: boolean): void {
   if (missing.length > 0 && !partial)
     throw new Error(`Missing from ${input}: ${missing.join(", ")} (--partial allows a subset)`)
   if (found.size === 0) throw new Error(`No packs.json under ${input}`)
-  rmSync(packs, { recursive: true, force: true })
-  mkdirSync(packs, { recursive: true })
+  mkdirSync(destination, { recursive: true })
+  const studio = { name: STUDIO_PACKAGE, file: tarballName(STUDIO_PACKAGE, release.version) }
+  const outputs = new Set([
+    studio.file,
+    tarballName(source.name, release.version),
+    ...[...found.keys()].map((name) => tarballName(name, release.version)),
+  ])
+  const stale = readdirSync(destination).filter(
+    (file) => file.endsWith(".tgz") && !outputs.has(file),
+  )
+  if (stale.length > 0)
+    usage(
+      `Unexpected tarballs in ${destination}: ${stale.join(", ")}. Use a fresh --out directory.`,
+    )
+  rmSync(join(destination, "packs.json"), { force: true })
   const targets: NativeTarget[] = []
   const problems: string[] = []
   for (const target of NATIVE_TARGETS) {
     const path = found.get(gatewayPackage(target))
     if (path === undefined) continue
-    const tarball = join(packs, tarballName(gatewayPackage(target), release.version))
+    const tarball = join(destination, tarballName(gatewayPackage(target), release.version))
     copyFileSync(path, tarball)
     problems.push(...verifyPlatformTarball(tarball, target, release, true))
     targets.push(target)
   }
   fail(problems)
   if (missing.length > 0) process.stdout.write(`partial release, without ${missing.join(", ")}\n`)
-  packLauncher(targets)
+  const staging = mkdtempSync(join(destination, "studio-stage-"))
+  try {
+    stageStudioPackage(studioDir, staging, release)
+    pack(process.execPath, staging, destination)
+    fail(verifyStudioTarball(join(destination, studio.file), release))
+  } finally {
+    rmSync(staging, { recursive: true, force: true })
+  }
+  packLauncher(targets, destination, studio)
 }
 
 const argv = process.argv.slice(2)
@@ -195,39 +223,41 @@ let binary: string | undefined
 let cliBinary: string | undefined
 let out: string | undefined
 let folder: string | undefined
+let studioDir: string | undefined
 let glibcBaseline = false
 let partial = false
 for (let index = 0; index < argv.length; index += 1) {
   const flag = argv[index]
   if (flag === "--glibc-baseline") glibcBaseline = true
   else if (flag === "--partial") partial = true
-  else if (["--target", "--binary", "--cli-binary", "--out", "--assemble"].includes(flag ?? "")) {
+  else if (
+    ["--target", "--binary", "--cli-binary", "--out", "--assemble", "--studio-dir"].includes(
+      flag ?? "",
+    )
+  ) {
     index += 1
     const value = argv[index] ?? usage(`${flag} needs a value`)
     if (flag === "--target") triple = value
     else if (flag === "--binary") binary = value
     else if (flag === "--cli-binary") cliBinary = value
     else if (flag === "--out") out = value
+    else if (flag === "--studio-dir") studioDir = value
     else folder = value
   } else usage(`Unexpected argument ${flag ?? ""}`)
 }
+const destination = out === undefined ? packs : resolve(out)
 if (folder !== undefined) {
-  if (
-    triple !== undefined ||
-    binary !== undefined ||
-    cliBinary !== undefined ||
-    out !== undefined ||
-    glibcBaseline
-  )
+  if (triple !== undefined || binary !== undefined || cliBinary !== undefined || glibcBaseline)
     usage("--assemble takes no target options")
-  assemble(folder, partial)
+  assemble(folder, resolve(studioDir ?? usage("--studio-dir is required")), partial, destination)
 } else {
   if (partial) usage("--partial needs --assemble")
+  if (studioDir !== undefined) usage("--studio-dir needs --assemble")
   packTarget(
     triple ?? usage("--target is required"),
     binary ?? usage("--binary is required"),
     cliBinary ?? usage("--cli-binary is required"),
     glibcBaseline,
-    out === undefined ? packs : resolve(out),
+    destination,
   )
 }

@@ -78,6 +78,7 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       target: "es2023",
       sourcemap: false,
+      license: { fileName: "THIRD-PARTY-NOTICES.md" },
       assetsInlineLimit: 0,
       chunkSizeWarningLimit: 4096,
     },

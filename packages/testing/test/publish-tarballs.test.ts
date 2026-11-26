@@ -53,7 +53,7 @@ function stubs() {
 }
 
 describe("publishTarballs", () => {
-  it("publishes platform packages from both artifacts before either launcher", async () => {
+  it("publishes shared Studio first and platform packages before either launcher", async () => {
     const setup = [
       [native, "@canopy/native", "@canopy/native-linux-x64-gnu"],
       [canopyd, "@canopy/realtime", "@canopy/canopyd-linux-x64-gnu"],
@@ -66,9 +66,11 @@ describe("publishTarballs", () => {
       }),
       platform: pack(folder, "z-platform", { name: platform, license: "MIT" }),
     }))
+    const studio = pack(canopyd, "zz-studio", { name: "@canopy/studio-assets", license: "MIT" })
     const operations = stubs()
     await publishTarballs([native, canopyd], true, operations)
     expect(operations.runNpm.mock.calls.map(([args]) => args.slice(0, 2))).toEqual([
+      ["publish", studio],
       ["publish", files[0]?.platform],
       ["publish", files[1]?.platform],
       ["publish", files[0]?.launcher],

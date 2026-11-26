@@ -363,12 +363,14 @@ async function pack(
   for (const { dir, json } of packages) {
     if (json.name === "@canopy/realtime" && canopydPacks !== undefined) {
       const list = JSON.parse(await readFile(join(canopydPacks, "packs.json"), "utf8")) as Packed[]
-      const [launcher, ...platforms] = list
+      const [launcher, ...companions] = list
       if (launcher?.name !== json.name) throw new Error(`${canopydPacks} has no assembled launcher`)
       const manifest = readTarball(join(canopydPacks, launcher.file)).get("package/package.json")
       if (manifest === undefined) throw new Error(`${launcher.file} has no package.json`)
       const { version, optionalDependencies } = JSON.parse(manifest.toString("utf8")) as PackageJson
-      const names = platforms.map(({ name }) => name)
+      const names = companions
+        .map(({ name }) => name)
+        .filter((name) => name.startsWith("@canopy/canopyd-"))
       assert.deepEqual(
         optionalDependencies,
         Object.fromEntries(names.map((name) => [name, version])),
@@ -621,7 +623,8 @@ async function scratchProject(
     resolutions: { "canopy.js": library },
   }
   await writeFile(join(directory, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
-  if (manager === "yarn")
+  if (manager === "yarn") {
+    await writeFile(join(directory, "yarn.lock"), "")
     await writeFile(
       join(directory, ".yarnrc.yml"),
       [
@@ -639,7 +642,9 @@ async function scratchProject(
         "",
       ].join("\n"),
     )
-  else await writeFile(join(directory, ".npmrc"), `@${SCOPE}:registry=${registry}\n`)
+  } else {
+    await writeFile(join(directory, ".npmrc"), `@${SCOPE}:registry=${registry}\n`)
+  }
 }
 
 /**
@@ -707,6 +712,8 @@ assert.ifError(result.error)
 assert.equal(result.status, 0, result.stderr)
 assert.match(result.stdout + result.stderr, /Usage: canopyd/)
 const cli = launcher.resolve(host + "/canopy")
+const studio = createRequire(cli).resolve("@canopy/studio-assets/index.html")
+assert.ok(existsSync(studio), "The Studio entry point must be a physical file")
 if (process.platform !== "win32") chmodSync(cli, 0o755)
 for (const [flag, pattern] of [
   ["--version", /^\\d+\\.\\d+\\.\\d+(?:[-+][\\w.+-]+)?$/],

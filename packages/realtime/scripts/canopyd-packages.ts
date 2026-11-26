@@ -1,9 +1,16 @@
 import { spawnSync } from "node:child_process"
-import { chmodSync, copyFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { FORMAT, linkProblems, machineOf, readTarball } from "../../native/scripts/verify.ts"
 import type { NativeTarget } from "../../native/src/targets.ts"
 import { gatewayExecutable, gatewayPackage } from "../src/gateway-package.ts"
+
+/** The platform independent package containing the built Studio. */
+export const STUDIO_PACKAGE = "@canopy/studio-assets"
+
+const studioIndex = "./index.html"
+const studioExports = { [studioIndex]: "./app/index.html" }
+const studioNotices = "THIRD-PARTY-NOTICES.md"
 
 function cliExecutable(os: NativeTarget["os"]): string {
   return os === "win32" ? "canopy.exe" : "canopy"
@@ -38,6 +45,7 @@ export function platformManifest(target: NativeTarget, release: Release): Record
     ...(target.libc === undefined ? {} : { libc: [target.libc] }),
     files: [gatewayExecutable(target.os), cliExecutable(target.os)],
     exports: platformExports(target),
+    dependencies: { [STUDIO_PACKAGE]: release.version },
     preferUnplugged: true,
   }
 }
@@ -49,6 +57,8 @@ function readme(target: NativeTarget): string {
 The \`canopy\` CLI and \`canopyd\` data plane, prebuilt for \`${target.triple}\`. Package managers install this
 package only on ${platform}, as an optional dependency of \`@canopy/realtime\`. Resolve the \`./canopy\`
 export to locate the CLI executable.
+Resolve \`${STUDIO_PACKAGE}/index.html\` from this package and pass its parent directory as
+\`CANOPY_STUDIO_DIR\` to serve Studio.
 `
 }
 
@@ -78,6 +88,26 @@ export function stagePlatformPackage(
     if (target.os !== "win32") chmodSync(executable, 0o755)
   }
   writeFileSync(join(folder, "README.md"), readme(target))
+}
+
+/** Stages the built Studio and its third party notices as a platform independent package. */
+export function stageStudioPackage(build: string, folder: string, release: Release): void {
+  const manifest = {
+    name: STUDIO_PACKAGE,
+    version: release.version,
+    license: release.license,
+    repository: { ...release.repository, directory: "apps/studio" },
+    description: "The built Canopy Studio web app for the native release",
+    files: ["app", studioNotices],
+    exports: studioExports,
+    preferUnplugged: true,
+  }
+  cpSync(build, join(folder, "app"), {
+    recursive: true,
+    filter: (source) => source !== join(build, studioNotices),
+  })
+  copyFileSync(join(build, studioNotices), join(folder, studioNotices))
+  writeFileSync(join(folder, "package.json"), `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 /** The `optionalDependencies` that name the platform packages of `targets` at `version`. */
@@ -110,6 +140,7 @@ interface Manifest {
   readonly cpu?: unknown
   readonly libc?: unknown
   readonly exports?: unknown
+  readonly dependencies?: unknown
   readonly optionalDependencies?: unknown
 }
 
@@ -146,6 +177,7 @@ export function verifyPlatformTarball(
   expect(problems, "cpu", manifest.cpu, [target.cpu])
   expect(problems, "libc", manifest.libc, target.libc === undefined ? undefined : [target.libc])
   expect(problems, "exports", manifest.exports, platformExports(target))
+  expect(problems, "dependencies", manifest.dependencies, { [STUDIO_PACKAGE]: release.version })
   for (const file of [gatewayExecutable(target.os), cliExecutable(target.os)]) {
     const binary = files.get(`package/${file}`)
     if (binary === undefined) {
@@ -161,6 +193,28 @@ export function verifyPlatformTarball(
     if (target.libc !== undefined && glibcBaseline)
       problems.push(...linkProblems(binary, file, target))
   }
+  return problems.map((problem) => `${tarball}: ${problem}`)
+}
+
+/** Checks the Studio package export, built assets and third party notices. */
+export function verifyStudioTarball(tarball: string, release: Release): string[] {
+  const files = readTarball(tarball)
+  const manifest = manifestOf(files)
+  if (manifest === undefined) return [`${tarball}: package.json is missing`]
+  const problems: string[] = []
+  expect(problems, "name", manifest.name, STUDIO_PACKAGE)
+  expect(problems, "version", manifest.version, release.version)
+  expect(problems, "exports", manifest.exports, studioExports)
+  for (const field of ["os", "cpu", "libc", "dependencies"] as const)
+    expect(problems, field, manifest[field], undefined)
+  for (const file of ["app/index.html", studioNotices])
+    if (!files.get(`package/${file}`)?.length) problems.push(`${file} is missing or empty`)
+  if (
+    ![...files.keys()].some(
+      (file) => file.startsWith("package/app/assets/") && file.endsWith(".js"),
+    )
+  )
+    problems.push("Studio JavaScript is missing")
   return problems.map((problem) => `${tarball}: ${problem}`)
 }
 

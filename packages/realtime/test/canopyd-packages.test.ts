@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { gzipSync } from "node:zlib"
@@ -11,9 +11,11 @@ import {
   platformManifest,
   type Release,
   stagePlatformPackage,
+  stageStudioPackage,
   tarballName,
   verifyLauncherTarball,
   verifyPlatformTarball,
+  verifyStudioTarball,
 } from "../scripts/canopyd-packages.ts"
 import { gatewayExecutable, gatewayPackage } from "../src/gateway-package.ts"
 
@@ -209,6 +211,10 @@ describe("platformManifest", () => {
     expect(manifest["preferUnplugged"]).toBe(true)
     expect(manifest["main"]).toBeUndefined()
     expect(manifest["bin"]).toBeUndefined()
+    for (const each of NATIVE_TARGETS)
+      expect(platformManifest(each, RELEASE)["dependencies"]).toEqual({
+        "@canopy/studio-assets": "1.2.3",
+      })
     expect(manifest["exports"]).toEqual({
       "./package.json": "./package.json",
       "./canopy": "./canopy",
@@ -415,6 +421,26 @@ const hasBun = spawnSync(bun, ["--version"]).status === 0
 const host = hostTarget()
 
 describe("pack", () => {
+  it.skipIf(!hasBun)(
+    "packs the shared Studio app and keeps notices outside the served directory",
+    async () => {
+      const build = join(dir, "studio")
+      await mkdir(join(build, "assets"), { recursive: true })
+      await writeFile(join(build, "index.html"), "<title>Canopy Studio</title>")
+      await writeFile(join(build, "assets", "entry.js"), "export {}")
+      await writeFile(join(build, "THIRD-PARTY-NOTICES.md"), "# Licenses\n")
+      const folder = join(dir, "studio-package")
+      stageStudioPackage(build, folder, RELEASE)
+      expect((await readdir(join(folder, "app"))).sort()).toEqual(["assets", "index.html"])
+      expect(await readFile(join(folder, "THIRD-PARTY-NOTICES.md"), "utf8")).toBe("# Licenses\n")
+      const packs = join(dir, "packs")
+      pack(bun, folder, packs)
+      expect(verifyStudioTarball(join(packs, "canopy-studio-assets-1.2.3.tgz"), RELEASE)).toEqual(
+        [],
+      )
+    },
+  )
+
   it.skipIf(!hasBun || host === undefined)(
     "packs a staged package of this platform that passes the checks",
     async () => {
