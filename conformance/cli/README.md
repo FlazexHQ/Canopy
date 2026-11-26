@@ -61,11 +61,12 @@ The CLI Vitest project runs the same check when `CANOPY_TEST_MONGODB_URI` is set
   `@canopy/policy`, `@canopy/policy/testing` and `@canopy/schema/define` to `canopy.js/policy`,
   `canopy.js/policy/testing` and `canopy.js/schema`, and links `node_modules/canopy.js` to the Canopy.js build
   (`CANOPY_JS_DIR`, else the repository's installed `node_modules/canopy.js`). After `schema-push` it also
-  checks `canopy gen types` against `typeGeneration`.
+  reads the `notes` validator from MongoDB and compares `canopy_schema::generate_types` output with
+  `typeGeneration.types`.
 - `tests/pull_vectors.rs`: `conformance/typegen/pull.json` against a database seeded from its fixture.
 
-The Rust usage text has commands and options the TypeScript CLI lacks (`build`, `gen types`, `--bundle`,
-`--check`). The help, no command and unknown command steps are compared after inserting exactly those lines
+The Rust usage text adds the `build` command, the `--bundle` option and the `--out` description for `build`.
+The help, no command and unknown command steps are compared after inserting exactly those lines
 at fixed anchors (`USAGE_ADDITIONS` in `tests/vectors.rs`); the recorded vectors are not edited, and any other
 difference fails.
 

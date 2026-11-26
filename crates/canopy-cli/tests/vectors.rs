@@ -151,7 +151,7 @@ fn login_registers_an_environment_and_logout_removes_the_token() -> Result<(), B
 
 /// The lines the Rust usage text adds to the recorded TypeScript one: each is inserted right after its anchor
 /// line, and every recorded line stays as it was. The additions are the commands and options the TypeScript CLI
-/// does not have (`build` and `--bundle` from the bundle format, `gen types`, and their options). Every other
+/// does not have (`build`, `--bundle` and the `--out` description for `build`). Every other
 /// difference fails the replay.
 const USAGE_ADDITIONS: &[(&str, &[&str])] = &[
     (
@@ -159,7 +159,6 @@ const USAGE_ADDITIONS: &[(&str, &[&str])] = &[
         &[
             "  build                  Write the project's bundle (config, policies, tests, schema) for deployments",
             "                         that publish without a JavaScript runtime",
-            "  gen types              Write the Database types of the app database (--out, else the config's types.out)",
         ],
     ),
     (
@@ -170,15 +169,7 @@ const USAGE_ADDITIONS: &[(&str, &[&str])] = &[
     ),
     (
         "  --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)",
-        &[
-            "                         build: the bundle (default canopy.bundle.json); gen types: the types file",
-        ],
-    ),
-    (
-        "  --sample <n>           pull, schema diff: documents sampled per collection (default 1000)",
-        &[
-            "  --check                gen types: exit 1 when the types file is out of date instead of writing it",
-        ],
+        &["                         build: the bundle (default canopy.bundle.json)"],
     ),
 ];
 

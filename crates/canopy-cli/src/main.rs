@@ -82,7 +82,6 @@ fn run(args: impl IntoIterator<Item = String>) -> Result<ExitCode, String> {
         ("pull", _) => schema_commands::pull(&call),
         ("init", _) => init::run(&call),
         ("doctor", _) => doctor::run(&call),
-        ("gen types", _) => schema_commands::gen_types(&call),
         ("schema diff" | "schema push", _) => schema_commands::schema(name, &call),
         ("indexes advise" | "indexes create", _) => indexes::run(name, &call),
         (

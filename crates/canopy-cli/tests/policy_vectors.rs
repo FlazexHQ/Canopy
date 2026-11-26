@@ -16,10 +16,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use canopy_data::schema::{SchemaSourceOptions, load_schema};
 use canopy_mongo::mongodb::{
     Client, Database,
     bson::{Bson, Document, doc, oid::ObjectId},
 };
+use canopy_schema::{GenerateOptions, generate_types};
 use futures_util::TryStreamExt as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -555,19 +557,9 @@ async fn replay(
         }
         assert_eq!(meta_changes, step.meta, "{}", step.id);
         if step.id == "schema-push" {
-            let types = project.join("types.gen.ts");
-            let generated = run(
-                Command::new(env!("CARGO_BIN_EXE_canopy")).current_dir(&project).envs(
-                    step.env
-                        .iter()
-                        .filter_map(|(name, value)| Some((name, settings.actual(value.as_deref()?)))),
-                ),
-                &["gen".to_owned(), "types".to_owned(), "--out".to_owned(), "types.gen.ts".to_owned()],
-                "",
-            )?;
-            assert_eq!(String::from_utf8_lossy(&generated.stdout), "wrote types.gen.ts (1 collections)\n");
-            assert_eq!(std::fs::read_to_string(&types)?, vectors.type_generation.types, "type generation");
-            std::fs::remove_file(types)?;
+            let schema = load_schema(app, "notes", &SchemaSourceOptions::default()).await?;
+            let generated = generate_types(&[schema], &GenerateOptions::default());
+            assert_eq!(generated, vectors.type_generation.types, "type generation");
         }
     }
 

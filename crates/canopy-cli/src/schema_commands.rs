@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::ExitCode;
 
 use canopy_config::authoring::Command;
@@ -10,9 +10,9 @@ use canopy_mongo::mongodb::{
 use canopy_policy::PolicySet;
 use canopy_protocol::Document;
 use canopy_schema::{
-    CollectionSchema, DEFAULT_SAMPLE_SIZE, EmitOptions, EnumOptions, GenerateOptions, InferOptions,
-    PullUpdate, generate_types, js_cmp, parse_diff_sample_size, parse_sample_size, schema_diff,
-    schema_diff_collections, schema_push, update_schema_file,
+    CollectionSchema, DEFAULT_SAMPLE_SIZE, EmitOptions, EnumOptions, InferOptions, PullUpdate, js_cmp,
+    parse_diff_sample_size, parse_sample_size, schema_diff, schema_diff_collections, schema_push,
+    update_schema_file,
 };
 use futures_util::TryStreamExt as _;
 
@@ -30,7 +30,7 @@ fn missing_value(call: &Invocation, flags: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-/// Where `canopy pull`, `canopy gen types` and `canopy schema diff` read collection schemas from.
+/// Where `canopy pull` and `canopy schema diff` read collection schemas from.
 pub(crate) struct SchemaSource<'a> {
     /// The policies of the policy folder; their exposed collections are read, otherwise every collection.
     pub(crate) policies: Option<&'a PolicySet>,
@@ -204,58 +204,6 @@ pub(crate) fn pull(call: &Invocation) -> Result<ExitCode, String> {
             output(format_args!("wrote {file} ({count} collections)"))?;
         }
     }
-    Ok(ExitCode::SUCCESS)
-}
-
-/// `canopy gen types`: writes the `Database` types of the app database to `--out`, else the config's
-/// `types.out`. With `--check` it writes nothing and exits 1 when the file differs.
-pub(crate) fn gen_types(call: &Invocation) -> Result<ExitCode, String> {
-    let debug = call.has_flag("debug");
-    let project = configure(call, Command::Gen, false).map_err(|error| error.text(debug))?;
-    let (uri, database) = app_target(call, &project, "gen types")?;
-    missing_value(call, &["out", "sample"])?;
-    let sample =
-        call.text("sample").map(parse_sample_size).transpose().map_err(|error| error.message().to_owned())?;
-    let path = match call.text("out") {
-        Some(out) => absolute(&project.cwd, out),
-        None => PathBuf::from(
-            project.text("types.out").ok_or("gen types needs --out or types.out in the config file")?,
-        ),
-    };
-    let shown = path
-        .strip_prefix(&project.cwd)
-        .map_or_else(
-            |_| path.to_string_lossy().into_owned(),
-            |relative| relative.to_string_lossy().into_owned(),
-        )
-        .replace('\\', "/");
-    let source = SchemaSource {
-        policies: policies_of(&project),
-        collection: None,
-        sample_size: sample.unwrap_or(DEFAULT_SAMPLE_SIZE),
-        infer_enums: call.has_flag("infer-enums"),
-    };
-    let schemas =
-        with_client(
-            &uri,
-            |client| async move { collection_schemas(&client.database(&database), &source).await },
-        )?;
-    let generated = generate_types(&schemas, &GenerateOptions::default());
-    let existing = read_existing(&path)?;
-    let current = existing.as_deref().is_some_and(|text| text.replace("\r\n", "\n") == generated);
-    if current {
-        output(format_args!("{shown} is up to date"))?;
-        return Ok(ExitCode::SUCCESS);
-    }
-    if call.has_flag("check") {
-        error_line(format_args!("{shown} is out of date; run canopy gen types"))?;
-        for change in line_diff(existing.as_deref().unwrap_or_default(), &generated) {
-            error_line(format_args!("{change}"))?;
-        }
-        return Ok(ExitCode::FAILURE);
-    }
-    write_file(&path, &generated, false)?;
-    output(format_args!("wrote {shown} ({} collections)", schemas.len()))?;
     Ok(ExitCode::SUCCESS)
 }
 

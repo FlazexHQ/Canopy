@@ -90,7 +90,7 @@ asked for inline keys in `Document`; they were built, measured and then dropped,
   with forward slashes, so the test and the `canopy` binary spelled the path differently; with a backslash
   path both pass on both replica sets, as they do on the base. Clippy `--workspace --all-targets -D warnings`
   is clean and `cargo check --manifest-path fuzz/Cargo.toml` passes.
-## Checkpoint (2026-11-26): R4 the rest of the Rust CLI (not committed)
+## Checkpoint (2026-11-26): R4 the rest of the Rust CLI (a3963642 and 697b0bdf)
 
 Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage text now runs in Rust.
 
@@ -102,10 +102,8 @@ Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage 
   (`--yes`), wired to `canopy_schema` (`update_schema_file`, `schema_diff`, `schema_push`) and to
   `canopy_data::schema::load_schema` (validator, else the newest documents). The schema file is loaded through
   the emitter with `--schema`; the bundle's `schema` part is parsed by `parse_collection_schemas`.
-- **Type generation**: `canopy gen types [--out <file>] [--check]` (default the config's `types.out`), the
-  `Database` types from `generate_types`. The TypeScript CLI removed `gen types` (0c08fd38); it is back
-  because plan 005 §5 R4 lists type generation, so **the maintainer should confirm the command name** (or
-  drop it in favour of `pull`).
+- **Type generation**: the maintainer decided on 2026-11-26 to use the schema file and `canopy pull`,
+  following the TypeScript CLI (0c08fd38). The standalone Rust CLI command and its `--check` flag were removed.
 - **Indexes** ([`indexes.rs`](../../../crates/canopy-cli/src/indexes.rs)): `advise` and `create` through
   `canopy_policy::plan_indexes`, policies from the folder when `--dir` or `policies.dir` names one, else the
   meta database.
@@ -134,7 +132,7 @@ Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage 
   real emitter's `invalid-policy` message then equals the recorded one); a `--dir` that does not exist is not
   passed to the emitter unless the command needs the local policies (`policies pull` into a new folder);
   `Loading` adds the schema file, env files and overrides.
-- **Usage**: `build`, `gen types`, `--bundle`, `--check` and a continuation line for `--out`.
+- **Usage**: `build`, `--bundle` and a continuation line for `--out` in `build`.
 
 ### Evidence
 
@@ -144,7 +142,8 @@ Built on R3 (0c115669, 3c71a8f3; Canopy.js f28b873). Every command of the usage 
   `schema-push`, `pull-typescript`, `pull-javascript`, `indexes-advise`, `indexes-create`,
   `dev-missing-config` and `dev-startup` (the summary with port, keys and setup token replaced, and the
   `settings/"setup"` document), with stdout, stderr, exit code, file changes and meta documents. After
-  `schema-push`, `canopy gen types` writes exactly `typeGeneration.types`. The real emitter's actor labels
+  `schema-push`, the replay loads the `notes` validator from MongoDB and compares
+  `canopy_schema::generate_types` output byte for byte with `typeGeneration.types`. The real emitter's actor labels
   (`alice`, `bob`) and its `invalid-policy` message match the recording.
 - [`tests/pull_vectors.rs`](../../../crates/canopy-cli/tests/pull_vectors.rs): all 9 examples of
   `conformance/typegen/pull.json` through the binary against a database seeded from the fixture (validators,

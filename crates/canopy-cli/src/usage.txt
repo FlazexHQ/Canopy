@@ -41,7 +41,6 @@ Commands:
   config print           Print the resolved config with secrets masked
   build                  Write the project's bundle (config, policies, tests, schema) for deployments
                          that publish without a JavaScript runtime
-  gen types              Write the Database types of the app database (--out, else the config's types.out)
   realtime enable-images <collection...>
                          Turn on change stream pre and post images (asks first)
   realtime disable-images <collection...>
@@ -59,13 +58,12 @@ Options:
   --database <name>      App database (default: the config, else $CANOPY_DB or the URI path)
   --bundle <file>        Read the project from a bundle written by canopy build instead of running the config
   --out <file>           pull: schema file to write (default: canopy.schema.ts, or canopy.schema.js with --js)
-                         build: the bundle (default canopy.bundle.json); gen types: the types file
+                         build: the bundle (default canopy.bundle.json)
   --js                   pull: emit JavaScript
   --file <path>          schema diff, schema push: schema file (default: canopy.schema.ts, else canopy.schema.js)
   --collection <name>    pull: add one collection to the schema file
   --infer-enums          pull, schema diff: turn low cardinality string fields into literal unions
   --sample <n>           pull, schema diff: documents sampled per collection (default 1000)
-  --check                gen types: exit 1 when the types file is out of date instead of writing it
   --sources              config print: show where each value came from
   --with-mongo           dev: start a single node replica set, in Docker when it runs (persistent volume),
                          otherwise from the official binaries (downloaded once, data in .canopy/mongodb)
