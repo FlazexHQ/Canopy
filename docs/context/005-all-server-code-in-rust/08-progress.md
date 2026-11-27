@@ -3,6 +3,42 @@
 This file records the state of [plan 005](../../plans/005-all-server-code-in-rust.md): what is done with its
 evidence, what is in progress, and what comes next. The newest checkpoint is at the top.
 
+## Checkpoint (2026-11-27): R2 client module headroom and the Canopy.js suite on Node 24 and Deno (152a8db2; Canopy.js 5a9b47c, 4afcf8c)
+
+Summary of Canopy commit 152a8db2 and Canopy.js commits 5a9b47c and 4afcf8c. Dropping the string slicing panic path from formatting and parsing routines shrinks the client WebAssembly module from 81,835 to 78,049 Brotli bytes (3,786 bytes saved), creating 3,871 bytes of headroom under the 81,920 byte limit and resolving the client module headroom risk. Canopy.js syncs the smaller core in 4afcf8c. A configuration fix for the emit Vitest project in Canopy.js commit 5a9b47c loads the Deno worker setup and increases test timeout. Following that fix, the full Canopy.js suite passes on Node 24.22.3 and Deno 2.9.8 with `--pool=threads` (33 files, 361 tests, exit 0) in addition to Node 26 and Bun. Rerun macOS CI and Native release jobs for commit 21949e79 passed.
+
+### What changed
+
+- **Client module size reduction (Canopy 152a8db2):**
+  - Number, Decimal128 and EJSON formatting ([`bson.rs`](../../../crates/canopy-protocol/src/bson.rs), [`ejson.rs`](../../../crates/canopy-protocol/src/ejson.rs), [`json.rs`](../../../crates/canopy-protocol/src/json.rs)) and Decimal parsing in [`numeric.rs`](../../../crates/canopy-matcher/src/numeric.rs) use checked splits (`split_once`, `split_at_checked`, `strip_prefix`) instead of index slicing, so the compiler drops the string slicing panic formatter from the client module: 3,353 bytes saved.
+  - Array index keys in [`values.rs`](../../../crates/canopy-query/src/values.rs) sort with an unstable sort: 413 bytes saved. This is safe because BSON decoding refuses duplicate field names, so the keys are unique.
+  - Decimal special values compare without a lowercase copy: 20 bytes saved.
+  - Client module drops from 81,835 to 78,049 Brotli bytes (3,786 saved), providing 3,871 bytes of headroom under the 81,920 limit.
+  - An error constructor refactor that added 341 bytes was tried and dropped.
+  - Hot path timings moved within 2% either way for string equality, sorting and projection; Decimal matching and updates got faster.
+  - Changeset recorded in `.changeset/wasm-client-size.md`.
+- **Canopy.js core sync (Canopy.js 4afcf8c):**
+  - Synced the smaller client core from Canopy 152a8db2 (`build(core): sync the smaller client core from Canopy 152a8db2`), with changeset `smaller-client-core.md`.
+  - `check:wasm` passes; 361 tests pass on Node 26 and Bun.
+- **Canopy.js Deno and emit test harness fix (Canopy.js 5a9b47c):**
+  - Commit 5a9b47c (`test: load the Deno worker setup and a longer timeout for the emit tests`): the emit Vitest project did not load `vitest.deno-setup.ts` (the `parentPort.removeAllListeners` patch), so Deno failed at thread pool teardown after every test passed; and its default 5 second timeout let the `deploy/dev` fixture test time out under full parallel load.
+  - The emit project now loads the Deno setup and has a 30 second timeout like the client project.
+
+### Test evidence
+
+- **Canopy workspace and conformance:** 96 tests pass across `canopy-protocol`, `canopy-matcher` and `canopy-query`; clippy clean; conformance replay passes through Wasm and wasm2js on Bun and Node 26; 20,000 double encodings and targeted Decimal128 cases matched the previous output byte for byte. Changeset `.changeset/wasm-client-size.md`.
+- **Canopy.js test suite across runtimes:**
+  - `check:wasm` passes; 361 tests pass on Node 26 and Bun.
+  - After that fix the full Canopy.js suite passes on Node 24.22.3 (33 files, 361 tests, exit 0) and Deno 2.9.8 with `--pool=threads` (33 files, 361 tests, exit 0), in addition to Node 26 and Bun.
+- **CI workflows:** the macOS jobs of 21949e79 had been cancelled while queued without a runner; rerun, CI and Native release builds passed. The Security workflow stays red from the accepted secret flagged in 4692950d.
+
+### Status across stages
+
+- **R2:** every speed gate met, the client module headroom risk resolved (3,871 bytes), Canopy.js suites green on Bun, Node 24, Node 26 and Deno. Still unverified for R2: the full Canopy.js suite in browsers through Playwright and React Native on devices (conformance vectors already pass in Chromium, Firefox and WebKit and on Hermes). Hermes speed gate remains the accepted known gap.
+- **R4:** complete.
+- **R5:** open, waiting on master for the 24 CPU hour fuzz campaign and the external review.
+- **R7:** gated.
+
 ## Checkpoint (2026-11-26): R2 matching gate met across every host, direct string equality and slot reuse (f0100c2d; Canopy.js 9a46df9)
 
 Summary of commits f0100c2d and Canopy.js 9a46df9. The R2 Chromium matching optimization round brings warm
@@ -1818,7 +1854,7 @@ open questions O3 (claims hooks), O4 (config functions) and O12 (auth crate name
 | # | Task | Stage | Size | Agent |
 |---|---|---|---|---|
 | 1 | R5: fuzz campaign once on master, external review; the TypeScript auth fallback overlay stays until then | R5 | Medium | `claudeAgent` |
-| 2 | R2 speed gates met across all hosts (matching under 1.2x everywhere, worst 0.98x; update under 2.55x; startup passes); client module 81,835 Brotli bytes (85 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js synced in 9a46df9; unverified items: Canopy.js client suite on Node 24, Deno, browser Playwright and React Native devices | R2 | Big | `claudeAgent` |
+| 2 | R2 speed gates met across all hosts (matching under 1.2x everywhere, worst 0.98x; update under 2.55x; startup passes); client module 78,049 Brotli bytes (3,871 bytes headroom); Hermes speed gate dropped by maintainer decision; Canopy.js synced in 4afcf8c; unverified items: Canopy.js client suite in browsers through Playwright and React Native on devices | R2 | Big | `claudeAgent` |
 | 3 | R3 done: canonical JSON Schemas, bundle emitter, CLI publishing | R3 | Big | `claudeAgent` |
 | 4 | R4 done: all 57 golden steps replay, canopy dev under one second, @canopy/cli launcher published (d9af8cf0, 05a59d0b) | R4 | Big | `claudeAgent` |
 | 5 | R7 gated: prep map in [10-r7-removal-map.md](10-r7-removal-map.md), wire test key issued natively, deploy manifest tests moved to @canopy/deploy-tests; removal of TypeScript server packages and documentation updates to follow | R7 | Big | `claudeAgent` |
