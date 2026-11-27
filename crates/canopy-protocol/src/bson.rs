@@ -452,16 +452,18 @@ pub fn decimal128_to_string(bytes: [u8; 16]) -> String {
                 out.push_str(&digits);
             } else {
                 let split = digits.len() - fraction;
-                out.push_str(&digits[..split]);
+                let (whole, fraction) = digits.split_at_checked(split).unwrap_or((&digits, ""));
+                out.push_str(whole);
                 out.push('.');
-                out.push_str(&digits[split..]);
+                out.push_str(fraction);
             }
         }
     } else {
-        out.push_str(&digits[..1]);
-        if digits.len() > 1 {
+        let (first, rest) = digits.split_at_checked(1).unwrap_or((&digits, ""));
+        out.push_str(first);
+        if !rest.is_empty() {
             out.push('.');
-            out.push_str(&digits[1..]);
+            out.push_str(rest);
         }
         out.push('E');
         if adjusted >= 0 {
@@ -475,11 +477,8 @@ pub fn decimal128_to_string(bytes: [u8; 16]) -> String {
 /// Converts a decimal string to the 16 bytes of a Decimal128. Values that would need rounding are refused.
 pub fn decimal128_from_string(text: &str) -> Result<[u8; 16], CanopyError> {
     let inexact = || malformed(&format!("{text} cannot be stored exactly as a Decimal128"));
-    let (negative, unsigned) = match text.as_bytes().first() {
-        Some(b'-') => (true, &text[1..]),
-        Some(b'+') => (false, &text[1..]),
-        _ => (false, text),
-    };
+    let negative = text.starts_with('-');
+    let unsigned = text.strip_prefix(['-', '+']).unwrap_or(text);
     let sign = if negative { 1u64 << 63 } else { 0 };
     if unsigned.eq_ignore_ascii_case("nan") {
         return Ok(pack(0, 0x7c00_0000_0000_0000));
@@ -487,8 +486,8 @@ pub fn decimal128_from_string(text: &str) -> Result<[u8; 16], CanopyError> {
     if unsigned.eq_ignore_ascii_case("inf") || unsigned.eq_ignore_ascii_case("infinity") {
         return Ok(pack(0, sign | 0x7800_0000_0000_0000));
     }
-    let (mantissa, written_exponent) = match unsigned.find(['e', 'E']) {
-        Some(index) => (&unsigned[..index], unsigned[index + 1..].parse::<i64>().map_err(|_| inexact())?),
+    let (mantissa, written_exponent) = match unsigned.split_once(['e', 'E']) {
+        Some((mantissa, exponent)) => (mantissa, exponent.parse::<i64>().map_err(|_| inexact())?),
         None => (unsigned, 0),
     };
     let (whole, fraction) = mantissa.split_once('.').unwrap_or((mantissa, ""));
